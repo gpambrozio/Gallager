@@ -378,10 +378,7 @@ struct TmuxPaneMirrorApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .newItem) {
-                Button("Close Tab") {
-                    NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
-                }
-                .keyboardShortcut("w", modifiers: .command)
+                CloseTabMenuItem()
 
                 Button("Open in Editor…") {
                     NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
@@ -588,6 +585,29 @@ private let longPlainTextContent: String = {
     lines.append("If you can read this line, you are at the bottom of the file.")
     return lines.joined(separator: "\n")
 }()
+
+/// Cmd-W menu item.
+///
+/// When the panes scene is focused, `MainView` publishes a
+/// `closeCurrentTabAction` focused value that closes the active tab (or
+/// window when no tab is open). Other scenes (Settings, About, CLI API
+/// Reference) don't publish that value, so the button falls back to sending
+/// `performClose:` to the key window — restoring the standard macOS Cmd-W
+/// behaviour on those windows.
+private struct CloseTabMenuItem: View {
+    @FocusedValue(\.closeCurrentTabAction) private var closeCurrentTabAction
+
+    var body: some View {
+        Button("Close Tab") {
+            if let closeCurrentTabAction {
+                closeCurrentTabAction()
+            } else {
+                NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: nil, from: nil)
+            }
+        }
+        .keyboardShortcut("w", modifiers: .command)
+    }
+}
 
 /// Menu item that opens the custom About window.
 ///
