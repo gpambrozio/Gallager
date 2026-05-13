@@ -454,6 +454,8 @@ enum MacOSAccessibility {
         case "7": return 26
         case "8": return 28
         case "9": return 25
+        case "[": return 33
+        case "]": return 30
         default: return nil
         }
     }

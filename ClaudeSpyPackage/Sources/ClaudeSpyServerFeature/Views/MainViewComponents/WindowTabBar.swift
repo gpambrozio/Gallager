@@ -255,8 +255,18 @@ struct WindowTabBar: View {
     /// the remaining horizontal slack. The surrounding HStack's
     /// `fixedSize(vertical: true)` keeps the strip at its natural height so
     /// the Color.clear hit area collapses to the same row height as the tabs.
+    ///
+    /// `.accessibilityElement()` + `.accessibilityIdentifier(...)` expose the
+    /// otherwise-decorative `Color.clear` to AX so E2E scenarios can drag onto
+    /// it via `macDragElement`. The label is the same for every section
+    /// because there's only one trailing zone visible at any time per HStack.
     private func trailingDropZone(for section: TabSection) -> some View {
         let isTargeted = trailingDropTargetedSection == section
+        let identifier = switch section {
+        case .single: "tab-trailing-drop-single"
+        case .left: "tab-trailing-drop-left"
+        case .right: "tab-trailing-drop-right"
+        }
         return Color.clear
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity)
@@ -271,6 +281,9 @@ struct WindowTabBar: View {
                     trailingDropTargetedSection == section ? nil : trailingDropTargetedSection
                 )
             }
+            .accessibilityElement()
+            .accessibilityIdentifier(identifier)
+            .accessibilityLabel("Tab strip trailing drop zone")
     }
 
     /// Dispatches a unified-order entry to the right view. Returns `EmptyView`
