@@ -133,6 +133,26 @@ public struct MainView: View {
                 fileBrowserActiveWindowIds.remove(key)
             }
 
+            // Prune any right-side window ids that point at terminals that
+            // tmux has just removed (user typed `exit`, hit the X button,
+            // killed the window, etc.). Without this, isSplit stays true
+            // and the right pane shows "No Tab Selected" forever even
+            // though there's no real tab on the right anymore.
+            for (sessionName, tabs) in sessionFileTabsStates {
+                var changed = false
+                for id in tabs.rightSideWindowIds where !currentWindowIds.contains(id) {
+                    tabs.rightSideWindowIds.remove(id)
+                    changed = true
+                }
+                if let id = tabs.selectedRightWindowId, !currentWindowIds.contains(id) {
+                    tabs.selectedRightWindowId = nil
+                    changed = true
+                }
+                if changed {
+                    reconcileRightPaneSelection(sessionName: sessionName)
+                }
+            }
+
             // Clean up session-scoped state for sessions that no longer exist
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
             for key in fileBrowserStates.keys where !currentSessionNames.contains(key) {
