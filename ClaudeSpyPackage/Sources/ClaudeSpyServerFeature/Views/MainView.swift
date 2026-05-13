@@ -1973,6 +1973,36 @@ public struct MainView: View {
             tabs.isFileExplorerSelectedOnRight = false
         }
         guard tabs.isSplit else { return }
+
+        // If every window, file tab, and browser tab is on the right pane,
+        // the left section is effectively empty (only the "+" button would
+        // remain) — collapse the split so the user isn't stuck with a
+        // half-empty layout. The file-explorer button doesn't disqualify
+        // collapse on its own; it's a navigation affordance, not content.
+        let sessionWindows = tmuxService.windows.filter { $0.sessionName == sessionName }
+        let leftEmpty = !sessionWindows.isEmpty
+            && sessionWindows.allSatisfy { tabs.rightSideWindowIds.contains($0.id) }
+            && tabs.openFileTabs.allSatisfy { tabs.rightSideFileTabIds.contains($0.id) }
+            && tabs.openBrowserTabs.allSatisfy { tabs.rightSideBrowserTabIds.contains($0.id) }
+        if leftEmpty {
+            tabs.rightSideWindowIds.removeAll()
+            tabs.rightSideFileTabIds.removeAll()
+            tabs.rightSideBrowserTabIds.removeAll()
+            tabs.isFileExplorerOnRight = false
+            tabs.selectedRightWindowId = nil
+            tabs.selectedRightFileTabId = nil
+            tabs.selectedRightBrowserTabId = nil
+            tabs.isFileExplorerSelectedOnRight = false
+            // Restore selectedWindow if the move-to-right path cleared it
+            // (no left-side fallback was available at the time).
+            if
+                selectedWindow == nil
+                || sessionWindows.first(where: { $0.id == selectedWindow?.id }) == nil {
+                selectedWindow = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
+            }
+            return
+        }
+
         let hasSelection = tabs.selectedRightFileTabId != nil
             || tabs.selectedRightBrowserTabId != nil
             || tabs.selectedRightWindowId != nil
