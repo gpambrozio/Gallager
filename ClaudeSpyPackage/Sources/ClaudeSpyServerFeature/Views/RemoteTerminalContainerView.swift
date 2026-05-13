@@ -586,6 +586,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
 
+        // Keep `autoFocusEnabled` in sync with the current tmux-active pane.
+        // See TerminalContainerView.updateNSView for the full rationale —
+        // without this, multiple panes end up with autoFocusEnabled=true and
+        // their didBecomeKey observers fight over first responder.
+        nsView.autoFocusEnabled = autoFocus
+
         // Re-bind focus and paste callbacks so closures captured here reflect
         // the current parent state on every layout pass.
         nsView.onBecomeFirstResponder = onFocus

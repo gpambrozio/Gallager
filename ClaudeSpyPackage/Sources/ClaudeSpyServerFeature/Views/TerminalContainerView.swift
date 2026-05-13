@@ -79,6 +79,16 @@ struct TerminalContainerView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
 
+        // Keep `autoFocusEnabled` in sync with the current tmux-active pane.
+        // Without this, every pane that was tmux-active when its NSView was first
+        // created keeps `autoFocusEnabled = true` forever (a fresh split makes the
+        // new pane tmux-active, so the new pane's view is created with autoFocus=true
+        // — but the previously-active pane's view still has it set too). The
+        // `didBecomeKeyNotification` observer then has multiple panes that all
+        // think they should grab focus, which fights `cgClick`-driven focus
+        // changes in tests and after app switches in normal use.
+        nsView.autoFocusEnabled = autoFocus
+
         // Update editor state — suppress keyboard/focus when editor overlay is active
         let editorActive = editorSessionManager.session(for: paneState.paneId) != nil
         let wasEditorActive = nsView.isEditorActive
