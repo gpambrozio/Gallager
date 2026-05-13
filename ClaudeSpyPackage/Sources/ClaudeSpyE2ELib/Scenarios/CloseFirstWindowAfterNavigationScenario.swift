@@ -40,12 +40,12 @@ public enum CloseFirstWindowAfterNavigationScenario {
         //    that blanks the surviving terminal produces a screenshot diff
         //    well above tolerance.
         TestStep.log("Stage 3: Tab-bar '+' to create window 1 and fill with text")
-        // The + button became a menu (issue #510) — click it and then pick
-        // the "New Terminal" entry from the popup to create a tmux window.
-        TestStep.macClickMenuItem(
-            menuButtonTitle: "New Tab",
-            itemTitle: "New Terminal"
-        )
+        // The "+" is a SwiftUI Menu — AXPress doesn't reliably open the
+        // popup, so open it with a CGEvent click and then press the menu
+        // item. Same pattern as TabReorderScenario.
+        TestStep.macCGClickElement(query: .label("New Tab"))
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "New Terminal")
         TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "terminal 2", timeout: 5)

@@ -82,37 +82,40 @@ public enum MultiPaneWindowScenario {
         // height — sent the (995, 245) "top-right" click into the bottom-right
         // pane and broke `pane_active` for pane .1.
         //
-        // The `wait(seconds: 1)` after each click gives the previous click's
+        // The `wait(seconds: 2)` after each click gives the previous click's
         // responder transition (and the resulting `select-pane` round-trip
         // back to tmux) time to settle before the next click fires; clicking
         // back-to-back occasionally let the second click reach the AX tree
-        // mid-focus-change.
+        // mid-focus-change. The post-click tmux assertion uses a 10s timeout
+        // because the focus → `onBecomeFirstResponder` → `selectPane` chain
+        // dispatches through an unstructured Task and has been observed to
+        // take more than the previous 5s budget on a loaded CI host.
 
         TestStep.macCGClickElement(query: .identifier("terminal-%0"))
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.0",
             format: "#{pane_active}",
             contains: "1",
-            timeout: 5
+            timeout: 10
         )
 
         TestStep.macCGClickElement(query: .identifier("terminal-%1"))
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.1",
             format: "#{pane_active}",
             contains: "1",
-            timeout: 5
+            timeout: 10
         )
 
         TestStep.macCGClickElement(query: .identifier("terminal-%2"))
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.2",
             format: "#{pane_active}",
             contains: "1",
-            timeout: 5
+            timeout: 10
         )
 
         // ── Stage 3b: Verify the tmux-active pane auto-focuses on window load ──
