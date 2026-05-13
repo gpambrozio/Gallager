@@ -1962,6 +1962,12 @@ public struct MainView: View {
     /// is updated to point at it so the user keeps direct access to the
     /// terminal they just dragged back.
     private func toggleWindowSplit(_ windowId: String, sessionName: String) {
+        // Session may not have a tab-state yet — terminal-only sessions don't
+        // materialise one until the first file/browser tab opens. Create it
+        // on demand so the very first split-toggle click takes effect.
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         if tabs.rightSideWindowIds.contains(windowId) {
             tabs.rightSideWindowIds.remove(windowId)
@@ -1991,6 +1997,9 @@ public struct MainView: View {
     /// tree the right-pane content; moving back to the left restores the
     /// file-explorer-active flag on the originating window.
     private func toggleFileExplorerSplit(sessionName: String, windowId: String) {
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         if tabs.isFileExplorerOnRight {
             tabs.isFileExplorerOnRight = false

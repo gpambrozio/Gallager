@@ -449,18 +449,30 @@ struct WindowTabBar: View {
         let isSelected = isFileExplorerOnRight
             ? isFileExplorerSelectedOnRight
             : isFileBrowserSelected
-        return Button(action: onSelectFileBrowser) {
-            Symbols.folderFill.image
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+        return HStack(spacing: 0) {
+            Button(action: onSelectFileBrowser) {
+                Symbols.folderFill.image
+                    .font(.caption)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Browse files in \(session.sessionName)")
+            .accessibilityLabel("Files")
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            TabSplitToggleButton(
+                isSplit: isSplit,
+                isOnRight: isFileExplorerOnRight,
+                tabKind: "file explorer",
+                tabName: "Files",
+                action: { onToggleFileExplorerSplit() }
+            )
+            .padding(.trailing, 6)
         }
-        .buttonStyle(.plain)
-        .help("Browse files in \(session.sessionName)")
-        .accessibilityLabel("Files")
-        .accessibilityValue(isSelected ? "selected" : "")
-        .tabStripItemStyle(isSelected: isSelected)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isFileExplorerOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: showDropIndicator)
         }
@@ -514,6 +526,14 @@ struct WindowTabBar: View {
             .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
 
+            TabSplitToggleButton(
+                isSplit: isSplit,
+                isOnRight: isWindowOnRight(window.id),
+                tabKind: "terminal",
+                tabName: windowName,
+                action: { onToggleWindowSplit(window.id) }
+            )
+
             TabCloseButton(
                 isVisible: isSelected || isHovered,
                 accessibilityLabel: "Close window: \(windowName)",
@@ -522,7 +542,7 @@ struct WindowTabBar: View {
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isWindowOnRight(window.id), isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: showDropIndicator)
         }
