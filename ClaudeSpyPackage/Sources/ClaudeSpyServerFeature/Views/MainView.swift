@@ -217,8 +217,8 @@ public struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             markSelectedSessionsHandledIfActive()
         }
+        .focusedSceneValue(\.closeCurrentTabAction, handleCloseCurrentTab)
         .modifier(MenuCommandsModifier(
-            onCloseCurrentTab: { handleCloseCurrentTab() },
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
             onSelectNextTab: { selectAdjacentTab(direction: 1) }
@@ -1588,10 +1588,12 @@ public struct MainView: View {
 
     // MARK: - Menu Commands
 
-    /// Cmd-W handler. Routes through the same precedence the inline
-    /// `.onReceive(.closeCurrentTab)` used to: remote tab → file tab →
-    /// regular window. Lifted out so the body's modifier chain stays small
-    /// enough for the type checker to handle.
+    /// Cmd-W handler exposed to the menu via `.focusedSceneValue` so other
+    /// scenes (Settings, About, CLI API Reference) get the default
+    /// `performClose:` behaviour while this scene routes through the
+    /// existing precedence: remote tab → browser tab → file tab → regular
+    /// window. Lifted out so the body's modifier chain stays small enough
+    /// for the type checker to handle.
     private func handleCloseCurrentTab() {
         if
             let remote = selectedRemoteSession,

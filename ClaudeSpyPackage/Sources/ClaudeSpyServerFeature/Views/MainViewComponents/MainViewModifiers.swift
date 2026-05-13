@@ -2,20 +2,18 @@ import ClaudeSpyCommon
 import Dependencies
 import SwiftUI
 
-/// Bundles the global menu-driven notifications (Cmd-W, Cmd-Shift-F,
-/// Cmd-Shift-[, Cmd-Shift-]) into a single modifier so the main `body` chain
-/// stays under the Swift type checker's complexity threshold.
+/// Bundles the global menu-driven notification observers used by the panes
+/// scene (Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-]) so the main `body` chain
+/// stays under the Swift type checker's complexity threshold. Cmd-W routes
+/// through the scene-scoped `closeCurrentTabAction` focused value instead —
+/// see `MenuCommandFocusedValues.swift`.
 struct MenuCommandsModifier: ViewModifier {
-    let onCloseCurrentTab: () -> Void
     let onOpenContentSearch: () -> Void
     let onSelectPreviousTab: () -> Void
     let onSelectNextTab: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .closeCurrentTab)) { _ in
-                onCloseCurrentTab()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .openContentSearch)) { _ in
                 onOpenContentSearch()
             }
