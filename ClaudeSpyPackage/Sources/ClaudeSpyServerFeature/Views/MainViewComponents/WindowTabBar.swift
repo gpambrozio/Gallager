@@ -33,19 +33,12 @@ struct WindowTabBar: View {
     let onCloseFileTab: (UUID) -> Void
     let onSelectBrowserTab: (UUID) -> Void
     let onCloseBrowserTab: (UUID) -> Void
-    /// Toggles split state for a file tab. If the tab is on the left, sends it
-    /// to the right (opening the split). If on the right, sends it back to the
-    /// left (and collapses the split if the right side becomes empty).
-    let onToggleFileTabSplit: (UUID) -> Void
-    /// Same as `onToggleFileTabSplit` but for browser tabs.
-    let onToggleBrowserTabSplit: (UUID) -> Void
-    /// Toggles which side of the split a window's terminal lives on. Fired
-    /// when a window tab is dragged into the other section so the right
-    /// pane can render the terminal content directly.
-    let onToggleWindowSplit: (String) -> Void
-    /// Toggles which side of the split the file-explorer button lives on.
-    /// Fired when the folder button is dragged across the divider.
-    let onToggleFileExplorerSplit: () -> Void
+    /// Toggles which side of the split a tab strip entry lives on. If the
+    /// entry is on the left, sends it to the right (opening the split). If
+    /// on the right, sends it back to the left (and collapses the split if
+    /// the right side becomes empty). The host dispatches on the payload's
+    /// case to update the matching state.
+    let onToggleSplit: (TabDragPayload) -> Void
     let onShowInFileExplorer: (String) -> Void
     let onAcceptOpenSuggestion: (MarkdownOpenSuggestion) -> Void
     /// Rearranges the tmux windows in the session to match the supplied id
@@ -76,7 +69,7 @@ struct WindowTabBar: View {
     /// The bar shows a vertical accent line to the left of the matching tab
     /// while a compatible drag is hovering, giving the user a clear preview
     /// of where the drop will land.
-    @State private var dropIndicator: TabDragKind?
+    @State private var dropIndicator: TabDragPayload?
 
     /// Which section's trailing drop zone is currently hovered, if any. Drawn
     /// separately from `dropIndicator` because the zone isn't a tab and has
@@ -87,60 +80,17 @@ struct WindowTabBar: View {
     /// computed properties (not stored) so observation tracking happens on
     /// every `body` evaluation — `sessionTabs` being `nil` is treated as an
     /// empty, non-split session.
-    private var openFileTabs: [OpenFileTab] {
-        sessionTabs?.openFileTabs ?? []
-    }
+    private var openFileTabs: [OpenFileTab] { sessionTabs?.openFileTabs ?? [] }
+    private var openBrowserTabs: [BrowserTab] { sessionTabs?.openBrowserTabs ?? [] }
+    private var selectedFileTabId: UUID? { sessionTabs?.selectedFileTabId }
+    private var selectedBrowserTabId: UUID? { sessionTabs?.selectedBrowserTabId }
+    private var selectedRight: TabDragPayload? { sessionTabs?.selectedRight }
+    private var isSplit: Bool { sessionTabs?.isSplit ?? false }
+    private var splitRatio: CGFloat { sessionTabs?.splitRatio ?? 0.5 }
 
-    private var openBrowserTabs: [BrowserTab] {
-        sessionTabs?.openBrowserTabs ?? []
-    }
-
-    private var selectedFileTabId: UUID? {
-        sessionTabs?.selectedFileTabId
-    }
-
-    private var selectedBrowserTabId: UUID? {
-        sessionTabs?.selectedBrowserTabId
-    }
-
-    private var selectedRightFileTabId: UUID? {
-        sessionTabs?.selectedRightFileTabId
-    }
-
-    private var selectedRightBrowserTabId: UUID? {
-        sessionTabs?.selectedRightBrowserTabId
-    }
-
-    private var isSplit: Bool {
-        sessionTabs?.isSplit ?? false
-    }
-
-    private var splitRatio: CGFloat {
-        sessionTabs?.splitRatio ?? 0.5
-    }
-
-    private func isFileTabOnRight(_ id: UUID) -> Bool {
-        sessionTabs?.isFileTabOnRight(id) ?? false
-    }
-
-    private func isBrowserTabOnRight(_ id: UUID) -> Bool {
-        sessionTabs?.isBrowserTabOnRight(id) ?? false
-    }
-
-    private func isWindowOnRight(_ id: String) -> Bool {
-        sessionTabs?.isWindowOnRight(id) ?? false
-    }
-
-    private var isFileExplorerOnRight: Bool {
-        sessionTabs?.isFileExplorerOnRight ?? false
-    }
-
-    private var isFileExplorerSelectedOnRight: Bool {
-        sessionTabs?.isFileExplorerSelectedOnRight ?? false
-    }
-
-    private var selectedRightWindowId: String? {
-        sessionTabs?.selectedRightWindowId
+    /// True when the given payload currently lives in the right pane.
+    private func isOnRight(_ payload: TabDragPayload) -> Bool {
+        sessionTabs?.rightSide.contains(payload) ?? false
     }
 
     /// Source-of-truth ordering for the tab strip — reconciles the persisted
@@ -150,112 +100,47 @@ struct WindowTabBar: View {
     /// this and the `.onChange` below writes it back into `sessionTabs` so the
     /// order survives session switches.
     private var effectiveTabOrder: [TabDragPayload] {
-        let stored = sessionTabs?.tabOrder ?? []
-        let knownWindowIds = Set(session.windows.map(\.id))
-        let knownFileIds = Set(openFileTabs.map(\.id))
-        let knownBrowserIds = Set(openBrowserTabs.map(\.id))
+        let liveWindows = session.windows.map { TabDragPayload.window($0.id) }
+        let liveFiles = openFileTabs.map { TabDragPayload.file($0.id) }
+        let liveBrowsers = openBrowserTabs.map { TabDragPayload.browser($0.id) }
+        let live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers).union([.fileExplorer])
 
-        // 1. Drop any stored entry whose underlying tab no longer exists.
+        // Keep stored entries whose underlying data still exists, dedup'd.
         var order: [TabDragPayload] = []
-        var sawFileExplorer = false
-        for ref in stored {
-            switch ref {
-            case let .window(id):
-                if knownWindowIds.contains(id) { order.append(ref) }
-            case .fileExplorer:
-                // Defensive dedupe — keep only the first .fileExplorer entry
-                if !sawFileExplorer {
-                    order.append(ref)
-                    sawFileExplorer = true
-                }
-            case let .file(id):
-                if knownFileIds.contains(id) { order.append(ref) }
-            case let .browser(id):
-                if knownBrowserIds.contains(id) { order.append(ref) }
-            }
+        var seen: Set<TabDragPayload> = []
+        for ref in sessionTabs?.tabOrder ?? [] where live.contains(ref) && seen.insert(ref).inserted {
+            order.append(ref)
         }
 
-        // 2. Track which entries are already in the order after the filter.
-        var seenWindows: Set<String> = []
-        var seenFiles: Set<UUID> = []
-        var seenBrowsers: Set<UUID> = []
-        for ref in order {
-            switch ref {
-            case let .window(id): seenWindows.insert(id)
-            case let .file(id): seenFiles.insert(id)
-            case let .browser(id): seenBrowsers.insert(id)
-            case .fileExplorer: break
-            }
+        // New windows slot in just before the file-explorer button — preserves
+        // the default layout (windows, folder, files/browsers) for first runs
+        // and late-joining tmux windows.
+        var insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
+        for window in liveWindows where seen.insert(window).inserted {
+            order.insert(window, at: insertAt)
+            insertAt += 1
         }
-
-        // 3. Slot any new windows in just before the file-explorer button
-        //    (so the default layout — windows, then folder, then files /
-        //    browsers — is preserved on first run and for late-joining
-        //    windows opened by tmux directly).
-        for window in session.windows where !seenWindows.contains(window.id) {
-            let insertAt = sawFileExplorer
-                ? (order.firstIndex(of: .fileExplorer) ?? order.count)
-                : order.count
-            order.insert(.window(window.id), at: insertAt)
-            seenWindows.insert(window.id)
-        }
-
-        // 4. Ensure exactly one file-explorer entry — slot it right after the
-        //    last window if missing entirely.
-        if !sawFileExplorer {
-            let insertAt: Int
-            if let lastWinIdx = order.lastIndex(where: { if case .window = $0 { true } else { false } }) {
-                insertAt = lastWinIdx + 1
-            } else {
-                insertAt = 0
-            }
+        if seen.insert(.fileExplorer).inserted {
             order.insert(.fileExplorer, at: insertAt)
         }
-
-        // 5. Append any new file tabs and browser tabs at the end.
-        for tab in openFileTabs where !seenFiles.contains(tab.id) {
-            order.append(.file(tab.id))
+        // New file/browser tabs append at the end.
+        for tab in liveFiles + liveBrowsers where seen.insert(tab).inserted {
+            order.append(tab)
         }
-        for tab in openBrowserTabs where !seenBrowsers.contains(tab.id) {
-            order.append(.browser(tab.id))
-        }
-
         return order
     }
 
     /// Effective order restricted to entries visible on the left section in
     /// split mode (everything that hasn't been dragged into the right pane).
     private var leftSectionOrder: [TabDragPayload] {
-        effectiveTabOrder.filter { ref in
-            switch ref {
-            case let .window(id):
-                return !isWindowOnRight(id)
-            case .fileExplorer:
-                return !isFileExplorerOnRight
-            case let .file(id):
-                return !isFileTabOnRight(id)
-            case let .browser(id):
-                return !isBrowserTabOnRight(id)
-            }
-        }
+        effectiveTabOrder.filter { !isOnRight($0) }
     }
 
     /// Effective order restricted to entries visible on the right section in
     /// split mode (anything flipped to the right side — windows, the file
     /// explorer, file tabs, or browser tabs).
     private var rightSectionOrder: [TabDragPayload] {
-        effectiveTabOrder.filter { ref in
-            switch ref {
-            case let .window(id):
-                return isWindowOnRight(id)
-            case .fileExplorer:
-                return isFileExplorerOnRight
-            case let .file(id):
-                return isFileTabOnRight(id)
-            case let .browser(id):
-                return isBrowserTabOnRight(id)
-            }
-        }
+        effectiveTabOrder.filter { isOnRight($0) }
     }
 
     var body: some View {
@@ -440,14 +325,13 @@ struct WindowTabBar: View {
     }
 
     private var fileBrowserButton: some View {
-        let showDropIndicator = dropIndicator == .fileExplorer
+        let isOnRight = isOnRight(.fileExplorer)
         // The button is "selected" when it drives the visible content of
         // whichever pane it currently lives in — the left pane via the
-        // existing `isFileBrowserSelected` flag, or the right pane via
-        // `isFileExplorerSelectedOnRight` when the user has dragged it
-        // across the divider.
-        let isSelected = isFileExplorerOnRight
-            ? isFileExplorerSelectedOnRight
+        // existing `isFileBrowserSelected` flag, or the right pane when
+        // `selectedRight == .fileExplorer`.
+        let isSelected = isOnRight
+            ? selectedRight == .fileExplorer
             : isFileBrowserSelected
         return HStack(spacing: 0) {
             Button(action: onSelectFileBrowser) {
@@ -465,16 +349,16 @@ struct WindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isFileExplorerOnRight,
+                isOnRight: isOnRight,
                 tabKind: "file explorer",
                 tabName: "Files",
-                action: { onToggleFileExplorerSplit() }
+                action: { onToggleSplit(.fileExplorer) }
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isFileExplorerOnRight, isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
-            DropIndicator(visible: showDropIndicator)
+            DropIndicator(visible: dropIndicator == .fileExplorer)
         }
         .draggable(TabDragPayload.fileExplorer) {
             TabDragPreview(label: "Files", symbol: .folderFill)
@@ -491,16 +375,14 @@ struct WindowTabBar: View {
         // rendered right-side content. On the left (or in single mode) the
         // existing rule applies: the tab is the active terminal and no
         // file/browser/explorer is occupying the left pane.
-        let isSelected: Bool
-        if isWindowOnRight(window.id) {
-            isSelected = selectedRightWindowId == window.id
-        } else {
-            isSelected = window.id == selectedWindow.id && !isAnyFileViewActive
-        }
+        let payload = TabDragPayload.window(window.id)
+        let isOnRight = isOnRight(payload)
+        let isSelected = isOnRight
+            ? selectedRight == payload
+            : window.id == selectedWindow.id && !isAnyFileViewActive
         let isHovered = hoveredWindowId == window.id
         let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
         let windowName = windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
-        let showDropIndicator = dropIndicator == .window(window.id)
 
         return HStack(spacing: 0) {
             Button {
@@ -528,10 +410,10 @@ struct WindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isWindowOnRight(window.id),
+                isOnRight: isOnRight,
                 tabKind: "terminal",
                 tabName: windowName,
-                action: { onToggleWindowSplit(window.id) }
+                action: { onToggleSplit(payload) }
             )
 
             TabCloseButton(
@@ -542,9 +424,9 @@ struct WindowTabBar: View {
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isWindowOnRight(window.id), isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
-            DropIndicator(visible: showDropIndicator)
+            DropIndicator(visible: dropIndicator == payload)
         }
         .modifier(WindowRenamingModifier(
             currentName: window.windowName,
@@ -555,24 +437,24 @@ struct WindowTabBar: View {
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
-        .draggable(TabDragPayload.window(window.id)) {
+        .draggable(payload) {
             TabDragPreview(label: windowName, symbol: hasClaude ? .sparkles : .terminal)
         }
         .dropDestination(for: TabDragPayload.self) { payloads, _ in
-            handleDrop(payloads: payloads, target: .window(window.id))
+            handleDrop(payloads: payloads, target: payload)
         } isTargeted: { isTargeted in
-            updateDropIndicator(target: isTargeted ? .window(window.id) : nil, for: .window)
+            updateDropIndicator(target: isTargeted ? payload : nil, for: .window)
         }
     }
 
     @ViewBuilder
     private func openFileTabView(_ tab: OpenFileTab) -> some View {
-        let isOnRight = isFileTabOnRight(tab.id)
+        let payload = TabDragPayload.file(tab.id)
+        let isOnRight = isOnRight(payload)
         let isSelected = isOnRight
-            ? tab.id == selectedRightFileTabId
+            ? selectedRight == payload
             : tab.id == selectedFileTabId
         let isHovered = hoveredFileTabId == tab.id
-        let showDropIndicator = dropIndicator == .file(tab.id)
 
         HStack(spacing: 0) {
             Button {
@@ -602,7 +484,7 @@ struct WindowTabBar: View {
                 isOnRight: isOnRight,
                 tabKind: "file tab",
                 tabName: tab.name,
-                action: { onToggleFileTabSplit(tab.id) }
+                action: { onToggleSplit(payload) }
             )
 
             TabCloseButton(
@@ -614,7 +496,7 @@ struct WindowTabBar: View {
         }
         .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
-            DropIndicator(visible: showDropIndicator)
+            DropIndicator(visible: dropIndicator == payload)
         }
         .fileContextMenu(
             fullPath: tab.path,
@@ -626,24 +508,24 @@ struct WindowTabBar: View {
         .onHover { hovering in
             hoveredFileTabId = hovering ? tab.id : nil
         }
-        .draggable(TabDragPayload.file(tab.id)) {
+        .draggable(payload) {
             TabDragPreview(label: tab.name, symbol: .docPlaintextFill)
         }
         .dropDestination(for: TabDragPayload.self) { payloads, _ in
-            handleDrop(payloads: payloads, target: .file(tab.id))
+            handleDrop(payloads: payloads, target: payload)
         } isTargeted: { isTargeted in
-            updateDropIndicator(target: isTargeted ? .file(tab.id) : nil, for: .file)
+            updateDropIndicator(target: isTargeted ? payload : nil, for: .file)
         }
     }
 
     @ViewBuilder
     private func openBrowserTabView(_ tab: BrowserTab) -> some View {
-        let isOnRight = isBrowserTabOnRight(tab.id)
+        let payload = TabDragPayload.browser(tab.id)
+        let isOnRight = isOnRight(payload)
         let isSelected = isOnRight
-            ? tab.id == selectedRightBrowserTabId
+            ? selectedRight == payload
             : tab.id == selectedBrowserTabId
         let isHovered = hoveredBrowserTabId == tab.id
-        let showDropIndicator = dropIndicator == .browser(tab.id)
 
         HStack(spacing: 0) {
             Button {
@@ -675,7 +557,7 @@ struct WindowTabBar: View {
                 isOnRight: isOnRight,
                 tabKind: "browser tab",
                 tabName: tab.tabLabel,
-                action: { onToggleBrowserTabSplit(tab.id) }
+                action: { onToggleSplit(payload) }
             )
 
             TabCloseButton(
@@ -687,18 +569,18 @@ struct WindowTabBar: View {
         }
         .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
-            DropIndicator(visible: showDropIndicator)
+            DropIndicator(visible: dropIndicator == payload)
         }
         .onHover { hovering in
             hoveredBrowserTabId = hovering ? tab.id : nil
         }
-        .draggable(TabDragPayload.browser(tab.id)) {
+        .draggable(payload) {
             TabDragPreview(label: tab.tabLabel, symbol: .globe)
         }
         .dropDestination(for: TabDragPayload.self) { payloads, _ in
-            handleDrop(payloads: payloads, target: .browser(tab.id))
+            handleDrop(payloads: payloads, target: payload)
         } isTargeted: { isTargeted in
-            updateDropIndicator(target: isTargeted ? .browser(tab.id) : nil, for: .browser)
+            updateDropIndicator(target: isTargeted ? payload : nil, for: .browser)
         }
     }
 
@@ -748,10 +630,10 @@ struct WindowTabBar: View {
     /// pointer leaves the tab without dropping (the `isTargeted` callback runs
     /// in both directions). Each kind of tab tracks its own target so leaving
     /// a window tab while hovering a file tab still hides the window indicator.
-    private func updateDropIndicator(target: TabDragKind?, for kind: TabDragKind.Discriminator) {
+    private func updateDropIndicator(target: TabDragPayload?, for kind: TabDragPayload.Kind) {
         if let target {
             dropIndicator = target
-        } else if dropIndicator?.discriminator == kind {
+        } else if dropIndicator?.kind == kind {
             dropIndicator = nil
         }
     }
@@ -823,19 +705,8 @@ struct WindowTabBar: View {
         case .left:
             // Insert right after the last entry that belongs to the left
             // section. Falls through to the end if the left section is
-            // empty (e.g. all file/browser tabs were sent to the right).
-            let lastLeftIndex = order.lastIndex { ref in
-                switch ref {
-                case .window,
-                     .fileExplorer:
-                    return true
-                case let .file(id):
-                    return !isFileTabOnRight(id)
-                case let .browser(id):
-                    return !isBrowserTabOnRight(id)
-                }
-            }
-            insertIndex = (lastLeftIndex ?? -1) + 1
+            // empty (e.g. every tab was sent to the right).
+            insertIndex = (order.lastIndex { !isOnRight($0) } ?? -1) + 1
         }
 
         order.insert(moved, at: min(insertIndex, order.count))
@@ -849,42 +720,18 @@ struct WindowTabBar: View {
     /// can land on either side now — windows render their terminal on the
     /// right pane, the file explorer renders the file tree on the right.
     private func sectionOf(_ ref: TabDragPayload) -> TabSection {
-        switch ref {
-        case let .window(id):
-            return isWindowOnRight(id) ? .right : (isSplit ? .left : .single)
-        case .fileExplorer:
-            return isFileExplorerOnRight ? .right : (isSplit ? .left : .single)
-        case let .file(id):
-            return isFileTabOnRight(id) ? .right : (isSplit ? .left : .single)
-        case let .browser(id):
-            return isBrowserTabOnRight(id) ? .right : (isSplit ? .left : .single)
-        }
+        if isOnRight(ref) { return .right }
+        return isSplit ? .left : .single
     }
 
     /// Flips the source's split-side membership when it crossed sections
-    /// during the drag. Reuses the existing toggle callbacks so all the
-    /// side-effect bookkeeping (selection updates, right-pane reconciliation,
-    /// fileBrowserActiveWindowIds) runs through the same code path as the
-    /// split-toggle button on each tab.
+    /// during the drag. Reuses the host's `onToggleSplit` callback so all
+    /// the side-effect bookkeeping (selection updates, right-pane
+    /// reconciliation, fileBrowserActiveWindowIds) runs through the same
+    /// code path as the split-toggle button on each tab.
     private func adjustSplitSideIfNeeded(source: TabDragPayload, to section: TabSection) {
-        let shouldBeRight = (section == .right)
-        switch source {
-        case let .file(id):
-            if isFileTabOnRight(id) != shouldBeRight {
-                onToggleFileTabSplit(id)
-            }
-        case let .browser(id):
-            if isBrowserTabOnRight(id) != shouldBeRight {
-                onToggleBrowserTabSplit(id)
-            }
-        case let .window(id):
-            if isWindowOnRight(id) != shouldBeRight {
-                onToggleWindowSplit(id)
-            }
-        case .fileExplorer:
-            if isFileExplorerOnRight != shouldBeRight {
-                onToggleFileExplorerSplit()
-            }
+        if isOnRight(source) != (section == .right) {
+            onToggleSplit(source)
         }
     }
 
@@ -928,15 +775,31 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     case file(UUID)
     case browser(UUID)
 
+    /// Coarse category, used to clear a stale drop indicator when the cursor
+    /// leaves a tab of one kind and enters another. Without this, an
+    /// out-of-order `isTargeted=false` from a peer would wipe out the
+    /// indicator that the new target just set.
+    enum Kind: Hashable {
+        case window
+        case fileExplorer
+        case file
+        case browser
+    }
+
+    var kind: Kind {
+        switch self {
+        case .window: .window
+        case .fileExplorer: .fileExplorer
+        case .file: .file
+        case .browser: .browser
+        }
+    }
+
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .gallagerTabDrag)
     }
 }
 
-/// In-flight drop highlight key. Mirrors `TabDragPayload` but lives in this
-/// view's state because the dropped value is consumed by the closure that
-/// fires after the user releases — the targeted state has to be tracked
-/// separately while the drag is still moving.
 /// Identifies which trailing drop zone is being targeted. The single section
 /// is used when the tab bar is not split; left/right correspond to the two
 /// sections of the split-mode bar.
@@ -944,33 +807,6 @@ private enum TabSection: Hashable {
     case single
     case left
     case right
-}
-
-private enum TabDragKind: Hashable {
-    case window(String)
-    case fileExplorer
-    case file(UUID)
-    case browser(UUID)
-
-    /// Coarse kind for clearing the indicator when the cursor leaves a tab
-    /// of one category and is about to enter another. Without this, an
-    /// out-of-order `isTargeted=false` from a peer can wipe out the
-    /// indicator that the new target just set.
-    enum Discriminator {
-        case window
-        case fileExplorer
-        case file
-        case browser
-    }
-
-    var discriminator: Discriminator {
-        switch self {
-        case .window: return .window
-        case .fileExplorer: return .fileExplorer
-        case .file: return .file
-        case .browser: return .browser
-        }
-    }
 }
 
 /// Visual hint shown while a compatible drag is hovering a tab — a thin

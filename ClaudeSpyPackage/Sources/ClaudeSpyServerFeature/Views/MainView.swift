@@ -133,22 +133,20 @@ public struct MainView: View {
                 fileBrowserActiveWindowIds.remove(key)
             }
 
-            // Prune any right-side window ids that point at terminals that
-            // tmux has just removed (user typed `exit`, hit the X button,
-            // killed the window, etc.). Without this, isSplit stays true
-            // and the right pane shows "No Tab Selected" forever even
+            // Prune any right-side window entries that point at terminals
+            // that tmux has just removed (user typed `exit`, hit the X
+            // button, killed the window, etc.). Without this, isSplit stays
+            // true and the right pane shows "No Tab Selected" forever even
             // though there's no real tab on the right anymore.
             for (sessionName, tabs) in sessionFileTabsStates {
-                var changed = false
-                for id in tabs.rightSideWindowIds where !currentWindowIds.contains(id) {
-                    tabs.rightSideWindowIds.remove(id)
-                    changed = true
+                let stale = tabs.rightSide.filter {
+                    if case let .window(id) = $0 { !currentWindowIds.contains(id) } else { false }
                 }
-                if let id = tabs.selectedRightWindowId, !currentWindowIds.contains(id) {
-                    tabs.selectedRightWindowId = nil
-                    changed = true
-                }
-                if changed {
+                if !stale.isEmpty {
+                    tabs.rightSide.subtract(stale)
+                    if let sel = tabs.selectedRight, stale.contains(sel) {
+                        tabs.selectedRight = nil
+                    }
                     reconcileRightPaneSelection(sessionName: sessionName)
                 }
             }
@@ -716,14 +714,12 @@ public struct MainView: View {
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
                             let tabs = sessionFileTabsStates[session.sessionName]
-                            if tabs?.rightSideWindowIds.contains(newWindow.id) == true {
+                            let payload = TabDragPayload.window(newWindow.id)
+                            if tabs?.rightSide.contains(payload) == true {
                                 // Right-side window: route the click to the
                                 // right pane's selection so the left pane
                                 // keeps showing whatever it had.
-                                tabs?.selectedRightWindowId = newWindow.id
-                                tabs?.selectedRightFileTabId = nil
-                                tabs?.selectedRightBrowserTabId = nil
-                                tabs?.isFileExplorerSelectedOnRight = false
+                                tabs?.selectedRight = payload
                                 return
                             }
                             fileBrowserActiveWindowIds.remove(window.id)
@@ -770,14 +766,11 @@ public struct MainView: View {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
                             let tabs = sessionFileTabsStates[session.sessionName]
-                            if tabs?.isFileExplorerOnRight == true {
+                            if tabs?.rightSide.contains(.fileExplorer) == true {
                                 // Folder button lives on the right pane:
                                 // route the click to the right-side
                                 // selection so the left pane is untouched.
-                                tabs?.isFileExplorerSelectedOnRight = true
-                                tabs?.selectedRightFileTabId = nil
-                                tabs?.selectedRightBrowserTabId = nil
-                                tabs?.selectedRightWindowId = nil
+                                tabs?.selectedRight = .fileExplorer
                                 return
                             }
                             fileBrowserActiveWindowIds.insert(window.id)
@@ -796,17 +789,8 @@ public struct MainView: View {
                         onCloseBrowserTab: { tabId in
                             closeBrowserTab(tabId, sessionName: session.sessionName)
                         },
-                        onToggleFileTabSplit: { tabId in
-                            toggleFileTabSplit(tabId, sessionName: session.sessionName, windowId: window.id)
-                        },
-                        onToggleBrowserTabSplit: { tabId in
-                            toggleBrowserTabSplit(tabId, sessionName: session.sessionName, windowId: window.id)
-                        },
-                        onToggleWindowSplit: { windowId in
-                            toggleWindowSplit(windowId, sessionName: session.sessionName)
-                        },
-                        onToggleFileExplorerSplit: {
-                            toggleFileExplorerSplit(sessionName: session.sessionName, windowId: window.id)
+                        onToggleSplit: { payload in
+                            toggleSplit(payload, sessionName: session.sessionName, windowId: window.id)
                         },
                         onShowInFileExplorer: { path in
                             fileBrowserActiveWindowIds.insert(window.id)
@@ -998,11 +982,10 @@ public struct MainView: View {
         }
     }
 
-    /// Renders the right pane of the split layout. Resolves the right-side
-    /// selection in priority order — window terminal first, then the file
-    /// explorer, then a browser tab, then a file tab — falling back to a
-    /// placeholder when nothing has been picked. The priority matches the
-    /// order toggle handlers use when clearing competing selections.
+    /// Renders the right pane of the split layout by dispatching on the
+    /// `selectedRight` payload — window terminal, file explorer, browser
+    /// tab, or file tab — and falls back to a placeholder when nothing is
+    /// picked or the referenced content has gone away.
     @ViewBuilder
     private func rightPaneContent(
         sessionName: String,
@@ -1010,87 +993,88 @@ public struct MainView: View {
         browserState: FileBrowserState?,
         sessionTabs: SessionFileTabsState
     ) -> some View {
-        let selectedRightWindow: LocalTmuxWindow? = {
-            guard let id = sessionTabs.selectedRightWindowId else { return nil }
-            return tmuxService.windows.first(where: { $0.id == id })
-        }()
-        let selectedRightBrowserTab: BrowserTab? = {
-            guard let id = sessionTabs.selectedRightBrowserTabId else { return nil }
-            return sessionTabs.openBrowserTabs.first(where: { $0.id == id })
-        }()
-        let selectedRightFileTab: OpenFileTab? = {
-            guard let id = sessionTabs.selectedRightFileTabId else { return nil }
-            return sessionTabs.openFileTabs.first(where: { $0.id == id })
-        }()
-        if let selectedRightWindow {
-            WindowPaneLayoutView(
-                window: selectedRightWindow,
-                onOpenURL: { url in
-                    handleTerminalURLClick(
-                        url,
-                        directoryPath: directoryPath,
-                        session: tmuxService.sessions.first(where: { $0.sessionName == sessionName }),
-                        window: selectedRightWindow
-                    )
-                }
-            )
-            .id("right-window-\(selectedRightWindow.id)")
-            .accessibilityIdentifier("split-right-pane")
-        } else if sessionTabs.isFileExplorerSelectedOnRight, let browserState {
-            FileBrowserView(
-                directoryPath: directoryPath,
-                state: browserState,
-                sessionTabs: sessionTabs,
-                onOpenFileInNewTab: { path in
-                    openFileInNewTab(
-                        path: path,
-                        directoryPath: directoryPath,
-                        sessionName: sessionName,
-                        windowId: selectedWindow?.id ?? ""
-                    )
-                }
-            )
-            .id("right-file-explorer")
-            .accessibilityIdentifier("split-right-pane")
-        } else if
-            let selectedRightBrowserTab,
-            let browserTabState = sessionTabs.browserStates[selectedRightBrowserTab.id] {
-            BrowserTabContentView(
-                state: browserTabState,
-                onTitleChange: { newTitle in
-                    updateBrowserTabTitle(
-                        tabId: selectedRightBrowserTab.id,
-                        sessionName: sessionName,
-                        title: newTitle
-                    )
-                },
-                onURLChange: { newURL in
-                    updateBrowserTabURL(
-                        tabId: selectedRightBrowserTab.id,
-                        sessionName: sessionName,
-                        url: newURL
-                    )
-                }
-            )
-            .id("right-\(selectedRightBrowserTab.id)")
-            .accessibilityIdentifier("split-right-pane")
-        } else if let selectedRightFileTab {
-            OpenFileTabContentView(tab: selectedRightFileTab, sessionTabs: sessionTabs)
-                .id("right-\(selectedRightFileTab.id)")
-                .accessibilityIdentifier("split-right-pane")
-        } else {
-            VStack {
-                Spacer()
-                ContentUnavailableView(
-                    "No Tab Selected",
-                    symbol: .rectangleSplit2x1,
-                    description: "Pick a tab on the right side to view it."
+        switch sessionTabs.selectedRight {
+        case let .window(id):
+            if let window = tmuxService.windows.first(where: { $0.id == id }) {
+                WindowPaneLayoutView(
+                    window: window,
+                    onOpenURL: { url in
+                        handleTerminalURLClick(
+                            url,
+                            directoryPath: directoryPath,
+                            session: tmuxService.sessions.first(where: { $0.sessionName == sessionName }),
+                            window: window
+                        )
+                    }
                 )
-                Spacer()
+                .id("right-window-\(window.id)")
+                .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier("split-right-pane")
+        case .fileExplorer:
+            if let browserState {
+                FileBrowserView(
+                    directoryPath: directoryPath,
+                    state: browserState,
+                    sessionTabs: sessionTabs,
+                    onOpenFileInNewTab: { path in
+                        openFileInNewTab(
+                            path: path,
+                            directoryPath: directoryPath,
+                            sessionName: sessionName,
+                            windowId: selectedWindow?.id ?? ""
+                        )
+                    }
+                )
+                .id("right-file-explorer")
+                .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
+            }
+        case let .browser(id):
+            if
+                let tab = sessionTabs.openBrowserTabs.first(where: { $0.id == id }),
+                let tabState = sessionTabs.browserStates[id] {
+                BrowserTabContentView(
+                    state: tabState,
+                    onTitleChange: { newTitle in
+                        updateBrowserTabTitle(tabId: id, sessionName: sessionName, title: newTitle)
+                    },
+                    onURLChange: { newURL in
+                        updateBrowserTabURL(tabId: id, sessionName: sessionName, url: newURL)
+                    }
+                )
+                .id("right-\(tab.id)")
+                .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
+            }
+        case let .file(id):
+            if let tab = sessionTabs.openFileTabs.first(where: { $0.id == id }) {
+                OpenFileTabContentView(tab: tab, sessionTabs: sessionTabs)
+                    .id("right-\(tab.id)")
+                    .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
+            }
+        case nil:
+            rightPanePlaceholder
         }
+    }
+
+    private var rightPanePlaceholder: some View {
+        VStack {
+            Spacer()
+            ContentUnavailableView(
+                "No Tab Selected",
+                symbol: .rectangleSplit2x1,
+                description: "Pick a tab on the right side to view it."
+            )
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("split-right-pane")
     }
 
     // MARK: - Toolbar
@@ -1843,9 +1827,8 @@ public struct MainView: View {
                 tabs.openFileTabs[existingIndex].originWindowId = originWindowId
             }
             let existingId = tabs.openFileTabs[existingIndex].id
-            if tabs.rightSideFileTabIds.contains(existingId) {
-                tabs.selectedRightFileTabId = existingId
-                tabs.selectedRightBrowserTabId = nil
+            if tabs.rightSide.contains(.file(existingId)) {
+                tabs.selectedRight = .file(existingId)
             } else {
                 tabs.selectedFileTabId = existingId
             }
@@ -1858,9 +1841,8 @@ public struct MainView: View {
         )
         tabs.openFileTabs.append(newTab)
         if useSplit {
-            tabs.rightSideFileTabIds.insert(newTab.id)
-            tabs.selectedRightFileTabId = newTab.id
-            tabs.selectedRightBrowserTabId = nil
+            tabs.rightSide.insert(.file(newTab.id))
+            tabs.selectedRight = .file(newTab.id)
         } else {
             tabs.selectedFileTabId = newTab.id
         }
@@ -1880,11 +1862,8 @@ public struct MainView: View {
             sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if tabs.rightSideFileTabIds.contains(tabId) {
-            tabs.selectedRightFileTabId = tabId
-            tabs.selectedRightBrowserTabId = nil
-            tabs.selectedRightWindowId = nil
-            tabs.isFileExplorerSelectedOnRight = false
+        if tabs.rightSide.contains(.file(tabId)) {
+            tabs.selectedRight = .file(tabId)
             return
         }
         // Only flip the left pane into file-view mode for left-side tabs;
@@ -1894,105 +1873,101 @@ public struct MainView: View {
         tabs.selectedBrowserTabId = nil
     }
 
-    /// Toggles which side of the split a file tab lives on (issue #498). The
-    /// receiving side becomes the tab's selected entry; the originating side
-    /// has its selection reset if it pointed at the moved tab. After every
-    /// move `reconcileRightPaneSelection` re-picks a right-pane selection so
-    /// the right pane doesn't show the empty placeholder while real tabs are
-    /// still over there.
-    private func toggleFileTabSplit(_ tabId: UUID, sessionName: String, windowId: String) {
-        guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        guard tabs.openFileTabs.contains(where: { $0.id == tabId }) else { return }
-        if tabs.rightSideFileTabIds.contains(tabId) {
-            tabs.rightSideFileTabIds.remove(tabId)
-            if tabs.selectedRightFileTabId == tabId {
-                tabs.selectedRightFileTabId = nil
-            }
-            // Receiving side becomes this tab.
-            fileBrowserActiveWindowIds.insert(windowId)
-            tabs.selectedFileTabId = tabId
-            tabs.selectedBrowserTabId = nil
-        } else {
-            tabs.rightSideFileTabIds.insert(tabId)
-            if tabs.selectedFileTabId == tabId {
-                tabs.selectedFileTabId = nil
-            }
-            tabs.selectedRightFileTabId = tabId
-            tabs.selectedRightBrowserTabId = nil
-            tabs.selectedRightWindowId = nil
-            tabs.isFileExplorerSelectedOnRight = false
+    /// Toggles which side of the split a tab strip entry lives on (issue #498).
+    /// The receiving side becomes the entry's selected slot; the originating
+    /// side has its selection reset if it pointed at the moved entry. After
+    /// every move `reconcileRightPaneSelection` re-picks a right-pane selection
+    /// so the pane doesn't show the empty placeholder while content still lives
+    /// over there.
+    ///
+    /// `windowId` is the *current left-pane window* — used to flip
+    /// `fileBrowserActiveWindowIds` and `selectedWindow` for moves that land
+    /// content back on the left. Terminal-only sessions don't materialise a
+    /// `SessionFileTabsState` until the first tab opens, so the state is
+    /// created on demand for the very first split-toggle click.
+    private func toggleSplit(_ payload: TabDragPayload, sessionName: String, windowId: String) {
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
         }
-        reconcileRightPaneSelection(sessionName: sessionName)
-    }
-
-    /// Toggles which side of the split a browser tab lives on (issue #498).
-    /// Mirrors `toggleFileTabSplit`.
-    private func toggleBrowserTabSplit(_ tabId: UUID, sessionName: String, windowId: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        guard tabs.openBrowserTabs.contains(where: { $0.id == tabId }) else { return }
-        if tabs.rightSideBrowserTabIds.contains(tabId) {
-            tabs.rightSideBrowserTabIds.remove(tabId)
-            if tabs.selectedRightBrowserTabId == tabId {
-                tabs.selectedRightBrowserTabId = nil
-            }
-            tabs.selectedBrowserTabId = tabId
-            tabs.selectedFileTabId = nil
-            fileBrowserActiveWindowIds.remove(windowId)
-        } else {
-            tabs.rightSideBrowserTabIds.insert(tabId)
-            if tabs.selectedBrowserTabId == tabId {
+        // Reject payloads whose underlying data has gone away between the
+        // last reconcile and the click (extremely rare; we'd otherwise
+        // insert a dangling id into `rightSide`).
+        switch payload {
+        case let .file(id) where !tabs.openFileTabs.contains(where: { $0.id == id }): return
+        case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
+        default: break
+        }
+
+        if tabs.rightSide.contains(payload) {
+            // Moving back to the left side — receiving side becomes this entry.
+            tabs.rightSide.remove(payload)
+            if tabs.selectedRight == payload { tabs.selectedRight = nil }
+            switch payload {
+            case let .window(id):
+                if let restored = tmuxService.windows.first(where: { $0.id == id }) {
+                    selectedWindow = restored
+                }
+            case .fileExplorer:
+                fileBrowserActiveWindowIds.insert(windowId)
+            case let .file(id):
+                fileBrowserActiveWindowIds.insert(windowId)
+                tabs.selectedFileTabId = id
                 tabs.selectedBrowserTabId = nil
+            case let .browser(id):
+                tabs.selectedBrowserTabId = id
+                tabs.selectedFileTabId = nil
+                fileBrowserActiveWindowIds.remove(windowId)
             }
-            tabs.selectedRightBrowserTabId = tabId
-            tabs.selectedRightFileTabId = nil
-            tabs.selectedRightWindowId = nil
-            tabs.isFileExplorerSelectedOnRight = false
+        } else {
+            // Moving to the right side — becomes the right pane's selection.
+            tabs.rightSide.insert(payload)
+            tabs.selectedRight = payload
+            switch payload {
+            case let .window(id):
+                if selectedWindow?.id == id {
+                    let leftSessionWindows = tmuxService.windows
+                        .filter { $0.sessionName == sessionName && !tabs.rightSide.contains(.window($0.id)) }
+                    selectedWindow = leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first
+                }
+            case .fileExplorer:
+                fileBrowserActiveWindowIds.remove(windowId)
+            case let .file(id):
+                if tabs.selectedFileTabId == id { tabs.selectedFileTabId = nil }
+            case let .browser(id):
+                if tabs.selectedBrowserTabId == id { tabs.selectedBrowserTabId = nil }
+            }
         }
         reconcileRightPaneSelection(sessionName: sessionName)
     }
 
     /// Keeps the right pane's selection coherent with the tabs still on that
-    /// side. Clears dangling selections, then auto-picks a tab on the right
-    /// when nothing is selected but at least one tab remains there. The
-    /// auto-pick prefers, in order: a remaining window, the file explorer,
-    /// the most recently appended browser, then the most recently appended
-    /// file — the goal is to avoid the "No Tab Selected" placeholder
-    /// whenever any right-side content could fill the pane.
+    /// side. Clears a dangling selection, then auto-picks an entry on the
+    /// right when nothing is selected but at least one tab remains there.
+    /// The auto-pick prefers, in order: a remaining window, the file
+    /// explorer, the most recently appended browser, then the most recently
+    /// appended file — avoiding the "No Tab Selected" placeholder whenever
+    /// real right-side content exists.
     private func reconcileRightPaneSelection(sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if let id = tabs.selectedRightFileTabId, !tabs.rightSideFileTabIds.contains(id) {
-            tabs.selectedRightFileTabId = nil
-        }
-        if let id = tabs.selectedRightBrowserTabId, !tabs.rightSideBrowserTabIds.contains(id) {
-            tabs.selectedRightBrowserTabId = nil
-        }
-        if let id = tabs.selectedRightWindowId, !tabs.rightSideWindowIds.contains(id) {
-            tabs.selectedRightWindowId = nil
-        }
-        if tabs.isFileExplorerSelectedOnRight, !tabs.isFileExplorerOnRight {
-            tabs.isFileExplorerSelectedOnRight = false
+        if let sel = tabs.selectedRight, !tabs.rightSide.contains(sel) {
+            tabs.selectedRight = nil
         }
         guard tabs.isSplit else { return }
 
-        // If every window, file tab, and browser tab is on the right pane,
-        // the left section is effectively empty (only the "+" button would
-        // remain) — collapse the split so the user isn't stuck with a
-        // half-empty layout. The file-explorer button doesn't disqualify
-        // collapse on its own; it's a navigation affordance, not content.
+        // If every window/file/browser is on the right, the left section is
+        // effectively empty (only the "+" button would remain) — collapse
+        // the split so the user isn't stuck with a half-empty layout. The
+        // file-explorer button doesn't disqualify collapse on its own; it's
+        // a navigation affordance, not content.
         let sessionWindows = tmuxService.windows.filter { $0.sessionName == sessionName }
         let leftEmpty = !sessionWindows.isEmpty
-            && sessionWindows.allSatisfy { tabs.rightSideWindowIds.contains($0.id) }
-            && tabs.openFileTabs.allSatisfy { tabs.rightSideFileTabIds.contains($0.id) }
-            && tabs.openBrowserTabs.allSatisfy { tabs.rightSideBrowserTabIds.contains($0.id) }
+            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.id)) }
+            && tabs.openFileTabs.allSatisfy { tabs.rightSide.contains(.file($0.id)) }
+            && tabs.openBrowserTabs.allSatisfy { tabs.rightSide.contains(.browser($0.id)) }
         if leftEmpty {
-            tabs.rightSideWindowIds.removeAll()
-            tabs.rightSideFileTabIds.removeAll()
-            tabs.rightSideBrowserTabIds.removeAll()
-            tabs.isFileExplorerOnRight = false
-            tabs.selectedRightWindowId = nil
-            tabs.selectedRightFileTabId = nil
-            tabs.selectedRightBrowserTabId = nil
-            tabs.isFileExplorerSelectedOnRight = false
+            tabs.rightSide.removeAll()
+            tabs.selectedRight = nil
             // Restore selectedWindow if the move-to-right path cleared it
             // (no left-side fallback was available at the time).
             if
@@ -2003,85 +1978,17 @@ public struct MainView: View {
             return
         }
 
-        let hasSelection = tabs.selectedRightFileTabId != nil
-            || tabs.selectedRightBrowserTabId != nil
-            || tabs.selectedRightWindowId != nil
-            || tabs.isFileExplorerSelectedOnRight
-        if hasSelection {
-            return
+        if tabs.selectedRight != nil { return }
+        // Auto-pick: window > file explorer > newest browser > newest file.
+        if let window = tabs.rightSide.first(where: { if case .window = $0 { true } else { false } }) {
+            tabs.selectedRight = window
+        } else if tabs.rightSide.contains(.fileExplorer) {
+            tabs.selectedRight = .fileExplorer
+        } else if let browser = tabs.openBrowserTabs.last(where: { tabs.rightSide.contains(.browser($0.id)) }) {
+            tabs.selectedRight = .browser(browser.id)
+        } else if let file = tabs.openFileTabs.last(where: { tabs.rightSide.contains(.file($0.id)) }) {
+            tabs.selectedRight = .file(file.id)
         }
-        if let windowId = tabs.rightSideWindowIds.first {
-            tabs.selectedRightWindowId = windowId
-        } else if tabs.isFileExplorerOnRight {
-            tabs.isFileExplorerSelectedOnRight = true
-        } else if let browserTab = tabs.openBrowserTabs.last(where: { tabs.rightSideBrowserTabIds.contains($0.id) }) {
-            tabs.selectedRightBrowserTabId = browserTab.id
-        } else if let fileTab = tabs.openFileTabs.last(where: { tabs.rightSideFileTabIds.contains($0.id) }) {
-            tabs.selectedRightFileTabId = fileTab.id
-        }
-    }
-
-    /// Toggles which side of the split a window's terminal lives on. When
-    /// the window is moving to the right pane, it becomes the right-side
-    /// selection, any competing right-side selection is cleared, and the
-    /// left-side `selectedWindow` falls over to another available left
-    /// window so the left pane doesn't keep rendering the same terminal
-    /// twice. When the window is moving back to the left, `selectedWindow`
-    /// is updated to point at it so the user keeps direct access to the
-    /// terminal they just dragged back.
-    private func toggleWindowSplit(_ windowId: String, sessionName: String) {
-        // Session may not have a tab-state yet — terminal-only sessions don't
-        // materialise one until the first file/browser tab opens. Create it
-        // on demand so the very first split-toggle click takes effect.
-        if sessionFileTabsStates[sessionName] == nil {
-            sessionFileTabsStates[sessionName] = SessionFileTabsState()
-        }
-        guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if tabs.rightSideWindowIds.contains(windowId) {
-            tabs.rightSideWindowIds.remove(windowId)
-            if tabs.selectedRightWindowId == windowId {
-                tabs.selectedRightWindowId = nil
-            }
-            if let restored = tmuxService.windows.first(where: { $0.id == windowId }) {
-                selectedWindow = restored
-            }
-        } else {
-            tabs.rightSideWindowIds.insert(windowId)
-            tabs.selectedRightWindowId = windowId
-            tabs.selectedRightFileTabId = nil
-            tabs.selectedRightBrowserTabId = nil
-            tabs.isFileExplorerSelectedOnRight = false
-            if selectedWindow?.id == windowId {
-                let sessionWindows = tmuxService.windows
-                    .filter { $0.sessionName == sessionName && !tabs.rightSideWindowIds.contains($0.id) }
-                selectedWindow = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
-            }
-        }
-        reconcileRightPaneSelection(sessionName: sessionName)
-    }
-
-    /// Toggles which side of the split the file-explorer button lives on.
-    /// Mirrors `toggleWindowSplit` — moving to the right makes the file
-    /// tree the right-pane content; moving back to the left restores the
-    /// file-explorer-active flag on the originating window.
-    private func toggleFileExplorerSplit(sessionName: String, windowId: String) {
-        if sessionFileTabsStates[sessionName] == nil {
-            sessionFileTabsStates[sessionName] = SessionFileTabsState()
-        }
-        guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if tabs.isFileExplorerOnRight {
-            tabs.isFileExplorerOnRight = false
-            tabs.isFileExplorerSelectedOnRight = false
-            fileBrowserActiveWindowIds.insert(windowId)
-        } else {
-            tabs.isFileExplorerOnRight = true
-            tabs.isFileExplorerSelectedOnRight = true
-            tabs.selectedRightFileTabId = nil
-            tabs.selectedRightBrowserTabId = nil
-            tabs.selectedRightWindowId = nil
-            fileBrowserActiveWindowIds.remove(windowId)
-        }
-        reconcileRightPaneSelection(sessionName: sessionName)
     }
 
     /// Routes a URL clicked in the terminal. Three flows are possible:
@@ -2170,9 +2077,8 @@ public struct MainView: View {
                 tabs.openBrowserTabs[existingIndex].originWindowId = originWindowId
             }
             let existingId = tabs.openBrowserTabs[existingIndex].id
-            if tabs.rightSideBrowserTabIds.contains(existingId) {
-                tabs.selectedRightBrowserTabId = existingId
-                tabs.selectedRightFileTabId = nil
+            if tabs.rightSide.contains(.browser(existingId)) {
+                tabs.selectedRight = .browser(existingId)
             } else {
                 tabs.selectedBrowserTabId = existingId
                 tabs.selectedFileTabId = nil
@@ -2183,9 +2089,8 @@ public struct MainView: View {
             tabs.openBrowserTabs.append(newTab)
             tabs.browserStates[newTab.id] = BrowserTabState(initialURL: url)
             if useSplit {
-                tabs.rightSideBrowserTabIds.insert(newTab.id)
-                tabs.selectedRightBrowserTabId = newTab.id
-                tabs.selectedRightFileTabId = nil
+                tabs.rightSide.insert(.browser(newTab.id))
+                tabs.selectedRight = .browser(newTab.id)
             } else {
                 tabs.selectedBrowserTabId = newTab.id
                 tabs.selectedFileTabId = nil
@@ -2198,11 +2103,8 @@ public struct MainView: View {
     /// don't render alongside it.
     private func selectBrowserTab(_ tabId: UUID, sessionName: String, windowId: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
-        if tabs.rightSideBrowserTabIds.contains(tabId) {
-            tabs.selectedRightBrowserTabId = tabId
-            tabs.selectedRightFileTabId = nil
-            tabs.selectedRightWindowId = nil
-            tabs.isFileExplorerSelectedOnRight = false
+        if tabs.rightSide.contains(.browser(tabId)) {
+            tabs.selectedRight = .browser(tabId)
             return
         }
         tabs.selectedBrowserTabId = tabId
@@ -2321,15 +2223,13 @@ public struct MainView: View {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId }) else { return }
         let closedTab = tabs.openBrowserTabs[closedIndex]
-        let wasOnRight = tabs.rightSideBrowserTabIds.contains(tabId)
+        let payload = TabDragPayload.browser(tabId)
+        let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
-        let wasSelectedRight = tabs.selectedRightBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
         tabs.browserStates.removeValue(forKey: tabId)
-        tabs.rightSideBrowserTabIds.remove(tabId)
-        if wasSelectedRight {
-            tabs.selectedRightBrowserTabId = nil
-        }
+        tabs.rightSide.remove(payload)
+        if tabs.selectedRight == payload { tabs.selectedRight = nil }
         reconcileRightPaneSelection(sessionName: sessionName)
         guard wasSelectedLeft else { return }
         tabs.selectedBrowserTabId = nil
@@ -2442,15 +2342,13 @@ public struct MainView: View {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
         let closedTab = tabs.openFileTabs[closedIndex]
-        let wasOnRight = tabs.rightSideFileTabIds.contains(tabId)
+        let payload = TabDragPayload.file(tabId)
+        let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedFileTabId == tabId
-        let wasSelectedRight = tabs.selectedRightFileTabId == tabId
         tabs.openFileTabs.remove(at: closedIndex)
         tabs.scrollOffsets.removeValue(forKey: tabId)
-        tabs.rightSideFileTabIds.remove(tabId)
-        if wasSelectedRight {
-            tabs.selectedRightFileTabId = nil
-        }
+        tabs.rightSide.remove(payload)
+        if tabs.selectedRight == payload { tabs.selectedRight = nil }
         reconcileRightPaneSelection(sessionName: sessionName)
         guard wasSelectedLeft else { return }
         tabs.selectedFileTabId = nil
