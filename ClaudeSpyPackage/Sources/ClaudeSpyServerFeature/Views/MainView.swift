@@ -150,22 +150,32 @@ public struct MainView: View {
 
             guard let selected = selectedWindow else { return }
             let currentWindows = tmuxService.windows
+            // Windows parked on the right pane shouldn't be picked as the
+            // left's selection — otherwise the same terminal would render
+            // twice once tmux's active window points at a right-side tab.
+            let rightSideIds = sessionFileTabsStates[selected.sessionName]?.rightSideWindowIds ?? []
             if let updated = currentWindows.first(where: { $0.id == selected.id }) {
                 // Follow the tmux-active window if it changed to a different window
-                // (e.g., a remote viewer switched tabs via select-window)
-                let sessionWindows = currentWindows.filter { $0.sessionName == selected.sessionName }
+                // (e.g., a remote viewer switched tabs via select-window),
+                // but only across left-side windows.
+                let leftSessionWindows = currentWindows.filter {
+                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.id)
+                }
                 if
                     !updated.isWindowActive,
-                    let activeWindow = sessionWindows.first(where: \.isWindowActive) {
+                    let activeWindow = leftSessionWindows.first(where: \.isWindowActive) {
                     selectedWindow = activeWindow
                 } else if updated != selected {
                     // Keep selection in sync with refreshed window data
                     selectedWindow = updated
                 }
             } else {
-                // Selected window was removed — prefer the tmux-active window in the same session
-                let sessionWindows = currentWindows.filter { $0.sessionName == selected.sessionName }
-                let fallback = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
+                // Selected window was removed — prefer the tmux-active window
+                // in the same session that isn't already on the right pane.
+                let leftSessionWindows = currentWindows.filter {
+                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.id)
+                }
+                let fallback = leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first
                 selectedWindow = fallback
             }
         }
@@ -447,9 +457,17 @@ public struct MainView: View {
             .first
 
         return Button {
-            // Select the session's active window
-            if let activeWindow {
-                selectedWindow = activeWindow
+            // Select the session's active window for the left pane — but
+            // skip any window the user has parked on the right side, so the
+            // left and right panes don't end up showing the same terminal
+            // after a session round-trip.
+            let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
+            let leftCandidates = session.windows.filter { !rightSideIds.contains($0.id) }
+            let pick = leftCandidates.first(where: \.isWindowActive)
+                ?? leftCandidates.first
+                ?? activeWindow
+            if let pick {
+                selectedWindow = pick
             }
             selectedRemoteSession = nil
             selectedRemoteWindowId = nil
