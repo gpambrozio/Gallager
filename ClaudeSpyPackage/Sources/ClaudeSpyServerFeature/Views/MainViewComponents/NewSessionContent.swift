@@ -8,7 +8,7 @@ enum NewSessionCreatingState: Equatable {
 }
 
 /// Tracks which row is currently highlighted via keyboard navigation
-enum NewSessionSelection: Equatable {
+enum NewSessionSelection: Hashable {
     case newTerminal
     case project(String)
 }
@@ -115,6 +115,7 @@ struct NewSessionContent: View {
                                 dismiss()
                                 onCreate(nil)
                             }
+                            .id(NewSessionSelection.newTerminal)
                         }
 
                         if isLoadingProjects {
@@ -148,7 +149,7 @@ struct NewSessionContent: View {
                                     dismiss()
                                     onCreate(project)
                                 }
-                                .id(project.id)
+                                .id(NewSessionSelection.project(project.id))
                             }
                         } else if !searchText.isEmpty {
                             Text("No matching projects")
@@ -162,9 +163,9 @@ struct NewSessionContent: View {
                 }
                 .frame(maxHeight: popover ? 300 : .infinity)
                 .onChange(of: selection) { _, newValue in
-                    guard case let .project(id) = newValue else { return }
+                    guard let newValue else { return }
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        proxy.scrollTo(id, anchor: .center)
+                        proxy.scrollTo(newValue, anchor: .center)
                     }
                 }
                 .onChange(of: searchText) { _, _ in
