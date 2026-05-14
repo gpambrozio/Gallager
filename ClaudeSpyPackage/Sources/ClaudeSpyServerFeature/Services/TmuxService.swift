@@ -1595,6 +1595,13 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+
+        // Sync the local cache so `pane_active` reflects the change before the
+        // 5-second polling timer next fires. Without this, switching sessions
+        // and returning to a multi-pane window can render with the previous
+        // `activePane`, which echoes a stale `select-pane` back through the
+        // auto-focus path.
+        await refreshPanes()
     }
 
     /// Selects (switches to) a tmux window
