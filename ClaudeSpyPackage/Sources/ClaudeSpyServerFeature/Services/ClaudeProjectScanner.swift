@@ -24,6 +24,14 @@
             ClaudeProjectInfo(name: "BetaProject", path: "/Users/test/BetaProject"),
             ClaudeProjectInfo(name: "GammaService", path: "/Users/test/GammaService"),
             ClaudeProjectInfo(name: "DeltaApp", path: "/Users/test/DeltaApp"),
+            ClaudeProjectInfo(name: "EpsilonHub", path: "/Users/test/EpsilonHub"),
+            ClaudeProjectInfo(name: "IotaWeb", path: "/Users/test/IotaWeb"),
+            ClaudeProjectInfo(name: "KappaCli", path: "/Users/test/KappaCli"),
+            ClaudeProjectInfo(name: "MuShell", path: "/Users/test/MuShell"),
+            ClaudeProjectInfo(name: "NuRunner", path: "/Users/test/NuRunner"),
+            ClaudeProjectInfo(name: "SigmaLib", path: "/Users/test/SigmaLib"),
+            ClaudeProjectInfo(name: "TauNode", path: "/Users/test/TauNode"),
+            ClaudeProjectInfo(name: "ZetaCore", path: "/Users/test/ZetaCore"),
         ]) -> ClaudeProjectScanner {
             ClaudeProjectScanner(scanProjects: { projects })
         }

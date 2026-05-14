@@ -237,6 +237,26 @@ public actor MacOSDriver {
         try await Task.sleep(for: .milliseconds(200))
     }
 
+    /// Press Down Arrow key to move selection in arrow-navigable lists.
+    public func pressDownArrow() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Down Arrow key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 125) // Down Arrow
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
+    /// Press Up Arrow key to move selection in arrow-navigable lists.
+    public func pressUpArrow() async throws {
+        let pid = try requirePID()
+        logger.info("Pressing Up Arrow key (PID \(pid))")
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        MacOSAccessibility.pressKey(code: 126) // Up Arrow
+        try await Task.sleep(for: .milliseconds(200))
+    }
+
     /// Press Cmd+A to select all text in the focused field.
     public func selectAll() async throws {
         let pid = try requirePID()
