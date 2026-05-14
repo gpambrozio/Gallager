@@ -20,6 +20,7 @@ struct NewSessionContent: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isSearchFocused: Bool
     @State private var searchText = ""
+    @State private var selectedProjectId: String?
 
     private var isCreating: Bool {
         creatingSelection != nil
@@ -48,12 +49,14 @@ struct NewSessionContent: View {
                         .font(.body)
                         .focused($isSearchFocused)
                         .accessibilityLabel("Search projects")
-                        .onSubmit {
-                            if filteredProjects.count == 1 {
-                                let project = filteredProjects[0]
-                                dismiss()
-                                onCreate(project)
-                            }
+                        .onSubmit { handleSubmit() }
+                        .onKeyPress(.downArrow) {
+                            moveSelection(by: 1)
+                            return .handled
+                        }
+                        .onKeyPress(.upArrow) {
+                            moveSelection(by: -1)
+                            return .handled
                         }
 
                     if !searchText.isEmpty {
@@ -81,66 +84,107 @@ struct NewSessionContent: View {
 
             Divider()
 
-            ScrollView {
-                VStack(spacing: 8) {
-                    if searchText.isEmpty {
-                        NewSessionRow(
-                            title: "New Terminal",
-                            subtitle: "Start in home directory",
-                            symbol: .terminal,
-                            isCreating: creatingSelection == .newTerminal,
-                            isDisabled: isCreating
-                        ) {
-                            dismiss()
-                            onCreate(nil)
-                        }
-                    }
-
-                    if isLoadingProjects {
-                        HStack {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Loading projects...")
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 8)
-                    } else if !filteredProjects.isEmpty {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 8) {
                         if searchText.isEmpty {
-                            Divider()
-                                .padding(.vertical, 4)
-
-                            Text("Claude Projects")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-
-                        ForEach(filteredProjects) { project in
                             NewSessionRow(
-                                title: project.name,
-                                subtitle: project.path.abbreviatedPath,
-                                symbol: .folder,
-                                isCreating: creatingSelection == .project(project.id),
-                                isDisabled: isCreating
+                                title: "New Terminal",
+                                subtitle: "Start in home directory",
+                                symbol: .terminal,
+                                isCreating: creatingSelection == .newTerminal,
+                                isDisabled: isCreating,
+                                isSelected: false
                             ) {
                                 dismiss()
-                                onCreate(project)
+                                onCreate(nil)
                             }
                         }
-                    } else if !searchText.isEmpty {
-                        Text("No matching projects")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
+
+                        if isLoadingProjects {
+                            HStack {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Loading projects...")
+                                    .foregroundStyle(.secondary)
+                            }
                             .padding(.vertical, 8)
+                        } else if !filteredProjects.isEmpty {
+                            if searchText.isEmpty {
+                                Divider()
+                                    .padding(.vertical, 4)
+
+                                Text("Claude Projects")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            ForEach(filteredProjects) { project in
+                                NewSessionRow(
+                                    title: project.name,
+                                    subtitle: project.path.abbreviatedPath,
+                                    symbol: .folder,
+                                    isCreating: creatingSelection == .project(project.id),
+                                    isDisabled: isCreating,
+                                    isSelected: selectedProjectId == project.id
+                                ) {
+                                    dismiss()
+                                    onCreate(project)
+                                }
+                                .id(project.id)
+                            }
+                        } else if !searchText.isEmpty {
+                            Text("No matching projects")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                                .padding(.vertical, 8)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .frame(maxHeight: popover ? 300 : .infinity)
+                .onChange(of: selectedProjectId) { _, newValue in
+                    guard let newValue else { return }
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        proxy.scrollTo(newValue, anchor: .center)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .onChange(of: searchText) { _, _ in
+                    selectedProjectId = nil
+                }
             }
-            .frame(maxHeight: popover ? 300 : .infinity)
         }
         .frame(maxWidth: popover ? 280 : 400)
         .frame(width: popover ? 280 : nil)
+    }
+
+    private func moveSelection(by offset: Int) {
+        let projects = filteredProjects
+        guard !projects.isEmpty else { return }
+
+        if
+            let currentId = selectedProjectId,
+            let currentIndex = projects.firstIndex(where: { $0.id == currentId }) {
+            let newIndex = max(0, min(projects.count - 1, currentIndex + offset))
+            selectedProjectId = projects[newIndex].id
+        } else {
+            selectedProjectId = offset > 0 ? projects.first?.id : projects.last?.id
+        }
+    }
+
+    private func handleSubmit() {
+        if
+            let selectedId = selectedProjectId,
+            let project = filteredProjects.first(where: { $0.id == selectedId }) {
+            dismiss()
+            onCreate(project)
+        } else if filteredProjects.count == 1 {
+            let project = filteredProjects[0]
+            dismiss()
+            onCreate(project)
+        }
     }
 }
 
@@ -151,6 +195,7 @@ struct NewSessionRow: View {
     let symbol: Symbols
     let isCreating: Bool
     let isDisabled: Bool
+    var isSelected = false
     let action: () -> Void
 
     var body: some View {
@@ -158,7 +203,7 @@ struct NewSessionRow: View {
             HStack(spacing: 12) {
                 symbol.image
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -181,14 +226,14 @@ struct NewSessionRow: View {
                 } else {
                     Symbols.chevronRight.image
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.05))
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
             )
         }
         .buttonStyle(.plain)
