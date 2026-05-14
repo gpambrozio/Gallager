@@ -1705,6 +1705,50 @@ final public class TmuxService {
         }
     }
 
+    /// Reorders a tmux window inside a single session so the windows match the
+    /// supplied id list. `windowIds` lists the windows of `sessionName` (each in
+    /// the form `sessionName:N`) in the order the caller wants them to appear.
+    ///
+    /// tmux only supports moving a window to one specific index at a time, so
+    /// the implementation rewrites every window index in two steps: first
+    /// parking each window at a high temporary index (offset by 1000) to free
+    /// up the lower indices, then moving each window into its target slot 0…N-1
+    /// in the desired order. After all moves complete a single `refreshPanes`
+    /// brings the in-memory model back in sync with tmux.
+    public func moveWindows(in sessionName: String, to windowIds: [String]) async throws {
+        guard !windowIds.isEmpty else { return }
+        // Park every window at a unique high index so the lower indices are
+        // free for re-assignment. -k forces tmux to overwrite the destination
+        // if it's already in use, which shouldn't happen at +1000 but keeps
+        // the call defensive against future renumbering.
+        for (offset, id) in windowIds.enumerated() {
+            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + offset)")
+            let result = try await runTmuxCommand([
+                "move-window", "-k",
+                "-s", id,
+                "-t", parkTarget,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+        // Now move each parked window into its final slot. Iterate in the new
+        // order so the final tmux indices match the caller's intent.
+        for newIndex in windowIds.indices {
+            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + newIndex)")
+            let finalTarget = Self.windowTarget(in: sessionName, windowIndex: "\(newIndex)")
+            let result = try await runTmuxCommand([
+                "move-window", "-k",
+                "-s", parkTarget,
+                "-t", finalTarget,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+        await refreshPanes()
+    }
+
     /// Lists window names for a session in window-index order.
     private func listWindowNames(in sessionName: String) async -> [String] {
         guard

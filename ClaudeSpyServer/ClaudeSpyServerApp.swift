@@ -393,6 +393,21 @@ struct TmuxPaneMirrorApp: App {
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             }
 
+            // Window menu - tab navigation shortcuts
+            CommandGroup(before: .windowList) {
+                Button("Previous Tab") {
+                    NotificationCenter.default.post(name: .selectPreviousTab, object: nil)
+                }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+
+                Button("Next Tab") {
+                    NotificationCenter.default.post(name: .selectNextTab, object: nil)
+                }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+
+                Divider()
+            }
+
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
             CommandGroup(after: .pasteboard) {
                 Divider()

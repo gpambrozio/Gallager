@@ -11,6 +11,14 @@ public extension Notification.Name {
     /// a human-readable message under ``editorLaunchFailedMessageKey`` so
     /// `MainView` can surface the failure through its shared alert state.
     static let editorLaunchFailed = Notification.Name("editorLaunchFailed")
+    /// Posted by the "Previous Tab" menu item (⌘⇧[). `MainView` walks the
+    /// active session's tab strip and selects the tab to the left of the
+    /// currently-selected one, wrapping at the leading edge.
+    static let selectPreviousTab = Notification.Name("selectPreviousTab")
+    /// Posted by the "Next Tab" menu item (⌘⇧]). `MainView` walks the active
+    /// session's tab strip and selects the tab to the right of the
+    /// currently-selected one, wrapping at the trailing edge.
+    static let selectNextTab = Notification.Name("selectNextTab")
 }
 
 /// `userInfo` key used by ``Notification.Name/editorLaunchFailed`` to carry

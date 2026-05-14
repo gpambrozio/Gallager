@@ -237,6 +237,11 @@ public enum TestStep: Sendable {
     case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
     /// Drag from one screen coordinate to another in the macOS app.
     case macDrag(fromX: Double, fromY: Double, toX: Double, toY: Double, instance: Int = 0)
+    /// Drag from the center of one accessibility element to the center of
+    /// another. Resolves both queries against the running app before posting
+    /// CGEvent drag events, so scenarios don't have to compute screen
+    /// coordinates by hand to test SwiftUI drag-and-drop (e.g. tab reorder).
+    case macDragElement(from: ElementQuery, to: ElementQuery, instance: Int = 0)
     /// Take a macOS screenshot, optionally comparing against a stored baseline
     /// Default tolerance of 2% because sometimes the image needs to be normalized
     /// and in this case some pixels will differ.

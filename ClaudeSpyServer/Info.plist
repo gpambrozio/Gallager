@@ -12,5 +12,25 @@
 
 	<key>SUPublicEDKey</key>
 	<string>SgIzXu4JuQVHuQFIyVAPsy48BCLzF6nuCTRKUyPi+cc=</string>
+
+	<!-- Custom UTI used for in-process tab-strip drag-and-drop. Declaring it
+	     here lets UTType(exportedAs:) resolve the identifier without a
+	     runtime warning, and makes .dropDestination(for:) accept the payload
+	     reliably. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>engineering.dx.gallager.tab-drag</string>
+			<key>UTTypeDescription</key>
+			<string>Gallager Tab Drag</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
+	</array>
 </dict>
 </plist>

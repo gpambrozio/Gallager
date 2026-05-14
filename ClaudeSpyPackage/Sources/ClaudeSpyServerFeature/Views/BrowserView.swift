@@ -74,6 +74,12 @@ final class BrowserTabState {
     var canGoForward = false
     var isLoading = false
     var estimatedProgress: Double = 0
+    /// Monotonic counter bumped from outside the view to request the URL
+    /// field take keyboard focus. The browser content view observes the value
+    /// via `.task(id:)` and drives `@FocusState` when it changes. Using a
+    /// counter (rather than a Bool) lets a freshly-opened tab focus the field
+    /// even when the value was already true earlier in the session.
+    var urlFieldFocusRequest = 0
 
     let webView: WKWebView
 
@@ -237,6 +243,16 @@ struct BrowserTabContentView: View {
             if let newValue {
                 onURLChange(newValue)
             }
+        }
+        .task(id: state.urlFieldFocusRequest) {
+            // Skip the initial .task fire — only steal focus when an external
+            // caller bumps the counter. The brief sleep gives SwiftUI a tick
+            // to insert the freshly-mounted TextField into the responder chain
+            // before we ask it to become first responder.
+            guard state.urlFieldFocusRequest > 0 else { return }
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            isURLFieldFocused = true
         }
     }
 

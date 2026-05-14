@@ -110,6 +110,9 @@ public enum WindowRenameScenario {
 
         // ── Phase 7: New windows get "terminal N" names via the + button ──
         TestStep.log("Phase 7: Create new window via + button — expect 'terminal 1' name")
+        // Viewer side uses `RemoteWindowTabBar`, which keeps the original
+        // "New Window" button instead of the host-side popover from issue
+        // #510 (remote sessions have no in-app browser tabs to offer).
         TestStep.macClickButton(titled: "New Window", instance: 1)
         TestStep.wait(seconds: 5)
 

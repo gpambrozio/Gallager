@@ -318,6 +318,35 @@ enum MacOSAccessibility {
         mouseUp?.post(tap: .cghidEventTap)
     }
 
+    /// CGEvent drag from the center of one matched element to the center of
+    /// another. Used by scenarios that exercise SwiftUI's `.draggable` /
+    /// `.dropDestination` machinery (e.g. tab strip reorder in issue #510)
+    /// since AX has no native "move element" action — the drag has to be
+    /// driven through hardware-style mouse events.
+    @discardableResult
+    static func dragElement(
+        appPID: pid_t,
+        from fromQuery: ElementQuery,
+        to toQuery: ElementQuery
+    ) -> Bool {
+        let fromMatches = findAllRawElements(appPID: appPID, matching: fromQuery)
+        let toMatches = findAllRawElements(appPID: appPID, matching: toQuery)
+        guard
+            let fromCenter = fromMatches.lazy.compactMap({ centerOfElement($0) }).first,
+            let toCenter = toMatches.lazy.compactMap({ centerOfElement($0) }).first
+        else {
+            logger.info("dragElement: \(fromQuery) → \(toQuery) — at least one element not found")
+            return false
+        }
+        focusApp(appPID: appPID)
+        usleep(200_000) // 200ms for focus
+        // Use a longer step count so SwiftUI's drag pickup threshold (a few
+        // pixels of movement before the operation registers) is comfortably
+        // exceeded before the cursor reaches the destination.
+        drag(from: fromCenter, to: toCenter, steps: 30)
+        return true
+    }
+
     /// CGEvent left-click on an element matching the query.
     /// Unlike `press`, this always uses a real mouse click (no AXPress / parent walking).
     /// Useful for selecting items in SwiftUI List/OutlineGroup where AXPress
@@ -425,6 +454,8 @@ enum MacOSAccessibility {
         case "7": return 26
         case "8": return 28
         case "9": return 25
+        case "[": return 33
+        case "]": return 30
         default: return nil
         }
     }
