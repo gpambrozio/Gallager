@@ -186,21 +186,21 @@ public struct MenuBarLabel: View {
 
     /// The icon view with color and badge - rendered to NSImage (only used when pendingCount > 0)
     private var iconView: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             Symbols.handsAndSparklesFill.image
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color("AccentColor", bundle: .main))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
 
             Text("\(pendingCount)")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule()
-                        .fill(Color("AccentColor", bundle: .main))
-                )
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(Color("AccentColor", bundle: .main))
+        )
     }
 
     /// Renders the icon view to an NSImage for proper color support
