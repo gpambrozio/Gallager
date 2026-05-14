@@ -19,6 +19,12 @@ struct RemoteWindowPaneLayoutView: View {
     let window: TmuxWindow
     let connection: ViewerConnection
     let settings: AppSettings
+    /// Handler invoked when a URL is clicked inside any of this window's
+    /// remote terminals. Returning `true` consumes the click; `false` lets
+    /// `InteractiveTerminalView` fall back to `URLOpener` (system default
+    /// browser). Wired by the parent so the same `browserLinkBehavior`
+    /// prompt as local sessions is honoured.
+    var onOpenURL: TerminalOpenURLHandler?
 
     var body: some View {
         if let layout = TmuxLayoutParser.parse(window.windowLayout) {
@@ -63,7 +69,8 @@ struct RemoteWindowPaneLayoutView: View {
                     connection: connection,
                     settings: settings,
                     isSingle: isSingle,
-                    isActiveInTmux: pane.paneState.paneId == activePaneId
+                    isActiveInTmux: pane.paneState.paneId == activePaneId,
+                    onOpenURL: onOpenURL
                 )
                 .id(pane.id)
             }
@@ -115,7 +122,8 @@ struct RemoteWindowPaneLayoutView: View {
             connection: connection,
             settings: settings,
             showStatusBar: false,
-            isEditorActive: pane.editorSession != nil
+            isEditorActive: pane.editorSession != nil,
+            onOpenURL: onOpenURL
         )
         .overlay {
             if let editorInfo = pane.editorSession {
@@ -143,6 +151,7 @@ struct RemoteWindowPaneLayoutView: View {
         /// remote host. Drives initial focus so a multi-pane window opens with
         /// the tmux-active pane focused.
         let isActiveInTmux: Bool
+        let onOpenURL: TerminalOpenURLHandler?
 
         @State private var isHovering = false
 
@@ -166,7 +175,8 @@ struct RemoteWindowPaneLayoutView: View {
                             paneId: target
                         )
                     }
-                }
+                },
+                onOpenURL: onOpenURL
             )
             .overlay {
                 if !isSingle {

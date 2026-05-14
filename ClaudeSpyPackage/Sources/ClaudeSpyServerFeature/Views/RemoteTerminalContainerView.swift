@@ -30,6 +30,11 @@ struct RemoteTerminalContainerView: View {
     /// Fires whenever this terminal becomes the window's first responder.
     /// Used to mirror focus back to the remote tmux via `SelectTmuxPane`.
     var onFocus: (@MainActor () -> Void)?
+    /// Handler invoked when a URL is clicked inside the terminal. Returning
+    /// `true` consumes the click; `false` lets `InteractiveTerminalView` fall
+    /// back to `URLOpener` (system default browser). Wire this so remote
+    /// sessions honour the same `browserLinkBehavior` flow as local ones.
+    var onOpenURL: TerminalOpenURLHandler?
 
     @State private var streamState: RemoteStreamState = .connecting
     @State private var streamWidth = 80
@@ -53,6 +58,7 @@ struct RemoteTerminalContainerView: View {
                 isEditorActive: isEditorActive,
                 autoFocus: autoFocus,
                 onFocus: onFocus,
+                onOpenURL: onOpenURL,
                 onStateChange: { state, width, height in
                     streamState = state
                     streamWidth = width
@@ -540,6 +546,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let isEditorActive: Bool
     let autoFocus: Bool
     let onFocus: (@MainActor () -> Void)?
+    let onOpenURL: TerminalOpenURLHandler?
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
     let onTitleChange: @MainActor (String) -> Void
     let onImagePaste: @MainActor (ClipboardImage) -> Void
@@ -564,6 +571,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         )
         coordinator.terminalView.isEditorActive = isEditorActive
         coordinator.terminalView.onBecomeFirstResponder = onFocus
+        coordinator.terminalView.onOpenURL = onOpenURL
         // Route image pastes through the SwiftUI parent so the upload state
         // and cancel popover live alongside the terminal view in the body
         // hierarchy. Returning `true` consumes the paste — `Ctrl+V` is sent
@@ -586,9 +594,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
 
-        // Re-bind focus and paste callbacks so closures captured here reflect
-        // the current parent state on every layout pass.
+        // Re-bind focus, paste and URL-click callbacks so closures captured
+        // here reflect the current parent state on every layout pass.
         nsView.onBecomeFirstResponder = onFocus
+        nsView.onOpenURL = onOpenURL
         nsView.onImagePaste = { image in
             onImagePaste(image)
             return true
@@ -699,6 +708,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             terminalView.onInput = nil
             terminalView.onImagePaste = nil
             terminalView.onFileDrop = nil
+            terminalView.onOpenURL = nil
 
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil

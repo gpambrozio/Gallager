@@ -52,6 +52,37 @@ import Foundation
 ///     though the global is still `.ask`).
 /// 13. Remove the per-domain rule from Settings → Browser.
 /// 14. Click link 7 → sheet appears again (no rule, global `.ask`).
+///
+/// **Remote leg (Phases 15–22):** pair a second Mac as viewer (instance 1) and
+/// re-exercise the same OSC 8 hyperlinks through the host's `weblinks` session
+/// mirrored on the viewer. The remote click handler
+/// (`MainView.handleRemoteTerminalURLClick`) routes through the **viewer's**
+/// `browserLinkBehavior` — not the host's — so the viewer's setting (which
+/// starts at `.ask` because each instance gets isolated in-memory preferences
+/// under `--e2e-test`) is what drives the prompt and the in-app/system-browser
+/// dispatch. In-app tabs land in the viewer's `remoteSessionTabsStates` tab
+/// strip keyed by `"\(hostId):\(sessionName)"`.
+///
+/// 15. Pair a Mac viewer; open its Panes window at the same size as the host
+///     so the existing link click coordinates apply.
+/// 16. Viewer opens the `weblinks` remote session; click link 1 → viewer's
+///     confirmation sheet appears (proves `onOpenURL` is now wired through
+///     `RemoteTerminalContainerView`).
+/// 17. Pick "In App" → an in-app browser tab opens in the viewer's remote tab
+///     strip; switch to the `other` session on the viewer and back → the
+///     remote browser tab survives the session switch (the
+///     `remoteSessionTabsStates` cache holds the live `WKWebView`).
+/// 18. Click link 2 → toggle "Don't ask again." + "In App" → the viewer's
+///     global flips to `.alwaysInApp` independently of the host's.
+/// 19. Click link 3 → opens directly (no sheet) on the viewer.
+/// 20. Press Cmd-W with the remote browser tab focused → closes the tab and
+///     returns focus to the originating tmux window (precedence rule mirrored
+///     from the local Cmd-W path).
+/// 21. Switch the viewer's picker to "Always in default browser" via its
+///     Settings → Browser tab.
+/// 22. Click link 4 → no in-app tab; the viewer's default-browser log records
+///     `?v=4`, asserting the click routed through `URLOpener` on the viewer
+///     side (not the host's).
 public enum BrowserTabFromTerminalLinkScenario {
     /// Window at (10, 10), size 1_200×700, sidebar 250. Title bar + tab bar
     /// take ~100 pt; SF Mono 12 cells are ~14 pt tall. Each `printf`
@@ -352,6 +383,223 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.readFile(path: "${defaultBrowserLogPath}", storeAs: "defaultBrowserLogPostDomain")
         TestStep.assertStoredNotContains(key: "defaultBrowserLogPostDomain", substring: "\(healthURL)?v=5")
         TestStep.assertStoredNotContains(key: "defaultBrowserLogPostDomain", substring: "\(healthURL)?v=6")
+
+        // ── Phase 15: Pair a Mac viewer (instance 1) ─────────────
+        // After Phase 14, Settings is closed and Cancel was just pressed in the
+        // sheet, so the host's weblinks pane is the focused content. Re-open
+        // Settings on the host and generate a viewer pairing code. The
+        // last-visited tab persists across reopens, so Settings comes back up
+        // on "Browser" — explicitly switch to "Remote Access" first. The
+        // `Shortcut.addMacViewer` shortcut can't be used here because it
+        // clicks an "Add Viewer" button that only appears once at least one
+        // viewer is already paired; this scenario doesn't pair iOS first, so
+        // the host's `RemoteAccessSettingsView.unpairedView` is showing and
+        // the right entry point is "Generate Pairing Code".
+        TestStep.log("Phase 15: Pair a Mac viewer to test remote terminal link routing on the viewer side")
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "Browser", timeout: 5)
+        TestStep.macSelectSettingsTab("Remote Access")
+        TestStep.macWaitForWindow(titled: "Remote Access", timeout: 5)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Generate Pairing Code")
+        TestStep.wait(seconds: 3)
+        TestStep.macClickButton(titled: "Copy Code")
+        TestStep.wait(seconds: 0.5)
+        TestStep.macReadClipboard(storeAs: "viewerPairingCode")
+
+        TestStep.launchMacApp(instance: 1)
+        TestStep.wait(seconds: 3)
+
+        TestStep.macOpenSettings(instance: 1)
+        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
+        TestStep.macSelectSettingsTab("Remote Hosts", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "Add Host", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
+        TestStep.wait(seconds: 5)
+
+        // Wait until both sides confirm connection before driving the UI; the
+        // `Viewer connected` / `Host connected` labels are surfaced via
+        // `RemoteAccessSettingsView` / `RemoteHostsSettingsView` once the
+        // relay handshake finishes.
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
+        TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
+
+        // Close both Settings windows so the viewer's Panes window can take
+        // focus for click-at-point steps later on.
+        TestStep.macCloseWindow(titled: "Remote Access")
+        TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
+        TestStep.wait(seconds: 1)
+
+        // Open the viewer's Panes window at the same size as the host so the
+        // fixed-pixel link coordinates from the top of the file apply 1:1 to
+        // the viewer's mirrored remote terminal. `openPanesWindow` resizes to
+        // 1_000×600 by default; the override matches the host's 1_200×700.
+        Shortcut.openPanesWindow(instance: 1)
+        TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
+        TestStep.wait(seconds: 1)
+
+        // ── Phase 16: Click link 1 on viewer with default .ask → sheet ─
+        // The viewer's `--e2e-test` storage starts each instance with a fresh
+        // in-memory `PreferencesService`, so its `browserLinkBehavior` is the
+        // default `.ask` regardless of what the host's setting is at this
+        // point in the scenario. This is the critical test for the PR: the
+        // `onOpenURL` callback wiring on `RemoteTerminalContainerView` must
+        // route through `handleRemoteTerminalURLClick`, otherwise the click
+        // would silently fall through to the system default browser.
+        TestStep.log("Phase 16: Viewer opens weblinks remote session; click link 1 → viewer's confirmation sheet appears")
+        TestStep.macWaitForElement(titled: "weblinks", timeout: 15, instance: 1)
+        TestStep.macClickButton(titled: "weblinks", instance: 1)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
+            timeout: 15,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-weblinks-remote-pane", instance: 1)
+
+        TestStep.macClickAtPoint(x: linkClickX, y: link1Y, instance: 1)
+        TestStep.macWaitForElement(titled: "Open this link?", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-confirmation-sheet", instance: 1)
+
+        TestStep.macClickButton(titled: "In App", instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 5, instance: 1)
+        TestStep.macWaitForElementQuery(.labelContains("Browser tab:"), timeout: 5, instance: 1)
+        // Let the WKWebView finish loading so the screenshot captures
+        // `{"status":"ok"}` rather than a blank pane.
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "viewer-first-remote-browser-tab", instance: 1)
+
+        // ── Phase 17: Switch sessions on viewer + back → tab survives ─
+        // The remote browser tab is parked on a `(hostId, sessionName)` entry
+        // in `remoteSessionTabsStates`. Switching to a different remote
+        // session (`other`) must hide it; coming back to `weblinks` must
+        // re-expose the same live `WKWebView` instance.
+        TestStep.log("Phase 17: Switch to `other` session and back; the remote browser tab survives")
+        TestStep.macClickButton(titled: "other", instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementToDisappear(titled: "Browser tab:", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-other-no-browser-tab", instance: 1)
+
+        TestStep.macClickButton(titled: "weblinks", instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.labelContains("Browser tab:"), timeout: 5, instance: 1)
+        // Let the view tree settle after the session-switch rebuild.
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "viewer-back-to-weblinks-browser-tab", instance: 1)
+
+        // ── Phase 18: Toggle global "Don't ask again" on viewer ─
+        // Switch back to the weblinks window-tab so the link row is clickable.
+        // When a browser tab is selected the window tab is visually deselected
+        // (per `RemoteWindowTabBar.windowTab` styling), but the same window
+        // is still the underlying selection — clicking it just deselects the
+        // browser tab and re-exposes the terminal.
+        TestStep.log("Phase 18: Click link 2 on viewer; toggle 'Don't ask again' + In App → viewer's global flips to .alwaysInApp")
+        TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macClickAtPoint(x: linkClickX, y: link2Y, instance: 1)
+        TestStep.macWaitForElement(titled: "Open this link?", timeout: 5, instance: 1)
+        TestStep.macClickButton(titled: "Don't ask again.", instance: 1)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(titled: "In App", instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 5, instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "viewer-second-remote-browser-tab", instance: 1)
+
+        // ── Phase 19: .alwaysInApp on viewer → link 3 opens directly ─
+        TestStep.log("Phase 19: With viewer global .alwaysInApp, clicking link 3 opens directly")
+        TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macClickAtPoint(x: linkClickX, y: link3Y, instance: 1)
+        // Confirmation sheet must NOT appear — `.alwaysInApp` short-circuits .ask.
+        TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3, instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "viewer-third-remote-browser-tab-direct", instance: 1)
+
+        // ── Phase 20: Cmd-W closes the focused remote browser tab ─
+        // With the third tab still selected, Cmd-W should close *that tab*
+        // rather than the underlying remote tmux window — the precedence
+        // rule added in `requestCloseSelectedWindow` for remote sessions.
+        // After the close, focus returns to the originating tmux window
+        // (`weblinks:0`) and the terminal contents re-appear in the detail
+        // pane.
+        TestStep.log("Phase 20: Cmd-W with remote browser tab focused → closes the tab, returns to terminal")
+        TestStep.macPressShortcut(key: "w", modifiers: [.command], instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-after-cmd-w-browser-tab-closed", instance: 1)
+
+        // ── Phase 21: Switch viewer picker to .alwaysInDefaultBrowser ─
+        // The viewer's Settings was last on "Remote Hosts" during Phase 15
+        // pairing, and SwiftUI re-opens the last-visited tab — so wait for
+        // that title rather than "General" here.
+        TestStep.log("Phase 21: Switch viewer's Settings → Browser picker to 'Always in default browser'")
+        TestStep.macOpenSettings(instance: 1)
+        TestStep.macWaitForWindow(titled: "Remote Hosts", timeout: 5, instance: 1)
+        TestStep.macSelectSettingsTab("Browser", instance: 1)
+        TestStep.macWaitForWindow(titled: "Browser", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "When clicking web links in terminal", timeout: 5, instance: 1)
+        TestStep.macClickMenuItem(
+            menuButtonTitle: "How http/https/ftp links clicked in the terminal should open by default. " +
+                "Domain-specific rules below override this for matching hosts.",
+            itemTitle: "Always in default browser",
+            instance: 1
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.macCloseWindow(titled: "Browser", instance: 1)
+        TestStep.wait(seconds: 1)
+
+        // ── Phase 22: .alwaysInDefaultBrowser on viewer → link 4 routes via URLOpener ─
+        // The viewer's `--default-browser-log` is wiped on launch (see
+        // `ClaudeSpyServerApp` boot path), so it starts clean and `?v=4` is
+        // the first and only entry expected to appear.
+        TestStep.log("Phase 22: With viewer .alwaysInDefaultBrowser, link 4 routes via URLOpener; no in-app tab")
+        TestStep.macClickButton(titled: "weblinks", instance: 1)
+        TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macClickAtPoint(x: linkClickX, y: link4Y, instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3, instance: 1)
+        TestStep.wait(seconds: 2)
+        // Terminal must still own the detail pane — proves no in-app browser
+        // tab grabbed it.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-default-browser-no-new-tab", instance: 1)
+
+        // The viewer logs to its own per-instance default-browser file
+        // (`defaultBrowserLogPath1`). Earlier Phase 16/18/19 clicks all
+        // resolved in-app, so only `?v=4` should appear; the absence of v=1,
+        // v=2 and v=3 is what guarantees that the in-app dispatches on the
+        // viewer did not silently leak through to the system browser.
+        TestStep.readFile(path: "${defaultBrowserLogPath1}", storeAs: "viewerDefaultBrowserLog")
+        TestStep.assertStoredContains(key: "viewerDefaultBrowserLog", substring: "\(healthURL)?v=4")
+        TestStep.assertStoredNotContains(key: "viewerDefaultBrowserLog", substring: healthURL + "\n")
+        TestStep.assertStoredNotContains(key: "viewerDefaultBrowserLog", substring: "\(healthURL)?v=2")
+        TestStep.assertStoredNotContains(key: "viewerDefaultBrowserLog", substring: "\(healthURL)?v=3")
 
         // Tear down so we don't carry state into the next scenario.
         Shortcut.tmuxRunCommand(target: "weblinks:0", command: "exit")
