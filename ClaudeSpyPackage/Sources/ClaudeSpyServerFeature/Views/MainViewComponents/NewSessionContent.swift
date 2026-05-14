@@ -7,6 +7,12 @@ enum NewSessionCreatingState: Equatable {
     case project(String)
 }
 
+/// Tracks which row is currently highlighted via keyboard navigation
+enum NewSessionSelection: Equatable {
+    case newTerminal
+    case project(String)
+}
+
 /// Unified content for creating a new session, used in popovers and the empty-state detail area
 struct NewSessionContent: View {
     let title: String
@@ -20,7 +26,7 @@ struct NewSessionContent: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isSearchFocused: Bool
     @State private var searchText = ""
-    @State private var selectedProjectId: String?
+    @State private var selection: NewSessionSelection?
 
     private var isCreating: Bool {
         creatingSelection != nil
@@ -29,6 +35,16 @@ struct NewSessionContent: View {
     private var filteredProjects: [ClaudeProjectInfo] {
         guard !searchText.isEmpty else { return projects }
         return projects.filter { $0.name.fuzzyMatches(searchText) }
+    }
+
+    /// All keyboard-selectable rows in display order.
+    private var selectableItems: [NewSessionSelection] {
+        var items: [NewSessionSelection] = []
+        if searchText.isEmpty {
+            items.append(.newTerminal)
+        }
+        items.append(contentsOf: filteredProjects.map { .project($0.id) })
+        return items
     }
 
     var body: some View {
@@ -94,7 +110,7 @@ struct NewSessionContent: View {
                                 symbol: .terminal,
                                 isCreating: creatingSelection == .newTerminal,
                                 isDisabled: isCreating,
-                                isSelected: false
+                                isSelected: selection == .newTerminal
                             ) {
                                 dismiss()
                                 onCreate(nil)
@@ -127,7 +143,7 @@ struct NewSessionContent: View {
                                     symbol: .folder,
                                     isCreating: creatingSelection == .project(project.id),
                                     isDisabled: isCreating,
-                                    isSelected: selectedProjectId == project.id
+                                    isSelected: selection == .project(project.id)
                                 ) {
                                     dismiss()
                                     onCreate(project)
@@ -145,14 +161,18 @@ struct NewSessionContent: View {
                     .padding(.vertical, 8)
                 }
                 .frame(maxHeight: popover ? 300 : .infinity)
-                .onChange(of: selectedProjectId) { _, newValue in
-                    guard let newValue else { return }
+                .onChange(of: selection) { _, newValue in
+                    guard case let .project(id) = newValue else { return }
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        proxy.scrollTo(newValue, anchor: .center)
+                        proxy.scrollTo(id, anchor: .center)
                     }
                 }
                 .onChange(of: searchText) { _, _ in
-                    selectedProjectId = nil
+                    let items = selectableItems
+                    if let current = selection, items.contains(current) {
+                        return
+                    }
+                    selection = items.first
                 }
             }
         }
@@ -161,29 +181,31 @@ struct NewSessionContent: View {
     }
 
     private func moveSelection(by offset: Int) {
-        let projects = filteredProjects
-        guard !projects.isEmpty else { return }
+        let items = selectableItems
+        guard !items.isEmpty else { return }
 
+        let newIndex: Int
         if
-            let currentId = selectedProjectId,
-            let currentIndex = projects.firstIndex(where: { $0.id == currentId }) {
-            let newIndex = max(0, min(projects.count - 1, currentIndex + offset))
-            selectedProjectId = projects[newIndex].id
+            let current = selection,
+            let currentIndex = items.firstIndex(of: current) {
+            newIndex = (currentIndex + offset + items.count) % items.count
         } else {
-            selectedProjectId = offset > 0 ? projects.first?.id : projects.last?.id
+            newIndex = offset > 0 ? 0 : items.count - 1
         }
+        selection = items[newIndex]
     }
 
     private func handleSubmit() {
-        if
-            let selectedId = selectedProjectId,
-            let project = filteredProjects.first(where: { $0.id == selectedId }) {
+        switch selection {
+        case .newTerminal:
+            dismiss()
+            onCreate(nil)
+        case let .project(id):
+            guard let project = filteredProjects.first(where: { $0.id == id }) else { return }
             dismiss()
             onCreate(project)
-        } else if filteredProjects.count == 1 {
-            let project = filteredProjects[0]
-            dismiss()
-            onCreate(project)
+        case nil:
+            return
         }
     }
 }
@@ -198,12 +220,24 @@ struct NewSessionRow: View {
     var isSelected = false
     let action: () -> Void
 
+    private var iconStyle: AnyShapeStyle {
+        isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary)
+    }
+
+    private var chevronStyle: AnyShapeStyle {
+        isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary)
+    }
+
+    private var backgroundFill: Color {
+        isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05)
+    }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 symbol.image
                     .font(.title2)
-                    .foregroundStyle(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+                    .foregroundStyle(iconStyle)
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -226,14 +260,14 @@ struct NewSessionRow: View {
                 } else {
                     Symbols.chevronRight.image
                         .font(.caption)
-                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
+                        .foregroundStyle(chevronStyle)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.05))
+                    .fill(backgroundFill)
             )
         }
         .buttonStyle(.plain)
