@@ -560,7 +560,19 @@
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
                     if self.autoFocusEnabled, !self.isEditorActive {
-                        window.makeFirstResponder(self)
+                        // In a multi-pane window every pane registers this
+                        // observer; if a sibling terminal already holds first
+                        // responder we must not steal it. The observers run
+                        // in an unspecified order and the last writer wins,
+                        // so without this guard the tmux-active pane keeps
+                        // overriding the user's explicit click.
+                        let currentResponder = window.firstResponder
+                        let siblingHasFocus =
+                            currentResponder !== self &&
+                            currentResponder is InteractiveTerminalView
+                        if !siblingHasFocus {
+                            window.makeFirstResponder(self)
+                        }
                     }
                     // If we're already first responder, restore cursor appearance
                     if window.firstResponder === self {
