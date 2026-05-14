@@ -135,7 +135,12 @@ public struct MenuBarExtraView: View {
 
         // Menu items can't render ProgressView, so use SF Symbols for all states
         if session.needsAttention {
-            Label(title, symbol: .bellBadgeFill)
+            Label {
+                Text(title)
+            } icon: {
+                Symbols.handsAndSparklesFill.image
+                    .foregroundStyle(Color.accentColor)
+            }
         } else if session.isWorking {
             Label(title, symbol: .figureRun)
         } else {
@@ -162,7 +167,7 @@ public struct MenuBarLabel: View {
         HStack(spacing: 2) {
             Symbols.handsAndSparklesFill.image
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.accentColor)
 
             Text("\(pendingCount)")
                 .font(.system(size: 10, weight: .bold))
@@ -171,7 +176,7 @@ public struct MenuBarLabel: View {
                 .padding(.vertical, 2)
                 .background(
                     Capsule()
-                        .fill(.red)
+                        .fill(Color.accentColor)
                 )
         }
     }
