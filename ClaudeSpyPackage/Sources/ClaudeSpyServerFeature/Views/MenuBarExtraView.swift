@@ -83,6 +83,22 @@ public struct MenuBarExtraView: View {
 
     // MARK: - Helpers
 
+    /// Pre-rendered accent-tinted attention icon for use in NSMenuItem rows.
+    /// `Color.accentColor` resolves to the system accent inside an NSMenu
+    /// context, so we load the asset-catalog color via `Bundle.main`.
+    @MainActor
+    private static let attentionIconImage: NSImage? = {
+        let renderer = ImageRenderer(content:
+            Symbols.handsAndSparklesFill.image
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color("AccentColor", bundle: .main))
+        )
+        renderer.scale = 2
+        let image = renderer.nsImage
+        image?.isTemplate = false
+        return image
+    }()
+
     /// Activates the app and forces all visible windows to the front.
     /// SwiftUI's openWindow/openSettings defer window creation, so we
     /// schedule a delayed force-front to catch windows after they appear.
@@ -138,8 +154,14 @@ public struct MenuBarExtraView: View {
             Label {
                 Text(title)
             } icon: {
-                Symbols.handsAndSparklesFill.image
-                    .foregroundStyle(Color.accentColor)
+                // NSMenuItem renders SF Symbols as template images, stripping
+                // foregroundStyle. Pre-render through ImageRenderer with
+                // isTemplate=false so the accent color survives.
+                if let image = Self.attentionIconImage {
+                    Image(nsImage: image)
+                } else {
+                    Symbols.handsAndSparklesFill.image
+                }
             }
         } else if session.isWorking {
             Label(title, symbol: .figureRun)
@@ -167,7 +189,7 @@ public struct MenuBarLabel: View {
         HStack(spacing: 2) {
             Symbols.handsAndSparklesFill.image
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Color("AccentColor", bundle: .main))
 
             Text("\(pendingCount)")
                 .font(.system(size: 10, weight: .bold))
@@ -176,7 +198,7 @@ public struct MenuBarLabel: View {
                 .padding(.vertical, 2)
                 .background(
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(Color("AccentColor", bundle: .main))
                 )
         }
     }
