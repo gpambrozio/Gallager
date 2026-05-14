@@ -333,11 +333,16 @@ private struct BrowserWebViewRepresentable: NSViewRepresentable {
 /// A pending decision for a clicked terminal link, surfaced via a sheet so the
 /// user can pick where to open it. Carries enough context that the resolved
 /// URL can be opened or routed to a browser tab without re-deriving anything.
+///
+/// `hostId` is `nil` for clicks coming from a local session and the paired
+/// host's id otherwise — routing remote-session prompts back to the same
+/// remote session's tab strip rather than the local one.
 struct PendingBrowserURLPrompt: Identifiable, Equatable {
     let id = UUID()
     let url: URL
     let sessionName: String
     let windowId: String
+    let hostId: String?
 }
 
 /// User's selection from the confirmation dialog.

@@ -56,6 +56,12 @@ public struct MainView: View {
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
+    /// Cached browser-tab strip per remote session (keyed by
+    /// `"\(hostId):\(sessionName)"`). Mirrors `sessionFileTabsStates` for
+    /// remote sessions — but only the browser-tab fields are used today since
+    /// remote file browsing isn't implemented. Keeping the same type avoids a
+    /// parallel data structure for what is, semantically, the same state.
+    @State private var remoteSessionTabsStates: [String: SessionFileTabsState] = [:]
 
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
@@ -178,6 +184,24 @@ public struct MainView: View {
             // or tmux-active window changed by the host).
             if let resolvedId = selectedRemoteWindow?.id, resolvedId != selectedRemoteWindowId {
                 selectedRemoteWindowId = resolvedId
+            }
+        }
+        .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
+            // Drop browser-tab state for hosts that are no longer paired so
+            // the live `WKWebView` instances in `browserStates` aren't held
+            // forever. Session-level cleanup (sessions deleted on a still-
+            // paired host) is left to host-level cleanup; in practice an
+            // empty session goes away when the user reconnects without it.
+            let currentHostIdsSet = Set(currentHostIds)
+            for key in remoteSessionTabsStates.keys {
+                // Keys are `"\(hostId):\(sessionName)"`, so the hostId is
+                // everything before the first colon. Safe because
+                // `PairedHost.id` is UUID-formatted (hex + hyphens, no colons);
+                // if that ever changes this split needs to change too.
+                let hostId = String(key.split(separator: ":", maxSplits: 1).first ?? "")
+                if !currentHostIdsSet.contains(hostId) {
+                    remoteSessionTabsStates.removeValue(forKey: key)
+                }
             }
         }
         .onChange(of: settings.alwaysAutoResize) {
@@ -584,13 +608,28 @@ public struct MainView: View {
             let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId),
             let window = selectedRemoteWindow {
             let windows = selectedRemoteSessionWindows
+            let tabsKey = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            let remoteTabs = remoteSessionTabsStates[tabsKey]
+            let selectedBrowserTab: BrowserTab? = {
+                guard
+                    let remoteTabs,
+                    let selectedId = remoteTabs.selectedBrowserTabId
+                else { return nil }
+                return remoteTabs.openBrowserTabs.first(where: { $0.id == selectedId })
+            }()
             VStack(spacing: 0) {
                 RemoteWindowTabBar(
                     windows: windows,
                     selectedWindow: window,
                     isHostConnected: connection.isHostConnected,
+                    openBrowserTabs: remoteTabs?.openBrowserTabs ?? [],
+                    selectedBrowserTabId: remoteTabs?.selectedBrowserTabId,
                     onSelectWindow: { newWindow in
                         selectedRemoteWindowId = newWindow.id
+                        // Switching back to a tmux window deselects any active
+                        // browser tab so the terminal pane is rendered again
+                        // even when a browser tab was previously focused.
+                        remoteSessionTabsStates[tabsKey]?.selectedBrowserTabId = nil
                         Task {
                             _ = await connection.relayClient.sendCommand(
                                 SelectTmuxWindow(),
@@ -632,13 +671,28 @@ public struct MainView: View {
                                 paneId: ""
                             )
                         }
+                    },
+                    onSelectBrowserTab: { tabId in
+                        selectRemoteBrowserTab(
+                            tabId,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName
+                        )
+                    },
+                    onCloseBrowserTab: { tabId in
+                        closeRemoteBrowserTab(
+                            tabId,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName
+                        )
                     }
                 )
 
-                RemoteWindowPaneLayoutView(
-                    window: window,
+                remoteDetailBody(
+                    remote: remote,
                     connection: connection,
-                    settings: settings
+                    window: window,
+                    selectedBrowserTab: selectedBrowserTab
                 )
             }
             .id("\(remote.hostId)-\(window.id)")
@@ -798,6 +852,61 @@ public struct MainView: View {
                 }
                 Spacer()
             }
+        }
+    }
+
+    // MARK: - Remote Detail Body
+
+    /// Renders the body of a remote session's detail pane: either the live
+    /// in-app browser tab content (when one is selected) or the remote tmux
+    /// pane layout. Web links clicked in the remote terminal flow through
+    /// `handleRemoteTerminalURLClick` so the per-domain rules and
+    /// `browserLinkBehavior` prompt apply identically to local sessions.
+    @ViewBuilder
+    private func remoteDetailBody(
+        remote: RemoteSessionSelection,
+        connection: ViewerConnection,
+        window: TmuxWindow,
+        selectedBrowserTab: BrowserTab?
+    ) -> some View {
+        let tabsKey = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        if
+            let selectedBrowserTab,
+            let browserTabState = remoteSessionTabsStates[tabsKey]?.browserStates[selectedBrowserTab.id] {
+            BrowserTabContentView(
+                state: browserTabState,
+                onTitleChange: { newTitle in
+                    updateRemoteBrowserTabTitle(
+                        tabId: selectedBrowserTab.id,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName,
+                        title: newTitle
+                    )
+                },
+                onURLChange: { newURL in
+                    updateRemoteBrowserTabURL(
+                        tabId: selectedBrowserTab.id,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName,
+                        url: newURL
+                    )
+                }
+            )
+            .id(selectedBrowserTab.id)
+        } else {
+            RemoteWindowPaneLayoutView(
+                window: window,
+                connection: connection,
+                settings: settings,
+                onOpenURL: { url in
+                    handleRemoteTerminalURLClick(
+                        url,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName,
+                        windowId: window.id
+                    )
+                }
+            )
         }
     }
 
@@ -1494,6 +1603,17 @@ public struct MainView: View {
         if
             let remote = selectedRemoteSession,
             let remoteWindow = selectedRemoteWindow {
+            // If a remote browser tab is selected, Cmd-W closes that tab
+            // first — mirrors the local "tab over window" precedence.
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            if let selectedBrowserId = remoteSessionTabsStates[key]?.selectedBrowserTabId {
+                closeRemoteBrowserTab(
+                    selectedBrowserId,
+                    hostId: remote.hostId,
+                    sessionName: remote.sessionName
+                )
+                return
+            }
             requestCloseRemoteWindow(remoteWindow, hostId: remote.hostId)
             return
         }
@@ -1763,7 +1883,49 @@ public struct MainView: View {
             pendingBrowserURLPrompt = PendingBrowserURLPrompt(
                 url: url,
                 sessionName: session.sessionName,
-                windowId: window.id
+                windowId: window.id,
+                hostId: nil
+            )
+            return true
+        }
+    }
+
+    /// Mirror of `handleTerminalURLClick` for remote sessions. Web link clicks
+    /// inside a remote terminal follow the same `browserLinkBehavior` rules as
+    /// local clicks — including the per-domain overrides — so the
+    /// in-app/system-browser preference is honoured uniformly across
+    /// host types. `file://` URLs are not routed in-app for remote sessions
+    /// because the remote filesystem isn't browsable here yet; they fall
+    /// through to `URLOpener` which the host treats as a no-op for unknown
+    /// schemes.
+    private func handleRemoteTerminalURLClick(
+        _ url: URL,
+        hostId: String,
+        sessionName: String,
+        windowId: String
+    ) -> Bool {
+        guard BrowserURLDispatcher.canHandle(url) else { return false }
+
+        let effective = settings.browserBehavior(for: url) ?? settings.browserLinkBehavior
+
+        switch effective {
+        case .alwaysInApp:
+            openRemoteBrowserTab(
+                url: url,
+                hostId: hostId,
+                sessionName: sessionName,
+                windowId: windowId,
+                originWindowId: windowId
+            )
+            return true
+        case .alwaysInDefaultBrowser:
+            return false
+        case .ask:
+            pendingBrowserURLPrompt = PendingBrowserURLPrompt(
+                url: url,
+                sessionName: sessionName,
+                windowId: windowId,
+                hostId: hostId
             )
             return true
         }
@@ -1777,10 +1939,13 @@ public struct MainView: View {
         windowId: String,
         originWindowId: String? = nil
     ) {
-        if sessionFileTabsStates[sessionName] == nil {
-            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        let tabs: SessionFileTabsState
+        if let existing = sessionFileTabsStates[sessionName] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            sessionFileTabsStates[sessionName] = tabs
         }
-        guard let tabs = sessionFileTabsStates[sessionName] else { return }
         let useSplit = settings.alwaysOpenLinksInSplit
         // Match on the tab's live `currentURL` (driven by the WKWebView) rather
         // than the value stored on `BrowserTab`. After the user navigates away
@@ -1895,6 +2060,135 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - Remote Browser Tab Helpers
+
+    /// Composite key into `remoteSessionTabsStates` for `(hostId, sessionName)`.
+    /// Two paired hosts can have a session with the same name, so the hostId
+    /// has to participate in the key — keying on `sessionName` alone would
+    /// collide their tab strips.
+    private func remoteTabsKey(hostId: String, sessionName: String) -> String {
+        "\(hostId):\(sessionName)"
+    }
+
+    /// Opens (or re-selects) a browser tab inside a remote session's tab
+    /// strip. Mirrors `openBrowserTab` for local sessions but reads/writes
+    /// `remoteSessionTabsStates`.
+    private func openRemoteBrowserTab(
+        url: URL,
+        hostId: String,
+        sessionName: String,
+        windowId: String,
+        originWindowId: String? = nil
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        let tabs: SessionFileTabsState
+        if let existing = remoteSessionTabsStates[key] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            remoteSessionTabsStates[key] = tabs
+        }
+        // De-dup on the live `currentURL` from the WKWebView, not the value
+        // stored on `BrowserTab`. After the user navigates the tab away from
+        // its opening URL, `BrowserTab.url` advances with them; matching on
+        // it would let a re-click of the original URL spawn a duplicate tab.
+        let existingIndex = tabs.openBrowserTabs.firstIndex { tab in
+            tabs.browserStates[tab.id]?.currentURL == url
+        }
+        if let existingIndex {
+            if let originWindowId {
+                tabs.openBrowserTabs[existingIndex].originWindowId = originWindowId
+            }
+            tabs.selectedBrowserTabId = tabs.openBrowserTabs[existingIndex].id
+        } else {
+            let newTab = BrowserTab(url: url, originWindowId: originWindowId)
+            tabs.openBrowserTabs.append(newTab)
+            tabs.browserStates[newTab.id] = BrowserTabState(initialURL: url)
+            tabs.selectedBrowserTabId = newTab.id
+        }
+    }
+
+    /// Selects an existing browser tab in a remote session's tab strip.
+    private func selectRemoteBrowserTab(
+        _ tabId: UUID,
+        hostId: String,
+        sessionName: String
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard let tabs = remoteSessionTabsStates[key] else { return }
+        tabs.selectedBrowserTabId = tabId
+    }
+
+    /// Caches a remote browser tab's latest page title so the tab strip can
+    /// re-render with the new label.
+    private func updateRemoteBrowserTabTitle(
+        tabId: UUID,
+        hostId: String,
+        sessionName: String,
+        title: String?
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard
+            let tabs = remoteSessionTabsStates[key],
+            let index = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId })
+        else { return }
+        if tabs.openBrowserTabs[index].displayTitle != title {
+            tabs.openBrowserTabs[index].displayTitle = title
+        }
+    }
+
+    /// Records a remote browser tab's current URL as the user navigates so
+    /// re-clicking the original URL re-focuses the existing tab.
+    private func updateRemoteBrowserTabURL(
+        tabId: UUID,
+        hostId: String,
+        sessionName: String,
+        url: URL
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard
+            let tabs = remoteSessionTabsStates[key],
+            let index = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId })
+        else { return }
+        if tabs.openBrowserTabs[index].url != url {
+            tabs.openBrowserTabs[index].url = url
+        }
+    }
+
+    /// Removes a remote browser tab and its live web view. When the closed
+    /// tab was selected and originated from a remote terminal click, the
+    /// originating tmux window becomes selected again — same return-to-origin
+    /// behaviour as `closeBrowserTab` for local tabs.
+    private func closeRemoteBrowserTab(
+        _ tabId: UUID,
+        hostId: String,
+        sessionName: String
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard let tabs = remoteSessionTabsStates[key] else { return }
+        guard let closedIndex = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let closedTab = tabs.openBrowserTabs[closedIndex]
+        let wasSelected = tabs.selectedBrowserTabId == tabId
+        tabs.openBrowserTabs.remove(at: closedIndex)
+        tabs.browserStates.removeValue(forKey: tabId)
+        guard wasSelected else { return }
+        tabs.selectedBrowserTabId = nil
+        guard
+            let originWindowId = closedTab.originWindowId,
+            let sessionStore = coordinator.remoteSessionStore
+        else { return }
+        let remoteWindows = sessionStore.windows(for: hostId)
+            .filter { $0.sessionName == sessionName }
+        if remoteWindows.contains(where: { $0.id == originWindowId }) {
+            selectedRemoteWindowId = originWindowId
+        } else {
+            // Origin window no longer exists (e.g., closed on the host).
+            // Drop the stale selection so the UI lands on a clean
+            // "no window selected" state instead of a phantom id.
+            selectedRemoteWindowId = nil
+        }
+    }
+
     /// Resolves the user's choice from the link confirmation dialog: opens the
     /// URL via the chosen path and — depending on `rememberScope` — either
     /// updates the global `settings.browserLinkBehavior` or adds a per-domain
@@ -1908,12 +2202,22 @@ public struct MainView: View {
         let resolved: BrowserLinkBehavior
         switch choice {
         case .inApp:
-            openBrowserTab(
-                url: prompt.url,
-                sessionName: prompt.sessionName,
-                windowId: prompt.windowId,
-                originWindowId: prompt.windowId
-            )
+            if let hostId = prompt.hostId {
+                openRemoteBrowserTab(
+                    url: prompt.url,
+                    hostId: hostId,
+                    sessionName: prompt.sessionName,
+                    windowId: prompt.windowId,
+                    originWindowId: prompt.windowId
+                )
+            } else {
+                openBrowserTab(
+                    url: prompt.url,
+                    sessionName: prompt.sessionName,
+                    windowId: prompt.windowId,
+                    originWindowId: prompt.windowId
+                )
+            }
             resolved = .alwaysInApp
         case .defaultBrowser:
             @Dependency(URLOpener.self) var urlOpener

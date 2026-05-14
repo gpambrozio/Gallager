@@ -154,6 +154,12 @@ public actor TestOrchestrator {
         context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
         context.set("defaultBrowserLogPath", value: defaultBrowserLogPath(for: 0))
+        // Per-instance default-browser log paths. Two-Mac scenarios that flip
+        // a viewer's `browserLinkBehavior` to `.alwaysInDefaultBrowser` need
+        // the viewer's path to assert against; instance 0 stays available
+        // under the unsuffixed `defaultBrowserLogPath` for backwards-compat
+        // with existing scenarios.
+        context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
 
