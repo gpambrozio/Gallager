@@ -16,7 +16,7 @@ private let skippedNavigatorEntries: Set = [
 ]
 
 /// Which kind of search the file browser is currently performing.
-enum FileSearchMode: String, CaseIterable {
+enum FileSearchMode: String, CaseIterable, Sendable {
     /// Match file names / paths (existing behavior).
     case name
     /// Match the contents of files (issue #432).
@@ -227,6 +227,11 @@ final class FileBrowserState {
     /// sources lands on neither watcher. Re-reading the disk on attach
     /// catches those orphaned writes so the new file shows up without the
     /// user having to manually expand a folder to trigger another reload.
+    ///
+    /// The on-attach reload does not cause a `.task(id: loadedFolderPaths)`
+    /// recreation cycle: the service returns the same set of paths it was
+    /// asked to load, so `loadedFolderPaths` ends up `==` to its previous
+    /// value and SwiftUI skips the task restart.
     func runDirectoryWatcher(
         rootDirectoryPath: String,
         service: FileSystemLoadingService,

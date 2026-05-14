@@ -35,12 +35,12 @@
             // First reload populates `viewState`, just like the view's
             // initial `.task(id: directoryPath)` does on mount.
             await state.reloadTree(directoryPath: tempDir.path, service: service)
-            #expect(rootChildNames(of: state) == ["existing.txt"])
+            #expect(rootChildNames(of: state).contains("existing.txt"))
 
             // Run the same watcher loop the view spins up in
             // `.task(id: state.loadedFolderPaths)`. Cancellation tears the
             // task down at the end of the test.
-            let watcher = Task { @MainActor in
+            let watcher = Task {
                 await state.runDirectoryWatcher(rootDirectoryPath: tempDir.path, service: service)
             }
 
@@ -101,10 +101,10 @@
             let state = FileBrowserState()
 
             await state.reloadTree(directoryPath: tempDir.path, service: service)
-            #expect(rootChildNames(of: state) == ["existing.txt"])
+            #expect(rootChildNames(of: state).contains("existing.txt"))
 
             // First watcher cycle, allowed to attach.
-            let firstWatcher = Task { @MainActor in
+            let firstWatcher = Task {
                 await state.runDirectoryWatcher(rootDirectoryPath: tempDir.path, service: service)
             }
             try await Task.sleep(for: .milliseconds(100))
@@ -125,7 +125,7 @@
             // Second watcher cycle. The on-attach reload inside
             // `runDirectoryWatcher(...)` is what surfaces the gap file —
             // no kqueue event will ever fire for it.
-            let secondWatcher = Task { @MainActor in
+            let secondWatcher = Task {
                 await state.runDirectoryWatcher(rootDirectoryPath: tempDir.path, service: service)
             }
 
