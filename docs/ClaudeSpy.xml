@@ -6,6 +6,53 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.30</title>
+         <sparkle:version>30</sparkle:version>
+         <sparkle:shortVersionString>1.30</sparkle:shortVersionString>
+         <pubDate>Thu, 14 May 2026 08:33:01 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.30
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Draggable tabs and reordering</strong>: Tabs in the main window can now be reordered by dragging. New keyboard shortcuts ⌘⇧[ and ⌘⇧] move between tabs.</li>
+<li><strong>Browser tab</strong>: A new browser tab opens links from the terminal directly inside Gallager, with per-domain decisions to remember whether you want a domain to open in-app or in your default browser.</li>
+<li><strong>Split-tab view</strong>: File and browser tabs can be displayed side-by-side in a split layout.</li>
+<li><strong>Open files in external editors</strong>: File-browser entries can be opened in your preferred external editor.</li>
+<li><strong>Full-text search in file explorer</strong>: Search file contents directly from the file browser.</li>
+<li><strong>Drag files out of the file explorer</strong>: File-browser rows can be dragged into other applications.</li>
+<li><strong>Drop files from Finder into terminals</strong>: Dropping files from Finder onto a terminal pane forwards them to the tmux paste buffer.</li>
+<li><strong>Image paste forwarding</strong>: Images pasted into a Mac viewer are now forwarded to the remote host.</li>
+<li><strong>Remote link handling on iOS</strong>: Links clicked in remote sessions now open inside the app.</li>
+<li><strong>`gallager set-progress` CLI</strong>: New command for driving the sidebar progress indicator, including an `indeterminate` state.</li>
+<li><strong>`gallager notify --push`</strong>: Notifications can now be sent as push notifications.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Cmd-W scoping</strong>: Cmd-W now properly closes the Settings and About windows when they're focused, instead of only acting on terminal panes.</li>
+<li><strong>File-browser selection</strong>: The file-browser list keeps its first-responder state so the selection highlight stays visible.</li>
+<li><strong>Native context menus</strong>: File-browser context menus now use native NSMenu for better platform integration.</li>
+<li><strong>Sidebar progress alignment</strong>: The sidebar progress bar sits slightly lower for better visual alignment.</li>
+<li><strong>Disk-full alert threshold</strong>: The disk-full warning now triggers at 85% usage instead of 80%, reducing false alarms.</li>
+<li><strong>Sparkle updater</strong>: Updated to Sparkle 2.9.1.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed `gallager apply` failing with "can't find window: !" in certain configurations.</li>
+<li>Fixed an issue where pane streaming could spawn multiple readers; each pane now uses a single persistent reader for more reliable output.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.30.dmg"
+                    sparkle:edSignature="2uEsQJHFbNvf4eOYKmrksTrdg4YizhdAbzlBh4LWSlirkKOaib4UIBPwFVUHUJ9QUKkHp9JD3GdUHRUkZpgPAQ=="
+                    length="31030741"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.29</title>
          <sparkle:version>29</sparkle:version>
          <sparkle:shortVersionString>1.29</sparkle:shortVersionString>
