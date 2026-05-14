@@ -26,18 +26,6 @@
             fatalError("init(coder:) has not been implemented")
         }
 
-        /// Purely decorative — drawn on top of the terminal to show focus
-        /// state. Must not absorb hit-tests; otherwise the AppKit click flow
-        /// finds this view at the click point, sees that it does not accept
-        /// first responder (NSView default), and silently drops the click
-        /// instead of escalating to the parent `InteractiveTerminalView`,
-        /// which would call `selectPane`. That's exactly the
-        /// `MultiPaneWindow` stage-3a failure: clicking pane .1's centre
-        /// did not transfer focus because this overlay sat on top.
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
-        }
-
         override func draw(_ dirtyRect: NSRect) {
             guard isFocused else { return }
 
@@ -177,34 +165,6 @@
         }
 
         override func mouseDown(with event: NSEvent) {
-            // Promote the parent `InteractiveTerminalView` to first responder
-            // and fire its focus callback. AppKit's standard click flow
-            // normally walks up from the hit view to make an accepting view
-            // first responder, but because this overlay returns itself from
-            // `hitTest` and reports `acceptsFirstResponder = false`, AppKit
-            // bails out without firing any `becomeFirstResponder`. Without
-            // this, clicks on the terminal never trigger the parent's
-            // responder chain — meaning the `onBecomeFirstResponder`
-            // callback (and its `selectPane` round-trip to tmux) never fires
-            // for clicks on sibling panes, which is the `MultiPaneWindow`
-            // stage-3a regression.
-            //
-            // `onBecomeFirstResponder` is fired explicitly *in addition to*
-            // letting `makeFirstResponder` route through the override,
-            // because tmux's active pane can diverge from AppKit's first
-            // responder (a remote `split-window` makes a new pane tmux-
-            // active without involving this app's focus state, so clicking
-            // a pane that already happens to be the app's first responder
-            // must still re-sync to tmux). The handler is idempotent —
-            // it issues a `select-pane`, which tmux treats as a no-op when
-            // the pane is already active.
-            if let interactive = interactiveView, let window = interactive.window {
-                let wasAlreadyFirstResponder = (window.firstResponder === interactive)
-                window.makeFirstResponder(interactive)
-                if wasAlreadyFirstResponder {
-                    interactive.onBecomeFirstResponder?()
-                }
-            }
             // In mouse mode, suppress the press if it lands on a URL we'd
             // intercept in `mouseUp` (file/http/https/ftp). Otherwise SwiftTerm
             // forwards a mouse-press SGR sequence to the terminal app (e.g.
@@ -583,34 +543,15 @@
 
             // Auto-focus when added to a window (disabled in multi-pane layouts
             // where multiple terminals share one window to avoid focus fighting,
-            // and when the prompt editor overlay is active).
-            //
-            // The grab is dispatched via `Task { @MainActor }`, which can run
-            // arbitrarily later — long enough for the user (or a test) to have
-            // already clicked a different pane in the meantime. Re-checking
-            // `window.firstResponder` inside the Task prevents the deferred
-            // grab from clobbering a sibling pane's focus.
+            // and when the prompt editor overlay is active)
             if autoFocusEnabled, !isEditorActive {
                 Task { [weak self] in
-                    guard let self, let window = self.window else { return }
-                    let current = window.firstResponder
-                    if current == nil || current === window {
-                        window.makeFirstResponder(self)
-                    }
+                    guard let self else { return }
+                    self.window?.makeFirstResponder(self)
                 }
             }
 
-            // Re-focus when window becomes key (e.g., after switching apps).
-            //
-            // Only grab focus if no view currently holds it — `window.firstResponder`
-            // is the window itself when no view is focused. In multi-pane layouts a
-            // sibling pane may already be first responder (the user — or a test —
-            // clicked it). Calling `makeFirstResponder(self)` unconditionally
-            // races the click and steals focus back to whichever pane was tmux-
-            // active at view-creation time, which is also what made
-            // `MultiPaneWindowScenario` stage 3a flake when the orchestrator's
-            // pre-click `focusApp` queued a `didBecomeKey` whose observer ran
-            // just after the click landed.
+            // Re-focus when window becomes key (e.g., after switching apps)
             windowObservers.append(NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification,
                 object: window,
@@ -619,10 +560,7 @@
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
                     if self.autoFocusEnabled, !self.isEditorActive {
-                        let current = window.firstResponder
-                        if current == nil || current === window {
-                            window.makeFirstResponder(self)
-                        }
+                        window.makeFirstResponder(self)
                     }
                     // If we're already first responder, restore cursor appearance
                     if window.firstResponder === self {
