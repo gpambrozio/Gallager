@@ -57,24 +57,22 @@ public enum ProjectPickerArrowNavScenario {
         // (none of the other 11 names contain the subsequence a-l-p).
         // Selection should auto-move to AlphaProject.
         //
-        // Use pressShortcut per-character instead of macType — macType's
-        // AppleScript `set frontmost to true` dismisses the popover after
-        // the preceding arrow-key activations have nudged window focus.
+        // Click the search field first to make the NSTextField the
+        // AppKit first-responder: the prior arrow-press loop routed
+        // through SwiftUI `.onKeyPress` (which only requires SwiftUI
+        // @FocusState) and the popover-scroll triggered by selection
+        // changes can desync that from AppKit's first-responder.
         //
-        // Re-focus the search field via AX first: the arrow presses route
-        // through SwiftUI `.onKeyPress` (which fires off the focused
-        // TextField's SwiftUI focus state), but plain letter CGEvents
-        // need AppKit's first-responder to actually be the NSTextField.
-        // Scrolling the popover during selection nudges first-responder
-        // off the field even while @FocusState still reports it focused —
-        // setting AXFocused re-aligns the two before we type.
+        // Type the filter via `macType` (AppleScript keystroke via
+        // System Events) rather than CGEvent `pressShortcut` — plain
+        // CGEvent key posts don't reach a SwiftUI TextField hosted in
+        // an NSPopover panel reliably, whereas System Events follows
+        // the accessibility focus chain into the popover.
         TestStep.log("Re-focusing search field before typing (popover scroll can desync first-responder)")
-        TestStep.macFocusElement(titled: "Search projects")
+        TestStep.macCGClick(titled: "Search projects")
         TestStep.wait(seconds: 0.3)
-        TestStep.log("Typing 'alp' via per-key CGEvents: filters to AlphaProject and auto-selects it")
-        TestStep.macPressShortcut(key: "a")
-        TestStep.macPressShortcut(key: "l")
-        TestStep.macPressShortcut(key: "p")
+        TestStep.log("Typing 'alp': filters to AlphaProject and auto-selects it")
+        TestStep.macType(text: "alp")
         TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElementToDisappear(titled: "ZetaCore", timeout: 5)
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
@@ -83,7 +81,7 @@ public enum ProjectPickerArrowNavScenario {
         // ── Phase F: typing preserves selection if still in list ─
         // "alph" still matches AlphaProject — selection should stay.
         TestStep.log("Typing 'h' so search becomes 'alph' — AlphaProject still highlighted")
-        TestStep.macPressShortcut(key: "h")
+        TestStep.macType(text: "h")
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-filter-preserves-alpha")
 
