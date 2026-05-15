@@ -58,6 +58,8 @@ public enum Key: Sendable, Equatable {
     case escape
     case `return`
     case space
+    case downArrow
+    case upArrow
     case character(Character)
 }
 
@@ -164,8 +166,9 @@ public enum TestStep: Sendable {
     /// Press a key with optional modifiers via CGEvent.
     ///
     /// Use named ``Key`` cases for non-printable keys (Tab, Escape, Return,
-    /// Space) and `.character(_)` for any printable character whose virtual
-    /// key code the driver can resolve (letters, digits, common punctuation).
+    /// Space, arrow keys) and `.character(_)` for any printable character
+    /// whose virtual key code the driver can resolve (letters, digits,
+    /// common punctuation).
     ///
     /// Examples:
     /// - `macPressKey(.escape)` — dismiss a dialog

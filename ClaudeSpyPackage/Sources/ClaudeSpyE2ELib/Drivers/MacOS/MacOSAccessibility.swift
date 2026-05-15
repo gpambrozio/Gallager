@@ -413,6 +413,8 @@ enum MacOSAccessibility {
         case .escape: return 53
         case .return: return 36
         case .space: return 49
+        case .downArrow: return 125
+        case .upArrow: return 126
         case let .character(character): return virtualKeyCode(forCharacter: character)
         }
     }
