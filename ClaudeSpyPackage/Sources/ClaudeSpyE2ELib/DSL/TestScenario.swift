@@ -21,6 +21,9 @@ public enum E2EDeviceType: String, Sendable {
 
 /// Keyboard modifier flags accepted by ``TestStep/macPressKey(_:modifiers:instance:)``.
 /// Maps directly to `CGEventFlags` inside the macOS driver.
+///
+/// Combine multiple modifiers with array-literal syntax,
+/// e.g. `[.command, .shift]`.
 public struct KeyboardModifiers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -34,17 +37,28 @@ public struct KeyboardModifiers: OptionSet, Sendable {
     public static let control = KeyboardModifiers(rawValue: 1 << 3)
 }
 
+extension KeyboardModifiers: CustomStringConvertible {
+    public var description: String {
+        var parts: [String] = []
+        if contains(.command) { parts.append("command") }
+        if contains(.shift) { parts.append("shift") }
+        if contains(.option) { parts.append("option") }
+        if contains(.control) { parts.append("control") }
+        return parts.isEmpty ? "[]" : parts.joined(separator: "+")
+    }
+}
+
 /// A key to press via ``TestStep/macPressKey(_:modifiers:instance:)``.
 ///
 /// Use the named cases for non-printable keys (Tab, Escape, …) and
 /// `.character(_)` for printable characters whose virtual key code the
-/// macOS driver can resolve (letters, digits, `[`, `]`).
+/// macOS driver can resolve (letters, digits, common punctuation).
 public enum Key: Sendable, Equatable {
     case tab
     case escape
     case `return`
     case space
-    case character(String)
+    case character(Character)
 }
 
 /// An individual test step that the orchestrator executes
@@ -151,7 +165,7 @@ public enum TestStep: Sendable {
     ///
     /// Use named ``Key`` cases for non-printable keys (Tab, Escape, Return,
     /// Space) and `.character(_)` for any printable character whose virtual
-    /// key code the driver can resolve (letters, digits, `[`, `]`).
+    /// key code the driver can resolve (letters, digits, common punctuation).
     ///
     /// Examples:
     /// - `macPressKey(.escape)` — dismiss a dialog

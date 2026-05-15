@@ -200,19 +200,21 @@ public actor MacOSDriver {
     /// Press a key with optional modifiers via CGEvent.
     ///
     /// Resolves named keys (Tab, Escape, …) and character keys (letters,
-    /// digits, `[`, `]`) into US-keyboard virtual key codes, then posts a
-    /// keyDown/keyUp pair through `CGEvent`. The app is focused first so the
-    /// event lands in the right process.
+    /// digits, common punctuation) into US-keyboard virtual key codes, then
+    /// posts a keyDown/keyUp pair through `CGEvent`. The app is focused
+    /// first so the event lands in the right process.
     public func pressKey(_ key: Key, modifiers: KeyboardModifiers = []) async throws {
         let pid = try requirePID()
         // Named keys always resolve; only `.character(_)` cases with an
-        // unsupported symbol can fail to map, so reporting the character
-        // is sufficient for the error message.
+        // unsupported symbol can fail to map.
         guard let virtualKey = MacOSAccessibility.virtualKeyCode(for: key) else {
-            guard case let .character(character) = key else {
-                throw MacOSDriverError.unsupportedShortcutKey(String(describing: key))
+            let desc: String
+            if case let .character(character) = key {
+                desc = String(character)
+            } else {
+                desc = String(describing: key)
             }
-            throw MacOSDriverError.unsupportedShortcutKey(character)
+            throw MacOSDriverError.unsupportedShortcutKey(desc)
         }
         logger.info("Pressing key '\(modifiers)+\(key)' (PID \(pid))")
         MacOSAccessibility.focusApp(appPID: pid)

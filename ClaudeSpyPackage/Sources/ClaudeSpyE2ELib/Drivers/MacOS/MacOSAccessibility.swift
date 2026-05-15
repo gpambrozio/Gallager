@@ -413,18 +413,22 @@ enum MacOSAccessibility {
         case .escape: return 53
         case .return: return 36
         case .space: return 49
-        case let .character(text): return virtualKeyCode(forCharacter: text)
+        case let .character(character): return virtualKeyCode(forCharacter: character)
         }
     }
 
     /// Translate a single character to its US-keyboard virtual key code.
     /// Returns `nil` for inputs the table doesn't cover so callers can throw.
-    static func virtualKeyCode(forCharacter character: String) -> UInt16? {
-        let lowered = character.lowercased()
-        guard lowered.count == 1, let scalar = lowered.unicodeScalars.first else {
+    static func virtualKeyCode(forCharacter character: Character) -> UInt16? {
+        // `Character.lowercased()` returns a `String` because some scripts (e.g.
+        // German `ß` → "ss") expand on lowercasing; ASCII letters are always a
+        // single grapheme so the `count == 1` guard simply filters anything we
+        // can't map to a virtual key code.
+        let loweredString = character.lowercased()
+        guard loweredString.count == 1, let lowered = loweredString.first else {
             return nil
         }
-        switch scalar {
+        switch lowered {
         case "a": return 0
         case "b": return 11
         case "c": return 8
@@ -463,6 +467,13 @@ enum MacOSAccessibility {
         case "9": return 25
         case "[": return 33
         case "]": return 30
+        case "-": return 27
+        case "=": return 24
+        case "/": return 44
+        case ",": return 43
+        case ".": return 47
+        case ";": return 41
+        case "'": return 39
         default: return nil
         }
     }
