@@ -352,15 +352,19 @@ enum MacOSAccessibility {
     /// Useful for selecting items in SwiftUI List/OutlineGroup where AXPress
     /// on ancestor elements toggles disclosure instead of selecting.
     @discardableResult
-    static func cgClick(appPID: pid_t, matching query: ElementQuery) -> Bool {
+    static func cgClick(
+        appPID: pid_t,
+        matching query: ElementQuery,
+        pointInRect: (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+    ) -> Bool {
         let matches = findAllRawElements(appPID: appPID, matching: query)
-        guard let center = matches.lazy.compactMap({ centerOfElement($0) }).first else {
+        guard let frame = matches.lazy.compactMap({ frameOfElement($0) }).first else {
             logger.info("cgClick: element not found for \(query)")
             return false
         }
         focusApp(appPID: appPID)
         usleep(200_000) // 200ms for focus
-        clickAtPoint(center)
+        clickAtPoint(pointInRect(frame))
         return true
     }
 
@@ -610,8 +614,8 @@ enum MacOSAccessibility {
 
     // MARK: - Private: Element Frame
 
-    /// Get the center point of a raw AXUIElement from its position and size attributes.
-    private static func centerOfElement(_ element: AXUIElement) -> CGPoint? {
+    /// Get the screen frame of a raw AXUIElement from its position and size attributes.
+    private static func frameOfElement(_ element: AXUIElement) -> CGRect? {
         var positionValue: CFTypeRef?
         var sizeValue: CFTypeRef?
         let posResult = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue)
@@ -625,7 +629,12 @@ enum MacOSAccessibility {
         // swiftlint:disable:next force_cast
         AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
 
-        return CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+        return CGRect(origin: position, size: size)
+    }
+
+    /// Get the center point of a raw AXUIElement from its position and size attributes.
+    private static func centerOfElement(_ element: AXUIElement) -> CGPoint? {
+        frameOfElement(element).map { CGPoint(x: $0.midX, y: $0.midY) }
     }
 
     // MARK: - Private: Raw Element Search

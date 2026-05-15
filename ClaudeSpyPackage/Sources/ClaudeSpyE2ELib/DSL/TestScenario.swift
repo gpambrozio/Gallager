@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A named collection of test steps
@@ -180,11 +181,22 @@ public enum TestStep: Sendable {
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
     /// Use for selecting items in SwiftUI List/OutlineGroup.
     case macCGClick(titled: String, instance: Int = 0)
-    /// CGEvent left-click at the centre of an element matching the query
-    /// (bypasses AXPress, uses real mouse click). Use when targeting elements
-    /// by accessibility identifier — e.g., individual terminal panes — instead
-    /// of fragile hard-coded screen coordinates.
-    case macCGClickElement(query: ElementQuery, instance: Int = 0)
+    /// CGEvent left-click on an element matching the query (bypasses AXPress,
+    /// uses real mouse click). Use when targeting elements by accessibility
+    /// identifier — e.g., individual terminal panes — instead of fragile
+    /// hard-coded screen coordinates.
+    ///
+    /// `pointInRect` maps the matched element's frame to the actual click
+    /// point. Defaults to the centre. Override when the matched element
+    /// wraps a smaller click target (e.g. macOS sidebar `List` collapses
+    /// section header contents into one AXHeading element, hiding the inner
+    /// "+" Button — `pointInRect: { CGPoint(x: $0.maxX - 8, y: $0.midY) }`
+    /// targets the right edge where the button lives).
+    case macCGClickElement(
+        query: ElementQuery,
+        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        instance: Int = 0
+    )
     /// Right-click an element to open its context menu
     case macRightClick(titled: String, instance: Int = 0)
     /// Right-click an element and then click a menu item from the context menu
