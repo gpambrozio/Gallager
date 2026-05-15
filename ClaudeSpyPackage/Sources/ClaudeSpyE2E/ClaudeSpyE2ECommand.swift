@@ -310,6 +310,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,
         TabReorderScenario.scenario,
+        ProjectPickerArrowNavScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
