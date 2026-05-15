@@ -54,7 +54,6 @@ struct RemoteWindowTabBar: View {
     @State private var splitRowWidth: CGFloat = 0
 
     @State private var hoveredWindowId: String?
-    @State private var hoveredBrowserTabId: UUID?
 
     /// Currently-displayed drop indicator: nil while nothing is being dragged.
     /// The bar shows a vertical accent line to the left of the matching tab
@@ -65,7 +64,7 @@ struct RemoteWindowTabBar: View {
     /// Which section's trailing drop zone is currently hovered, if any. Drawn
     /// separately from `dropIndicator` because the zone isn't a tab and has
     /// its own visual treatment.
-    @State private var trailingDropTargetedSection: RemoteTabSection?
+    @State private var trailingDropTargetedSection: TabSection?
 
     private var selectedRight: TabDragPayload? {
         sessionTabs?.selectedRight
@@ -213,7 +212,7 @@ struct RemoteWindowTabBar: View {
 
     /// Trailing drop target that fills the rest of the tab strip so users can
     /// drop a tab "past the last tab" to move it to the end of the section.
-    private func trailingDropZone(for section: RemoteTabSection) -> some View {
+    private func trailingDropZone(for section: TabSection) -> some View {
         let isTargeted = trailingDropTargetedSection == section
         let identifier = switch section {
         case .single: "remote-tab-trailing-drop-single"
@@ -263,43 +262,23 @@ struct RemoteWindowTabBar: View {
     }
 
     private var newWindowButton: some View {
-        Menu {
-            Button {
-                onNewWindow()
-            } label: {
-                Label("New Terminal", symbol: .terminal)
-            }
-            .disabled(!isHostConnected)
-            Button {
-                onNewBrowser()
-            } label: {
-                Label("New Browser", symbol: .globe)
-            }
-        } label: {
-            Symbols.plus.image
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .fixedSize()
-        .help("New terminal or browser tab")
-        .accessibilityLabel("New Tab")
+        NewTabMenuButton(
+            helpText: "New terminal or browser tab",
+            isTerminalDisabled: !isHostConnected,
+            onNewTerminal: onNewWindow,
+            onNewBrowser: onNewBrowser
+        )
     }
 
     private func windowTab(_ window: TmuxWindow) -> some View {
         let payload = TabDragPayload.window(window.id)
-        let isOnRight = isOnRight(payload)
+        let tabIsOnRight = isOnRight(payload)
         // Match the local `WindowTabBar` styling: when a browser tab is the
         // active detail view, deselect the window tab visually so the user
         // sees at a glance that the in-app browser — not the terminal — owns
         // the content area. Right-side windows are "selected" only when the
         // right-pane selection points at them.
-        let isSelected = isOnRight
+        let isSelected = tabIsOnRight
             ? selectedRight == payload
             : window.id == selectedWindow.id && selectedBrowserTabId == nil
         let isHovered = hoveredWindowId == window.id
@@ -331,7 +310,7 @@ struct RemoteWindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isOnRight,
+                isOnRight: tabIsOnRight,
                 tabKind: "terminal",
                 tabName: windowName,
                 action: { onToggleSplit(payload) }
@@ -346,7 +325,7 @@ struct RemoteWindowTabBar: View {
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: tabIsOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
@@ -370,70 +349,27 @@ struct RemoteWindowTabBar: View {
         }
     }
 
-    @ViewBuilder
     private func openBrowserTabView(_ tab: BrowserTab) -> some View {
         let payload = TabDragPayload.browser(tab.id)
         let isOnRight = isOnRight(payload)
         let isSelected = isOnRight
             ? selectedRight == payload
             : tab.id == selectedBrowserTabId
-        let isHovered = hoveredBrowserTabId == tab.id
 
-        HStack(spacing: 0) {
-            Button {
-                onSelectBrowserTab(tab.id)
-            } label: {
-                HStack(spacing: 4) {
-                    Symbols.globe.image
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    Text(tab.tabLabel)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: 160, alignment: .leading)
-                }
-                .padding(.leading, 12)
-                .padding(.trailing, 4)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+        return BrowserTabStripItem(
+            tab: tab,
+            isSelected: isSelected,
+            isOnRight: isOnRight,
+            isSplit: isSplit,
+            showsDropIndicator: dropIndicator == payload,
+            onSelect: { onSelectBrowserTab(tab.id) },
+            onClose: { onCloseBrowserTab(tab.id) },
+            onToggleSplit: { onToggleSplit(payload) },
+            onDrop: { payloads in handleDrop(payloads: payloads, target: payload) },
+            onTargetedChanged: { isTargeted in
+                updateDropIndicator(target: isTargeted ? payload : nil, for: .browser)
             }
-            .buttonStyle(.plain)
-            .help(tab.url.absoluteString)
-            .accessibilityLabel("Browser tab: \(tab.tabLabel)")
-            .accessibilityValue(isSelected ? "selected" : "")
-
-            TabSplitToggleButton(
-                isSplit: isSplit,
-                isOnRight: isOnRight,
-                tabKind: "browser tab",
-                tabName: tab.tabLabel,
-                action: { onToggleSplit(payload) }
-            )
-
-            TabCloseButton(
-                isVisible: isSelected || isHovered,
-                accessibilityLabel: "Close browser tab: \(tab.tabLabel)",
-                action: { onCloseBrowserTab(tab.id) }
-            )
-            .padding(.trailing, 6)
-        }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
-        .overlay(alignment: .leading) {
-            DropIndicator(visible: dropIndicator == payload)
-        }
-        .onHover { hovering in
-            hoveredBrowserTabId = hovering ? tab.id : nil
-        }
-        .draggable(payload) {
-            TabDragPreview(label: tab.tabLabel, symbol: .globe)
-        }
-        .dropDestination(for: TabDragPayload.self) { payloads, _ in
-            handleDrop(payloads: payloads, target: payload)
-        } isTargeted: { isTargeted in
-            updateDropIndicator(target: isTargeted ? payload : nil, for: .browser)
-        }
+        )
     }
 
     // MARK: - Drag and Drop
@@ -468,7 +404,7 @@ struct RemoteWindowTabBar: View {
         return true
     }
 
-    private func handleEndDrop(payloads: [TabDragPayload], section: RemoteTabSection) -> Bool {
+    private func handleEndDrop(payloads: [TabDragPayload], section: TabSection) -> Bool {
         defer { trailingDropTargetedSection = nil }
         guard let source = payloads.first else { return false }
 
@@ -493,12 +429,12 @@ struct RemoteWindowTabBar: View {
         return true
     }
 
-    private func sectionOf(_ ref: TabDragPayload) -> RemoteTabSection {
+    private func sectionOf(_ ref: TabDragPayload) -> TabSection {
         if isOnRight(ref) { return .right }
         return isSplit ? .left : .single
     }
 
-    private func adjustSplitSideIfNeeded(source: TabDragPayload, to section: RemoteTabSection) {
+    private func adjustSplitSideIfNeeded(source: TabDragPayload, to section: TabSection) {
         if isOnRight(source) != (section == .right) {
             onToggleSplit(source)
         }
@@ -518,53 +454,5 @@ struct RemoteWindowTabBar: View {
         if browserIds != openBrowserTabs.map(\.id) {
             onReorderBrowserTabs(browserIds)
         }
-    }
-}
-
-/// Identifies which trailing drop zone is being targeted. The single section
-/// is used when the tab bar is not split; left/right correspond to the two
-/// sections of the split-mode bar.
-private enum RemoteTabSection: Hashable {
-    case single
-    case left
-    case right
-}
-
-/// Visual hint shown while a compatible drag is hovering a tab — a thin
-/// vertical accent line on the leading edge that previews the drop slot.
-private struct DropIndicator: View {
-    let visible: Bool
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.accentColor)
-            .frame(width: 2)
-            .opacity(visible ? 1 : 0)
-            .animation(.easeOut(duration: 0.1), value: visible)
-            .allowsHitTesting(false)
-    }
-}
-
-/// Compact preview view drawn under the cursor while a tab is being dragged.
-/// Mirrors the on-strip styling so the user sees a recognisable "ghost" of
-/// the tab they're moving.
-private struct TabDragPreview: View {
-    let label: String
-    let symbol: Symbols
-
-    var body: some View {
-        HStack(spacing: 4) {
-            symbol.image
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(label)
-                .font(.system(.caption, design: .monospaced))
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.bar)
-        .cornerRadius(4)
-        .shadow(radius: 2)
     }
 }

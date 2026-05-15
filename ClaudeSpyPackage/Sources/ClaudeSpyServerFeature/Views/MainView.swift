@@ -56,12 +56,13 @@ public struct MainView: View {
     @State private var fileBrowserStates: [String: FileBrowserState] = [:]
     /// Cached open-file-tab strip per session (keyed by `sessionName`).
     @State private var sessionFileTabsStates: [String: SessionFileTabsState] = [:]
-    /// Cached browser-tab strip per remote session (keyed by
-    /// `"\(hostId):\(sessionName)"`). Mirrors `sessionFileTabsStates` for
-    /// remote sessions — but only the browser-tab fields are used today since
-    /// remote file browsing isn't implemented. Keeping the same type avoids a
-    /// parallel data structure for what is, semantically, the same state.
-    @State private var remoteSessionTabsStates: [String: SessionFileTabsState] = [:]
+    /// Cached browser-tab strip per remote session. Mirrors `sessionFileTabsStates`
+    /// for remote sessions — but only the browser-tab fields are used today since
+    /// remote file browsing isn't implemented. Keeping the same value type avoids
+    /// a parallel data structure for what is, semantically, the same state. The
+    /// key is a typed struct so the hostId / sessionName pair can't be miss-parsed
+    /// (tmux allows colons in session names, which would break a string key).
+    @State private var remoteSessionTabsStates: [RemoteSessionTabsKey: SessionFileTabsState] = [:]
 
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
@@ -225,15 +226,8 @@ public struct MainView: View {
             // paired host) is left to host-level cleanup; in practice an
             // empty session goes away when the user reconnects without it.
             let currentHostIdsSet = Set(currentHostIds)
-            for key in remoteSessionTabsStates.keys {
-                // Keys are `"\(hostId):\(sessionName)"`, so the hostId is
-                // everything before the first colon. Safe because
-                // `PairedHost.id` is UUID-formatted (hex + hyphens, no colons);
-                // if that ever changes this split needs to change too.
-                let hostId = String(key.split(separator: ":", maxSplits: 1).first ?? "")
-                if !currentHostIdsSet.contains(hostId) {
-                    remoteSessionTabsStates.removeValue(forKey: key)
-                }
+            for key in remoteSessionTabsStates.keys where !currentHostIdsSet.contains(key.hostId) {
+                remoteSessionTabsStates.removeValue(forKey: key)
             }
         }
         .onChange(of: settings.alwaysAutoResize) {
@@ -2016,9 +2010,27 @@ public struct MainView: View {
         let windows = selectedRemoteSessionWindows
         let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
         let tabs = remoteSessionTabsStates[key]
-        var entries: [TabDragPayload] = windows.map { .window($0.id) }
-        if let openBrowserTabs = tabs?.openBrowserTabs {
-            entries.append(contentsOf: openBrowserTabs.map { .browser($0.id) })
+        // Prefer the user's drag-reordered visual order when one is persisted —
+        // tmux's `windowIndex` reflects host-side order but not any reorder the
+        // user has applied locally to the tab strip.
+        let liveWindowIds = Set(windows.map(\.id))
+        let liveBrowserIds = Set(tabs?.openBrowserTabs.map(\.id) ?? [])
+        let entries: [TabDragPayload]
+        if let storedOrder = tabs?.tabOrder, !storedOrder.isEmpty {
+            entries = storedOrder.filter { ref in
+                switch ref {
+                case let .window(id): liveWindowIds.contains(id)
+                case let .browser(id): liveBrowserIds.contains(id)
+                case .fileExplorer,
+                     .file: false
+                }
+            }
+        } else {
+            var fallback: [TabDragPayload] = windows.map { .window($0.id) }
+            if let openBrowserTabs = tabs?.openBrowserTabs {
+                fallback.append(contentsOf: openBrowserTabs.map { .browser($0.id) })
+            }
+            entries = fallback
         }
         guard entries.count > 1 else { return }
 
@@ -2590,12 +2602,26 @@ public struct MainView: View {
 
     // MARK: - Remote Browser Tab Helpers
 
+    /// Looks up the windows for a remote `(hostId, sessionName)` via the
+    /// session store, sorted by `windowIndex`. Used as a window-list parameter
+    /// for the right-pane reconciler so background sessions get reconciled
+    /// against their own window list instead of the currently-selected one.
+    private func remoteSessionWindows(hostId: String, sessionName: String) -> [TmuxWindow] {
+        guard let sessionStore = coordinator.remoteSessionStore else { return [] }
+        return sessionStore.windows(for: hostId)
+            .filter { $0.sessionName == sessionName }
+            .sorted { $0.windowIndex < $1.windowIndex }
+    }
+
     /// Composite key into `remoteSessionTabsStates` for `(hostId, sessionName)`.
     /// Two paired hosts can have a session with the same name, so the hostId
     /// has to participate in the key — keying on `sessionName` alone would
-    /// collide their tab strips.
-    private func remoteTabsKey(hostId: String, sessionName: String) -> String {
-        "\(hostId):\(sessionName)"
+    /// collide their tab strips. A typed struct (rather than a `String` like
+    /// `"\(hostId):\(sessionName)"`) keeps the two components separate so a
+    /// session name that happens to contain `:` can't collide with another
+    /// host/session pair.
+    private func remoteTabsKey(hostId: String, sessionName: String) -> RemoteSessionTabsKey {
+        RemoteSessionTabsKey(hostId: hostId, sessionName: sessionName)
     }
 
     /// Opens (or re-selects) a browser tab inside a remote session's tab
@@ -2703,7 +2729,11 @@ public struct MainView: View {
         tabs.browserStates.removeValue(forKey: tabId)
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
-        reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+        reconcileRemoteRightPaneSelection(
+            hostId: hostId,
+            sessionName: sessionName,
+            sessionWindows: remoteSessionWindows(hostId: hostId, sessionName: sessionName)
+        )
         guard wasSelectedLeft else { return }
         tabs.selectedBrowserTabId = nil
         // Right-side tabs were opened explicitly by the user; we don't bounce
@@ -2766,9 +2796,12 @@ public struct MainView: View {
             remoteSessionTabsStates[key] = tabs
         }
         // Reject payloads whose underlying data has gone away between the
-        // last reconcile and the click.
+        // last reconcile and the click — otherwise a stale `.window` would
+        // get inserted into `tabs.rightSide` and the right pane would show
+        // "No Tab Selected" until the next prune fires.
         switch payload {
         case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
+        case let .window(id) where !selectedRemoteSessionWindows.contains(where: { $0.id == id }): return
         case .fileExplorer,
              .file: return
         default: break
@@ -2810,7 +2843,11 @@ public struct MainView: View {
                 break
             }
         }
-        reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+        reconcileRemoteRightPaneSelection(
+            hostId: hostId,
+            sessionName: sessionName,
+            sessionWindows: remoteSessionWindows(hostId: hostId, sessionName: sessionName)
+        )
     }
 
     /// Prune any right-side window entries that point at remote terminals
@@ -2818,17 +2855,10 @@ public struct MainView: View {
     /// this, `isSplit` stays true and the right pane shows "No Tab Selected"
     /// forever even though the referenced window is gone.
     private func pruneStaleRemoteRightSideEntries() {
-        guard let sessionStore = coordinator.remoteSessionStore else { return }
+        guard coordinator.remoteSessionStore != nil else { return }
         for (key, tabs) in remoteSessionTabsStates {
-            let parts = key.split(separator: ":", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let hostId = String(parts[0])
-            let sessionName = String(parts[1])
-            let liveIds = Set(
-                sessionStore.windows(for: hostId)
-                    .filter { $0.sessionName == sessionName }
-                    .map(\.id)
-            )
+            let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
+            let liveIds = Set(liveWindows.map(\.id))
             let stale = tabs.rightSide.filter {
                 if case let .window(id) = $0 { !liveIds.contains(id) } else { false }
             }
@@ -2837,7 +2867,11 @@ public struct MainView: View {
             if let sel = tabs.selectedRight, stale.contains(sel) {
                 tabs.selectedRight = nil
             }
-            reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+            reconcileRemoteRightPaneSelection(
+                hostId: key.hostId,
+                sessionName: key.sessionName,
+                sessionWindows: liveWindows
+            )
         }
     }
 
@@ -2847,7 +2881,17 @@ public struct MainView: View {
     /// file explorer / file tabs). Auto-collapses the split when every
     /// remaining window/browser tab lives on the right pane and the left
     /// section is effectively empty.
-    private func reconcileRemoteRightPaneSelection(hostId: String, sessionName: String) {
+    ///
+    /// `sessionWindows` is taken as a parameter (rather than read from the
+    /// `selectedRemoteSessionWindows` computed property) because the prune
+    /// path calls this for every cached session — including background ones —
+    /// and the computed property always returns the currently-selected
+    /// session's windows.
+    private func reconcileRemoteRightPaneSelection(
+        hostId: String,
+        sessionName: String,
+        sessionWindows: [TmuxWindow]
+    ) {
         let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
         guard let tabs = remoteSessionTabsStates[key] else { return }
         if let sel = tabs.selectedRight, !tabs.rightSide.contains(sel) {
@@ -2855,14 +2899,19 @@ public struct MainView: View {
         }
         guard tabs.isSplit else { return }
 
-        let sessionWindows = selectedRemoteSessionWindows
         let leftEmpty = !sessionWindows.isEmpty
             && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.id)) }
             && tabs.openBrowserTabs.allSatisfy { tabs.rightSide.contains(.browser($0.id)) }
         if leftEmpty {
             tabs.rightSide.removeAll()
             tabs.selectedRight = nil
+            // Only touch `selectedRemoteWindowId` for the currently-selected
+            // session — it's session-scoped state and a background session's
+            // auto-collapse can't change which window the user is viewing.
             if
+                let remote = selectedRemoteSession,
+                remote.hostId == hostId,
+                remote.sessionName == sessionName,
                 selectedRemoteWindowId == nil
                 || sessionWindows.first(where: { $0.id == selectedRemoteWindowId }) == nil {
                 selectedRemoteWindowId = (sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first)?.id
@@ -2902,12 +2951,31 @@ public struct MainView: View {
                 paneId: ""
             )
             if case .success = result {
-                if
-                    let newSelectedIndex,
-                    let refreshed = selectedRemoteSessionWindows.first(where: {
-                        $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
-                    }) {
-                    selectedRemoteWindowId = refreshed.id
+                guard let newSelectedIndex else { return }
+                // The refreshed session state arrives asynchronously via the
+                // WebSocket push, so `selectedRemoteSessionWindows` may still
+                // be the pre-move list right after `sendCommand` returns.
+                // Poll the session store until the window at the target
+                // index appears, mirroring the `onNewWindow` pattern.
+                for _ in 0..<20 {
+                    if
+                        let refreshed = selectedRemoteSessionWindows.first(where: {
+                            $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
+                        }) {
+                        selectedRemoteWindowId = refreshed.id
+                        return
+                    }
+                    do {
+                        try await Task.sleep(for: .milliseconds(100))
+                    } catch {
+                        return
+                    }
+                }
+                // The refreshed state never arrived in time. Falling back
+                // to the previous id keeps the user on a real window
+                // instead of an empty selection.
+                if let previouslySelectedId {
+                    selectedRemoteWindowId = previouslySelectedId
                 }
             } else if let previouslySelectedId {
                 // Move failed — restore the previous selection so the user
@@ -3328,4 +3396,13 @@ public struct MainView: View {
             creatingSelection = nil
         }
     }
+}
+
+/// Typed dictionary key for `remoteSessionTabsStates`. Stores the host id and
+/// session name as separate fields so a session name that contains a colon
+/// can't collide with another `(hostId, sessionName)` pair (tmux allows
+/// colons in session names).
+struct RemoteSessionTabsKey: Hashable {
+    let hostId: String
+    let sessionName: String
 }

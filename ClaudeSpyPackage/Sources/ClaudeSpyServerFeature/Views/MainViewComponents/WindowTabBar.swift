@@ -63,7 +63,6 @@ struct WindowTabBar: View {
 
     @State private var hoveredWindowId: String?
     @State private var hoveredFileTabId: UUID?
-    @State private var hoveredBrowserTabId: UUID?
 
     /// Currently-displayed drop indicator: nil while nothing is being dragged.
     /// The bar shows a vertical accent line to the left of the matching tab
@@ -80,13 +79,33 @@ struct WindowTabBar: View {
     /// computed properties (not stored) so observation tracking happens on
     /// every `body` evaluation — `sessionTabs` being `nil` is treated as an
     /// empty, non-split session.
-    private var openFileTabs: [OpenFileTab] { sessionTabs?.openFileTabs ?? [] }
-    private var openBrowserTabs: [BrowserTab] { sessionTabs?.openBrowserTabs ?? [] }
-    private var selectedFileTabId: UUID? { sessionTabs?.selectedFileTabId }
-    private var selectedBrowserTabId: UUID? { sessionTabs?.selectedBrowserTabId }
-    private var selectedRight: TabDragPayload? { sessionTabs?.selectedRight }
-    private var isSplit: Bool { sessionTabs?.isSplit ?? false }
-    private var splitRatio: CGFloat { sessionTabs?.splitRatio ?? 0.5 }
+    private var openFileTabs: [OpenFileTab] {
+        sessionTabs?.openFileTabs ?? []
+    }
+
+    private var openBrowserTabs: [BrowserTab] {
+        sessionTabs?.openBrowserTabs ?? []
+    }
+
+    private var selectedFileTabId: UUID? {
+        sessionTabs?.selectedFileTabId
+    }
+
+    private var selectedBrowserTabId: UUID? {
+        sessionTabs?.selectedBrowserTabId
+    }
+
+    private var selectedRight: TabDragPayload? {
+        sessionTabs?.selectedRight
+    }
+
+    private var isSplit: Bool {
+        sessionTabs?.isSplit ?? false
+    }
+
+    private var splitRatio: CGFloat {
+        sessionTabs?.splitRatio ?? 0.5
+    }
 
     /// True when the given payload currently lives in the right pane.
     private func isOnRight(_ payload: TabDragPayload) -> Bool {
@@ -310,40 +329,20 @@ struct WindowTabBar: View {
     }
 
     private var newWindowButton: some View {
-        Menu {
-            Button {
-                onNewWindow()
-            } label: {
-                Label("New Terminal", symbol: .terminal)
-            }
-            Button {
-                onNewBrowser()
-            } label: {
-                Label("New Browser", symbol: .globe)
-            }
-        } label: {
-            Symbols.plus.image
-                .font(.caption)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .fixedSize()
-        .help("New terminal or browser in \(session.sessionName)")
-        .accessibilityLabel("New Tab")
+        NewTabMenuButton(
+            helpText: "New terminal or browser in \(session.sessionName)",
+            onNewTerminal: onNewWindow,
+            onNewBrowser: onNewBrowser
+        )
     }
 
     private var fileBrowserButton: some View {
-        let isOnRight = isOnRight(.fileExplorer)
+        let tabIsOnRight = isOnRight(.fileExplorer)
         // The button is "selected" when it drives the visible content of
         // whichever pane it currently lives in — the left pane via the
         // existing `isFileBrowserSelected` flag, or the right pane when
         // `selectedRight == .fileExplorer`.
-        let isSelected = isOnRight
+        let isSelected = tabIsOnRight
             ? selectedRight == .fileExplorer
             : isFileBrowserSelected
         return HStack(spacing: 0) {
@@ -362,14 +361,14 @@ struct WindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isOnRight,
+                isOnRight: tabIsOnRight,
                 tabKind: "file explorer",
                 tabName: "Files",
                 action: { onToggleSplit(.fileExplorer) }
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: tabIsOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == .fileExplorer)
         }
@@ -389,8 +388,8 @@ struct WindowTabBar: View {
         // existing rule applies: the tab is the active terminal and no
         // file/browser/explorer is occupying the left pane.
         let payload = TabDragPayload.window(window.id)
-        let isOnRight = isOnRight(payload)
-        let isSelected = isOnRight
+        let tabIsOnRight = isOnRight(payload)
+        let isSelected = tabIsOnRight
             ? selectedRight == payload
             : window.id == selectedWindow.id && !isAnyFileViewActive
         let isHovered = hoveredWindowId == window.id
@@ -423,7 +422,7 @@ struct WindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isOnRight,
+                isOnRight: tabIsOnRight,
                 tabKind: "terminal",
                 tabName: windowName,
                 action: { onToggleSplit(payload) }
@@ -437,7 +436,7 @@ struct WindowTabBar: View {
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: tabIsOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
@@ -463,8 +462,8 @@ struct WindowTabBar: View {
     @ViewBuilder
     private func openFileTabView(_ tab: OpenFileTab) -> some View {
         let payload = TabDragPayload.file(tab.id)
-        let isOnRight = isOnRight(payload)
-        let isSelected = isOnRight
+        let tabIsOnRight = isOnRight(payload)
+        let isSelected = tabIsOnRight
             ? selectedRight == payload
             : tab.id == selectedFileTabId
         let isHovered = hoveredFileTabId == tab.id
@@ -494,7 +493,7 @@ struct WindowTabBar: View {
 
             TabSplitToggleButton(
                 isSplit: isSplit,
-                isOnRight: isOnRight,
+                isOnRight: tabIsOnRight,
                 tabKind: "file tab",
                 tabName: tab.name,
                 action: { onToggleSplit(payload) }
@@ -507,7 +506,7 @@ struct WindowTabBar: View {
             )
             .padding(.trailing, 6)
         }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: tabIsOnRight, isSplit: isSplit)
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
@@ -531,70 +530,27 @@ struct WindowTabBar: View {
         }
     }
 
-    @ViewBuilder
     private func openBrowserTabView(_ tab: BrowserTab) -> some View {
         let payload = TabDragPayload.browser(tab.id)
         let isOnRight = isOnRight(payload)
         let isSelected = isOnRight
             ? selectedRight == payload
             : tab.id == selectedBrowserTabId
-        let isHovered = hoveredBrowserTabId == tab.id
 
-        HStack(spacing: 0) {
-            Button {
-                onSelectBrowserTab(tab.id)
-            } label: {
-                HStack(spacing: 4) {
-                    Symbols.globe.image
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    Text(tab.tabLabel)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: 160, alignment: .leading)
-                }
-                .padding(.leading, 12)
-                .padding(.trailing, 4)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+        return BrowserTabStripItem(
+            tab: tab,
+            isSelected: isSelected,
+            isOnRight: isOnRight,
+            isSplit: isSplit,
+            showsDropIndicator: dropIndicator == payload,
+            onSelect: { onSelectBrowserTab(tab.id) },
+            onClose: { onCloseBrowserTab(tab.id) },
+            onToggleSplit: { onToggleSplit(payload) },
+            onDrop: { payloads in handleDrop(payloads: payloads, target: payload) },
+            onTargetedChanged: { isTargeted in
+                updateDropIndicator(target: isTargeted ? payload : nil, for: .browser)
             }
-            .buttonStyle(.plain)
-            .help(tab.url.absoluteString)
-            .accessibilityLabel("Browser tab: \(tab.tabLabel)")
-            .accessibilityValue(isSelected ? "selected" : "")
-
-            TabSplitToggleButton(
-                isSplit: isSplit,
-                isOnRight: isOnRight,
-                tabKind: "browser tab",
-                tabName: tab.tabLabel,
-                action: { onToggleSplit(payload) }
-            )
-
-            TabCloseButton(
-                isVisible: isSelected || isHovered,
-                accessibilityLabel: "Close browser tab: \(tab.tabLabel)",
-                action: { onCloseBrowserTab(tab.id) }
-            )
-            .padding(.trailing, 6)
-        }
-        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: isOnRight, isSplit: isSplit)
-        .overlay(alignment: .leading) {
-            DropIndicator(visible: dropIndicator == payload)
-        }
-        .onHover { hovering in
-            hoveredBrowserTabId = hovering ? tab.id : nil
-        }
-        .draggable(payload) {
-            TabDragPreview(label: tab.tabLabel, symbol: .globe)
-        }
-        .dropDestination(for: TabDragPayload.self) { payloads, _ in
-            handleDrop(payloads: payloads, target: payload)
-        } isTargeted: { isTargeted in
-            updateDropIndicator(target: isTargeted ? payload : nil, for: .browser)
-        }
+        )
     }
 
     @ViewBuilder
@@ -810,54 +766,6 @@ enum TabDragPayload: Codable, Hashable, Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .gallagerTabDrag)
-    }
-}
-
-/// Identifies which trailing drop zone is being targeted. The single section
-/// is used when the tab bar is not split; left/right correspond to the two
-/// sections of the split-mode bar.
-private enum TabSection: Hashable {
-    case single
-    case left
-    case right
-}
-
-/// Visual hint shown while a compatible drag is hovering a tab — a thin
-/// vertical accent line on the leading edge that previews the drop slot.
-private struct DropIndicator: View {
-    let visible: Bool
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.accentColor)
-            .frame(width: 2)
-            .opacity(visible ? 1 : 0)
-            .animation(.easeOut(duration: 0.1), value: visible)
-            .allowsHitTesting(false)
-    }
-}
-
-/// Compact preview view drawn under the cursor while a tab is being dragged.
-/// Mirrors the on-strip styling so the user sees a recognisable "ghost" of
-/// the tab they're moving.
-private struct TabDragPreview: View {
-    let label: String
-    let symbol: Symbols
-
-    var body: some View {
-        HStack(spacing: 4) {
-            symbol.image
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(label)
-                .font(.system(.caption, design: .monospaced))
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.bar)
-        .cornerRadius(4)
-        .shadow(radius: 2)
     }
 }
 
