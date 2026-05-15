@@ -158,6 +158,94 @@ final class FileBrowserState {
         else { return nil }
         return directoryPath + "/" + filePath.string
     }
+
+    /// Rebuilds the file tree from disk and updates every state property the
+    /// navigator depends on. Lives on the state (not the view) so unit tests
+    /// can drive a refresh without spinning up SwiftUI — the watcher-driven
+    /// refresh in issue #524 is exercised through this function.
+    ///
+    /// The mutation order matters: the existing `FileTree`'s root is mutated
+    /// in place so `File.Proxy`'s weak reference stays valid (otherwise
+    /// `ProjectNavigator`'s rows stay bound to the previous tree and new
+    /// files never appear), then a fresh `FileNavigatorViewState` is wrapped
+    /// around the same tree so SwiftUI sees `viewState` change and rebuilds
+    /// the navigator hierarchy. Mutating `fileTree.root` alone does not
+    /// reliably propagate through the navigator's disclosure views, so
+    /// expansions otherwise load one step behind.
+    func reloadTree(directoryPath: String, service: FileSystemLoadingService) async {
+        let result = await service.loadFileTree(
+            URL(fileURLWithPath: directoryPath),
+            loadedFolderPaths,
+            stableIds
+        )
+        if let existing = viewState {
+            existing.fileTree.root = result.root.proxy(within: existing.fileTree)
+            viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: existing.fileTree,
+                expansions: existing.expansions,
+                selection: existing.selection
+            )
+        } else {
+            let tree = FileTree(files: result.root)
+            viewState = FileNavigatorViewState<TextFileContents>(
+                fileTree: tree,
+                expansions: WrappedUUIDSet(),
+                selection: nil
+            )
+        }
+        loadedPath = directoryPath
+        stableIds = result.stableIds
+        loadedFolderPaths = result.loadedFolderPaths
+        symlinkedPaths = result.symlinkedPaths
+
+        // Clear the selection if the previously selected path no longer exists
+        // in the rebuilt tree; otherwise `fileDetailView` would render against
+        // a stale UUID that `ProjectNavigator` no longer knows about.
+        if
+            let existing = viewState,
+            let sel = existing.selection,
+            reverseIds[sel] == nil {
+            existing.selection = nil
+        }
+    }
+
+    /// Long-lived watcher loop the file-browser view runs in `.task`: stand
+    /// up a kqueue watcher for every loaded folder (plus the root), reload
+    /// the tree once on attach to close the gap left by the previous
+    /// watcher, and reload again on every directory change event the kernel
+    /// emits. Runs `onChange` after each reload so callers can refresh
+    /// derived state (e.g. the file-search index, open-tab deletion flags)
+    /// in lockstep with the tree. Returns when the surrounding task is
+    /// cancelled.
+    ///
+    /// Lives on the state so the same code path the production view uses
+    /// is exercised by unit tests in `FileSystemLoadingServiceTests`. The
+    /// initial `reloadTree(...)` call is the fix for issue #524: SwiftUI
+    /// recreates this `.task` when `loadedFolderPaths` changes (e.g. when
+    /// the user expands a folder), and any file written between the
+    /// previous task being cancelled and this one re-arming the kqueue
+    /// sources lands on neither watcher. Re-reading the disk on attach
+    /// catches those orphaned writes so the new file shows up without the
+    /// user having to manually expand a folder to trigger another reload.
+    ///
+    /// The on-attach reload does not cause a `.task(id: loadedFolderPaths)`
+    /// recreation cycle: the service returns the same set of paths it was
+    /// asked to load, so `loadedFolderPaths` ends up `==` to its previous
+    /// value and SwiftUI skips the task restart.
+    func runDirectoryWatcher(
+        rootDirectoryPath: String,
+        service: FileSystemLoadingService,
+        onChange: @MainActor () async -> Void = { }
+    ) async {
+        var watchedPaths = loadedFolderPaths
+        watchedPaths.insert(rootDirectoryPath)
+        let stream = service.directoryChanges(watchedPaths)
+        await reloadTree(directoryPath: rootDirectoryPath, service: service)
+        for await _ in stream {
+            await reloadTree(directoryPath: rootDirectoryPath, service: service)
+            await onChange()
+        }
+    }
 }
 
 /// Open-file-tab state scoped to a tmux session, so tabs and selection survive
@@ -223,7 +311,9 @@ final class SessionFileTabsState {
 
     /// True when at least one entry has been sent to the right pane. Drives
     /// the split content layout and the tab strip icons.
-    var isSplit: Bool { !rightSide.isEmpty }
+    var isSplit: Bool {
+        !rightSide.isEmpty
+    }
 
     /// Right-side window ids — used by callers that need to filter the
     /// left-pane selection candidates without enumerating the whole set.
@@ -328,10 +418,17 @@ struct FileBrowserView: View {
                     }
                 }
                 .task(id: state.loadedFolderPaths) {
-                    var watchedPaths = state.loadedFolderPaths
-                    watchedPaths.insert(directoryPath)
-                    for await _ in fileSystemService.directoryChanges(watchedPaths) {
-                        await loadTree()
+                    // The watcher (re)attaches every time
+                    // `state.loadedFolderPaths` changes. The shared loop
+                    // reloads once on attach to close the gap that would
+                    // otherwise swallow disk writes happening between the
+                    // previous watcher being cancelled and this one being
+                    // armed (issue #524), then refreshes derived state on
+                    // every directory event the kernel emits.
+                    await state.runDirectoryWatcher(
+                        rootDirectoryPath: directoryPath,
+                        service: fileSystemService
+                    ) {
                         var refreshed: [FileSearchResult] = []
                         for await batch in fileSystemService.collectAllFiles(
                             URL(fileURLWithPath: directoryPath)
@@ -373,47 +470,7 @@ struct FileBrowserView: View {
     }
 
     private func loadTree() async {
-        let result = await fileSystemService.loadFileTree(
-            URL(fileURLWithPath: directoryPath),
-            state.loadedFolderPaths,
-            state.stableIds
-        )
-        if let existing = state.viewState {
-            // Mutate the existing FileTree in place so `File.Proxy`'s weak
-            // reference to the tree stays valid and ProjectNavigator sees the
-            // new children. Then rebuild the `FileNavigatorViewState` around
-            // the same tree so SwiftUI sees `state.viewState` change and
-            // rebuilds the navigator hierarchy — mutating `fileTree.root`
-            // alone does not reliably propagate through the navigator's
-            // disclosure views, so expansions load one step behind.
-            existing.fileTree.root = result.root.proxy(within: existing.fileTree)
-            state.viewState = FileNavigatorViewState<TextFileContents>(
-                fileTree: existing.fileTree,
-                expansions: existing.expansions,
-                selection: existing.selection
-            )
-        } else {
-            let tree = FileTree(files: result.root)
-            state.viewState = FileNavigatorViewState<TextFileContents>(
-                fileTree: tree,
-                expansions: WrappedUUIDSet(),
-                selection: nil
-            )
-        }
-        state.loadedPath = directoryPath
-        state.stableIds = result.stableIds
-        state.loadedFolderPaths = result.loadedFolderPaths
-        state.symlinkedPaths = result.symlinkedPaths
-
-        // Clear the selection if the previously selected path no longer exists
-        // in the rebuilt tree; otherwise `fileDetailView` would render against
-        // a stale UUID that `ProjectNavigator` no longer knows about.
-        if
-            let existing = state.viewState,
-            let sel = existing.selection,
-            state.reverseIds[sel] == nil {
-            existing.selection = nil
-        }
+        await state.reloadTree(directoryPath: directoryPath, service: fileSystemService)
     }
 
     /// Routes the visible content based on session-level tab selection. If a file
