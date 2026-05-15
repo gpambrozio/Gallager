@@ -214,6 +214,10 @@ public struct MainView: View {
                 selectedRemoteWindowId = resolvedId
             }
         }
+        .modifier(RemoteSplitCleanupModifier(
+            paneCount: coordinator.remoteSessionStore?.paneStates.count ?? 0,
+            onPrune: pruneStaleRemoteRightSideEntries
+        ))
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
@@ -662,12 +666,22 @@ public struct MainView: View {
                     isHostConnected: connection.isHostConnected,
                     openBrowserTabs: remoteTabs?.openBrowserTabs ?? [],
                     selectedBrowserTabId: remoteTabs?.selectedBrowserTabId,
+                    sessionTabs: remoteTabs,
                     onSelectWindow: { newWindow in
+                        let tabs = remoteSessionTabsStates[tabsKey]
+                        let payload = TabDragPayload.window(newWindow.id)
+                        if tabs?.rightSide.contains(payload) == true {
+                            // Right-side window: route the click to the
+                            // right pane's selection so the left pane
+                            // keeps showing whatever it had.
+                            tabs?.selectedRight = payload
+                            return
+                        }
                         selectedRemoteWindowId = newWindow.id
                         // Switching back to a tmux window deselects any active
                         // browser tab so the terminal pane is rendered again
                         // even when a browser tab was previously focused.
-                        remoteSessionTabsStates[tabsKey]?.selectedBrowserTabId = nil
+                        tabs?.selectedBrowserTabId = nil
                         Task {
                             _ = await connection.relayClient.sendCommand(
                                 SelectTmuxWindow(),
@@ -702,6 +716,9 @@ public struct MainView: View {
                             }
                         }
                     },
+                    onNewBrowser: {
+                        openEmptyRemoteBrowserTab(hostId: remote.hostId, sessionName: remote.sessionName)
+                    },
                     onRenameWindow: { windowToRename, newName in
                         Task {
                             _ = await connection.relayClient.sendCommand(
@@ -723,13 +740,32 @@ public struct MainView: View {
                             hostId: remote.hostId,
                             sessionName: remote.sessionName
                         )
+                    },
+                    onToggleSplit: { payload in
+                        toggleRemoteSplit(payload, hostId: remote.hostId, sessionName: remote.sessionName)
+                    },
+                    onReorderWindows: { newOrder in
+                        reorderRemoteWindows(
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            to: newOrder,
+                            connection: connection
+                        )
+                    },
+                    onReorderBrowserTabs: { newOrder in
+                        reorderRemoteBrowserTabs(
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            to: newOrder
+                        )
                     }
                 )
 
-                remoteDetailBody(
+                remoteDetailContentArea(
                     remote: remote,
                     connection: connection,
                     window: window,
+                    sessionTabs: remoteTabs,
                     selectedBrowserTab: selectedBrowserTab
                 )
             }
@@ -921,13 +957,55 @@ public struct MainView: View {
 
     // MARK: - Remote Detail Body
 
+    /// Renders the remote session detail area below the tab bar. When the
+    /// session has any tabs flipped to the right pane
+    /// (`SessionFileTabsState.isSplit`), draws a left pane + draggable
+    /// divider + right pane laid out side by side. Otherwise renders the
+    /// single-pane content unchanged.
+    @ViewBuilder
+    private func remoteDetailContentArea(
+        remote: RemoteSessionSelection,
+        connection: ViewerConnection,
+        window: TmuxWindow,
+        sessionTabs: SessionFileTabsState?,
+        selectedBrowserTab: BrowserTab?
+    ) -> some View {
+        if let sessionTabs, sessionTabs.isSplit {
+            SplitDetailContent(
+                sessionTabs: sessionTabs,
+                left: {
+                    remoteLeftPaneContent(
+                        remote: remote,
+                        connection: connection,
+                        window: window,
+                        selectedBrowserTab: selectedBrowserTab
+                    )
+                },
+                right: {
+                    remoteRightPaneContent(
+                        remote: remote,
+                        connection: connection,
+                        sessionTabs: sessionTabs
+                    )
+                }
+            )
+        } else {
+            remoteLeftPaneContent(
+                remote: remote,
+                connection: connection,
+                window: window,
+                selectedBrowserTab: selectedBrowserTab
+            )
+        }
+    }
+
     /// Renders the body of a remote session's detail pane: either the live
     /// in-app browser tab content (when one is selected) or the remote tmux
     /// pane layout. Web links clicked in the remote terminal flow through
     /// `handleRemoteTerminalURLClick` so the per-domain rules and
     /// `browserLinkBehavior` prompt apply identically to local sessions.
     @ViewBuilder
-    private func remoteDetailBody(
+    private func remoteLeftPaneContent(
         remote: RemoteSessionSelection,
         connection: ViewerConnection,
         window: TmuxWindow,
@@ -971,6 +1049,73 @@ public struct MainView: View {
                     )
                 }
             )
+        }
+    }
+
+    /// Renders the right pane of the remote split layout by dispatching on
+    /// the `selectedRight` payload — window terminal or browser tab. File
+    /// explorer / file tab payloads can't reach here for remote sessions
+    /// (no source view emits them), so those branches fall back to the
+    /// placeholder.
+    @ViewBuilder
+    private func remoteRightPaneContent(
+        remote: RemoteSessionSelection,
+        connection: ViewerConnection,
+        sessionTabs: SessionFileTabsState
+    ) -> some View {
+        switch sessionTabs.selectedRight {
+        case let .window(id):
+            if let rightWindow = selectedRemoteSessionWindows.first(where: { $0.id == id }) {
+                RemoteWindowPaneLayoutView(
+                    window: rightWindow,
+                    connection: connection,
+                    settings: settings,
+                    onOpenURL: { url in
+                        handleRemoteTerminalURLClick(
+                            url,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            windowId: rightWindow.id
+                        )
+                    }
+                )
+                .id("right-remote-\(rightWindow.id)")
+                .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
+            }
+        case let .browser(id):
+            if
+                let tab = sessionTabs.openBrowserTabs.first(where: { $0.id == id }),
+                let tabState = sessionTabs.browserStates[id] {
+                BrowserTabContentView(
+                    state: tabState,
+                    onTitleChange: { newTitle in
+                        updateRemoteBrowserTabTitle(
+                            tabId: id,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            title: newTitle
+                        )
+                    },
+                    onURLChange: { newURL in
+                        updateRemoteBrowserTabURL(
+                            tabId: id,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            url: newURL
+                        )
+                    }
+                )
+                .id("right-remote-\(tab.id)")
+                .accessibilityIdentifier("split-right-pane")
+            } else {
+                rightPanePlaceholder
+            }
+        case .fileExplorer,
+             .file,
+             nil:
+            rightPanePlaceholder
         }
     }
 
@@ -1862,26 +2007,50 @@ public struct MainView: View {
         }
     }
 
-    /// Remote sessions only render window tabs in the tab strip, so the
-    /// Cmd-Shift-[ / Cmd-Shift-] shortcut cycles through the window list
-    /// (sent as `SelectTmuxWindow` to the paired host so tmux follows along).
+    /// Cmd-Shift-[ / Cmd-Shift-] handler for remote sessions. Walks the tab
+    /// strip in visual order — tmux windows then browser tabs — and selects
+    /// the entry `direction` steps away from the current one, with
+    /// wraparound. Sends `SelectTmuxWindow` to the host when the new entry
+    /// is a terminal so tmux follows along.
     private func cycleRemoteWindowTab(remote: RemoteSessionSelection, direction: Int) {
         let windows = selectedRemoteSessionWindows
-        guard windows.count > 1 else { return }
-        guard
-            let currentId = selectedRemoteWindowId ?? selectedRemoteWindow?.id,
-            let currentIndex = windows.firstIndex(where: { $0.id == currentId })
-        else { return }
-        let nextIndex = (currentIndex + direction + windows.count) % windows.count
-        let newWindow = windows[nextIndex]
-        selectedRemoteWindowId = newWindow.id
-        Task {
-            guard let manager = coordinator.viewerConnectionManager else { return }
-            _ = await manager.sendCommand(
-                SelectTmuxWindow(),
-                paneId: newWindow.id,
-                hostId: remote.hostId
-            )
+        let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        let tabs = remoteSessionTabsStates[key]
+        var entries: [TabDragPayload] = windows.map { .window($0.id) }
+        if let openBrowserTabs = tabs?.openBrowserTabs {
+            entries.append(contentsOf: openBrowserTabs.map { .browser($0.id) })
+        }
+        guard entries.count > 1 else { return }
+
+        // Browser tab > selected window. The first match wins so the user's
+        // actual visible tab is the cycling anchor.
+        let currentIndex: Int?
+        if let selectedBrowserId = tabs?.selectedBrowserTabId {
+            currentIndex = entries.firstIndex(of: .browser(selectedBrowserId))
+        } else if let currentId = selectedRemoteWindowId ?? selectedRemoteWindow?.id {
+            currentIndex = entries.firstIndex(of: .window(currentId))
+        } else {
+            currentIndex = nil
+        }
+        guard let currentIndex else { return }
+        let nextIndex = (currentIndex + direction + entries.count) % entries.count
+        switch entries[nextIndex] {
+        case let .window(id):
+            tabs?.selectedBrowserTabId = nil
+            selectedRemoteWindowId = id
+            Task {
+                guard let manager = coordinator.viewerConnectionManager else { return }
+                _ = await manager.sendCommand(
+                    SelectTmuxWindow(),
+                    paneId: id,
+                    hostId: remote.hostId
+                )
+            }
+        case let .browser(id):
+            selectRemoteBrowserTab(id, hostId: remote.hostId, sessionName: remote.sessionName)
+        case .fileExplorer,
+             .file:
+            break
         }
     }
 
@@ -2527,11 +2696,20 @@ public struct MainView: View {
         guard let tabs = remoteSessionTabsStates[key] else { return }
         guard let closedIndex = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId }) else { return }
         let closedTab = tabs.openBrowserTabs[closedIndex]
-        let wasSelected = tabs.selectedBrowserTabId == tabId
+        let payload = TabDragPayload.browser(tabId)
+        let wasOnRight = tabs.rightSide.contains(payload)
+        let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
         tabs.browserStates.removeValue(forKey: tabId)
-        guard wasSelected else { return }
+        tabs.rightSide.remove(payload)
+        if tabs.selectedRight == payload { tabs.selectedRight = nil }
+        reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+        guard wasSelectedLeft else { return }
         tabs.selectedBrowserTabId = nil
+        // Right-side tabs were opened explicitly by the user; we don't bounce
+        // them back to a terminal window on close. Only the left-side close
+        // path preserves the original "return to origin terminal" behaviour.
+        guard !wasOnRight else { return }
         guard
             let originWindowId = closedTab.originWindowId,
             let sessionStore = coordinator.remoteSessionStore
@@ -2546,6 +2724,211 @@ public struct MainView: View {
             // "no window selected" state instead of a phantom id.
             selectedRemoteWindowId = nil
         }
+    }
+
+    /// Opens a fresh, empty browser tab with `about:blank` loaded in a remote
+    /// session. The tab is appended at the end, selected, and the address bar
+    /// is asked to take keyboard focus so the user can start typing a URL
+    /// immediately. Mirror of `openEmptyBrowserTab` for remote sessions.
+    private func openEmptyRemoteBrowserTab(hostId: String, sessionName: String) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        let tabs: SessionFileTabsState
+        if let existing = remoteSessionTabsStates[key] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            remoteSessionTabsStates[key] = tabs
+        }
+        let blank = URL(staticString: "about:blank")
+        let newTab = BrowserTab(url: blank)
+        let state = BrowserTabState(initialURL: blank)
+        // Clear the URL field text so the user sees an empty input rather
+        // than the literal "about:blank" placeholder when the field gains
+        // focus. The page itself still loads at the blank URL.
+        state.urlFieldText = ""
+        tabs.openBrowserTabs.append(newTab)
+        tabs.browserStates[newTab.id] = state
+        tabs.selectedBrowserTabId = newTab.id
+        state.urlFieldFocusRequest += 1
+    }
+
+    /// Toggles which side of the split a remote tab strip entry lives on.
+    /// Mirrors `toggleSplit` for local sessions but operates on remote state.
+    /// Only `.window` and `.browser` payloads are valid for remote sessions;
+    /// `.fileExplorer` and `.file` cases are silently ignored.
+    private func toggleRemoteSplit(_ payload: TabDragPayload, hostId: String, sessionName: String) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        let tabs: SessionFileTabsState
+        if let existing = remoteSessionTabsStates[key] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            remoteSessionTabsStates[key] = tabs
+        }
+        // Reject payloads whose underlying data has gone away between the
+        // last reconcile and the click.
+        switch payload {
+        case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
+        case .fileExplorer,
+             .file: return
+        default: break
+        }
+
+        if tabs.rightSide.contains(payload) {
+            // Moving back to the left side — receiving side becomes this entry.
+            tabs.rightSide.remove(payload)
+            if tabs.selectedRight == payload { tabs.selectedRight = nil }
+            switch payload {
+            case let .window(id):
+                if selectedRemoteSessionWindows.contains(where: { $0.id == id }) {
+                    selectedRemoteWindowId = id
+                }
+            case let .browser(id):
+                tabs.selectedBrowserTabId = id
+            case .fileExplorer,
+                 .file:
+                break
+            }
+        } else {
+            // Moving to the right side — becomes the right pane's selection.
+            tabs.rightSide.insert(payload)
+            tabs.selectedRight = payload
+            switch payload {
+            case let .window(id):
+                // If the moved window was the left-pane selection, pick a
+                // different left-side window so both panes show distinct
+                // content.
+                if selectedRemoteWindowId == id || selectedRemoteWindow?.id == id {
+                    let leftSessionWindows = selectedRemoteSessionWindows
+                        .filter { !tabs.rightSide.contains(.window($0.id)) }
+                    selectedRemoteWindowId = (leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first)?.id
+                }
+            case let .browser(id):
+                if tabs.selectedBrowserTabId == id { tabs.selectedBrowserTabId = nil }
+            case .fileExplorer,
+                 .file:
+                break
+            }
+        }
+        reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+    }
+
+    /// Prune any right-side window entries that point at remote terminals
+    /// the host has just removed (a window was closed remotely). Without
+    /// this, `isSplit` stays true and the right pane shows "No Tab Selected"
+    /// forever even though the referenced window is gone.
+    private func pruneStaleRemoteRightSideEntries() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+        for (key, tabs) in remoteSessionTabsStates {
+            let parts = key.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let hostId = String(parts[0])
+            let sessionName = String(parts[1])
+            let liveIds = Set(
+                sessionStore.windows(for: hostId)
+                    .filter { $0.sessionName == sessionName }
+                    .map(\.id)
+            )
+            let stale = tabs.rightSide.filter {
+                if case let .window(id) = $0 { !liveIds.contains(id) } else { false }
+            }
+            guard !stale.isEmpty else { continue }
+            tabs.rightSide.subtract(stale)
+            if let sel = tabs.selectedRight, stale.contains(sel) {
+                tabs.selectedRight = nil
+            }
+            reconcileRemoteRightPaneSelection(hostId: hostId, sessionName: sessionName)
+        }
+    }
+
+    /// Keeps the remote right pane's selection coherent with the tabs still
+    /// on that side. Mirrors `reconcileRightPaneSelection` for local sessions,
+    /// but only considers windows and browser tabs (remote sessions have no
+    /// file explorer / file tabs). Auto-collapses the split when every
+    /// remaining window/browser tab lives on the right pane and the left
+    /// section is effectively empty.
+    private func reconcileRemoteRightPaneSelection(hostId: String, sessionName: String) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard let tabs = remoteSessionTabsStates[key] else { return }
+        if let sel = tabs.selectedRight, !tabs.rightSide.contains(sel) {
+            tabs.selectedRight = nil
+        }
+        guard tabs.isSplit else { return }
+
+        let sessionWindows = selectedRemoteSessionWindows
+        let leftEmpty = !sessionWindows.isEmpty
+            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.id)) }
+            && tabs.openBrowserTabs.allSatisfy { tabs.rightSide.contains(.browser($0.id)) }
+        if leftEmpty {
+            tabs.rightSide.removeAll()
+            tabs.selectedRight = nil
+            if
+                selectedRemoteWindowId == nil
+                || sessionWindows.first(where: { $0.id == selectedRemoteWindowId }) == nil {
+                selectedRemoteWindowId = (sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first)?.id
+            }
+            return
+        }
+
+        if tabs.selectedRight != nil { return }
+        // Auto-pick: window > newest browser.
+        if let window = tabs.rightSide.first(where: { if case .window = $0 { true } else { false } }) {
+            tabs.selectedRight = window
+        } else if let browser = tabs.openBrowserTabs.last(where: { tabs.rightSide.contains(.browser($0.id)) }) {
+            tabs.selectedRight = .browser(browser.id)
+        }
+    }
+
+    /// Pushes the new window order to the remote host via `MoveTmuxWindows`.
+    /// The host rewrites tmux's window indices via the same two-phase
+    /// park-then-place path used locally and pushes a refreshed session
+    /// state on success.
+    private func reorderRemoteWindows(
+        hostId: String,
+        sessionName: String,
+        to newOrder: [String],
+        connection: ViewerConnection
+    ) {
+        let previouslySelectedId = selectedRemoteWindowId ?? selectedRemoteWindow?.id
+        let newSelectedIndex = previouslySelectedId.flatMap { newOrder.firstIndex(of: $0) }
+        // Clear the selection optimistically so the `onChange` reconciliation
+        // doesn't latch onto a now-removed id while the host renumbers
+        // indices. We restore the index-matched window below after the host
+        // confirms the move.
+        selectedRemoteWindowId = nil
+        Task {
+            let result = await connection.relayClient.sendCommand(
+                MoveTmuxWindows(sessionName: sessionName, windowIds: newOrder),
+                paneId: ""
+            )
+            if case .success = result {
+                if
+                    let newSelectedIndex,
+                    let refreshed = selectedRemoteSessionWindows.first(where: {
+                        $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
+                    }) {
+                    selectedRemoteWindowId = refreshed.id
+                }
+            } else if let previouslySelectedId {
+                // Move failed — restore the previous selection so the user
+                // isn't left in a "no window selected" state.
+                selectedRemoteWindowId = previouslySelectedId
+            }
+        }
+    }
+
+    /// Reorders the open browser tabs for a remote session.
+    private func reorderRemoteBrowserTabs(
+        hostId: String,
+        sessionName: String,
+        to newOrder: [UUID]
+    ) {
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard let tabs = remoteSessionTabsStates[key] else { return }
+        let indexed = Dictionary(uniqueKeysWithValues: tabs.openBrowserTabs.map { ($0.id, $0) })
+        let reordered: [BrowserTab] = newOrder.compactMap { indexed[$0] }
+        guard reordered.count == tabs.openBrowserTabs.count else { return }
+        tabs.openBrowserTabs = reordered
     }
 
     /// Resolves the user's choice from the link confirmation dialog: opens the

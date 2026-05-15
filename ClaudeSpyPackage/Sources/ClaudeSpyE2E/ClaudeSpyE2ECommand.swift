@@ -310,6 +310,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,
         TabReorderScenario.scenario,
+        RemoteTabReorderScenario.scenario,
         ProjectPickerArrowNavScenario.scenario,
     ]
 
