@@ -88,7 +88,7 @@ public enum PromptEditorRemoteScenario {
         // Click on the TextEditor to give it keyboard focus, then select all and type
         TestStep.macFocusElement(titled: "Original prompt for viewer edit", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll(instance: 1)
+        TestStep.macPressKey(.character("a"), modifiers: .command, instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "Viewer edited: add error handling", instance: 1)
         TestStep.wait(seconds: 1)

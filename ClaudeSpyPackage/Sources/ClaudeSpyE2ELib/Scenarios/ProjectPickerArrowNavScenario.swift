@@ -25,7 +25,7 @@ public enum ProjectPickerArrowNavScenario {
 
         // ── Phase A: ↓ from empty highlights New Terminal ────────
         TestStep.log("Pressing Down: should highlight New Terminal (first item)")
-        TestStep.macPressDownArrow()
+        TestStep.macPressKey(.downArrow)
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-down-selects-new-terminal")
 
@@ -35,20 +35,20 @@ public enum ProjectPickerArrowNavScenario {
         // 12 more downs to reach ZetaCore (the last project).
         TestStep.log("Pressing Down 12× to traverse all projects to the bottom (ZetaCore)")
         for _ in 0..<12 {
-            TestStep.macPressDownArrow()
+            TestStep.macPressKey(.downArrow)
         }
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-down-to-last-project")
 
         // ── Phase C: ↓ wraps to top (selection + scroll-to-top) ──
         TestStep.log("Pressing Down once more: wraps back to New Terminal and list scrolls to top")
-        TestStep.macPressDownArrow()
+        TestStep.macPressKey(.downArrow)
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-wrap-down-to-new-terminal")
 
         // ── Phase D: ↑ wraps from New Terminal to last project ───
         TestStep.log("Pressing Up: wraps from New Terminal to last project (ZetaCore)")
-        TestStep.macPressUpArrow()
+        TestStep.macPressKey(.upArrow)
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-wrap-up-to-last-project")
 
@@ -87,7 +87,7 @@ public enum ProjectPickerArrowNavScenario {
 
         // ── Phase G: Return on highlighted project opens it ──────
         TestStep.log("Pressing Return: opens the highlighted AlphaProject session")
-        TestStep.macPressReturn()
+        TestStep.macPressKey(.return)
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
         // Re-pin the window — claude session loading can grow the window asynchronously.
@@ -100,9 +100,9 @@ public enum ProjectPickerArrowNavScenario {
         TestStep.macClickButton(titled: "Create new session")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
-        TestStep.macPressDownArrow()
+        TestStep.macPressKey(.downArrow)
         TestStep.wait(seconds: 0.3)
-        TestStep.macPressReturn()
+        TestStep.macPressKey(.return)
         TestStep.wait(seconds: 3)
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
         // Same re-pin: a freshly opened terminal can also auto-grow the window.

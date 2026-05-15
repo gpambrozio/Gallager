@@ -19,8 +19,11 @@ public enum E2EDeviceType: String, Sendable {
     case viewer
 }
 
-/// Keyboard modifier flags accepted by ``TestStep/macPressShortcut(key:modifiers:instance:)``.
+/// Keyboard modifier flags accepted by ``TestStep/macPressKey(_:modifiers:instance:)``.
 /// Maps directly to `CGEventFlags` inside the macOS driver.
+///
+/// Combine multiple modifiers with array-literal syntax,
+/// e.g. `[.command, .shift]`.
 public struct KeyboardModifiers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -32,6 +35,32 @@ public struct KeyboardModifiers: OptionSet, Sendable {
     public static let shift = KeyboardModifiers(rawValue: 1 << 1)
     public static let option = KeyboardModifiers(rawValue: 1 << 2)
     public static let control = KeyboardModifiers(rawValue: 1 << 3)
+}
+
+extension KeyboardModifiers: CustomStringConvertible {
+    public var description: String {
+        var parts: [String] = []
+        if contains(.command) { parts.append("command") }
+        if contains(.shift) { parts.append("shift") }
+        if contains(.option) { parts.append("option") }
+        if contains(.control) { parts.append("control") }
+        return parts.isEmpty ? "[]" : parts.joined(separator: "+")
+    }
+}
+
+/// A key to press via ``TestStep/macPressKey(_:modifiers:instance:)``.
+///
+/// Use the named cases for non-printable keys (Tab, Escape, …) and
+/// `.character(_)` for printable characters whose virtual key code the
+/// macOS driver can resolve (letters, digits, common punctuation).
+public enum Key: Sendable, Equatable {
+    case tab
+    case escape
+    case `return`
+    case space
+    case downArrow
+    case upArrow
+    case character(Character)
 }
 
 /// An individual test step that the orchestrator executes
@@ -134,26 +163,20 @@ public enum TestStep: Sendable {
     case macClickButton(titled: String, instance: Int = 0)
     /// Click a menu trigger button then click a menu item
     case macClickMenuItem(menuButtonTitle: String, itemTitle: String, instance: Int = 0)
-    /// Press Tab key to cycle focus between elements in dialogs
-    case macPressTab(instance: Int = 0)
-    /// Press Escape key to dismiss dialogs/alerts
-    case macPressEscape(instance: Int = 0)
-    /// Press Return key to confirm default action in dialogs/alerts
-    case macPressReturn(instance: Int = 0)
-    /// Press Space key to activate the focused button in dialogs
-    case macPressSpace(instance: Int = 0)
-    /// Press Down Arrow key to move selection in arrow-navigable lists
-    case macPressDownArrow(instance: Int = 0)
-    /// Press Up Arrow key to move selection in arrow-navigable lists
-    case macPressUpArrow(instance: Int = 0)
-    /// Press Cmd+A to select all text in the focused field
-    case macSelectAll(instance: Int = 0)
-    /// Press a single character key with optional modifiers via CGEvent.
+    /// Press a key with optional modifiers via CGEvent.
     ///
-    /// Useful for invoking app-defined keyboard shortcuts that aren't bound to
-    /// the dedicated `macSelectAll` / `macPressReturn` steps. `key` must be a
-    /// single character; non-letter keys (Tab, Escape, …) have their own steps.
-    case macPressShortcut(key: String, modifiers: KeyboardModifiers = [], instance: Int = 0)
+    /// Use named ``Key`` cases for non-printable keys (Tab, Escape, Return,
+    /// Space, arrow keys) and `.character(_)` for any printable character
+    /// whose virtual key code the driver can resolve (letters, digits,
+    /// common punctuation).
+    ///
+    /// Examples:
+    /// - `macPressKey(.escape)` — dismiss a dialog
+    /// - `macPressKey(.return)` — confirm the default action
+    /// - `macPressKey(.tab)` — cycle focus
+    /// - `macPressKey(.character("a"), modifiers: .command)` — Cmd+A select all
+    /// - `macPressKey(.character("]"), modifiers: [.command, .shift])` — app shortcut
+    case macPressKey(Key, modifiers: KeyboardModifiers = [], instance: Int = 0)
     /// CGEvent left-click on an element (bypasses AXPress, uses real mouse click).
     /// Use for selecting items in SwiftUI List/OutlineGroup.
     case macCGClick(titled: String, instance: Int = 0)

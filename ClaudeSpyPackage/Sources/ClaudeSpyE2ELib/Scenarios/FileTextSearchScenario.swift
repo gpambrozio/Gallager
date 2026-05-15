@@ -193,7 +193,7 @@ public enum FileTextSearchScenario {
 
         TestStep.macCGClick(titled: "Search contents")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "zzznonexistentcontent")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Check the spelling"), timeout: 5)
@@ -210,7 +210,7 @@ public enum FileTextSearchScenario {
         // file name + line number, and the name-search row does not.
         TestStep.macCGClick(titled: "Search contents")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "helper")
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)

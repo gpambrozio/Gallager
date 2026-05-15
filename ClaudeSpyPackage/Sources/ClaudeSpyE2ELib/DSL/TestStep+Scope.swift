@@ -60,21 +60,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macClickMenuItem(_, _, instance):
             return .macOS(instance: instance)
-        case let .macPressTab(instance):
-            return .macOS(instance: instance)
-        case let .macPressEscape(instance):
-            return .macOS(instance: instance)
-        case let .macPressReturn(instance):
-            return .macOS(instance: instance)
-        case let .macPressSpace(instance):
-            return .macOS(instance: instance)
-        case let .macPressDownArrow(instance):
-            return .macOS(instance: instance)
-        case let .macPressUpArrow(instance):
-            return .macOS(instance: instance)
-        case let .macSelectAll(instance):
-            return .macOS(instance: instance)
-        case let .macPressShortcut(_, _, instance):
+        case let .macPressKey(_, _, instance):
             return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)

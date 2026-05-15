@@ -536,7 +536,7 @@ public enum BrowserTabFromTerminalLinkScenario {
         // (`weblinks:0`) and the terminal contents re-appear in the detail
         // pane.
         TestStep.log("Phase 20: Cmd-W with remote browser tab focused → closes the tab, returns to terminal")
-        TestStep.macPressShortcut(key: "w", modifiers: [.command], instance: 1)
+        TestStep.macPressKey(.character("w"), modifiers: .command, instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
