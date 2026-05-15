@@ -62,9 +62,33 @@ public enum SplitTabScenario {
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.wait(seconds: 1)
 
+        // Enable auto-resize globally so the terminal pane in tmux is
+        // resized to fit the detail-content area. Without this the tmux pane
+        // keeps the 100×30 dimensions it was created with and the rest of
+        // this scenario can't observe the split-aware resize behavior
+        // (issue #523).
+        TestStep.macOpenSettings()
+        TestStep.macWaitForWindow(titled: "General", timeout: 5)
+        TestStep.macClickButton(
+            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes"
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.macCloseWindow(titled: "General")
+        TestStep.wait(seconds: 1)
+
         TestStep.macWaitForElement(titled: "split", timeout: 5)
         TestStep.macClickButton(titled: "split")
         TestStep.wait(seconds: 2)
+
+        // Capture the pre-split tmux pane dimensions — auto-resize has had
+        // time to fire from the session selection, so the pane should now
+        // match the full detail-pane width (not the seeded 100×30).
+        TestStep.tmuxStorePaneDimensions(
+            target: "split:0",
+            widthKey: "fullPaneWidth",
+            heightKey: "fullPaneHeight"
+        )
+        TestStep.log("Pre-split dimensions: ${fullPaneWidth}x${fullPaneHeight}")
 
         // ── Phase 1: Open two file tabs in the single-pane layout ──
         TestStep.log("Phase 1: Open hello.txt and README.md as file tabs")
@@ -100,6 +124,45 @@ public enum SplitTabScenario {
         TestStep.macWaitForElement(titled: "Move file tab to left: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "Move file tab to right: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-split-active-hello-on-right")
+
+        // Splitting the layout halves the left pane's rendered width, so
+        // auto-resize must shrink the tmux pane to match (issue #523).
+        // Wait for the auto-resize debounce + IPC round trip.
+        TestStep.wait(seconds: 2)
+        TestStep.tmuxStorePaneDimensions(
+            target: "split:0",
+            widthKey: "splitPaneWidth",
+            heightKey: "splitPaneHeight"
+        )
+        TestStep.log("Post-split dimensions: ${splitPaneWidth}x${splitPaneHeight}")
+        TestStep.assertStoredNotEqual(key: "splitPaneWidth", otherKey: "fullPaneWidth")
+
+        // ── Phase 2b: Drag the divider → terminal resizes again ─────
+        TestStep.log("Phase 2b: Drag the split divider; the terminal must resize to fit the new left-pane width")
+        // The window is at (10, 10) size 1200×700 with a 250-wide sidebar,
+        // so the divider sits at x ≈ 10 + 250 + (950 × splitRatio). With the
+        // default splitRatio 0.5 the divider is around x ≈ 735. Y=300 is
+        // safely below the tab bar but inside the divider's hit zone. Drag
+        // right (making the left pane wider) so the terminal column count
+        // moves above the 80-column floor that auto-resize clamps to —
+        // dragging left would push both 50/50 and 30/70 splits below that
+        // floor, leaving both states clamped to the same 80 cols.
+        TestStep.macDrag(fromX: 735, fromY: 300, toX: 1_000, toY: 300)
+        TestStep.wait(seconds: 2)
+        TestStep.tmuxStorePaneDimensions(
+            target: "split:0",
+            widthKey: "draggedPaneWidth",
+            heightKey: "draggedPaneHeight"
+        )
+        TestStep.log("Post-drag dimensions: ${draggedPaneWidth}x${draggedPaneHeight}")
+        TestStep.assertStoredNotEqual(key: "draggedPaneWidth", otherKey: "splitPaneWidth")
+        TestStep.macScreenshot(label: "mac-split-divider-dragged-wider")
+
+        // Drag the divider back near the original position so the remaining
+        // phases run against a roughly 50/50 split — keeps the visible tab
+        // strip in a familiar layout for later AX clicks.
+        TestStep.macDrag(fromX: 1_000, fromY: 300, toX: 735, toY: 300)
+        TestStep.wait(seconds: 1)
 
         // ── Phase 3: Send README.md to the right too ────────────────
         TestStep.log("Phase 3: Send README.md to the right pane")
@@ -228,14 +291,19 @@ public enum SplitTabScenario {
         TestStep.macScreenshot(label: "mac-split-collapsed-back-to-single")
 
         // ── Tear down ────────────────────────────────────────────
-        // Turn the always-open-links-in-split setting back off so this state
-        // doesn't leak into other scenarios that run on the same instance.
+        // Turn the always-open-links-in-split and always-auto-resize settings
+        // back off so this state doesn't leak into other scenarios that run
+        // on the same instance.
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macScrollWheel(deltaY: -5, count: 4)
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(
             titled: "When opening a web link in an in-app browser tab, route it to the split-view right pane instead of the left."
+        )
+        TestStep.wait(seconds: 0.5)
+        TestStep.macClickButton(
+            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes"
         )
         TestStep.wait(seconds: 0.5)
         TestStep.macCloseWindow(titled: "General")

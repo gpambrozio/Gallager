@@ -98,6 +98,31 @@ struct EditorPickerDialogModifier: ViewModifier {
     }
 }
 
+/// Re-runs `MainView.handleAutoResize` whenever the global auto-resize
+/// preference flips or the currently-viewed session's split-view layout
+/// changes (split toggled, divider dragged, right-pane terminal swapped).
+///
+/// The split-state changes don't move the detail-pane bounds, so the
+/// `onGeometryChange` that already triggers auto-resize misses them — this
+/// modifier fills that gap. Extracting these into a separate modifier keeps
+/// the main `body` chain inside SwiftUI's type-checker budget.
+struct AutoResizeObserversModifier<Signal: Equatable>: ViewModifier {
+    let alwaysAutoResize: Bool
+    let splitSignal: Signal?
+    let onPreferenceChanged: () -> Void
+    let onSplitChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: alwaysAutoResize) { _, _ in
+                onPreferenceChanged()
+            }
+            .onChange(of: splitSignal) { _, _ in
+                onSplitChanged()
+            }
+    }
+}
+
 /// Hosts the transient error alert and the close-confirmation alert. Editor
 /// launch failures are routed through here as well so the two alert
 /// affordances stay co-located.
