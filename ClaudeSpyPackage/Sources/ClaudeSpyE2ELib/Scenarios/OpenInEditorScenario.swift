@@ -134,7 +134,7 @@ public enum OpenInEditorScenario {
 
         // Send Cmd+E to trigger the top-level "Open in Editor…" command. The
         // confirmation dialog appears showing the editor list.
-        TestStep.macPressShortcut(key: "e", modifiers: [.command])
+        TestStep.macPressKey(.character("e"), modifiers: .command)
         TestStep.wait(seconds: 1)
         // Both editors should be visible in the multi-row dialog.
         TestStep.macWaitForElement(titled: "Fake Editor", timeout: 5)

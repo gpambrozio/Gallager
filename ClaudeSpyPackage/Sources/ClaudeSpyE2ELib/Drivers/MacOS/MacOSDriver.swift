@@ -197,65 +197,24 @@ public actor MacOSDriver {
 
     // MARK: - Key Press
 
-    /// Press Tab key via CGEvent to cycle focus between elements in dialogs.
-    public func pressTab() async throws {
+    /// Press a key with optional modifiers via CGEvent.
+    ///
+    /// Resolves named keys (Tab, Escape, …) and character keys (letters,
+    /// digits, `[`, `]`) into US-keyboard virtual key codes, then posts a
+    /// keyDown/keyUp pair through `CGEvent`. The app is focused first so the
+    /// event lands in the right process.
+    public func pressKey(_ key: Key, modifiers: KeyboardModifiers = []) async throws {
         let pid = try requirePID()
-        logger.info("Pressing Tab key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 48) // Tab
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Escape key to dismiss dialogs/alerts.
-    public func pressEscape() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Escape key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 53) // Escape
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Return key to confirm default action in dialogs/alerts.
-    public func pressReturn() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Return key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 36) // Return
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Space key to activate the focused button in dialogs.
-    public func pressSpace() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Space key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 49) // Space
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Cmd+A to select all text in the focused field.
-    public func selectAll() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Cmd+A (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.selectAll()
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press a single character key with optional modifiers via CGEvent.
-    /// Translates the character into its US-keyboard virtual key code so
-    /// scenarios can describe shortcuts as `pressShortcut(key: "e", .command)`.
-    public func pressShortcut(key: String, modifiers: KeyboardModifiers) async throws {
-        let pid = try requirePID()
-        logger.info("Pressing shortcut '\(modifiers)+\(key)' (PID \(pid))")
+        // Named keys always resolve; only `.character(_)` cases with an
+        // unsupported symbol can fail to map, so reporting the character
+        // is sufficient for the error message.
         guard let virtualKey = MacOSAccessibility.virtualKeyCode(for: key) else {
-            throw MacOSDriverError.unsupportedShortcutKey(key)
+            guard case let .character(character) = key else {
+                throw MacOSDriverError.unsupportedShortcutKey(String(describing: key))
+            }
+            throw MacOSDriverError.unsupportedShortcutKey(character)
         }
+        logger.info("Pressing key '\(modifiers)+\(key)' (PID \(pid))")
         MacOSAccessibility.focusApp(appPID: pid)
         try await Task.sleep(for: .milliseconds(200))
         MacOSAccessibility.pressKey(code: virtualKey, modifiers: modifiers.cgEventFlags)

@@ -241,7 +241,7 @@ public enum FileBrowserScenario {
         // Click search field to re-focus, then clear and type a query that matches nothing
         TestStep.macCGClick(titled: "Search files")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "zzzznonexistent")
         TestStep.wait(seconds: 1)
         // ContentUnavailableView.search shows "Check the spelling or try a new search."
@@ -254,7 +254,7 @@ public enum FileBrowserScenario {
         // Type a real query so we have results to verify after switching back
         TestStep.macCGClick(titled: "Search files")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "swift")
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)

@@ -124,7 +124,7 @@ public enum CloseRemoteWindowMacScenario {
 
         // 7. Confirm with "Close Anyway" (default action — press Return)
         TestStep.log("Phase 6: Confirm close — session should be killed")
-        TestStep.macPressReturn(instance: 1)
+        TestStep.macPressKey(.return, instance: 1)
         TestStep.wait(seconds: 3)
 
         // Session should be gone from both host and viewer

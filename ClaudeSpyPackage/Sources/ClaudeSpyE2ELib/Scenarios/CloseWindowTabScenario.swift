@@ -72,7 +72,7 @@ public enum CloseWindowTabScenario {
 
         // 5. Press Escape to cancel — window should remain
         TestStep.log("Stage 5: Press Escape to cancel the confirmation")
-        TestStep.macPressEscape()
+        TestStep.macPressKey(.escape)
         TestStep.wait(seconds: 2)
 
         // Tab should still be there
@@ -124,7 +124,7 @@ public enum CloseWindowTabScenario {
         TestStep.macScreenshot(label: "mac-close-session-confirmation")
 
         // "Close Anyway" is the default action — press Return to confirm
-        TestStep.macPressReturn()
+        TestStep.macPressKey(.return)
         TestStep.wait(seconds: 3)
 
         // Session should be gone despite the running process

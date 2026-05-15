@@ -145,7 +145,7 @@ public enum TabReorderScenario {
         )
 
         // Cmd-Shift-] → next visible tab (winA).
-        TestStep.macPressShortcut(key: "]", modifiers: [.command, .shift])
+        TestStep.macPressKey(.character("]"), modifiers: [.command, .shift])
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:1 winA"), .valueContains("selected")]),
@@ -154,7 +154,7 @@ public enum TabReorderScenario {
         TestStep.macScreenshot(label: "mac-tabreorder-after-next-shortcut")
 
         // Cmd-Shift-[ → previous visible tab (winC again).
-        TestStep.macPressShortcut(key: "[", modifiers: [.command, .shift])
+        TestStep.macPressKey(.character("["), modifiers: [.command, .shift])
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),

@@ -404,15 +404,22 @@ enum MacOSAccessibility {
         keyUp?.post(tap: .cghidEventTap)
     }
 
-    /// Post Cmd+A to select all text in the focused field.
-    static func selectAll() {
-        // Key code 0 = 'a'
-        pressKey(code: 0, modifiers: .maskCommand)
+    /// Translate a ``Key`` into its US-keyboard virtual key code.
+    /// Returns `nil` only when a `.character` case references a symbol the
+    /// table doesn't cover; named keys (Tab, Escape, …) always resolve.
+    static func virtualKeyCode(for key: Key) -> UInt16? {
+        switch key {
+        case .tab: return 48
+        case .escape: return 53
+        case .return: return 36
+        case .space: return 49
+        case let .character(text): return virtualKeyCode(forCharacter: text)
+        }
     }
 
     /// Translate a single character to its US-keyboard virtual key code.
     /// Returns `nil` for inputs the table doesn't cover so callers can throw.
-    static func virtualKeyCode(for character: String) -> UInt16? {
+    static func virtualKeyCode(forCharacter character: String) -> UInt16? {
         let lowered = character.lowercased()
         guard lowered.count == 1, let scalar = lowered.unicodeScalars.first else {
             return nil

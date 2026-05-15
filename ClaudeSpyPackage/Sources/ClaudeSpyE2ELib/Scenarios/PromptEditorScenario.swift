@@ -71,7 +71,7 @@ public enum PromptEditorScenario {
         // Edit the content: focus the editor, select all, replace with new text
         TestStep.macFocusElement(titled: "Original prompt content for submit test")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "Edited prompt: please refactor this function")
         TestStep.wait(seconds: 1)

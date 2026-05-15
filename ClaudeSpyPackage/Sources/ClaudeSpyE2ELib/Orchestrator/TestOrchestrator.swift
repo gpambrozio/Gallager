@@ -543,23 +543,8 @@ public actor TestOrchestrator {
         case let .macClickMenuItem(menuButtonTitle, itemTitle, instance):
             try await macDriver(for: instance).clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
 
-        case let .macPressTab(instance):
-            try await macDriver(for: instance).pressTab()
-
-        case let .macPressEscape(instance):
-            try await macDriver(for: instance).pressEscape()
-
-        case let .macPressReturn(instance):
-            try await macDriver(for: instance).pressReturn()
-
-        case let .macPressSpace(instance):
-            try await macDriver(for: instance).pressSpace()
-
-        case let .macSelectAll(instance):
-            try await macDriver(for: instance).selectAll()
-
-        case let .macPressShortcut(key, modifiers, instance):
-            try await macDriver(for: instance).pressShortcut(key: key, modifiers: modifiers)
+        case let .macPressKey(key, modifiers, instance):
+            try await macDriver(for: instance).pressKey(key, modifiers: modifiers)
 
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
