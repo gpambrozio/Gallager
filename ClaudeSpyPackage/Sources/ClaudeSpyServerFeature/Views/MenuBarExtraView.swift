@@ -83,6 +83,22 @@ public struct MenuBarExtraView: View {
 
     // MARK: - Helpers
 
+    /// Pre-rendered accent-tinted attention icon for use in NSMenuItem rows.
+    /// `Color.accentColor` resolves to the system accent inside an NSMenu
+    /// context, so we load the asset-catalog color via `Bundle.main`.
+    @MainActor
+    private static let attentionIconImage: NSImage? = {
+        let renderer = ImageRenderer(content:
+            Symbols.handsAndSparklesFill.image
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color("AccentColor", bundle: .main))
+        )
+        renderer.scale = 2
+        let image = renderer.nsImage
+        image?.isTemplate = false
+        return image
+    }()
+
     /// Activates the app and forces all visible windows to the front.
     /// SwiftUI's openWindow/openSettings defer window creation, so we
     /// schedule a delayed force-front to catch windows after they appear.
@@ -135,7 +151,18 @@ public struct MenuBarExtraView: View {
 
         // Menu items can't render ProgressView, so use SF Symbols for all states
         if session.needsAttention {
-            Label(title, symbol: .bellBadgeFill)
+            Label {
+                Text(title)
+            } icon: {
+                // NSMenuItem renders SF Symbols as template images, stripping
+                // foregroundStyle. Pre-render through ImageRenderer with
+                // isTemplate=false so the accent color survives.
+                if let image = Self.attentionIconImage {
+                    Image(nsImage: image)
+                } else {
+                    Symbols.handsAndSparklesFill.image
+                }
+            }
         } else if session.isWorking {
             Label(title, symbol: .figureRun)
         } else {
@@ -159,21 +186,21 @@ public struct MenuBarLabel: View {
 
     /// The icon view with color and badge - rendered to NSImage (only used when pendingCount > 0)
     private var iconView: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             Symbols.handsAndSparklesFill.image
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.red)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
 
             Text("\(pendingCount)")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule()
-                        .fill(.red)
-                )
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(Color("AccentColor", bundle: .main))
+        )
     }
 
     /// Renders the icon view to an NSImage for proper color support
