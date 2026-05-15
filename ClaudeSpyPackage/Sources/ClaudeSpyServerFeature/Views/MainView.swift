@@ -1582,9 +1582,7 @@ public struct MainView: View {
                 let resizeKey = remote.resizeKey(paneId: activePane.paneId)
                 let dimensions = calculateOptimalTerminalDimensions()
                 let cached = lastAutoResizeDimensions[resizeKey]
-                if cached?.columns == dimensions.columns && cached?.rows == dimensions.rows {
-                    return
-                }
+                guard cached?.columns != dimensions.columns || cached?.rows != dimensions.rows else { return }
                 guard isAutoResizeActive(for: resizeKey) else { return }
                 await performResize(remoteHostId: remote.hostId, remotePaneId: activePane.paneId)
             }
@@ -1616,26 +1614,28 @@ public struct MainView: View {
         let dimensions = calculateOptimalTerminalDimensions(widthOverride: widthOverride)
 
         if let localTarget {
-            if let localPaneId {
-                lastAutoResizeDimensions[localPaneId] = dimensions
-            }
             do {
                 try await tmuxService.resizePane(localTarget, width: dimensions.columns, height: dimensions.rows)
+                if let localPaneId {
+                    lastAutoResizeDimensions[localPaneId] = dimensions
+                }
             } catch {
                 attachError = "Failed to resize: \(error.localizedDescription)"
             }
         } else if let remoteHostId, let remotePaneId {
             guard let manager = coordinator.viewerConnectionManager else { return }
-            // Cache under the same key handleAutoResize uses for the remote pane
-            if let remote = selectedRemoteSession {
-                lastAutoResizeDimensions[remote.resizeKey(paneId: remotePaneId)] = dimensions
-            }
             let result = await manager.sendCommand(
                 ResizeTmuxPane(width: dimensions.columns, height: dimensions.rows),
                 paneId: remotePaneId,
                 hostId: remoteHostId
             )
-            if case let .failure(error) = result {
+            switch result {
+            case .success:
+                // Cache under the same key handleAutoResize uses for the remote pane
+                if let remote = selectedRemoteSession {
+                    lastAutoResizeDimensions[remote.resizeKey(paneId: remotePaneId)] = dimensions
+                }
+            case let .failure(error):
                 attachError = "Failed to resize remote pane: \(error.localizedDescription)"
             }
         }
