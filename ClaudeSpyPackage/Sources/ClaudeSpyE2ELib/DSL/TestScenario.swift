@@ -142,6 +142,10 @@ public enum TestStep: Sendable {
     case macPressReturn(instance: Int = 0)
     /// Press Space key to activate the focused button in dialogs
     case macPressSpace(instance: Int = 0)
+    /// Press Down Arrow key to move selection in arrow-navigable lists
+    case macPressDownArrow(instance: Int = 0)
+    /// Press Up Arrow key to move selection in arrow-navigable lists
+    case macPressUpArrow(instance: Int = 0)
     /// Press Cmd+A to select all text in the focused field
     case macSelectAll(instance: Int = 0)
     /// Press a single character key with optional modifiers via CGEvent.
