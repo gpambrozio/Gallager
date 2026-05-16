@@ -3012,6 +3012,7 @@ public struct MainView: View {
     /// forever even though the referenced window is gone.
     private func pruneStaleRemoteRightSideEntries() {
         guard coordinator.remoteSessionStore != nil else { return }
+        var prunedSelectedSession = false
         for (key, tabs) in remoteSessionTabsStates {
             let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
             let liveIds = Set(liveWindows.map(\.id))
@@ -3028,6 +3029,26 @@ public struct MainView: View {
                 sessionName: key.sessionName,
                 sessionWindows: liveWindows
             )
+            if
+                let remote = selectedRemoteSession,
+                remote.hostId == key.hostId,
+                remote.sessionName == key.sessionName {
+                prunedSelectedSession = true
+            }
+        }
+        // When the currently-viewed session just lost its right-pane window
+        // the layout flips back to single-pane and the surviving left
+        // terminal needs to grow to the full detail-pane width. The
+        // `SplitSignal`-driven `AutoResizeObserversModifier` onChange would
+        // in principle fire on this mutation, but the two `.onChange`
+        // handlers (paneCount here and splitSignal next) are chained
+        // through an `@Observable` mutation that SwiftUI can coalesce —
+        // kick `handleAutoResize` directly so the surviving left pane
+        // reliably resizes back. Local sessions are covered by
+        // `selectedWindow`'s value-type refresh when tmux switches the
+        // active window after a kill, which has no remote equivalent.
+        if prunedSelectedSession {
+            handleAutoResize()
         }
     }
 
