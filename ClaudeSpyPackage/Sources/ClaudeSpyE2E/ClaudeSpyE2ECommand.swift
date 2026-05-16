@@ -205,15 +205,14 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         let result = await orchestrator.run(setupScenario)
 
-        guard result.success else {
-            print("Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
-            await orchestrator.cleanup()
-            throw ExitCode.failure
-        }
-
         print()
         print("==========================================")
-        print("  Everything is running!")
+        if result.success {
+            print("  Everything is running!")
+        } else {
+            print("  Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
+            print("  Apps are still running so you can inspect state.")
+        }
         print("  Press Enter to shut down...")
         print("==========================================")
         print()
@@ -223,6 +222,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Shutting down...")
         await orchestrator.cleanup()
         print("Done.")
+
+        if !result.success {
+            throw ExitCode.failure
+        }
     }
 
     private static let allScenarios: [TestScenario] = [
@@ -310,6 +313,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,
         TabReorderScenario.scenario,
+        RemoteTabReorderScenario.scenario,
         ProjectPickerArrowNavScenario.scenario,
         NewLocalSessionAfterRemoteScenario.scenario,
     ]

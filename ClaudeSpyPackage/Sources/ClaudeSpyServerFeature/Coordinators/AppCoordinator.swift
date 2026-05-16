@@ -1107,6 +1107,22 @@
                     return .success(for: command.id)
                 }
 
+                // Handle window reorder — rewrites tmux indices via the same
+                // two-phase park-then-place path used locally, then pushes
+                // the refreshed session state so every viewer sees the new
+                // tab order.
+                if case let .moveTmuxWindows(spec) = command.command {
+                    do {
+                        try await tmux.moveWindows(in: spec.sessionName, to: spec.windowIds)
+                        let allPanes = await tmux.refreshPanes()
+                        winManager.updatePaneStates(from: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                        return .success(for: command.id)
+                    } catch {
+                        return .failure(for: command.id, error: error.localizedDescription)
+                    }
+                }
+
                 // Handle window rename — pushes updated state so connected
                 // viewers see the new tab name.
                 if case let .setWindowName(spec) = command.command {
