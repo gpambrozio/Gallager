@@ -108,12 +108,14 @@ public enum WindowRenameScenario {
         TestStep.macWaitForElement(titled: "ViewerRenamed", timeout: 15)
         TestStep.macScreenshot(label: "host-after-viewer-rename")
 
-        // ── Phase 7: New windows get "terminal N" names via the + button ──
-        TestStep.log("Phase 7: Create new window via + button — expect 'terminal 1' name")
-        // Viewer side uses `RemoteWindowTabBar`, which keeps the original
-        // "New Window" button instead of the host-side popover from issue
-        // #510 (remote sessions have no in-app browser tabs to offer).
-        TestStep.macClickButton(titled: "New Window", instance: 1)
+        // ── Phase 7: New windows get "terminal N" names via the + menu ──
+        TestStep.log("Phase 7: Create new window via + menu — expect 'terminal 1' name")
+        // Viewer side `RemoteWindowTabBar` now matches the local bar: the
+        // "+" button is a Menu offering "New Terminal" / "New Browser"
+        // (issue #521). Open the menu, then pick "New Terminal".
+        TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "New Terminal", instance: 1)
         TestStep.wait(seconds: 5)
 
         // No existing `terminal N` names in the session yet, so the next one is `terminal 1`.
