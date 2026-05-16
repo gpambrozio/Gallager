@@ -1041,6 +1041,15 @@ public struct MainView: View {
                         sessionName: remote.sessionName,
                         url: newURL
                     )
+                },
+                onRequestNewTab: { newURL in
+                    openRemoteBrowserTab(
+                        url: newURL,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName,
+                        windowId: window.id,
+                        originWindowId: selectedBrowserTab.originWindowId
+                    )
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1113,6 +1122,15 @@ public struct MainView: View {
                             hostId: remote.hostId,
                             sessionName: remote.sessionName,
                             url: newURL
+                        )
+                    },
+                    onRequestNewTab: { newURL in
+                        openRemoteBrowserTab(
+                            url: newURL,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            windowId: tab.originWindowId ?? selectedRemoteWindowId ?? "",
+                            originWindowId: tab.originWindowId
                         )
                     }
                 )
@@ -1208,6 +1226,14 @@ public struct MainView: View {
                         tabId: selectedBrowserTab.id,
                         sessionName: session.sessionName,
                         url: newURL
+                    )
+                },
+                onRequestNewTab: { newURL in
+                    openBrowserTab(
+                        url: newURL,
+                        sessionName: session.sessionName,
+                        windowId: window.id,
+                        originWindowId: selectedBrowserTab.originWindowId
                     )
                 }
             )
@@ -1306,6 +1332,14 @@ public struct MainView: View {
                     },
                     onURLChange: { newURL in
                         updateBrowserTabURL(tabId: id, sessionName: sessionName, url: newURL)
+                    },
+                    onRequestNewTab: { newURL in
+                        openBrowserTab(
+                            url: newURL,
+                            sessionName: sessionName,
+                            windowId: selectedWindow?.id ?? "",
+                            originWindowId: tab.originWindowId
+                        )
                     }
                 )
                 .id("right-\(tab.id)")
