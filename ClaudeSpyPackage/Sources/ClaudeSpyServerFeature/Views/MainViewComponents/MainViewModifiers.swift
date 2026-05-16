@@ -123,6 +123,24 @@ struct AutoResizeObserversModifier<Signal: Equatable>: ViewModifier {
     }
 }
 
+/// Prunes right-side payloads from remote `SessionFileTabsState` whenever
+/// the remote session store's pane count changes — covers windows that the
+/// host removed (user typed `exit`, the X button, `kill-window`, etc.) so the
+/// right pane doesn't strand the split with a dangling reference.
+///
+/// Hoisted into its own modifier so the main `body` chain stays inside
+/// SwiftUI's type-checker budget.
+struct RemoteSplitCleanupModifier: ViewModifier {
+    let paneCount: Int
+    let onPrune: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: paneCount) {
+            onPrune()
+        }
+    }
+}
+
 /// Hosts the transient error alert and the close-confirmation alert. Editor
 /// launch failures are routed through here as well so the two alert
 /// affordances stay co-located.

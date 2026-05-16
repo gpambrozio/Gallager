@@ -95,12 +95,14 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-follows-viewer-to-window1")
 
-        // ── Phase 5: Create 3rd window via "+" button ───────────
-        TestStep.log("Phase 5: Create new window via + button")
-        // Viewer side uses `RemoteWindowTabBar`, which keeps the original
-        // "New Window" button instead of the host-side popover from issue
-        // #510 (remote sessions have no in-app browser tabs to offer).
-        TestStep.macClickButton(titled: "New Window", instance: 1)
+        // ── Phase 5: Create 3rd window via "+" menu ─────────────
+        TestStep.log("Phase 5: Create new window via + menu → New Terminal")
+        // Viewer side `RemoteWindowTabBar` now matches the local bar: the
+        // "+" button is a Menu offering "New Terminal" / "New Browser"
+        // (issue #521). Open the menu, then pick "New Terminal".
+        TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "New Terminal", instance: 1)
         TestStep.wait(seconds: 5)
 
         // Verify new tab appears and is auto-selected

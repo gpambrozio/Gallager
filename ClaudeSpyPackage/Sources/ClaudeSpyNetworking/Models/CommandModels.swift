@@ -591,6 +591,34 @@ public struct SetWindowName: CommandSpec, Equatable {
     }
 }
 
+/// Reorder tmux windows inside a remote session so the windows match the
+/// supplied id list. Applied on the host via `TmuxService.moveWindows` (a
+/// two-phase park-then-place that rewrites the session's window indices).
+///
+/// The viewer renders an optimistic order locally and then sends this command
+/// to make the host's tmux state match. On success the host pushes a fresh
+/// session state to every connected viewer, so the new order propagates back.
+public struct MoveTmuxWindows: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session whose windows are being reordered.
+    public let sessionName: String
+
+    /// The desired window order, listed as the current window ids
+    /// (`sessionName:N`). Every window in the session must appear; partial
+    /// reorders are rejected by the host.
+    public let windowIds: [String]
+
+    public init(sessionName: String, windowIds: [String]) {
+        self.sessionName = sessionName
+        self.windowIds = windowIds
+    }
+
+    public var commandType: CommandType {
+        .moveTmuxWindows(self)
+    }
+}
+
 /// Set yolo mode for a pane's Claude session. Returns success/failure.
 public struct SetYoloMode: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -868,6 +896,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setSessionEmoji(SetSessionEmoji)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
+    /// Reorder tmux windows inside a session
+    case moveTmuxWindows(MoveTmuxWindows)
     /// Split a tmux pane
     case splitTmuxPane(SplitTmuxPane)
     /// Select (focus) a tmux pane
@@ -965,6 +995,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setWindowName command
     public static func setWindowName(windowId: String, name: String) -> CommandType {
         .setWindowName(SetWindowName(windowId: windowId, name: name))
+    }
+
+    /// Create a moveTmuxWindows command
+    public static func moveTmuxWindows(sessionName: String, windowIds: [String]) -> CommandType {
+        .moveTmuxWindows(MoveTmuxWindows(sessionName: sessionName, windowIds: windowIds))
     }
 
     /// Create a splitTmuxPane command
