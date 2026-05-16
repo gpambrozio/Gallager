@@ -111,6 +111,9 @@ public enum FileBrowserScenario {
         TestStep.log("Phase 6: HTML viewer (WebView)")
         TestStep.macCGClick(titled: "page.html")
         TestStep.wait(seconds: 2)
+        // WebView load is async — wait for rendered content before screenshot
+        // so a slow page load doesn't capture a blank pane (see Phase 30).
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-viewer")
 
         // ── Phase 7: Unsupported / Binary File ──────────────────
