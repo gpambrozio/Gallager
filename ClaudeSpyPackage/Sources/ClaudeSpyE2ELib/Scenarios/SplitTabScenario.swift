@@ -90,6 +90,28 @@ public enum SplitTabScenario {
         )
         TestStep.log("Pre-split dimensions: ${fullPaneWidth}x${fullPaneHeight}")
 
+        // Print the shell's view of the terminal width inside the tmux pane
+        // so the later split-and-drag screenshots can visually demonstrate
+        // that the pane was resized: `tput cols` returns whatever tmux
+        // currently believes the pane is, which is exactly what auto-resize
+        // is supposed to drive. The line is plain text — it accumulates in
+        // the pane and will be visible in every later mirror screenshot.
+        Shortcut.tmuxRunCommand(
+            target: "split:0",
+            command: #"echo "[FULL-WIDTH] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        // Verify that the shell-reported width actually matches the tmux
+        // pane width — both should reflect whatever auto-resize landed on.
+        // The substring is resolved against ${fullPaneWidth} captured above,
+        // so a mismatch here means either auto-resize never fired or the
+        // shell never received SIGWINCH.
+        TestStep.tmuxCapturePaneContent(target: "split:0", storeAs: "paneContentFullWidth")
+        TestStep.assertStoredContains(
+            key: "paneContentFullWidth",
+            substring: "[FULL-WIDTH] tput cols=${fullPaneWidth}"
+        )
+
         // ── Phase 1: Open two file tabs in the single-pane layout ──
         TestStep.log("Phase 1: Open hello.txt and README.md as file tabs")
         TestStep.macClickButton(titled: "Files")
@@ -123,7 +145,6 @@ public enum SplitTabScenario {
         // exist. The arrow icons replace the split icons on every file tab.
         TestStep.macWaitForElement(titled: "Move file tab to left: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "Move file tab to right: README.md", timeout: 5)
-        TestStep.macScreenshot(label: "mac-split-active-hello-on-right")
 
         // Splitting the layout halves the left pane's rendered width, so
         // auto-resize must shrink the tmux pane to match (issue #523).
@@ -136,6 +157,28 @@ public enum SplitTabScenario {
         )
         TestStep.log("Post-split dimensions: ${splitPaneWidth}x${splitPaneHeight}")
         TestStep.assertStoredNotEqual(key: "splitPaneWidth", otherKey: "fullPaneWidth")
+
+        // Print the post-split column count in the pane, then switch the
+        // left side to the split:0 terminal so the next screenshot captures
+        // both the [FULL-WIDTH] and [AFTER-SPLIT] echo lines side by side —
+        // a different `tput cols` value on each line is the visible proof
+        // that the auto-resize fired.
+        Shortcut.tmuxRunCommand(
+            target: "split:0",
+            command: #"echo "[AFTER-SPLIT] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        // The echoed line must report the same width tmux just gave us
+        // (${splitPaneWidth}), proving the shell's view of the terminal
+        // matches the post-split tmux pane width.
+        TestStep.tmuxCapturePaneContent(target: "split:0", storeAs: "paneContentAfterSplit")
+        TestStep.assertStoredContains(
+            key: "paneContentAfterSplit",
+            substring: "[AFTER-SPLIT] tput cols=${splitPaneWidth}"
+        )
+        TestStep.macClickButton(titled: "split:0")
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-split-active-hello-on-right")
 
         // ── Phase 2b: Drag the divider → terminal resizes again ─────
         TestStep.log("Phase 2b: Drag the split divider; the terminal must resize to fit the new left-pane width")
@@ -156,12 +199,41 @@ public enum SplitTabScenario {
         )
         TestStep.log("Post-drag dimensions: ${draggedPaneWidth}x${draggedPaneHeight}")
         TestStep.assertStoredNotEqual(key: "draggedPaneWidth", otherKey: "splitPaneWidth")
+
+        // Same idea as the post-split echo: dropping a third `tput cols`
+        // line into the pane makes the divider-drag screenshot show three
+        // distinct width values stacked vertically (full / split / drag),
+        // which is the visual proof for both the initial split-aware
+        // resize and the divider-drag re-resize.
+        Shortcut.tmuxRunCommand(
+            target: "split:0",
+            command: #"echo "[AFTER-DRAG] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        // Mirror the earlier two assertions: confirm the shell's idea of
+        // the width matches ${draggedPaneWidth} from tmux. Three matching
+        // pairs (full / split / drag) is the textual proof that every
+        // resize stage propagated all the way through.
+        TestStep.tmuxCapturePaneContent(target: "split:0", storeAs: "paneContentAfterDrag")
+        TestStep.assertStoredContains(
+            key: "paneContentAfterDrag",
+            substring: "[AFTER-DRAG] tput cols=${draggedPaneWidth}"
+        )
         TestStep.macScreenshot(label: "mac-split-divider-dragged-wider")
 
         // Drag the divider back near the original position so the remaining
         // phases run against a roughly 50/50 split — keeps the visible tab
         // strip in a familiar layout for later AX clicks.
         TestStep.macDrag(fromX: 1_000, fromY: 300, toX: 735, toY: 300)
+        TestStep.wait(seconds: 1)
+
+        // Phase 2/2b activated the split:0 terminal on the left pane to
+        // expose the `tput cols` echo lines. Switch the left side back to
+        // the Files view so the remaining phases' screenshots match the
+        // layout they were authored against (file tree on the left, file
+        // content on the right) and the resize-proof terminal content
+        // doesn't leak into screenshots that test unrelated behaviour.
+        TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
 
         // ── Phase 3: Send README.md to the right too ────────────────
