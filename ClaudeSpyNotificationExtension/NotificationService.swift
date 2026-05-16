@@ -29,6 +29,12 @@ class NotificationService: UNNotificationServiceExtension {
         self.contentHandler = contentHandler
         bestAttemptContent = request.content.mutableCopy() as? UNMutableNotificationContent
 
+        // Apply the default system sound to every delivery path (success,
+        // decryption-failure, and timeout all deliver bestAttemptContent).
+        // Without a sound, iOS would deliver the notification silently — no
+        // tone and no haptic feedback.
+        bestAttemptContent?.sound = .default
+
         Task {
             await decryptAndUpdateNotification(request: request)
         }
