@@ -607,7 +607,10 @@ public struct MainView: View {
 
     // MARK: - Detail View
 
-    /// The currently selected remote window, resolved from session store
+    /// The currently selected remote window, resolved from session store.
+    /// Excludes any window pinned to the right pane (`SessionFileTabsState.rightSide`)
+    /// from the "follow tmux-active" override — otherwise toggling split on
+    /// the active window would leave both panes rendering it.
     private var selectedRemoteWindow: TmuxWindow? {
         guard
             let remote = selectedRemoteSession,
@@ -615,16 +618,28 @@ public struct MainView: View {
         let windows = sessionStore.windows(for: remote.hostId)
             .filter { $0.sessionName == remote.sessionName }
             .sorted { $0.windowIndex < $1.windowIndex }
+        let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        let rightWindowIds = remoteSessionTabsStates[key]?.rightSideWindowIds ?? []
+        let leftWindows = windows.filter { !rightWindowIds.contains($0.id) }
         if
             let windowId = selectedRemoteWindowId,
+            !rightWindowIds.contains(windowId),
             let window = windows.first(where: { $0.id == windowId }) {
-            // Follow the tmux-active window if it changed (e.g., host switched tabs)
-            if !window.isWindowActive, let activeWindow = windows.first(where: \.isWindowActive) {
-                return activeWindow
+            // Follow the tmux-active window if it changed (e.g., host
+            // switched tabs on its end) — but only among left-side
+            // windows, so the left pane never accidentally jumps to a
+            // window that's already shown in the right pane.
+            if
+                !window.isWindowActive,
+                let activeLeft = leftWindows.first(where: \.isWindowActive) {
+                return activeLeft
             }
             return window
         }
-        return windows.first(where: \.isWindowActive) ?? windows.first
+        return leftWindows.first(where: \.isWindowActive)
+            ?? leftWindows.first
+            ?? windows.first(where: \.isWindowActive)
+            ?? windows.first
     }
 
     /// All windows in the selected remote session
@@ -2663,6 +2678,9 @@ public struct MainView: View {
     }
 
     /// Selects an existing browser tab in a remote session's tab strip.
+    /// Mirrors `selectBrowserTab` for local sessions: when the tab is pinned
+    /// to the right pane, route the click to `selectedRight` so the left
+    /// pane keeps its current content instead of also rendering the browser.
     private func selectRemoteBrowserTab(
         _ tabId: UUID,
         hostId: String,
@@ -2670,6 +2688,10 @@ public struct MainView: View {
     ) {
         let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
         guard let tabs = remoteSessionTabsStates[key] else { return }
+        if tabs.rightSide.contains(.browser(tabId)) {
+            tabs.selectedRight = .browser(tabId)
+            return
+        }
         tabs.selectedBrowserTabId = tabId
     }
 

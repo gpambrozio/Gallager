@@ -37,6 +37,14 @@ public enum RemoteTabReorderScenario {
         TestStep.tmuxCommand(arguments: ["rename-window", "-t", "rtabreorder:0", "winA"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "rtabreorder", "-n", "winB"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "rtabreorder", "-n", "winC"])
+        // Echo each window's name so the per-pane mirror has unique content.
+        // Without this every idle bash prompt looks identical and the split
+        // screenshots can't prove the left/right panes show *different*
+        // windows — exactly the symptom of the "both panes show the same
+        // terminal" bug this scenario is meant to catch.
+        TestStep.tmuxCommand(arguments: ["send-keys", "-t", "rtabreorder:winA", "echo winA", "Enter"])
+        TestStep.tmuxCommand(arguments: ["send-keys", "-t", "rtabreorder:winB", "echo winB", "Enter"])
+        TestStep.tmuxCommand(arguments: ["send-keys", "-t", "rtabreorder:winC", "echo winC", "Enter"])
         // Re-select winA so the sidebar click lands on a known tab.
         TestStep.tmuxCommand(arguments: ["select-window", "-t", "rtabreorder:0"])
         TestStep.wait(seconds: 1)
@@ -82,6 +90,10 @@ public enum RemoteTabReorderScenario {
         // named "terminal 1" because the existing windows used non-numbered
         // names. The viewer mirrors the new tab once the host pushes state.
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 15, instance: 1)
+        // Same identifying-echo trick as the setup windows — gives
+        // "terminal 1" recognisable content for the split-pane screenshots.
+        TestStep.tmuxCommand(arguments: ["send-keys", "-t", "rtabreorder:terminal 1", "echo terminal 1", "Enter"])
+        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-after-new-terminal", instance: 1)
 
         // ── Phase 2: "New Browser" creates a browser tab, focuses URL ───
@@ -271,6 +283,88 @@ public enum RemoteTabReorderScenario {
         )
         TestStep.macWaitForElement(titled: "Open terminal in split: winB", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-collapsed-from-left-empty", instance: 1)
+
+        // ── Phase 11: Create a browser and send it to the right pane ────
+        //
+        // Regression coverage for the bug where the left pane kept rendering
+        // the browser after it had been pushed onto the right side. The
+        // browser sits on the left at first (newly created tabs always
+        // select on the left). Once `Open browser in split` flips it to the
+        // right, the toggle clears `selectedBrowserTabId` so the left pane
+        // falls back to the previously selected terminal — without that
+        // clear, *both* panes would render the same browser content.
+        //
+        // After Phase 10 the split has just collapsed and `winC` is the
+        // active terminal again, so it's the predictable left-pane fallback
+        // the assertions below depend on.
+        TestStep.log("Phase 11: New Browser appears on the left, then sent to the right pane")
+        TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "New Browser", instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElement(titled: "URL", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-rtabreorder-browser-new-on-left", instance: 1)
+
+        // Click the split toggle on the browser tab — its AX label is
+        // "Open browser tab in split: …" (the tabKind passed to
+        // `TabSplitToggleButton` is "browser tab"). The tabLabel depends on
+        // WKWebView's page title for about:blank, so query by prefix.
+        TestStep.macCGClickElement(
+            query: .labelContains("Open browser tab in split:"),
+            instance: 1
+        )
+        TestStep.wait(seconds: 3)
+        // Browser is now on the right; the toggle's icon flips and the
+        // label changes to "Move browser tab to left: …".
+        TestStep.macWaitForElementQuery(
+            .labelContains("Move browser tab to left:"),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macScreenshot(label: "viewer-rtabreorder-browser-on-right", instance: 1)
+
+        // ── Phase 12: Click the right-side browser tab — left stays put ─
+        //
+        // Bug 2 in the original report: clicking a browser tab whose
+        // payload lives on the right would still set
+        // `selectedBrowserTabId`, so the left pane would also render the
+        // browser. After the fix, `selectRemoteBrowserTab` short-circuits
+        // to `selectedRight` for right-side tabs and leaves the left pane
+        // showing whatever terminal it was on.
+        TestStep.log("Phase 12: Clicking right-side browser tab keeps the left pane on its terminal")
+        // The browser tab strip item exposes itself with "Browser tab: …"
+        // as its label — match by prefix (display title is empty for
+        // about:blank).
+        TestStep.macCGClickElement(query: .labelContains("Browser tab:"), instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "viewer-rtabreorder-right-browser-clicked-left-stays", instance: 1)
+
+        // ── Phase 13: Toggle browser back to the left → split collapses ─
+        //
+        // The browser is the only entry on the right (winB/winC/terminal 1
+        // all live on the left after Phase 10's collapse). Sending it back
+        // empties the right side, `reconcileRemoteRightPaneSelection`
+        // collapses the layout, and the browser becomes the left-pane
+        // selection again.
+        TestStep.log("Phase 13: Toggle browser back to left → split collapses")
+        TestStep.macCGClickElement(
+            query: .labelContains("Move browser tab to left:"),
+            instance: 1
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.macWaitForElementQueryToDisappear(
+            .labelContains("Move browser tab to left:"),
+            timeout: 5,
+            instance: 1
+        )
+        TestStep.macWaitForElement(titled: "URL", timeout: 5, instance: 1)
+        TestStep.macScreenshot(label: "viewer-rtabreorder-browser-back-on-left", instance: 1)
+
+        // Tidy up — close the browser tab so the teardown leaves a clean
+        // session state.
+        TestStep.macCGClickElement(query: .labelContains("Close browser tab:"), instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5, instance: 1)
 
         // ── Tear down ────────────────────────────────────────────────
         // Use kill-session so every window in both sessions is cleaned up
