@@ -1219,6 +1219,7 @@ public struct MainView: View {
                     } label: {
                         Symbols.macwindow.image
                     }
+                    .accessibilityLabel("Open session in terminal app")
                     .help("Open session in terminal app")
 
                     resizeToolbarGroup(
@@ -1233,6 +1234,7 @@ public struct MainView: View {
                 } label: {
                     Symbols.xmark.image
                 }
+                .accessibilityLabel("Close session")
                 .help("Close session")
             } else if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
                 // Yolo mode toggle for remote windows with active Claude sessions
@@ -1274,6 +1276,7 @@ public struct MainView: View {
                 } label: {
                     Symbols.xmark.image
                 }
+                .accessibilityLabel("Close session")
                 .help("Close session")
             }
 
@@ -1284,6 +1287,7 @@ public struct MainView: View {
             } label: {
                 Symbols.arrowClockwise.image
             }
+            .accessibilityLabel("Refresh pane list")
             .help("Refresh pane list")
             .keyboardShortcut("r", modifiers: .command)
             .disabled(tmuxService.isRefreshing)
@@ -1441,6 +1445,11 @@ public struct MainView: View {
             } label: {
                 Symbols.arrowUpLeftAndArrowDownRight.image
             }
+            // macOS 26 auto-labels icon-only toolbar Buttons by SF Symbol
+            // (e.g. arrow.up.left.and.arrow.down.right → "Enter Full Screen")
+            // and drops `.help()` from the AX tree, so set the AX label
+            // explicitly to keep VoiceOver and e2e queries meaningful.
+            .accessibilityLabel(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
             .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
             .disabled(isSessionAttached)
         }
