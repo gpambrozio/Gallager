@@ -191,7 +191,9 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .subagentStart,
              .subagentStop,
              .taskCreated,
-             .taskCompleted:
+             .taskCompleted,
+             .elicitation,
+             .elicitationResult:
             return true
         case .stop,
              .stopFailure:
@@ -207,8 +209,6 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .configChange,
              .cwdChanged,
              .fileChanged,
-             .elicitation,
-             .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
              .unknown:
