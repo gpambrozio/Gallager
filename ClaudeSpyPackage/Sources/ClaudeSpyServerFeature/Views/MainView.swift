@@ -1741,13 +1741,44 @@ public struct MainView: View {
                         }
                     }
                 }
-            } else if let remote = currentRemote, let activePane = currentRemoteWindow?.activePane {
+            } else if
+                let remote = currentRemote,
+                let leftWindow = currentRemoteWindow,
+                let activePane = leftWindow.activePane {
+                let leftWidth = effectiveTerminalWidth(forRemote: leftWindow, in: remote)
                 let resizeKey = remote.resizeKey(paneId: activePane.paneId)
-                let dimensions = calculateOptimalTerminalDimensions()
+                let dimensions = calculateOptimalTerminalDimensions(widthOverride: leftWidth)
                 let cached = lastAutoResizeDimensions[resizeKey]
-                guard cached?.columns != dimensions.columns || cached?.rows != dimensions.rows else { return }
-                guard isAutoResizeActive(for: resizeKey) else { return }
-                await performResize(remoteHostId: remote.hostId, remotePaneId: activePane.paneId)
+                if cached?.columns != dimensions.columns || cached?.rows != dimensions.rows {
+                    if isAutoResizeActive(for: resizeKey) {
+                        await performResize(
+                            remoteHostId: remote.hostId,
+                            remotePaneId: activePane.paneId,
+                            widthOverride: leftWidth
+                        )
+                    }
+                }
+
+                // Right-pane remote terminal (split mode): a different remote
+                // tmux window can live on the right side. Resize it to fit
+                // the right half so each terminal matches its rendered area.
+                if
+                    let rightWindow = rightPaneRemoteTerminalWindow(remote: remote),
+                    let rightPane = rightWindow.activePane {
+                    let rightWidth = effectiveTerminalWidth(forRemote: rightWindow, in: remote)
+                    let rightResizeKey = remote.resizeKey(paneId: rightPane.paneId)
+                    let rightDimensions = calculateOptimalTerminalDimensions(widthOverride: rightWidth)
+                    let rightCached = lastAutoResizeDimensions[rightResizeKey]
+                    if rightCached?.columns != rightDimensions.columns || rightCached?.rows != rightDimensions.rows {
+                        if isAutoResizeActive(for: rightResizeKey) {
+                            await performResize(
+                                remoteHostId: remote.hostId,
+                                remotePaneId: rightPane.paneId,
+                                widthOverride: rightWidth
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -3435,15 +3466,53 @@ public struct MainView: View {
     /// split it lives on — `nil` falls back to the full `detailPaneSize.width`
     /// so non-split sessions keep the original behavior.
     private func effectiveTerminalWidth(for window: LocalTmuxWindow) -> CGFloat? {
+        effectiveTerminalWidth(
+            tabs: sessionFileTabsStates[window.sessionName],
+            windowId: window.id
+        )
+    }
+
+    /// Remote counterpart to `effectiveTerminalWidth(for:)`. Reads the split
+    /// state stored under the per-host/per-session key so remote terminals
+    /// participate in the same split-aware auto-resize as host terminals.
+    private func effectiveTerminalWidth(
+        forRemote window: TmuxWindow,
+        in remote: RemoteSessionSelection
+    ) -> CGFloat? {
+        let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        return effectiveTerminalWidth(
+            tabs: remoteSessionTabsStates[key],
+            windowId: window.id
+        )
+    }
+
+    private func effectiveTerminalWidth(
+        tabs: SessionFileTabsState?,
+        windowId: String
+    ) -> CGFloat? {
+        guard let tabs, tabs.isSplit else { return nil }
+        let isOnRight = tabs.rightSide.contains(.window(windowId))
+        let ratio = isOnRight ? (1 - tabs.splitRatio) : tabs.splitRatio
+        return max(0, detailPaneSize.width * ratio - SplitLayout.dividerWidth / 2)
+    }
+
+    /// The remote `TmuxWindow` currently rendered in the split-view right
+    /// pane (if any). Mirrors `rightPaneTerminalWindow()` for remote sessions
+    /// so the right-side terminal participates in auto-resize too.
+    private func rightPaneRemoteTerminalWindow(remote: RemoteSessionSelection) -> TmuxWindow? {
         guard
-            let tabs = sessionFileTabsStates[window.sessionName],
-            tabs.isSplit
+            let sessionStore = coordinator.remoteSessionStore,
+            let tabs = remoteSessionTabsStates[remoteTabsKey(
+                hostId: remote.hostId,
+                sessionName: remote.sessionName
+            )],
+            tabs.isSplit,
+            case let .window(rightWindowId) = tabs.selectedRight
         else {
             return nil
         }
-        let isOnRight = tabs.rightSide.contains(.window(window.id))
-        let ratio = isOnRight ? (1 - tabs.splitRatio) : tabs.splitRatio
-        return max(0, detailPaneSize.width * ratio - SplitLayout.dividerWidth / 2)
+        return sessionStore.windows(for: remote.hostId)
+            .first { $0.sessionName == remote.sessionName && $0.id == rightWindowId }
     }
 
     /// Equatable snapshot of the currently selected session's split layout,
@@ -3452,12 +3521,20 @@ public struct MainView: View {
     /// Returns `nil` when nothing is selected so `.onChange` still fires on
     /// the first non-nil transition.
     private var currentSessionSplitSignal: SplitSignal? {
-        guard
+        if
             let sessionName = selectedWindow?.sessionName,
-            let tabs = sessionFileTabsStates[sessionName]
-        else {
-            return nil
+            let tabs = sessionFileTabsStates[sessionName] {
+            return splitSignal(from: tabs)
         }
+        if let remote = selectedRemoteSession {
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            guard let tabs = remoteSessionTabsStates[key] else { return nil }
+            return splitSignal(from: tabs)
+        }
+        return nil
+    }
+
+    private func splitSignal(from tabs: SessionFileTabsState) -> SplitSignal {
         let rightWindowId: String? = {
             if case let .window(id) = tabs.selectedRight { return id }
             return nil

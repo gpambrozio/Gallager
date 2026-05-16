@@ -72,6 +72,30 @@ public enum RemoteTabReorderScenario {
         TestStep.macWaitForElement(titled: "winA", timeout: 10, instance: 1)
         TestStep.macWaitForElement(titled: "winB", timeout: 10, instance: 1)
         TestStep.macWaitForElement(titled: "winC", timeout: 10, instance: 1)
+
+        // Enable global auto-resize on the viewer so the remote-side resize
+        // logic (issue #523 follow-up) fires when the layout splits or the
+        // divider is dragged in Phase 8. Without this, the remote terminals
+        // would keep whatever dimensions the host created them with and the
+        // split-aware width pass would have no observable effect.
+        //
+        // The viewer's Settings window is still open from pairing setup but
+        // sits on the "Remote Hosts" tab — switch back to "General" before
+        // looking for the auto-resize toggle.
+        TestStep.macOpenSettings(instance: 1)
+        TestStep.macSelectSettingsTab("General", instance: 1)
+        TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
+        TestStep.macClickButton(
+            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes",
+            instance: 1
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.macCloseWindow(titled: "General", instance: 1)
+        TestStep.wait(seconds: 2)
+        // Re-select the remote session so the rest of the scenario runs
+        // against the same focused state it expects.
+        TestStep.macClickButton(titled: "rtabreorder", instance: 1)
+        TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "viewer-rtabreorder-initial", instance: 1)
 
         // ── Phase 1: "+" menu offers New Terminal and New Browser ───────
@@ -240,6 +264,32 @@ public enum RemoteTabReorderScenario {
         TestStep.macWaitForElement(titled: "rtabreorder:2 winC", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-after-trailing-drop", instance: 1)
 
+        // ── Phase 7b: Capture pre-split remote terminal width ───────────
+        //
+        // Select winC as the active left-pane terminal so Phase 8's split
+        // leaves a known terminal on the left to observe. Echo `tput cols`
+        // into winC so the screenshots and captured pane content prove the
+        // post-split width matches what tmux reports.
+        TestStep.log("Phase 7b: Echo tput cols and capture pre-split dimensions of winC (issue #523 remote follow-up)")
+        TestStep.macClickButton(titled: "rtabreorder:2 winC", instance: 1)
+        TestStep.wait(seconds: 2)
+        TestStep.tmuxStorePaneDimensions(
+            target: "rtabreorder:winC",
+            widthKey: "remoteFullWidth",
+            heightKey: "remoteFullHeight"
+        )
+        TestStep.log("Pre-split (remote winC): ${remoteFullWidth}x${remoteFullHeight}")
+        Shortcut.tmuxRunCommand(
+            target: "rtabreorder:winC",
+            command: #"echo "[REMOTE-FULL] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.tmuxCapturePaneContent(target: "rtabreorder:winC", storeAs: "remoteWinCFullContent")
+        TestStep.assertStoredContains(
+            key: "remoteWinCFullContent",
+            substring: "[REMOTE-FULL] tput cols=${remoteFullWidth}"
+        )
+
         // ── Phase 8: Open a split via winB's split toggle ───────────────
         //
         // Target winB by exact AX label so we don't depend on visual tab
@@ -253,6 +303,111 @@ public enum RemoteTabReorderScenario {
         // Every remaining terminal on the left now shows a "to right" arrow.
         TestStep.macWaitForElementQuery(.labelContains("Move terminal to right:"), timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-split-opened-winB-right", instance: 1)
+
+        // ── Phase 8b: Verify the split-aware resize fires on both panes ─
+        //
+        // Opening the split moves winB onto the right pane while winC stays
+        // on the left. The viewer's `AutoResizeObserversModifier` watches
+        // `currentSessionSplitSignal` and re-runs `handleAutoResize`, which
+        // now passes the split-aware width to both the left- and right-pane
+        // remote terminals (issue #523 follow-up). Wait long enough for the
+        // 200 ms debounce + relay round trip to the host.
+        TestStep.log("Phase 8b: Post-split — winC (left) shrinks; winB (right) sits at the right-side width")
+        TestStep.wait(seconds: 3)
+        TestStep.tmuxStorePaneDimensions(
+            target: "rtabreorder:winC",
+            widthKey: "remoteSplitLeftWidth",
+            heightKey: "remoteSplitLeftHeight"
+        )
+        TestStep.tmuxStorePaneDimensions(
+            target: "rtabreorder:winB",
+            widthKey: "remoteSplitRightWidth",
+            heightKey: "remoteSplitRightHeight"
+        )
+        TestStep.log("Post-split left winC: ${remoteSplitLeftWidth}x${remoteSplitLeftHeight}")
+        TestStep.log("Post-split right winB: ${remoteSplitRightWidth}x${remoteSplitRightHeight}")
+        // The left-pane terminal must shrink relative to the full-detail
+        // width once the split is active.
+        TestStep.assertStoredNotEqual(key: "remoteSplitLeftWidth", otherKey: "remoteFullWidth")
+        // Echo into both panes so the captured pane content (and any later
+        // screenshot) shows distinct `tput cols` values per pane.
+        Shortcut.tmuxRunCommand(
+            target: "rtabreorder:winC",
+            command: #"echo "[REMOTE-SPLIT-LEFT] tput cols=$(tput cols)""#
+        )
+        Shortcut.tmuxRunCommand(
+            target: "rtabreorder:winB",
+            command: #"echo "[REMOTE-SPLIT-RIGHT] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.tmuxCapturePaneContent(target: "rtabreorder:winC", storeAs: "remoteWinCSplitContent")
+        TestStep.assertStoredContains(
+            key: "remoteWinCSplitContent",
+            substring: "[REMOTE-SPLIT-LEFT] tput cols=${remoteSplitLeftWidth}"
+        )
+        TestStep.tmuxCapturePaneContent(target: "rtabreorder:winB", storeAs: "remoteWinBSplitContent")
+        TestStep.assertStoredContains(
+            key: "remoteWinBSplitContent",
+            substring: "[REMOTE-SPLIT-RIGHT] tput cols=${remoteSplitRightWidth}"
+        )
+
+        // ── Phase 8c: Drag the divider — both remote terminals resize ───
+        //
+        // The viewer window sits at (10, 10) size 1_300×700 with a 250-wide
+        // sidebar, so the divider sits at x ≈ 10 + 250 + (1_050 × 0.5) ≈
+        // 785 at the default 50/50 ratio. y=300 is safely below the tab
+        // bar but inside the divider's hit zone. Drag right so the left
+        // pane widens past the 80-column floor that auto-resize clamps to.
+        TestStep.log("Phase 8c: Drag the divider; both remote terminals must resize again")
+        TestStep.macDrag(fromX: 785, fromY: 300, toX: 1_050, toY: 300, instance: 1)
+        TestStep.wait(seconds: 3)
+        TestStep.tmuxStorePaneDimensions(
+            target: "rtabreorder:winC",
+            widthKey: "remoteDragLeftWidth",
+            heightKey: "remoteDragLeftHeight"
+        )
+        TestStep.tmuxStorePaneDimensions(
+            target: "rtabreorder:winB",
+            widthKey: "remoteDragRightWidth",
+            heightKey: "remoteDragRightHeight"
+        )
+        TestStep.log("Post-drag left winC: ${remoteDragLeftWidth}x${remoteDragLeftHeight}")
+        TestStep.log("Post-drag right winB: ${remoteDragRightWidth}x${remoteDragRightHeight}")
+        // The drag widens the left pane (dragging the divider right). Only
+        // the left-pane width is guaranteed to change in tmux: at 1_300×700
+        // with a 250-wide sidebar, a 50/50 split lands both panes at the
+        // 80-column floor `calculateOptimalTerminalDimensions` enforces, so
+        // shrinking the right pane further keeps it clamped. The same
+        // `handleAutoResize` cycle processes both panes — proving the left
+        // changed is enough to show the divider drag fires the resize.
+        TestStep.assertStoredNotEqual(
+            key: "remoteDragLeftWidth",
+            otherKey: "remoteSplitLeftWidth"
+        )
+        Shortcut.tmuxRunCommand(
+            target: "rtabreorder:winC",
+            command: #"echo "[REMOTE-DRAG-LEFT] tput cols=$(tput cols)""#
+        )
+        Shortcut.tmuxRunCommand(
+            target: "rtabreorder:winB",
+            command: #"echo "[REMOTE-DRAG-RIGHT] tput cols=$(tput cols)""#
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.tmuxCapturePaneContent(target: "rtabreorder:winC", storeAs: "remoteWinCDragContent")
+        TestStep.assertStoredContains(
+            key: "remoteWinCDragContent",
+            substring: "[REMOTE-DRAG-LEFT] tput cols=${remoteDragLeftWidth}"
+        )
+        TestStep.tmuxCapturePaneContent(target: "rtabreorder:winB", storeAs: "remoteWinBDragContent")
+        TestStep.assertStoredContains(
+            key: "remoteWinBDragContent",
+            substring: "[REMOTE-DRAG-RIGHT] tput cols=${remoteDragRightWidth}"
+        )
+        TestStep.macScreenshot(label: "viewer-rtabreorder-divider-dragged-wider", instance: 1)
+        // Drag the divider back near the original position so subsequent
+        // phases run against the layout they were authored against.
+        TestStep.macDrag(fromX: 1_050, fromY: 300, toX: 785, toY: 300, instance: 1)
+        TestStep.wait(seconds: 2)
 
         // ── Phase 9: Click winC's split toggle to send it to the right ──
         //
