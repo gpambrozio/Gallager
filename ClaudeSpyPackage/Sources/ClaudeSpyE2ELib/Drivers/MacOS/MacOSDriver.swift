@@ -383,22 +383,34 @@ public actor MacOSDriver {
     public func moveWindow(x: Int, y: Int) async throws {
         let pid = try requirePID()
         logger.info("Moving window to (\(x), \(y))")
-        if !MacOSAccessibility.moveWindow(appPID: pid, x: x, y: y) {
-            throw MacOSDriverError.appleScriptFailed(
-                "Failed to move window to (\(x), \(y)) — no visible window found"
-            )
+        var lastReason = "(no attempt recorded)"
+        for attempt in 1...3 {
+            let result = MacOSAccessibility.moveWindowDetailed(appPID: pid, x: x, y: y)
+            if result.success { return }
+            lastReason = result.reason
+            logger.info("Move attempt \(attempt)/3 failed: \(lastReason)")
+            if attempt < 3 { try await Task.sleep(for: .milliseconds(250)) }
         }
+        throw MacOSDriverError.appleScriptFailed(
+            "Failed to move window to (\(x), \(y)) after 3 attempts — \(lastReason)"
+        )
     }
 
     /// Resize the macOS app window via AX.
     public func resizeWindow(width: Int, height: Int) async throws {
         let pid = try requirePID()
         logger.info("Resizing window to \(width)x\(height)")
-        if !MacOSAccessibility.resizeWindow(appPID: pid, width: width, height: height) {
-            throw MacOSDriverError.appleScriptFailed(
-                "Failed to resize window to \(width)x\(height) — no visible window found"
-            )
+        var lastReason = "(no attempt recorded)"
+        for attempt in 1...3 {
+            let result = MacOSAccessibility.resizeWindowDetailed(appPID: pid, width: width, height: height)
+            if result.success { return }
+            lastReason = result.reason
+            logger.info("Resize attempt \(attempt)/3 failed: \(lastReason)")
+            if attempt < 3 { try await Task.sleep(for: .milliseconds(250)) }
         }
+        throw MacOSDriverError.appleScriptFailed(
+            "Failed to resize window to \(width)x\(height) after 3 attempts — \(lastReason)"
+        )
     }
 
     /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
