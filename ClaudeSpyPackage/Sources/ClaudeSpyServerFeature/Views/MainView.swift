@@ -1070,6 +1070,15 @@ public struct MainView: View {
                         sessionName: remote.sessionName,
                         url: newURL
                     )
+                },
+                onRequestNewTab: { newURL in
+                    openRemoteBrowserTab(
+                        url: newURL,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName,
+                        originWindowId: selectedBrowserTab.originWindowId,
+                        parentTabId: selectedBrowserTab.id
+                    )
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1142,6 +1151,15 @@ public struct MainView: View {
                             hostId: remote.hostId,
                             sessionName: remote.sessionName,
                             url: newURL
+                        )
+                    },
+                    onRequestNewTab: { newURL in
+                        openRemoteBrowserTab(
+                            url: newURL,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName,
+                            originWindowId: tab.originWindowId,
+                            parentTabId: tab.id
                         )
                     }
                 )
@@ -1237,6 +1255,15 @@ public struct MainView: View {
                         tabId: selectedBrowserTab.id,
                         sessionName: session.sessionName,
                         url: newURL
+                    )
+                },
+                onRequestNewTab: { newURL in
+                    openBrowserTab(
+                        url: newURL,
+                        sessionName: session.sessionName,
+                        windowId: window.id,
+                        originWindowId: selectedBrowserTab.originWindowId,
+                        parentTabId: selectedBrowserTab.id
                     )
                 }
             )
@@ -1335,6 +1362,15 @@ public struct MainView: View {
                     },
                     onURLChange: { newURL in
                         updateBrowserTabURL(tabId: id, sessionName: sessionName, url: newURL)
+                    },
+                    onRequestNewTab: { newURL in
+                        openBrowserTab(
+                            url: newURL,
+                            sessionName: sessionName,
+                            windowId: selectedWindow?.id ?? "",
+                            originWindowId: tab.originWindowId,
+                            parentTabId: tab.id
+                        )
                     }
                 )
                 .id("right-\(tab.id)")
@@ -2532,7 +2568,6 @@ public struct MainView: View {
                 url: url,
                 hostId: hostId,
                 sessionName: sessionName,
-                windowId: windowId,
                 originWindowId: windowId
             )
             return true
@@ -2555,7 +2590,8 @@ public struct MainView: View {
         url: URL,
         sessionName: String,
         windowId: String,
-        originWindowId: String? = nil
+        originWindowId: String? = nil,
+        parentTabId: UUID? = nil
     ) {
         let tabs: SessionFileTabsState
         if let existing = sessionFileTabsStates[sessionName] {
@@ -2586,7 +2622,7 @@ public struct MainView: View {
                 fileBrowserActiveWindowIds.remove(windowId)
             }
         } else {
-            let newTab = BrowserTab(url: url, originWindowId: originWindowId)
+            let newTab = BrowserTab(url: url, originWindowId: originWindowId, parentTabId: parentTabId)
             tabs.openBrowserTabs.append(newTab)
             tabs.browserStates[newTab.id] = BrowserTabState(initialURL: url)
             if useSplit {
@@ -2719,7 +2755,9 @@ public struct MainView: View {
 
     /// Removes a browser tab and its live web view. If the closed tab was
     /// selected and originated from a terminal click, the original tmux window
-    /// becomes selected again — mirroring the file-tab close flow.
+    /// becomes selected again — mirroring the file-tab close flow. If the
+    /// closed tab was spawned from another browser tab (`target="_blank"` /
+    /// `window.open()`), the parent tab is selected first instead.
     private func closeBrowserTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openBrowserTabs.firstIndex(where: { $0.id == tabId }) else { return }
@@ -2732,6 +2770,21 @@ public struct MainView: View {
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
         reconcileRightPaneSelection(sessionName: sessionName)
+        // Even if the closed tab wasn't the left selection, it may still have
+        // been the user's "current view" on the right pane — prefer the
+        // parent-tab return for those too so a popup closed from the right
+        // pane lands back on its opener.
+        if
+            let parentTabId = closedTab.parentTabId,
+            tabs.openBrowserTabs.contains(where: { $0.id == parentTabId }) {
+            if tabs.rightSide.contains(.browser(parentTabId)) {
+                tabs.selectedRight = .browser(parentTabId)
+            } else {
+                tabs.selectedBrowserTabId = parentTabId
+                tabs.selectedFileTabId = nil
+            }
+            return
+        }
         guard wasSelectedLeft else { return }
         tabs.selectedBrowserTabId = nil
         // Right-side tabs were opened explicitly by the user; we don't bounce
@@ -2784,8 +2837,8 @@ public struct MainView: View {
         url: URL,
         hostId: String,
         sessionName: String,
-        windowId: String,
-        originWindowId: String? = nil
+        originWindowId: String? = nil,
+        parentTabId: UUID? = nil
     ) {
         let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
         let tabs: SessionFileTabsState
@@ -2808,7 +2861,7 @@ public struct MainView: View {
             }
             tabs.selectedBrowserTabId = tabs.openBrowserTabs[existingIndex].id
         } else {
-            let newTab = BrowserTab(url: url, originWindowId: originWindowId)
+            let newTab = BrowserTab(url: url, originWindowId: originWindowId, parentTabId: parentTabId)
             tabs.openBrowserTabs.append(newTab)
             tabs.browserStates[newTab.id] = BrowserTabState(initialURL: url)
             tabs.selectedBrowserTabId = newTab.id
@@ -2872,7 +2925,9 @@ public struct MainView: View {
     /// Removes a remote browser tab and its live web view. When the closed
     /// tab was selected and originated from a remote terminal click, the
     /// originating tmux window becomes selected again — same return-to-origin
-    /// behaviour as `closeBrowserTab` for local tabs.
+    /// behaviour as `closeBrowserTab` for local tabs. If the closed tab was
+    /// spawned from another browser tab (`target="_blank"` / `window.open()`),
+    /// the parent tab is selected first instead.
     private func closeRemoteBrowserTab(
         _ tabId: UUID,
         hostId: String,
@@ -2894,6 +2949,18 @@ public struct MainView: View {
             sessionName: sessionName,
             sessionWindows: remoteSessionWindows(hostId: hostId, sessionName: sessionName)
         )
+        // Prefer parent-tab return whether the popup was on the left or the
+        // right pane, so closing it always lands back on its opener.
+        if
+            let parentTabId = closedTab.parentTabId,
+            tabs.openBrowserTabs.contains(where: { $0.id == parentTabId }) {
+            if tabs.rightSide.contains(.browser(parentTabId)) {
+                tabs.selectedRight = .browser(parentTabId)
+            } else {
+                tabs.selectedBrowserTabId = parentTabId
+            }
+            return
+        }
         guard wasSelectedLeft else { return }
         tabs.selectedBrowserTabId = nil
         // Right-side tabs were opened explicitly by the user; we don't bounce
@@ -3198,7 +3265,6 @@ public struct MainView: View {
                     url: prompt.url,
                     hostId: hostId,
                     sessionName: prompt.sessionName,
-                    windowId: prompt.windowId,
                     originWindowId: prompt.windowId
                 )
             } else {

@@ -15,22 +15,30 @@ import SwiftUI
 /// `originWindowId` is the tmux window that initiated the open via a terminal
 /// click. When set, closing the tab returns the user to that terminal instead
 /// of falling back to the file browser tree.
+///
+/// `parentTabId` is set when this tab was spawned from another browser tab
+/// (e.g. `target="_blank"` or `window.open()`). Closing the tab selects the
+/// parent first if it still exists, falling through to `originWindowId` only
+/// when the parent is gone.
 struct BrowserTab: Identifiable, Equatable {
     let id: UUID
     var url: URL
     var displayTitle: String?
     var originWindowId: String?
+    var parentTabId: UUID?
 
     init(
         id: UUID = UUID(),
         url: URL,
         displayTitle: String? = nil,
-        originWindowId: String? = nil
+        originWindowId: String? = nil,
+        parentTabId: UUID? = nil
     ) {
         self.id = id
         self.url = url
         self.displayTitle = displayTitle
         self.originWindowId = originWindowId
+        self.parentTabId = parentTabId
     }
 
     /// Label rendered on the tab strip. Falls back to the URL host (then a
@@ -80,10 +88,23 @@ final class BrowserTabState {
     /// counter (rather than a Bool) lets a freshly-opened tab focus the field
     /// even when the value was already true earlier in the session.
     var urlFieldFocusRequest = 0
+    /// Set by the `WKUIDelegate` when the page asks for a new window —
+    /// `target="_blank"` links and `window.open()` calls land here. The
+    /// owning `BrowserTabContentView` observes the value via `.onChange` and
+    /// forwards the URL up to the parent so a new browser tab can open. The
+    /// observer resets it back to `nil` after handling so subsequent requests
+    /// for the same URL still fire `.onChange`.
+    var pendingNewTabURL: URL?
 
     let webView: WKWebView
 
     private var observers: [NSKeyValueObservation] = []
+    /// Retained strongly because `WKWebView.uiDelegate` is a weak reference —
+    /// without this property the adapter would deallocate immediately after
+    /// `init` returns and new-tab requests would silently no-op. Not named
+    /// `…Delegate` so SwiftLint's `weak_delegate` rule doesn't flag the
+    /// strong storage that's intentional here.
+    private var retainedUIDelegateAdapter: BrowserUIDelegateAdapter?
 
     init(initialURL: URL) {
         let configuration = WKWebViewConfiguration()
@@ -119,6 +140,16 @@ final class BrowserTabState {
         self.webView = webView
         self.currentURL = initialURL
         self.urlFieldText = initialURL.absoluteString
+
+        // Route `target="_blank"` / `window.open()` requests back to this
+        // state so the SwiftUI view can forward them to the parent and a new
+        // browser tab opens. WKWebView's default behaviour is to silently
+        // drop new-window requests unless a UIDelegate handles them.
+        let adapter = BrowserUIDelegateAdapter { [weak self] url in
+            self?.pendingNewTabURL = url
+        }
+        webView.uiDelegate = adapter
+        self.retainedUIDelegateAdapter = adapter
 
         observers.append(webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
@@ -221,6 +252,10 @@ struct BrowserTabContentView: View {
     /// Called when the loaded URL changes so the parent can update the tab's
     /// stored `url` (used for tab persistence and the tooltip label).
     let onURLChange: (URL) -> Void
+    /// Called when the page asks to open a URL in a new window — typically a
+    /// `target="_blank"` link click or a `window.open()` call. The parent
+    /// routes the URL into a fresh browser tab on the same session.
+    let onRequestNewTab: (URL) -> Void
 
     @FocusState private var isURLFieldFocused: Bool
 
@@ -243,6 +278,14 @@ struct BrowserTabContentView: View {
             if let newValue {
                 onURLChange(newValue)
             }
+        }
+        .onChange(of: state.pendingNewTabURL) { _, newValue in
+            // Reset the trigger before forwarding so a future request for the
+            // same URL still fires `.onChange`; the parent's
+            // `onRequestNewTab` is what actually opens the tab.
+            guard let newValue else { return }
+            state.pendingNewTabURL = nil
+            onRequestNewTab(newValue)
         }
         .task(id: state.urlFieldFocusRequest) {
             // Skip the initial .task fire — only steal focus when an external
@@ -326,6 +369,48 @@ struct BrowserTabContentView: View {
         .padding(.leading, 16)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+}
+
+/// `WKUIDelegate` adapter that intercepts new-window requests (`target="_blank"`
+/// links, `window.open()`) and reports the URL back to `BrowserTabState` so
+/// the parent view can open it in a fresh tab. Returning `nil` from
+/// `createWebViewWith` tells WebKit the request was handled out-of-band; the
+/// originating webview keeps showing its current page.
+///
+/// `@MainActor`-isolated because the callback mutates `BrowserTabState`,
+/// which is itself `@MainActor`. `WKUIDelegate` callbacks are invoked on the
+/// main thread by WebKit so the isolation matches the actual call site.
+@MainActor
+final private class BrowserUIDelegateAdapter: NSObject, WKUIDelegate {
+    private let onNewTabRequest: (URL) -> Void
+
+    init(onNewTabRequest: @escaping (URL) -> Void) {
+        self.onNewTabRequest = onNewTabRequest
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        // The protocol isn't yet `@MainActor`-annotated in the WebKit headers,
+        // but WebKit always invokes UI delegate methods on the main thread.
+        // `assumeIsolated` lets us hop onto MainActor without a Task hop,
+        // matching the KVO observers above.
+        MainActor.assumeIsolated {
+            // Skip URLs the in-app browser tab can't load (e.g. `javascript:`
+            // or `about:blank` from `window.open()` / `window.open('javascript:…')`).
+            // Forwarding those would spawn a dangling tab that WKWebView
+            // silently ignores.
+            if
+                let url = navigationAction.request.url,
+                BrowserURLDispatcher.canHandle(url) {
+                onNewTabRequest(url)
+            }
+        }
+        return nil
     }
 }
 
@@ -531,7 +616,8 @@ private enum BrowserPreviewSample {
     BrowserTabContentView(
         state: BrowserTabState(initialURL: BrowserPreviewSample.inlineHTMLURL),
         onTitleChange: { _ in },
-        onURLChange: { _ in }
+        onURLChange: { _ in },
+        onRequestNewTab: { _ in }
     )
     .frame(width: 720, height: 480)
 }
