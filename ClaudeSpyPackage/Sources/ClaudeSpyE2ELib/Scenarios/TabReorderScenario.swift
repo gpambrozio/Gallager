@@ -286,10 +286,14 @@ public enum TabReorderScenario {
         TestStep.macCGClickElement(query: .labelContains("Move terminal to right:"))
         TestStep.wait(seconds: 1)
         TestStep.macCGClickElement(query: .labelContains("Move terminal to right:"))
+        // Settle wait for the split-collapse layout transition — the AX
+        // tree can lag the reconcile briefly after the last terminal
+        // moves right, so give the collapse animation room before polling.
+        TestStep.wait(seconds: 2)
         // Every "Move *" arrow should be gone; "Open … in split" icons return.
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move terminal to left:"),
-            timeout: 5
+            timeout: 10
         )
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move file tab to left:"),

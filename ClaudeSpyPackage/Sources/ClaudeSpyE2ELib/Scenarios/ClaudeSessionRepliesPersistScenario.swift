@@ -48,6 +48,10 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify the prompt submitted feedback persists after navigating back
         TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
+        // Wait for the terminal to finish (re)connecting — the baseline
+        // captures the connected state, so the screenshot must not race
+        // the "Connecting to terminal..." placeholder.
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
         // Settle wait for the terminal view's push transition.
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-prompt-persists")
@@ -126,6 +130,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists (not prompt box, not questions)
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-questions-answered-persists")
 
@@ -172,6 +177,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-permission-accepted-persists")
 
@@ -220,6 +226,7 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-plan-approved-persists")
     }
