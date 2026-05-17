@@ -1047,7 +1047,6 @@ public struct MainView: View {
                         url: newURL,
                         hostId: remote.hostId,
                         sessionName: remote.sessionName,
-                        windowId: window.id,
                         originWindowId: selectedBrowserTab.originWindowId
                     )
                 }
@@ -1129,7 +1128,6 @@ public struct MainView: View {
                             url: newURL,
                             hostId: remote.hostId,
                             sessionName: remote.sessionName,
-                            windowId: tab.originWindowId ?? selectedRemoteWindowId ?? "",
                             originWindowId: tab.originWindowId
                         )
                     }
@@ -2437,7 +2435,6 @@ public struct MainView: View {
                 url: url,
                 hostId: hostId,
                 sessionName: sessionName,
-                windowId: windowId,
                 originWindowId: windowId
             )
             return true
@@ -2689,7 +2686,6 @@ public struct MainView: View {
         url: URL,
         hostId: String,
         sessionName: String,
-        windowId: String,
         originWindowId: String? = nil
     ) {
         let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
@@ -3082,7 +3078,6 @@ public struct MainView: View {
                     url: prompt.url,
                     hostId: hostId,
                     sessionName: prompt.sessionName,
-                    windowId: prompt.windowId,
                     originWindowId: prompt.windowId
                 )
             } else {

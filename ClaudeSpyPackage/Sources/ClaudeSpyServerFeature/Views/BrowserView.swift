@@ -392,7 +392,13 @@ final private class BrowserUIDelegateAdapter: NSObject, WKUIDelegate {
         // `assumeIsolated` lets us hop onto MainActor without a Task hop,
         // matching the KVO observers above.
         MainActor.assumeIsolated {
-            if let url = navigationAction.request.url {
+            // Skip URLs the in-app browser tab can't load (e.g. `javascript:`
+            // or `about:blank` from `window.open()` / `window.open('javascript:…')`).
+            // Forwarding those would spawn a dangling tab that WKWebView
+            // silently ignores.
+            if
+                let url = navigationAction.request.url,
+                BrowserURLDispatcher.canHandle(url) {
                 onNewTabRequest(url)
             }
         }
