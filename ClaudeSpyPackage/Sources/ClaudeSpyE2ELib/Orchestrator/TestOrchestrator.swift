@@ -812,6 +812,25 @@ public actor TestOrchestrator {
                 return value.contains(resolvedContains)
             }
 
+        case let .waitForTmuxDisplayMessageNotEqual(target, format, notEqualTo, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedFormat = context.resolve(format)
+            let resolvedNotEqualTo = context.resolve(notEqualTo)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux display-message '\(resolvedFormat)' differs from '\(resolvedNotEqualTo)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", resolvedFormat]
+                )
+                let value = result?.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !value.isEmpty && value != resolvedNotEqualTo
+            }
+
         // Hook Events
         case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)

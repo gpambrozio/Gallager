@@ -306,6 +306,13 @@ public enum TestStep: Sendable {
     case waitForTmuxDisplayMessage(
         target: String, format: String, contains: String, timeout: TimeInterval = 20
     )
+    /// Poll a tmux format string via `display-message -p` until the trimmed result
+    /// differs from `notEqualTo`. Use this when waiting for a value to change away
+    /// from a known stale value (e.g. a pane width that should grow after a layout
+    /// change) but the exact target value is not known in advance.
+    case waitForTmuxDisplayMessageNotEqual(
+        target: String, format: String, notEqualTo: String, timeout: TimeInterval = 20
+    )
 
     // MARK: - Hook Events
 
