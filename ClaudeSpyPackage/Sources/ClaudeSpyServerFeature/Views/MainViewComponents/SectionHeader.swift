@@ -9,6 +9,7 @@ struct SectionHeader<Trailing: View, Popover: View>: View {
     let trailing: Trailing
     let popover: Popover
     let hasPopover: Bool
+    let newSessionButtonIdentifier: String?
 
     @State private var showingPopover = false
 
@@ -34,6 +35,7 @@ struct SectionHeader<Trailing: View, Popover: View>: View {
                 .buttonStyle(.borderless)
                 .disabled(isNewSessionDisabled)
                 .accessibilityLabel("Create new session")
+                .accessibilityIdentifier(newSessionButtonIdentifier ?? "")
                 .help("Create new session")
                 .popover(isPresented: $showingPopover) {
                     popover
@@ -58,6 +60,7 @@ extension SectionHeader where Trailing == EmptyView, Popover == EmptyView {
         self.trailing = EmptyView()
         self.popover = EmptyView()
         self.hasPopover = false
+        self.newSessionButtonIdentifier = nil
     }
 }
 
@@ -67,6 +70,7 @@ extension SectionHeader where Trailing == EmptyView {
         title: String,
         symbol: Symbols,
         isNewSessionDisabled: Bool = false,
+        newSessionButtonIdentifier: String? = nil,
         @ViewBuilder popover: () -> Popover
     ) {
         self.title = title
@@ -75,6 +79,7 @@ extension SectionHeader where Trailing == EmptyView {
         self.trailing = EmptyView()
         self.popover = popover()
         self.hasPopover = true
+        self.newSessionButtonIdentifier = newSessionButtonIdentifier
     }
 }
 
@@ -84,6 +89,7 @@ extension SectionHeader {
         title: String,
         symbol: Symbols,
         isNewSessionDisabled: Bool = false,
+        newSessionButtonIdentifier: String? = nil,
         @ViewBuilder trailing: () -> Trailing,
         @ViewBuilder popover: () -> Popover
     ) {
@@ -93,5 +99,6 @@ extension SectionHeader {
         self.trailing = trailing()
         self.popover = popover()
         self.hasPopover = true
+        self.newSessionButtonIdentifier = newSessionButtonIdentifier
     }
 }
