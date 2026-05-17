@@ -117,15 +117,25 @@ public enum RemoteSplitCollapseResizeScenario {
         // resize back to the full detail-pane width.
         TestStep.log("Phase 3: tmux kill-window on winRight; assert winLeft resizes back to full")
         TestStep.tmuxCommand(arguments: ["kill-window", "-t", "rscoll:winRight"])
-        // Wait for the close to propagate to the viewer and for the
-        // auto-resize debounce + relay round trip to land.
-        TestStep.wait(seconds: 5)
         // The split should be gone — the "Move terminal to left: winRight"
         // affordance disappears with it.
         TestStep.macWaitForElementToDisappear(
             titled: "Move terminal to left: winRight",
-            timeout: 5,
+            timeout: 10,
             instance: 1
+        )
+        // Poll the host's tmux pane width until the viewer-initiated resize
+        // lands. `macWaitForElementToDisappear` returns as soon as the prune
+        // updates the UI (~hundreds of ms), but `handleAutoResize`'s 200ms
+        // debounce + `ResizeTmuxPane` relay round trip + the host's
+        // `resize-window` execution can take meaningfully longer on a loaded
+        // CI machine. Wait for the pane width to differ from `splitLeftWidth`
+        // before sampling — otherwise we race the resize chain.
+        TestStep.waitForTmuxDisplayMessageNotEqual(
+            target: "rscoll:winLeft",
+            format: "#{pane_width}",
+            notEqualTo: "${splitLeftWidth}",
+            timeout: 20
         )
         TestStep.tmuxStorePaneDimensions(
             target: "rscoll:winLeft",
