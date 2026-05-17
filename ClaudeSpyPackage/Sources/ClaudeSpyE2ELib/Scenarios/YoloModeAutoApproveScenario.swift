@@ -35,10 +35,10 @@ public enum YoloModeAutoApproveScenario {
         Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
-        // Verify macOS also reflects yolo mode enabled
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
-        TestStep.wait(seconds: 2)
+        // Verify macOS also reflects yolo mode enabled.
+        // Use openPanesWindow so the window is sized deterministically — the
+        // Mac screenshots later in this scenario depend on a known frame.
+        Shortcut.openPanesWindow()
         TestStep.macClickButton(titled: "session-1")
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",

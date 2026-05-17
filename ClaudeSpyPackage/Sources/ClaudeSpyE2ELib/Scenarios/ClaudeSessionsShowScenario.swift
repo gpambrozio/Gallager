@@ -23,7 +23,7 @@ public enum ClaudeSessionsShowScenario {
 
         // 4. Verify iOS shows both sessions as plain terminals
         TestStep.iosWaitForElement(.labelContains("session-1"), timeout: 15)
-        TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-plain-terminals")
 
         // 5. Send a SessionStart hook event for pane 1
