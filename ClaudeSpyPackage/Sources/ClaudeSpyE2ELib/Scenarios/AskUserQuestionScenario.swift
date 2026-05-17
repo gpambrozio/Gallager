@@ -26,7 +26,6 @@ public enum AskUserQuestionScenario {
         TestStep.injectScript(name: "keystroke_logger.py")
 
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ──────────────────────────────────────────────────────────
@@ -59,7 +58,6 @@ public enum AskUserQuestionScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         TestStep.iosWaitForElement(.labelContains("What is your favorite fruit"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p1-question")
@@ -71,7 +69,6 @@ public enum AskUserQuestionScenario {
         TestStep.iosScreenshot(label: "ios-aq-p1-other-typed")
 
         TestStep.iosTap(.labelContains("Save Other"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Other: Mango"), timeout: 5)
@@ -86,7 +83,6 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.iosTap(.labelContains("Confirm"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 
@@ -134,7 +130,6 @@ public enum AskUserQuestionScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         TestStep.iosWaitForElement(.labelContains("Which colors should we use"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p2-question")
@@ -150,13 +145,11 @@ public enum AskUserQuestionScenario {
         TestStep.iosType(text: "Onyx")
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Save Other"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Other: Onyx"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-aq-p2-other-saved")
 
         TestStep.iosTap(.labelContains("Next"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Crimson"), timeout: 5)
@@ -171,7 +164,6 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.iosTap(.labelContains("Confirm"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 
@@ -236,7 +228,6 @@ public enum AskUserQuestionScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         TestStep.iosWaitForElement(.labelContains("Which days should we deploy"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p3-q1")
@@ -245,12 +236,10 @@ public enum AskUserQuestionScenario {
         TestStep.iosTap(.labelContains("Wednesday"))
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Next"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Which season fits best"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p3-q2")
         TestStep.iosTap(.labelContains("Summer"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Which alert channels"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p3-q3")
@@ -259,7 +248,6 @@ public enum AskUserQuestionScenario {
         TestStep.iosTap(.labelContains("Slack"))
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Next"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Monday"), timeout: 5)
@@ -276,7 +264,6 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.iosTap(.labelContains("Confirm"))
-        TestStep.wait(seconds: 2)
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 

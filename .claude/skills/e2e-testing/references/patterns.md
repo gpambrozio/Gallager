@@ -376,35 +376,85 @@ Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
 
 ## Pattern: Waiting for UI Transitions
 
-After actions that trigger navigation or state changes, wait appropriately:
+**The single biggest reason scenarios run slowly is unnecessary fixed `wait(seconds:)` steps.** Every wait pays its full duration whether the UI needed it or not, and these waits compound across 80+ scenarios. The fix is straightforward: prefer state-driven waits whenever an observable signal exists.
+
+### Rule: never put a fixed `wait` directly before a `*WaitFor*` step
+
+The `*WaitFor*` steps (`iosWaitForElement`, `iosWaitForElementToDisappear`, `macWaitForElement`, `macWaitForElementQuery`, `macWaitForWindow`, `macAssertWindowTitle`, `waitForHostConnected`, `waitForViewerConnected`, `waitForNoPairings`, `verifyServerHasPairings`, `waitForTmuxDisplayMessage*`, `waitForFileContains`) all poll until either the condition is satisfied or the timeout expires. A fixed `wait` immediately before one of them adds nothing — the poll would have run for that duration anyway — so just delete it:
 
 ```swift
-// After launching apps: 3 seconds for app initialization
-TestStep.launchMacApp()
+// ❌ DON'T — the wait is redundant
+TestStep.macSendHookEvent(...)
 TestStep.wait(seconds: 3)
+TestStep.iosWaitForElement(.labelContains("Prompt Submitted"), timeout: 5)
 
-// After button clicks: 0.5-1 second for UI response
-TestStep.macClickButton(titled: "Some Button")
+// ✅ DO — let waitForElement own the timing
+TestStep.macSendHookEvent(...)
+TestStep.iosWaitForElement(.labelContains("Prompt Submitted"), timeout: 5)
+```
+
+### Rule: `iosTap` / `macClickButton` already wait for their target
+
+Both have an internal element wait (`macClickButton` waits up to 5s via `waitForAXElement`; `iosTap` falls back to `waitForElement(timeout: 5)` when the element isn't present yet). A `wait` *before* them is almost never useful:
+
+```swift
+// ❌ DON'T
+TestStep.iosWaitForElement(.label("Sessions"), timeout: 5)
 TestStep.wait(seconds: 1)
+TestStep.iosTap(.label("Sessions"))
 
-// After pairing code entry: 5 seconds for network + crypto handshake
-TestStep.iosType(text: "${pairingCode}")
-TestStep.wait(seconds: 5)
+// ✅ DO
+TestStep.iosWaitForElement(.label("Sessions"), timeout: 5)
+TestStep.iosTap(.label("Sessions"))
+```
 
-// For loading states: use waitForElementToDisappear instead of fixed waits
-TestStep.iosWaitForElementToDisappear(.labelContains("Loading"), timeout: 15)
+### Rule: prefer "wait for new state" over "wait then disappear"
 
-// For appearance: use waitForElement instead of fixed waits
-TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
-TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+`iosWaitForElementToDisappear` returns immediately if the element *hasn't appeared yet*. Don't rely on it as a "loading finished" signal in isolation — wait for the post-loaded element to appear instead, which proves the loading completed:
 
-// For tmux state: poll display-message instead of guessing
+```swift
+// ❌ Risky — if "Loading projects" hasn't shown yet, returns immediately
+TestStep.iosTap(.label("New Session"))
+TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
+
+// ✅ Reliable — waiting for a project to appear proves the loading finished
+TestStep.iosTap(.label("New Session"))
+TestStep.iosWaitForElement(.labelContains("New Terminal"), timeout: 15)
+```
+
+### When a fixed `wait` is genuinely needed
+
+Some situations have no observable signal:
+
+- **Before a screenshot whose visual state depends on time-based animation** (cursor blink, debounced redraw, scroll deceleration). Even here, prefer `macWaitForElement(titled: "expected text")` when the screenshot is meant to assert a specific terminal output is rendered.
+- **After `tmuxRunCommand` / `tmuxSendKeys` when you immediately call `tmuxCapturePaneContent`** — capturing doesn't poll, so let the terminal render first (typically 0.3–1s). For longer commands, use `waitForTmuxDisplayMessage` to poll for a known marker in the output.
+- **After resize/move window operations that fan out to a debouncer** (e.g. 200ms tmux resize debounce + propagation). When possible, replace with `waitForTmuxDisplayMessage` / `waitForTmuxDisplayMessageNotEqual` keyed on `#{pane_width}x#{pane_height}` so the test moves on the instant the resize lands.
+
+```swift
+// For tmux state changes: poll display-message instead of guessing
 TestStep.waitForTmuxDisplayMessage(
     target: "test:0",
     format: "#{pane_title}",
     contains: "My Title",
     timeout: 10
 )
+
+// For "wait until a value changes" when the target value isn't known up front
+TestStep.waitForTmuxDisplayMessageNotEqual(
+    target: "test:0",
+    format: "#{pane_width}x#{pane_height}",
+    notEqualTo: "80x24",
+    timeout: 10
+)
 ```
 
-Prefer `waitForElement` / `waitForElementToDisappear` / `waitForTmuxDisplayMessage` / `waitForFileContains` over fixed `wait(seconds:)` when an observable signal exists — they're more reliable and fail faster on the *real* problem.
+### Quick checklist when adding a `wait(seconds:)`
+
+1. Is the very next step a `*WaitFor*` / `verifyServerHasPairings`? → delete the wait.
+2. Is the very next step `iosTap` / `macClickButton`? → almost always delete the wait.
+3. Are you waiting for a UI element you can name? → replace with `*WaitForElement*`.
+4. Are you waiting for a tmux pane property? → replace with `waitForTmuxDisplayMessage*`.
+5. Are you waiting for a file to be written? → replace with `waitForFileContains`.
+6. None of the above → leave the `wait` but keep the duration tight (0.3–1s is usually enough).
+
+Issue #539 removed ~430 redundant waits across the scenario suite using these rules; the same checklist applies to every new scenario.

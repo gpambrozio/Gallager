@@ -25,7 +25,6 @@ public enum ResizePaneScenario {
 
         // Type into the app to test keyboard input path (app → SwiftTerm → tmux)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "80x24", timeout: 1)
         TestStep.macScreenshot(label: "mac-resize-initial-state")
 
@@ -92,7 +91,6 @@ public enum ResizePaneScenario {
 
         // Select second pane
         TestStep.macClickButton(titled: "resize-test-2")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "80x24", timeout: 1)
         TestStep.macType(text: "printf '|%9d' $(seq 10 10 190) | tr ' ' -", pressReturn: true)
         TestStep.wait(seconds: 1)

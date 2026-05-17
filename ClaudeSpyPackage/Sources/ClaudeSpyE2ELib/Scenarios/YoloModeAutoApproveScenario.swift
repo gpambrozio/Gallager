@@ -21,7 +21,6 @@ public enum YoloModeAutoApproveScenario {
 
         // Open the Claude session terminal view on iOS
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ══════════════════════════════════════════════════════════════
@@ -41,7 +40,6 @@ public enum YoloModeAutoApproveScenario {
         TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "session-1")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
             timeout: 10
@@ -76,7 +74,6 @@ public enum YoloModeAutoApproveScenario {
         )
 
         // Wait for the auto-approve delay (500ms) plus processing time
-        TestStep.wait(seconds: 3)
 
         // The response UI ("Run Command", "Accept") should NOT appear
         // because yolo mode auto-approves it.
@@ -138,7 +135,6 @@ public enum YoloModeAutoApproveScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // AskUserQuestion is NOT yolo-auto-approvable, so UI should appear
         TestStep.iosWaitForElement(.labelContains("Which framework"), timeout: 10)
@@ -193,7 +189,6 @@ public enum YoloModeAutoApproveScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Without yolo mode, the response UI SHOULD appear
         TestStep.iosWaitForElement(.labelContains("Run Command"), timeout: 10)
@@ -221,7 +216,6 @@ public enum YoloModeAutoApproveScenario {
         Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode")
 
         // Give it the 500ms auto-approve delay + processing time
-        TestStep.wait(seconds: 3)
 
         // iOS response UI should disappear — the pending event was auto-approved
         TestStep.iosWaitForElementToDisappear(.labelContains("Run Command"), timeout: 5)

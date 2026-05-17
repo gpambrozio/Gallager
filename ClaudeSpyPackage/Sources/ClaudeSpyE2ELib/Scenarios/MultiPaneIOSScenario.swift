@@ -56,7 +56,6 @@ public enum MultiPaneIOSScenario {
             tmuxPane: "${pane0Id}",
             projectPath: "/Users/test/MultiPaneProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Verify the session row shows the Claude session (SessionRowView with event info)
         TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
@@ -66,10 +65,15 @@ public enum MultiPaneIOSScenario {
         //    After SessionStart hook, the row shows the project name from projectPath
         TestStep.log("Tap the multi-pane window to open layout view")
         TestStep.iosTap(.labelContains("MultiPaneProject"))
-        TestStep.wait(seconds: 3)
 
-        // 6. Verify all panes connected (no "Connecting to terminal..." stuck)
-        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
+        // 6. Verify all panes connected. Wait for an element that only exists
+        //    after the layout has loaded (Show Keyboard) so the screenshot
+        //    captures the connected state — `waitForElementToDisappear` alone
+        //    can return immediately if "Connecting" hasn't appeared yet.
+        TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 15)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 5)
+        // Settle wait for the split-pane layout to finish drawing.
+        TestStep.wait(seconds: 2)
         TestStep.iosScreenshot(label: "ios-multi-pane-layout-connected")
 
         // 7. The default active pane is pane 1 (tmux-active after split).
@@ -89,12 +93,10 @@ public enum MultiPaneIOSScenario {
 
         // Toolbar Commands menu should contain yolo mode and session info
         TestStep.iosTap(.labelContains("Commands"))
-        TestStep.wait(seconds: 0.5)
         TestStep.iosWaitForElement(.labelContains("Yolo Mode"), timeout: 5)
         TestStep.iosWaitForElement(.label("Session Info"), timeout: 5)
         // Dismiss menu
         TestStep.iosTapCoordinate(x: 200, y: 500)
-        TestStep.wait(seconds: 0.5)
 
         // The prompt text field should be visible (full width above the layout)
         TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)

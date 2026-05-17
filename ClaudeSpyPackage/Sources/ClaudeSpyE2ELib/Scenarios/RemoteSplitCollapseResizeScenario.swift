@@ -31,16 +31,13 @@ public enum RemoteSplitCollapseResizeScenario {
         // ── Open the host's Panes window so state propagates ────────────
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_300, height: 700)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "rscoll", timeout: 15)
 
         // ── Select the remote session on the viewer side ────────────────
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macResizeWindow(width: 1_300, height: 700, instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "rscoll", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "rscoll", instance: 1)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "winLeft", timeout: 10, instance: 1)
         TestStep.macWaitForElement(titled: "winRight", timeout: 10, instance: 1)
 
@@ -86,7 +83,6 @@ public enum RemoteSplitCollapseResizeScenario {
         // ── Phase 2: Open split — winRight goes to the right pane ───────
         TestStep.log("Phase 2: Click winRight's split toggle — winRight moves to the right pane")
         TestStep.macClickButton(titled: "Open terminal in split: winRight", instance: 1)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Move terminal to left: winRight", timeout: 5, instance: 1)
         TestStep.wait(seconds: 2)
         TestStep.tmuxStorePaneDimensions(

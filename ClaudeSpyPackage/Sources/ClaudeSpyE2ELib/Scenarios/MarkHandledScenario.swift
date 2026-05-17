@@ -80,7 +80,6 @@ public enum MarkHandledScenario {
 
         // Go back to session list to see updated indicator
         TestStep.iosTap(.label("Sessions"))
-        TestStep.wait(seconds: 2)
 
         // All platforms should now show "Idle" (SessionStart → not working, cleared)
         TestStep.iosWaitForElement(.valueContains("Idle"), timeout: 10)
@@ -107,7 +106,6 @@ public enum MarkHandledScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/StateProject"
         )
-        TestStep.wait(seconds: 3)
 
         // All platforms show "Working" (UserPromptSubmit → isWorking = true)
         TestStep.iosWaitForElement(.valueContains("Working"), timeout: 10)
@@ -134,7 +132,6 @@ public enum MarkHandledScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/StateProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Stop triggers notification → needsAttention = true → "Attention"
         TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
@@ -153,7 +150,6 @@ public enum MarkHandledScenario {
 
         TestStep.log("Mac viewer selecting session to mark as handled (Stop is clearable)")
         TestStep.macClickButton(titled: "StateProject", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // All platforms should now show "Idle"
         TestStep.macWaitForElement(titled: "Idle", timeout: 10, instance: 1)
@@ -180,7 +176,6 @@ public enum MarkHandledScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/StateProject"
         )
-        TestStep.wait(seconds: 3)
 
         // All platforms show "Attention" again
         TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
@@ -201,10 +196,11 @@ public enum MarkHandledScenario {
 
         // Go back to session list
         TestStep.iosTap(.label("Sessions"))
-        TestStep.wait(seconds: 2)
 
         // Attention should STILL be shown — PermissionRequest was not cleared
         TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
+        // Settle wait for the session-list back-navigation animation.
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-still-attention-after-permission-handle")
 
         TestStep.macWaitForElement(titled: "Attention", timeout: 10)
@@ -219,7 +215,6 @@ public enum MarkHandledScenario {
 
         TestStep.log("Host selecting session — PermissionRequest still NOT cleared")
         TestStep.macClickButton(titled: "e2e-state")
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Attention", timeout: 10)
         TestStep.macScreenshot(label: "host-still-attention-after-host-select")
@@ -248,7 +243,6 @@ public enum MarkHandledScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/StateProject"
         )
-        TestStep.wait(seconds: 3)
 
         // All platforms show "Working" — attention is gone
         TestStep.iosWaitForElement(.valueContains("Working"), timeout: 10)

@@ -92,7 +92,6 @@ public enum MultiPaneWindowScenario {
         // take more than the previous 5s budget on a loaded CI host.
 
         TestStep.macCGClickElement(query: .identifier("terminal-%0"))
-        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.0",
             format: "#{pane_active}",
@@ -101,7 +100,6 @@ public enum MultiPaneWindowScenario {
         )
 
         TestStep.macCGClickElement(query: .identifier("terminal-%1"))
-        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.1",
             format: "#{pane_active}",
@@ -110,7 +108,6 @@ public enum MultiPaneWindowScenario {
         )
 
         TestStep.macCGClickElement(query: .identifier("terminal-%2"))
-        TestStep.wait(seconds: 2)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.2",
             format: "#{pane_active}",
@@ -134,7 +131,6 @@ public enum MultiPaneWindowScenario {
         // window — uses the temp-session pattern from MultiWindowTabsScenario
         // to make the sidebar selection unambiguous.
         TestStep.tmuxCreateSession(name: "focus-temp", width: 80, height: 24)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "focus-temp", timeout: 5)
         TestStep.macClickButton(titled: "focus-temp")
         TestStep.wait(seconds: 2)
@@ -158,7 +154,6 @@ public enum MultiPaneWindowScenario {
 
         // Clean up the temp session so the sidebar returns to a single entry
         Shortcut.tmuxRunCommand(target: "focus-temp:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "focus-temp", timeout: 5)
 
         // ── Stage 4: More content in all panes ──────────────────
@@ -191,7 +186,6 @@ public enum MultiPaneWindowScenario {
 
         TestStep.log("Stage 7: Exit last pane — window should disappear from sidebar")
         Shortcut.tmuxRunCommand(target: "multi-pane:0.0", command: "exit")
-        TestStep.wait(seconds: 3)
 
         // The window entry should vanish from the sidebar
         TestStep.macWaitForElementToDisappear(titled: "multi-pane", timeout: 10)
@@ -200,7 +194,6 @@ public enum MultiPaneWindowScenario {
         TestStep.macScreenshot(label: "mac-no-panes-empty-state")
 
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 3)
         // The new session is auto-selected on creation — no need to click the sidebar entry.
         // Explicitly clicking it would risk hitting the "Terminals" section header via
         // substring matching, which can trigger outline disclosure collapse via AXPress.

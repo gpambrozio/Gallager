@@ -28,7 +28,6 @@ public enum CloseFirstWindowAfterNavigationScenario {
         //    session via tmuxService.createSession.
         TestStep.log("Stage 2: Click 'New Terminal' in empty state")
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 5)
 
         // The first window tab is labeled "terminal 1" (the createSession
         // path names it explicitly). Find any selected tab to confirm.
@@ -46,7 +45,6 @@ public enum CloseFirstWindowAfterNavigationScenario {
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "terminal 2", timeout: 5)
 
@@ -70,7 +68,6 @@ public enum CloseFirstWindowAfterNavigationScenario {
         // 5. Click 'X' on window 0; window 1 should survive and render
         TestStep.log("Stage 5: Click 'X' on window 0")
         TestStep.macClickButton(titled: "Close window")
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementToDisappear(titled: "terminal 1", timeout: 5)
         TestStep.macWaitForElement(titled: "terminal 2", timeout: 5)

@@ -73,7 +73,6 @@ public enum MultiWindowTabsScenario {
 
         // Create a temporary session to deselect tabtest
         TestStep.tmuxCreateSession(name: "temp-deselect", width: 160, height: 50)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "temp-deselect", timeout: 5)
         TestStep.macClickButton(titled: "temp-deselect")
         TestStep.wait(seconds: 2)
@@ -91,7 +90,6 @@ public enum MultiWindowTabsScenario {
 
         // Clean up temp session
         Shortcut.tmuxRunCommand(target: "temp-deselect:0.0", command: "exit")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "temp-deselect", timeout: 5)
 
         // ── Stage 5: Create third window ─────────────────────────
@@ -120,7 +118,6 @@ public enum MultiWindowTabsScenario {
         TestStep.wait(seconds: 3)
 
         Shortcut.tmuxRunCommand(target: "tabtest:0.0", command: "exit")
-        TestStep.wait(seconds: 3)
 
         // The session should vanish from the sidebar
         TestStep.macWaitForElementToDisappear(titled: "tabtest", timeout: 10)

@@ -15,7 +15,6 @@ public enum RapidKeystrokeOrderScenario {
         // ── Phase 5: Create tmux session on host ────────────────────
         TestStep.log("Creating tmux session on host")
         TestStep.tmuxCreateSession(name: "e2e-rapid-keys", width: 120, height: 24)
-        TestStep.wait(seconds: 3)
 
         // Set a minimal `$ ` prompt and clear the screen. Two reasons:
         //   1. capture-pane assertions stay readable (no multi-line zsh

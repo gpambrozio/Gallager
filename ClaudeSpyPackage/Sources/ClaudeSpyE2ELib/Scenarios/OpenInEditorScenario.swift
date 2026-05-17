@@ -36,7 +36,6 @@ public enum OpenInEditorScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Select the session in the sidebar.
         TestStep.macWaitForElement(titled: "openineditor", timeout: 5)
@@ -46,7 +45,6 @@ public enum OpenInEditorScenario {
         // ── Phase 1: Open the file browser ───────────────────────
         TestStep.log("Phase 1: open the file browser")
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "README.md", timeout: 10)
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-browser-ready")
@@ -68,7 +66,6 @@ public enum OpenInEditorScenario {
             parentMenuItem: "Open in Editor",
             submenuItem: "Fake Editor"
         )
-        TestStep.wait(seconds: 1)
 
         // The fake editor writes to `${fakeEditorLogPath}` once it receives
         // the file path. Poll instead of relying on a sleep so flakiness
@@ -93,7 +90,6 @@ public enum OpenInEditorScenario {
         // README.md (it doesn't today, but stays honest if fixtures shift).
         TestStep.removeFile(path: "${fakeEditorLogPath}")
         TestStep.macContextMenuClick(elementTitle: "README.md", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
 
         TestStep.macContextSubmenuClick(
@@ -101,7 +97,6 @@ public enum OpenInEditorScenario {
             parentMenuItem: "Open in Editor",
             submenuItem: "Fake Editor"
         )
-        TestStep.wait(seconds: 1)
         TestStep.waitForFileContains(
             path: "${fakeEditorLogPath}",
             substring: "README.md",
@@ -121,7 +116,6 @@ public enum OpenInEditorScenario {
         TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 1)
@@ -135,7 +129,6 @@ public enum OpenInEditorScenario {
         // Send Cmd+E to trigger the top-level "Open in Editor…" command. The
         // confirmation dialog appears showing the editor list.
         TestStep.macPressKey(.character("e"), modifiers: .command)
-        TestStep.wait(seconds: 1)
         // Both editors should be visible in the multi-row dialog.
         TestStep.macWaitForElement(titled: "Fake Editor", timeout: 5)
         TestStep.macWaitForElement(titled: "Fake Editor 2", timeout: 5)
@@ -145,7 +138,6 @@ public enum OpenInEditorScenario {
         // CGEvent click at the element's frame goes through correctly. Clicking
         // the second-row entry also exercises the multi-editor `ForEach`.
         TestStep.macCGClick(titled: "Fake Editor 2")
-        TestStep.wait(seconds: 1)
 
         // Fresh log → only the Cmd+E dispatch can put "hello.txt" in there.
         TestStep.waitForFileContains(
@@ -166,7 +158,6 @@ public enum OpenInEditorScenario {
         TestStep.macOpenSettings()
         TestStep.wait(seconds: 2)
         TestStep.macSelectSettingsTab("Editors")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Editor: Fake Editor", timeout: 5)
         TestStep.macWaitForElement(titled: "Editor: Fake Editor 2", timeout: 5)
         TestStep.macScreenshot(label: "mac-settings-editors-tab")

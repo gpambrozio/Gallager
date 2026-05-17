@@ -28,7 +28,6 @@ public enum StopHookSummaryScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // 3. Verify iOS session list shows "Session Idle" for the stop event
         TestStep.iosWaitForElement(.labelContains("Session Idle"), timeout: 10)
@@ -36,7 +35,6 @@ public enum StopHookSummaryScenario {
 
         // 4. Tap the session to open the terminal view
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
 
         // 5. Verify the StopResponseView shows the collapsed summary with 2-line preview
         TestStep.iosWaitForElement(.labelContains("Expand summary"), timeout: 10)
@@ -45,7 +43,6 @@ public enum StopHookSummaryScenario {
 
         // 6. Tap the expand button to expand the summary
         TestStep.iosTap(.labelContains("Expand summary"))
-        TestStep.wait(seconds: 1)
 
         // 7. Verify expanded state shows the full summary text (including tail end)
         TestStep.iosWaitForElement(.labelContains("passing successfully"), timeout: 5)
@@ -56,7 +53,6 @@ public enum StopHookSummaryScenario {
 
         // 9. Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
 
         // 10. Verify macOS Panes window shows the session in the sidebar
         //     Note: The sidebar subtitle text (lastAssistantMessage) is not

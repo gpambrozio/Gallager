@@ -101,7 +101,6 @@ public enum TerminalNotificationScenario {
         //     Wait for pipe-pane to reattach before sending the notification.
         TestStep.log("Phase 3: Testing notification after deselecting (reader restarts)")
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 1)
         TestStep.waitForTmuxDisplayMessage(
             target: "notif-test:0.0",
             format: "#{pane_pipe}",

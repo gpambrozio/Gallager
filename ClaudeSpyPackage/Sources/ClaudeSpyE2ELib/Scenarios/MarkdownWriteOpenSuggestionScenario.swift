@@ -25,7 +25,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "writehook", timeout: 5)
         TestStep.macClickButton(titled: "writehook")
@@ -54,7 +53,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 2)
 
         // Bar appears with the filename.
         TestStep.macWaitForElement(titled: "Want to open README.md?", timeout: 5)
@@ -64,7 +62,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
         TestStep.log("Phase 2: Yes button opens the file in a new tab")
 
         TestStep.macClickButton(titled: "Open suggested file: Yes")
-        TestStep.wait(seconds: 2)
 
         // The tab strip now has a "File tab: README.md" entry, and the
         // suggestion bar is gone since the user responded.
@@ -92,7 +89,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "Want to open guide.md?", timeout: 5)
         TestStep.macScreenshot(label: "mac-suggestion-bar-replaced")
@@ -101,7 +97,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
         TestStep.log("Phase 4: No button dismisses without opening a tab")
 
         TestStep.macClickButton(titled: "Open suggested file: No")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Want to open guide.md?", timeout: 5)
         // No new file tab was created for guide.md.
@@ -132,7 +127,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "Want to open the plan?", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "Want to open 8f3c2d.md?", timeout: 3)
@@ -162,7 +156,6 @@ public enum MarkdownWriteOpenSuggestionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 2)
 
         // No bar should appear for .txt files.
         TestStep.macWaitForElementToDisappear(titled: "Want to open notes.txt?", timeout: 3)

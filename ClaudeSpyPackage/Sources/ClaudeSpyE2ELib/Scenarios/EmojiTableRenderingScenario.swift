@@ -88,7 +88,6 @@ public enum EmojiTableRenderingScenario {
         TestStep.macScreenshot(label: "mac-emoji-tables-recapture")
 
         TestStep.iosTap(.labelContains("emoji-tbl"))
-        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         TestStep.wait(seconds: 3)
         TestStep.iosScreenshot(label: "ios-emoji-tables-recapture")

@@ -16,7 +16,6 @@ public enum ClaudeSessionsShowScenario {
         // 2. Create 2 tmux sessions
         TestStep.tmuxCreateSession(name: "session-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "session-2", width: 80, height: 24)
-        TestStep.wait(seconds: 3)
 
         // 3. Store the pane IDs for later use in hook events
         TestStep.tmuxStorePaneId(target: "session-1:0.0", storeAs: "pane1Id")
@@ -39,7 +38,6 @@ public enum ClaudeSessionsShowScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // 6. Verify iOS now shows pane 1 as a Claude Code session
         //    - The session row should display the project folder name "MyProject"

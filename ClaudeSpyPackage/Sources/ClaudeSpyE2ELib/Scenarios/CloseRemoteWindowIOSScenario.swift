@@ -35,7 +35,6 @@ public enum CloseRemoteWindowIOSScenario {
         // 3. Navigate to the session on iOS
         TestStep.log("Stage 2: Navigate to session on iOS")
         Shortcut.iosConnectToSession(sessionName: "ios-close")
-        TestStep.wait(seconds: 3)
 
         // Verify we're on window 0
         TestStep.iosWaitForElement(.labelContains("ios-close:0"), timeout: 5)
@@ -48,7 +47,6 @@ public enum CloseRemoteWindowIOSScenario {
         TestStep.iosScreenshot(label: "ios-window-menu-two-windows")
         // Tap window 1 ("other") in the menu — label is the window name only
         TestStep.iosTap(.labelContains("other"))
-        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElement(.labelContains("ios-close:1"), timeout: 5)
 
         // Open menu again and tap "Close Window"
@@ -56,7 +54,6 @@ public enum CloseRemoteWindowIOSScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-window-menu-close-option")
         TestStep.iosTap(.label("Close Window"))
-        TestStep.wait(seconds: 3)
 
         // Window 1 should be gone, should be back on window 0
         TestStep.iosWaitForElement(.labelContains("ios-close:0"), timeout: 10)
@@ -84,7 +81,6 @@ public enum CloseRemoteWindowIOSScenario {
         TestStep.iosTap(.labelContains("ios-close"))
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("Close Session"))
-        TestStep.wait(seconds: 3)
 
         // Confirmation alert should appear with process info
         TestStep.iosWaitForElement(.labelContains("Close Session"), timeout: 10)
@@ -94,7 +90,6 @@ public enum CloseRemoteWindowIOSScenario {
         // 6. Confirm by tapping "Close Anyway"
         TestStep.log("Stage 5: Confirm close — session should be killed")
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Close Anyway"))
-        TestStep.wait(seconds: 5)
 
         // After session is killed, the view should auto-dismiss to the session list
         TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 30)

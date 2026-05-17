@@ -21,11 +21,9 @@ public enum FileDropLocalScenario {
         Shortcut.macOnlySetup
 
         TestStep.tmuxCreateSession(name: "drop-local", width: 80, height: 24)
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "drop-local", timeout: 10)
         TestStep.macClickButton(titled: "drop-local")
-        TestStep.wait(seconds: 2)
 
         // The pane must be present and addressable in the AX tree before
         // we kick off the drop simulation — without it the test endpoint

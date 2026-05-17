@@ -58,7 +58,6 @@ public enum TerminalFileLinkScenario {
         // ── Launch app ───────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "termlink", timeout: 5)
         TestStep.macClickButton(titled: "termlink")

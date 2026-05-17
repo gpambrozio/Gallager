@@ -22,7 +22,6 @@ public enum ProjectListScenario {
             query: .identifier("new-session-local"),
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
         )
-        TestStep.wait(seconds: 2)
 
         // ── Verify mock projects appear ──────────────────────────
 
