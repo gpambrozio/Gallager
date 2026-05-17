@@ -982,6 +982,14 @@
             )
             connectedViewerManager = connectionManager
 
+            // Outgoing pushes carry the host's current needs-attention count as
+            // the iOS app icon badge. The same provider feeds silent badge
+            // updates broadcast on markSessionHandled.
+            let winManagerForBadge = windowManager
+            connectionManager.pendingSessionCountProvider = { [winManagerForBadge] in
+                winManagerForBadge.pendingSessionCount
+            }
+
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
                 connectionManager: connectionManager,
@@ -1082,6 +1090,7 @@
                     winManager.markSessionHandled(paneId: command.paneId)
                     if wasNeeding {
                         await connectionManager?.pushSessionStateToAll()
+                        await connectionManager?.broadcastBadgeUpdate(badge: winManager.pendingSessionCount)
                     }
                     return .success(for: command.id)
                 }

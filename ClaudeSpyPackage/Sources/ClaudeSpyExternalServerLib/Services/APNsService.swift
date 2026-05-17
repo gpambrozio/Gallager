@@ -113,13 +113,6 @@ actor APNsService {
             return
         }
 
-        // Build notification with generic placeholder text
-        // The iOS Notification Service Extension will decrypt and replace with actual content
-        let alert = APNSAlertNotificationContent(
-            title: .raw("Claude Code"),
-            body: .raw("New activity") // Placeholder - extension replaces this
-        )
-
         // Encode the encrypted content for the payload
         let encryptedPayload: EncryptedClaudeSpyPayload
         do {
@@ -134,15 +127,39 @@ actor APNsService {
             return
         }
 
-        // Create notification with mutable-content flag for extension processing
+        // Silent badge-only pushes (e.g. after the host clears a session from
+        // "needs attention" state) send an empty-alert push so iOS updates the
+        // badge without showing any UI and without invoking the Notification
+        // Service Extension. Priority 5 lets APNs batch with other low-priority
+        // traffic, which is what Apple recommends for non-urgent silent pushes.
+        let alert: APNSAlertNotificationContent
+        let priority: APNSPriority
+        let mutableContent: Double?
+        let sound: APNSAlertNotificationSound?
+        if payload.silent {
+            alert = APNSAlertNotificationContent()
+            priority = .consideringDevicePower
+            mutableContent = nil
+            sound = nil
+        } else {
+            alert = APNSAlertNotificationContent(
+                title: .raw("Claude Code"),
+                body: .raw("New activity") // Placeholder - extension replaces this
+            )
+            priority = .immediately
+            mutableContent = 1 // Triggers Notification Service Extension
+            sound = nil
+        }
+
         let notification = APNSAlertNotification(
             alert: alert,
             expiration: .immediately,
-            priority: .immediately,
+            priority: priority,
             topic: bundleId,
             payload: encryptedPayload,
-            badge: 1,
-            mutableContent: 1 // Triggers Notification Service Extension
+            badge: payload.badge,
+            sound: sound,
+            mutableContent: mutableContent
         )
 
         do {
@@ -153,6 +170,8 @@ actor APNsService {
             await metricsService.incrementPushNotifications()
             logger.info("Encrypted push notification sent", metadata: [
                 "pairId": "\(pairId)",
+                "silent": "\(payload.silent)",
+                "badge": "\(payload.badge.map(String.init) ?? "nil")",
             ])
         } catch let error as APNSError {
             handleAPNsError(error, pairId: pairId, deviceToken: deviceToken)
