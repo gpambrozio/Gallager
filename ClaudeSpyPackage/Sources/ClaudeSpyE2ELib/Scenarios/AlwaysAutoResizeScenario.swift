@@ -146,6 +146,19 @@ public enum AlwaysAutoResizeScenario {
         // Verify toggle is checked for pane 1
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
 
+        // Poll the tmux pane width until the auto-resize triggered by pane 1's
+        // mirror view becoming visible at the new window size actually lands.
+        // The toolbar reflects the pane's stored preference immediately, but
+        // `handleAutoResize`'s debounce + tmux `resize-window` round trip takes
+        // longer — without this wait we race the resize chain and sample the
+        // stale phase 1 width.
+        TestStep.waitForTmuxDisplayMessageNotEqual(
+            target: "always-resize-1:0",
+            format: "#{pane_width}",
+            notEqualTo: "${phase1Width}",
+            timeout: 10
+        )
+
         TestStep.tmuxStorePaneDimensions(
             target: "always-resize-1:0",
             widthKey: "phase3Pane1Width",
