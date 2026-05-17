@@ -316,6 +316,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         RemoteTabReorderScenario.scenario,
         ProjectPickerArrowNavScenario.scenario,
         NewLocalSessionAfterRemoteScenario.scenario,
+        CloseBrowserTabReturnsToParentScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
