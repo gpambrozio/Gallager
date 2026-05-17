@@ -15,22 +15,30 @@ import SwiftUI
 /// `originWindowId` is the tmux window that initiated the open via a terminal
 /// click. When set, closing the tab returns the user to that terminal instead
 /// of falling back to the file browser tree.
+///
+/// `parentTabId` is set when this tab was spawned from another browser tab
+/// (e.g. `target="_blank"` or `window.open()`). Closing the tab selects the
+/// parent first if it still exists, falling through to `originWindowId` only
+/// when the parent is gone.
 struct BrowserTab: Identifiable, Equatable {
     let id: UUID
     var url: URL
     var displayTitle: String?
     var originWindowId: String?
+    var parentTabId: UUID?
 
     init(
         id: UUID = UUID(),
         url: URL,
         displayTitle: String? = nil,
-        originWindowId: String? = nil
+        originWindowId: String? = nil,
+        parentTabId: UUID? = nil
     ) {
         self.id = id
         self.url = url
         self.displayTitle = displayTitle
         self.originWindowId = originWindowId
+        self.parentTabId = parentTabId
     }
 
     /// Label rendered on the tab strip. Falls back to the URL host (then a
