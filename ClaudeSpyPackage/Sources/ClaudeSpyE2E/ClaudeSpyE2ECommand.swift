@@ -314,6 +314,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         SplitTabScenario.scenario,
         TabReorderScenario.scenario,
         RemoteTabReorderScenario.scenario,
+        RemoteSplitCollapseResizeScenario.scenario,
         ProjectPickerArrowNavScenario.scenario,
         NewLocalSessionAfterRemoteScenario.scenario,
         CloseBrowserTabReturnsToParentScenario.scenario,

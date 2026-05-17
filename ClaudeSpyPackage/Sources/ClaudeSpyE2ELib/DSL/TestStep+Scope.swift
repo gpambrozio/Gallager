@@ -144,6 +144,7 @@ public extension TestStep {
              .tmuxCommand,
              .tmuxStoreDisplayMessage,
              .waitForTmuxDisplayMessage,
+             .waitForTmuxDisplayMessageNotEqual,
              .assertStoredEqual,
              .assertStoredNotEqual,
              .assertStoredContains,
