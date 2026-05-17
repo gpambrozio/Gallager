@@ -63,6 +63,7 @@ struct RemoteHostSidebarSection: View {
                 title: host.displayName(showUsername: settings.hasDuplicateHostName(for: host)),
                 symbol: .laptopcomputer,
                 isNewSessionDisabled: connection?.isHostConnected != true,
+                newSessionButtonIdentifier: "new-session-remote-\(host.id)",
                 trailing: {
                     Circle()
                         .fill(hostStatusColor)

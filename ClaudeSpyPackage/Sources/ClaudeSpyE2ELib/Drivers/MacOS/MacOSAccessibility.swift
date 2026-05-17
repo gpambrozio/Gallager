@@ -352,15 +352,19 @@ enum MacOSAccessibility {
     /// Useful for selecting items in SwiftUI List/OutlineGroup where AXPress
     /// on ancestor elements toggles disclosure instead of selecting.
     @discardableResult
-    static func cgClick(appPID: pid_t, matching query: ElementQuery) -> Bool {
+    static func cgClick(
+        appPID: pid_t,
+        matching query: ElementQuery,
+        pointInRect: (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+    ) -> Bool {
         let matches = findAllRawElements(appPID: appPID, matching: query)
-        guard let center = matches.lazy.compactMap({ centerOfElement($0) }).first else {
+        guard let frame = matches.lazy.compactMap({ frameOfElement($0) }).first else {
             logger.info("cgClick: element not found for \(query)")
             return false
         }
         focusApp(appPID: appPID)
         usleep(200_000) // 200ms for focus
-        clickAtPoint(center)
+        clickAtPoint(pointInRect(frame))
         return true
     }
 
@@ -482,44 +486,98 @@ enum MacOSAccessibility {
 
     // MARK: - Window Management
 
-    /// Move the first visible window to a screen position via AX attributes.
-    @discardableResult
-    static func moveWindow(appPID: pid_t, x: Int, y: Int) -> Bool {
-        let allWindows = windows(appPID: appPID)
-        guard let firstWindow = allWindows.first else {
-            logger.info("No windows found for move")
-            return false
+    /// Pick the main resizable/movable window for window-management operations.
+    ///
+    /// macOS 26 (Tahoe) intermittently surfaces non-standard entries (sheets,
+    /// popovers, transient panels) at the head of `kAXWindowsAttribute` right
+    /// after in-process layout changes (e.g. `NSSplitView.setPosition`). On
+    /// those windows, `kAXSizeAttribute` / `kAXPositionAttribute` are not
+    /// settable and SetAttributeValue returns an error, even though the real
+    /// app window is fully visible. Filter to `AXStandardWindow` (with empty
+    /// subrole as a fallback) so we always target the actual window.
+    static func mainResizableWindow(appPID: pid_t) -> (title: String, element: AXUIElement)? {
+        let all = windows(appPID: appPID)
+        let standard = all.filter { subroleOf($0.element) == kAXStandardWindowSubrole as String }
+        if let first = standard.first { return first }
+        // Fallback: windows with no subrole at all (some SwiftUI windows omit it).
+        let noSubrole = all.filter { subroleOf($0.element).isEmpty }
+        if let first = noSubrole.first { return first }
+        return all.first
+    }
+
+    private static func subroleOf(_ element: AXUIElement) -> String {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value)
+        guard result == .success, let subrole = value as? String else { return "" }
+        return subrole
+    }
+
+    /// Result of an AX window mutation. Lets callers surface a precise reason
+    /// (windows count, subroles, AX error code) in test failures instead of
+    /// the misleading legacy "no visible window found" message.
+    struct WindowOpResult {
+        let success: Bool
+        let reason: String
+    }
+
+    /// Move the main standard window to a screen position via AX attributes.
+    static func moveWindowDetailed(appPID: pid_t, x: Int, y: Int) -> WindowOpResult {
+        let all = windows(appPID: appPID)
+        guard let target = mainResizableWindow(appPID: appPID) else {
+            let reason = "no AX windows (count=\(all.count), subroles=[\(all.map { subroleOf($0.element) }.joined(separator: ","))])"
+            logger.info("Move failed: \(reason)")
+            return WindowOpResult(success: false, reason: reason)
         }
 
         var position = CGPoint(x: x, y: y)
-        guard let positionValue = AXValueCreate(.cgPoint, &position) else { return false }
-        let result = AXUIElementSetAttributeValue(firstWindow.element, kAXPositionAttribute as CFString, positionValue)
+        guard let positionValue = AXValueCreate(.cgPoint, &position) else {
+            return WindowOpResult(success: false, reason: "AXValueCreate(.cgPoint) returned nil")
+        }
+        let result = AXUIElementSetAttributeValue(target.element, kAXPositionAttribute as CFString, positionValue)
         if result == .success {
             logger.info("Moved window to (\(x), \(y))")
-            return true
+            return WindowOpResult(success: true, reason: "")
         }
-        logger.info("AX move failed (\(result.rawValue))")
-        return false
+        let reason = "AXSetAttributeValue(kAXPositionAttribute) failed: AXError=\(result.rawValue), target=\"\(target.title)\", subrole=\(subroleOf(target.element))"
+        logger.info("\(reason)")
+        return WindowOpResult(success: false, reason: reason)
     }
 
-    /// Resize the first visible window via AX attributes.
-    @discardableResult
-    static func resizeWindow(appPID: pid_t, width: Int, height: Int) -> Bool {
-        let allWindows = windows(appPID: appPID)
-        guard let firstWindow = allWindows.first else {
-            logger.info("No windows found for resize")
-            return false
+    /// Resize the main standard window via AX attributes.
+    static func resizeWindowDetailed(appPID: pid_t, width: Int, height: Int) -> WindowOpResult {
+        let all = windows(appPID: appPID)
+        guard let target = mainResizableWindow(appPID: appPID) else {
+            let reason = "no AX windows (count=\(all.count), subroles=[\(all.map { subroleOf($0.element) }.joined(separator: ","))])"
+            logger.info("Resize failed: \(reason)")
+            return WindowOpResult(success: false, reason: reason)
         }
 
         var size = CGSize(width: width, height: height)
-        guard let sizeValue = AXValueCreate(.cgSize, &size) else { return false }
-        let result = AXUIElementSetAttributeValue(firstWindow.element, kAXSizeAttribute as CFString, sizeValue)
+        guard let sizeValue = AXValueCreate(.cgSize, &size) else {
+            return WindowOpResult(success: false, reason: "AXValueCreate(.cgSize) returned nil")
+        }
+        let result = AXUIElementSetAttributeValue(target.element, kAXSizeAttribute as CFString, sizeValue)
         if result == .success {
             logger.info("Resized window to \(width)x\(height)")
-            return true
+            return WindowOpResult(success: true, reason: "")
         }
-        logger.info("AX resize failed (\(result.rawValue))")
-        return false
+        let reason = "AXSetAttributeValue(kAXSizeAttribute) failed: AXError=\(result.rawValue), target=\"\(target.title)\", subrole=\(subroleOf(target.element))"
+        logger.info("\(reason)")
+        return WindowOpResult(success: false, reason: reason)
+    }
+
+    /// Move the first visible window. Kept for callers that don't need the
+    /// detailed reason — new code should prefer `moveWindowDetailed`.
+    @discardableResult
+    static func moveWindow(appPID: pid_t, x: Int, y: Int) -> Bool {
+        moveWindowDetailed(appPID: appPID, x: x, y: y).success
+    }
+
+    /// Resize the first visible window. Kept for callers that don't need the
+    /// detailed reason — new code should prefer `resizeWindowDetailed`.
+    @discardableResult
+    static func resizeWindow(appPID: pid_t, width: Int, height: Int) -> Bool {
+        resizeWindowDetailed(appPID: appPID, width: width, height: height).success
     }
 
     /// Bring the app to the foreground.
@@ -610,8 +668,8 @@ enum MacOSAccessibility {
 
     // MARK: - Private: Element Frame
 
-    /// Get the center point of a raw AXUIElement from its position and size attributes.
-    private static func centerOfElement(_ element: AXUIElement) -> CGPoint? {
+    /// Get the screen frame of a raw AXUIElement from its position and size attributes.
+    private static func frameOfElement(_ element: AXUIElement) -> CGRect? {
         var positionValue: CFTypeRef?
         var sizeValue: CFTypeRef?
         let posResult = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue)
@@ -625,7 +683,12 @@ enum MacOSAccessibility {
         // swiftlint:disable:next force_cast
         AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
 
-        return CGPoint(x: position.x + size.width / 2, y: position.y + size.height / 2)
+        return CGRect(origin: position, size: size)
+    }
+
+    /// Get the center point of a raw AXUIElement from its position and size attributes.
+    private static func centerOfElement(_ element: AXUIElement) -> CGPoint? {
+        frameOfElement(element).map { CGPoint(x: $0.midX, y: $0.midY) }
     }
 
     // MARK: - Private: Raw Element Search

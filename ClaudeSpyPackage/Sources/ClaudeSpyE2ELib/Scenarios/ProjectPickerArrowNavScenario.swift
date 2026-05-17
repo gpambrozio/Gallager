@@ -18,7 +18,10 @@ public enum ProjectPickerArrowNavScenario {
 
         // ── Open the new-session popover ─────────────────────────
         TestStep.log("Opening new session popover")
-        TestStep.macClickButton(titled: "Create new session")
+        TestStep.macCGClickElement(
+            query: .identifier("new-session-local"),
+            pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
+        )
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macScreenshot(label: "mac-popover-open")
@@ -97,7 +100,10 @@ public enum ProjectPickerArrowNavScenario {
 
         // ── Phase H: Return on highlighted New Terminal opens it ─
         TestStep.log("Reopening popover to verify Return on highlighted New Terminal")
-        TestStep.macClickButton(titled: "Create new session")
+        TestStep.macCGClickElement(
+            query: .identifier("new-session-local"),
+            pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
+        )
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
         TestStep.macPressKey(.downArrow)
