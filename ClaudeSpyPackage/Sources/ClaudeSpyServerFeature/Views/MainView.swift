@@ -344,7 +344,11 @@ public struct MainView: View {
                 }
             }
         } header: {
-            SectionHeader(title: "Local", symbol: .house) {
+            SectionHeader(
+                title: "Local",
+                symbol: .house,
+                newSessionButtonIdentifier: "new-session-local"
+            ) {
                 localNewSessionPopover
             }
         }
@@ -3364,8 +3368,16 @@ public struct MainView: View {
                     isClaudeProject: project != nil
                 )
 
-                // Find the window containing the new pane and select it
+                // Find the window containing the new pane and select it.
+                // Clearing the remote selection mirrors createRemoteSession's
+                // own "clear the other side" step — without it, the sidebar's
+                // local-row highlight stays suppressed (see the listRowBackground
+                // check in sessionButton) whenever a remote session was the
+                // last thing the user interacted with, even after that remote
+                // session was closed.
                 if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                    selectedRemoteSession = nil
+                    selectedRemoteWindowId = nil
                     selectedWindow = newWindow
                 }
             } catch {

@@ -549,8 +549,8 @@ public actor TestOrchestrator {
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
 
-        case let .macCGClickElement(query, instance):
-            try await macDriver(for: instance).cgClick(matching: query)
+        case let .macCGClickElement(query, pointInRect, instance):
+            try await macDriver(for: instance).cgClick(matching: query, pointInRect: pointInRect)
 
         case let .macRightClick(titled, instance):
             try await macDriver(for: instance).rightClick(titled: titled)
