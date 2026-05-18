@@ -28,7 +28,6 @@ public enum StopHookSummaryScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // 3. Verify iOS session list shows "Session Idle" for the stop event
         TestStep.iosWaitForElement(.labelContains("Session Idle"), timeout: 10)
@@ -36,19 +35,25 @@ public enum StopHookSummaryScenario {
 
         // 4. Tap the session to open the terminal view
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
 
-        // 5. Verify the StopResponseView shows the collapsed summary with 2-line preview
+        // 5. Verify the StopResponseView shows the collapsed summary with 2-line preview.
+        //    Also wait for the "Send" toolbar button — it renders slightly after the
+        //    summary content arrives, and the screenshot needs the toolbar fully
+        //    settled (otherwise Send/menu icons appear washed out / mid-fade-in).
         TestStep.iosWaitForElement(.labelContains("Expand summary"), timeout: 10)
         TestStep.iosWaitForElement(.identifier("summary-text"), timeout: 5)
+        TestStep.iosWaitForElement(.label("Send"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-stop-summary-collapsed")
 
         // 6. Tap the expand button to expand the summary
         TestStep.iosTap(.labelContains("Expand summary"))
-        TestStep.wait(seconds: 1)
 
-        // 7. Verify expanded state shows the full summary text (including tail end)
+        // 7. Verify expanded state shows the full summary text (including tail end).
+        //    Wait briefly so the expand animation has time to settle before the
+        //    screenshot is taken — otherwise text mid-transition can drift just
+        //    past the screenshot tolerance.
         TestStep.iosWaitForElement(.labelContains("passing successfully"), timeout: 5)
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-stop-summary-expanded")
 
         // 8. Verify the prompt input is also present below the summary
@@ -56,7 +61,6 @@ public enum StopHookSummaryScenario {
 
         // 9. Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
 
         // 10. Verify macOS Panes window shows the session in the sidebar
         //     Note: The sidebar subtitle text (lastAssistantMessage) is not

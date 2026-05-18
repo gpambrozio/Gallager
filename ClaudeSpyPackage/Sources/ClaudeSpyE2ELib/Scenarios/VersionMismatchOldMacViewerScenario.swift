@@ -44,7 +44,6 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         // 4. Pair record should exist regardless of version mismatch
         TestStep.verifyServerHasPairings(count: 1)

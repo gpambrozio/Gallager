@@ -39,7 +39,6 @@ public enum FileTextSearchScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Select session in sidebar
         TestStep.macWaitForElement(titled: "filetextsearch", timeout: 5)
@@ -48,7 +47,6 @@ public enum FileTextSearchScenario {
 
         // Open the file browser tab.
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "README.md", timeout: 10)
 
         // ── Phase 1: Default (Name) mode renders the existing search UI ──
@@ -59,7 +57,6 @@ public enum FileTextSearchScenario {
         TestStep.macCGClick(titled: "Search files")
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "hello")
-        TestStep.wait(seconds: 1)
         // hello.txt matches by name; README.md should be hidden.
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
@@ -69,7 +66,6 @@ public enum FileTextSearchScenario {
         TestStep.log("Phase 2: Switch to Content mode — query is preserved, results refresh")
 
         TestStep.macClickButton(titled: "Content")
-        TestStep.wait(seconds: 2)
 
         // The content search for "hello" matches hello.txt's body and
         // src/main.swift's `print("Hello, world!")`. Both files should
@@ -94,7 +90,6 @@ public enum FileTextSearchScenario {
         // plain text file." — used as the assertion target since it
         // doesn't appear in any other fake-file fixture.
         TestStep.macCGClick(titled: "Line 1: Hello, world!")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("This is a plain text file"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-content-selected")
 
@@ -125,14 +120,12 @@ public enum FileTextSearchScenario {
         // main.swift, so re-pin it to hello.txt's match for a deterministic
         // assertion target after we round-trip tabs.
         TestStep.macCGClick(titled: "Line 1: Hello, world!")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("This is a plain text file"), timeout: 5)
 
         // Switch to the tmux window's terminal tab. The file-browser view
         // disappears and its `.onDisappear` cancels any in-flight search,
         // but the cached results and selection live on the parent state.
         TestStep.macClickButton(titled: "filetextsearch:0")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("FILE TEXT SEARCH TEST"), timeout: 5)
         TestStep.macWaitForElementQueryToDisappear(.anyTextMatches("This is a plain text file"), timeout: 3)
         TestStep.macScreenshot(label: "mac-text-search-tab-switch-terminal")
@@ -143,7 +136,6 @@ public enum FileTextSearchScenario {
         // same results, the snippet text, and the loaded file body all
         // survive the round trip.
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("Hello, world"), timeout: 5)
@@ -170,7 +162,6 @@ public enum FileTextSearchScenario {
         // terminal — verifiable via the echo banner above. The detail-pane
         // text from the original session must disappear.
         TestStep.macClickButton(titled: "alt-session")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("ALT SESSION TERMINAL"), timeout: 5)
         TestStep.macWaitForElementQueryToDisappear(.anyTextMatches("This is a plain text file"), timeout: 3)
         TestStep.macScreenshot(label: "mac-text-search-session-switch-alt")
@@ -181,7 +172,6 @@ public enum FileTextSearchScenario {
         // "hello" query, and the previously-loaded file body must all
         // survive — same assertions as the tab-switch round trip.
         TestStep.macClickButton(titled: "filetextsearch")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("Hello, world"), timeout: 5)
@@ -195,7 +185,6 @@ public enum FileTextSearchScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "zzznonexistentcontent")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Check the spelling"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-content-no-results")
 
@@ -212,7 +201,6 @@ public enum FileTextSearchScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "helper")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("A helper function"), timeout: 5)
 
@@ -222,7 +210,6 @@ public enum FileTextSearchScenario {
         // ("src/utils") that the name-search row renders below the name,
         // and assert that the snippet text from content-mode is gone.
         TestStep.macClickButton(titled: "Name")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("src/utils"), timeout: 5)
         TestStep.macWaitForElementQueryToDisappear(.anyTextMatches("A helper function"), timeout: 5)
@@ -232,7 +219,6 @@ public enum FileTextSearchScenario {
         TestStep.log("Phase 9: Clear search restores the file tree")
 
         TestStep.macClickButton(titled: "Clear search")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-text-search-tree-restored")
 
@@ -264,12 +250,10 @@ public enum FileTextSearchScenario {
         TestStep.macCGClick(titled: "Search contents")
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "## BOTTOM")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "long.md", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("Line 128: ## BOTTOM MARKER"), timeout: 5)
 
         TestStep.macCGClick(titled: "Line 128: ## BOTTOM MARKER")
-        TestStep.wait(seconds: 1)
         // `If you can read this line, you are at the bottom of the file.`
         // is line 130 of `long.md`, immediately after the matched
         // heading. Its appearance in the AX tree confirms `long.md`'s

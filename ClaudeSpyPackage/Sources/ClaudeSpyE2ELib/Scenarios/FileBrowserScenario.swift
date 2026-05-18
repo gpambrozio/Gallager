@@ -57,7 +57,6 @@ public enum FileBrowserScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Select session in sidebar
         TestStep.macWaitForElement(titled: "filebrowse", timeout: 5)
@@ -70,7 +69,6 @@ public enum FileBrowserScenario {
 
         // Click the file browser tab (folder icon, accessibilityLabel: "Files")
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
 
         // Tree should load — wait for a root-level file to appear
         TestStep.macWaitForElement(titled: "README.md", timeout: 10)
@@ -110,7 +108,6 @@ public enum FileBrowserScenario {
         // ── Phase 6: HTML Viewer ─────────────────────────────────
         TestStep.log("Phase 6: HTML viewer (WebView)")
         TestStep.macCGClick(titled: "page.html")
-        TestStep.wait(seconds: 2)
         // WebView load is async — wait for rendered content before screenshot
         // so a slow page load doesn't capture a blank pane (see Phase 30).
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
@@ -119,7 +116,6 @@ public enum FileBrowserScenario {
         // ── Phase 7: Unsupported / Binary File ──────────────────
         TestStep.log("Phase 7: Unsupported binary file")
         TestStep.macCGClick(titled: "binary.dat")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Unable to Read File", timeout: 5)
         TestStep.macScreenshot(label: "mac-unsupported-file")
 
@@ -139,7 +135,6 @@ public enum FileBrowserScenario {
         // Second read of loading.txt succeeds and triggers "generated" folder.
         TestStep.log("Phase 9: Pending file second load + dynamic folder")
         TestStep.macCGClick(titled: "loading.txt")
-        TestStep.wait(seconds: 2)
         // Content loads AND the dynamic "generated" folder appears in the tree
         TestStep.macWaitForElement(titled: "generated", timeout: 10)
         TestStep.macScreenshot(label: "mac-pending-file-loaded")
@@ -156,13 +151,11 @@ public enum FileBrowserScenario {
 
         // Expand "src" folder — macClickButton triggers AX disclosure toggle
         TestStep.macClickButton(titled: "src")
-        TestStep.wait(seconds: 2)
         // After expanding, "main.swift" should appear
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
 
         // Expand "utils" subfolder
         TestStep.macClickButton(titled: "utils")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
 
         // Select the deeply nested file (CGEvent click for selection)
@@ -173,7 +166,6 @@ public enum FileBrowserScenario {
         // ── Phase 12: Expand docs folder and view nested markdown ──
         TestStep.log("Phase 12: Expand docs and view guide.md")
         TestStep.macClickButton(titled: "docs")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "guide.md", timeout: 5)
         TestStep.macCGClick(titled: "guide.md")
         TestStep.wait(seconds: 1)
@@ -213,7 +205,6 @@ public enum FileBrowserScenario {
 
         // Switch back to file browser — state should be preserved
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         // The previously expanded folders should still show their children
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElement(titled: "guide.md", timeout: 5)
@@ -226,7 +217,6 @@ public enum FileBrowserScenario {
         TestStep.macCGClick(titled: "Search files")
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "helper")
-        TestStep.wait(seconds: 1)
         // helper.swift should appear in search results
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
         // The tree navigator should be replaced — root-level files shouldn't show
@@ -246,7 +236,6 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "zzzznonexistent")
-        TestStep.wait(seconds: 1)
         // ContentUnavailableView.search shows "Check the spelling or try a new search."
         TestStep.macWaitForElementQuery(.anyTextMatches("Check the spelling"), timeout: 5)
         TestStep.macScreenshot(label: "mac-file-search-no-results")
@@ -259,7 +248,6 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "swift")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-search-before-tab-switch")
 
@@ -269,7 +257,6 @@ public enum FileBrowserScenario {
 
         // Switch back to file browser
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         // Search query and results should still be there
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
@@ -277,7 +264,6 @@ public enum FileBrowserScenario {
 
         // Clear search to restore tree for remaining phases
         TestStep.macClickButton(titled: "Clear search")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
 
         // ── Phase 18: Open File in New Tab (context menu) ────────
@@ -285,7 +271,6 @@ public enum FileBrowserScenario {
 
         // Right-click hello.txt → "Open in New Tab"
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         // Tab appears to the right of the Files tab with our accessibility label
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-opened")
@@ -295,7 +280,6 @@ public enum FileBrowserScenario {
 
         // Click Files tab → tree should be visible again
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-back-to-browser")
 
@@ -309,11 +293,9 @@ public enum FileBrowserScenario {
 
         // Go back to the browser so the tree is visible for the right-click
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
 
         TestStep.macContextMenuClick(elementTitle: "README.md", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         // Both tabs should now be in the bar
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
@@ -368,13 +350,11 @@ public enum FileBrowserScenario {
         TestStep.macCGClick(titled: "photo.png")
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "docs")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "guide.md", timeout: 3)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
 
         // Open src/utils/helper.swift in a new tab.
         TestStep.macContextMenuClick(elementTitle: "helper.swift", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: helper.swift", timeout: 5)
 
         // Switch back to the file browser so we can collapse the parent folder.
@@ -386,7 +366,6 @@ public enum FileBrowserScenario {
         // text inside the open file tab, which keeps it discoverable in the AX
         // tree even when the tree row is gone.
         TestStep.macClickButton(titled: "src")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "main.swift", timeout: 3)
 
         // Select photo.png so the tree has a different selection going in;
@@ -404,7 +383,6 @@ public enum FileBrowserScenario {
         // (the unique helper.swift body — neither hello.txt nor the file-tab
         // bar contains that string).
         TestStep.macContextMenuClick(elementTitle: "File tab: helper.swift", menuItem: "Show in File Explorer")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("helper function for testing folder recursion"), timeout: 5)
         TestStep.macScreenshot(label: "mac-show-in-file-explorer-revealed")
@@ -413,7 +391,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "File tab: helper.swift")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Close file tab: helper.swift")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: helper.swift", timeout: 5)
 
         // ── Phase 23: Close a file tab ───────────────────────────
@@ -423,7 +400,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Close file tab: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-closed")
@@ -433,11 +409,9 @@ public enum FileBrowserScenario {
 
         // Go back to the browser to pick ephemeral.txt from the tree
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "ephemeral.txt", timeout: 5)
 
         TestStep.macContextMenuClick(elementTitle: "ephemeral.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         // Tab is created and the ephemeral read signals deletion — the tab stays
         // put showing a "File Deleted" placeholder.
         TestStep.macWaitForElement(titled: "File tab: ephemeral.txt", timeout: 5)
@@ -448,10 +422,8 @@ public enum FileBrowserScenario {
         // tree in the next assertion; if deletion propagated correctly the tree
         // no longer has a row for it either.
         TestStep.macClickButton(titled: "Close file tab: ephemeral.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: ephemeral.txt", timeout: 5)
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "ephemeral.txt", timeout: 5)
 
         // Clean up the remaining README.md tab so we don't carry state into the next phase.
@@ -470,7 +442,6 @@ public enum FileBrowserScenario {
         TestStep.log("Phase 25: Selected file tab does not paint the window tab as selected")
 
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-selected-window-tab-deselected")
 
@@ -498,7 +469,6 @@ public enum FileBrowserScenario {
         // tab even though the underlying file browser state is now session-
         // scoped per commit 90f1d8f).
         TestStep.macClickButton(titled: "filebrowse:1")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
         TestStep.macScreenshot(label: "mac-window-switch-tab-persists")
@@ -513,7 +483,6 @@ public enum FileBrowserScenario {
 
         // Switch back to window 0 — file tab still visible, terminal restored.
         TestStep.macClickButton(titled: "filebrowse:0")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-window-switch-back-tab-persists")
 
@@ -521,7 +490,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Close file tab: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 5)
 
         // ── Persistent alt session for Phases 27-31 ──────────────
@@ -533,7 +501,6 @@ public enum FileBrowserScenario {
         // session is destroyed at the end of the scenario.
         TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
         Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
 
         // ── Phase 27: Scroll position persists across tab and session switches ─
@@ -553,10 +520,8 @@ public enum FileBrowserScenario {
 
         // Open `long.md` from the file browser tree as its own tab.
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "long.md", timeout: 5)
         TestStep.macContextMenuClick(elementTitle: "long.md", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: long.md", timeout: 5)
         // Initial render — scrolled to the very top, BOTTOM MARKER is offscreen.
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test"), timeout: 5)
@@ -566,7 +531,6 @@ public enum FileBrowserScenario {
         // CGEvent scroll wheel (negative deltaY = down) at the window
         // centre, which lands inside the markdown viewer.
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-bottom-initial")
 
@@ -574,7 +538,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.md")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-after-tab-switch")
 
@@ -584,14 +547,12 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.md")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-scroll-preserve-after-session-switch")
 
         // Close the tab — the scroll offset is dropped by the tab close
         // handler, so the next phase re-opens with a fresh state.
         TestStep.macClickButton(titled: "Close file tab: long.md")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: long.md", timeout: 5)
 
         // ── Phase 28: Scroll position persists for the plain-text viewer ─
@@ -611,17 +572,14 @@ public enum FileBrowserScenario {
 
         // Open `long.txt` from the file browser tree as its own tab.
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "long.txt", timeout: 5)
         TestStep.macContextMenuClick(elementTitle: "long.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: long.txt", timeout: 5)
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (Plain Text)"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-top")
 
         // Scroll to the bottom of the file.
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-bottom-initial")
 
@@ -630,7 +588,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.txt")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-tab-switch")
 
@@ -640,13 +597,11 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: long.txt")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("TEXT BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-text-scroll-preserve-after-session-switch")
 
         // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: long.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: long.txt", timeout: 5)
 
         // ── Phase 29: Detail pane scroll preservation ────────────
@@ -668,17 +623,14 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "long.md", timeout: 5)
         // Single-click selects the file in the tree → loads in the detail pane.
         TestStep.macCGClick(titled: "long.md")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-top")
 
         // Scroll to the bottom — BOTTOM MARKER becomes visible.
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-bottom-initial")
 
@@ -688,7 +640,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-tab-switch")
 
@@ -699,7 +650,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-detail-scroll-preserve-after-session-switch")
 
@@ -718,17 +668,14 @@ public enum FileBrowserScenario {
 
         TestStep.macWaitForElement(titled: "page.html", timeout: 5)
         TestStep.macContextMenuClick(elementTitle: "page.html", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: page.html", timeout: 5)
         // The WebView needs a moment to load before AX text is available. The
         // 250ms warm-up before scroll restore in `ScrollableWebView` covers
         // the same async growth on rebuild, so a short wait here is enough.
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-top")
 
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-bottom-initial")
 
@@ -736,7 +683,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-tab-switch")
 
@@ -746,13 +692,11 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-session-switch")
 
         // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: page.html")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: page.html", timeout: 5)
 
         // ── Phase 31: PDF viewer scroll preservation ─────────────
@@ -765,10 +709,8 @@ public enum FileBrowserScenario {
         TestStep.log("Phase 31: PDF viewer preserves scroll across tab/session switches")
 
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "document.pdf", timeout: 5)
         TestStep.macContextMenuClick(elementTitle: "document.pdf", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "File tab: document.pdf", timeout: 5)
         // Initial render is page 1 — "Buildable Folders" should NOT be visible.
         TestStep.wait(seconds: 1)
@@ -779,7 +721,6 @@ public enum FileBrowserScenario {
         // PDFView's empty grey area, which makes the screenshot baseline
         // useless. Six ticks at deltaY=-10 lands mid-document around page 2.
         TestStep.macScrollWheel(deltaY: -10, count: 6)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-bottom-initial")
 
@@ -787,7 +728,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: document.pdf")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-tab-switch")
 
@@ -797,13 +737,11 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: document.pdf")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Buildable Folders"), timeout: 5)
         TestStep.macScreenshot(label: "mac-pdf-scroll-preserve-after-session-switch")
 
         // Close the tab so the next phase starts fresh.
         TestStep.macClickButton(titled: "Close file tab: document.pdf")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: document.pdf", timeout: 5)
 
         // ── Phase 32: File browser state shared across windows ───
@@ -832,12 +770,10 @@ public enum FileBrowserScenario {
         // filtered out — three independent signals we can re-assert on
         // window 1.
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "README.md", timeout: 5)
         TestStep.macCGClick(titled: "Search files")
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "swift")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
@@ -846,7 +782,6 @@ public enum FileBrowserScenario {
         // shows its body — the "helper function for testing folder recursion"
         // string is the assertion target for "selection is shared".
         TestStep.macCGClick(titled: "helper.swift")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("helper function for testing folder recursion"), timeout: 5)
         TestStep.macScreenshot(label: "mac-cross-window-state-window0")
 
@@ -857,7 +792,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElement(titled: "helper.swift", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
@@ -867,7 +801,6 @@ public enum FileBrowserScenario {
         // Mutate state on window 1: pick a different search result. The new
         // selection should propagate back to window 0.
         TestStep.macCGClick(titled: "main.swift")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)
         TestStep.macScreenshot(label: "mac-cross-window-state-window1-mutated")
 
@@ -875,7 +808,6 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse:0")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "main.swift", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
         TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)

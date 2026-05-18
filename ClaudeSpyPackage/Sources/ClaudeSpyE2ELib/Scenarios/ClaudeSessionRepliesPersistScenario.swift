@@ -17,7 +17,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Tap the session row to open the terminal view
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
 
         // Verify the terminal view loaded by checking for the Commands menu button
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
@@ -32,27 +31,29 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Enter some text and submit
         TestStep.iosTap(.labelContains("Send a message to Claude"))
-        TestStep.wait(seconds: 1)
         TestStep.iosType(text: "Hello from e2e test")
-        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-prompt-filled")
         TestStep.iosTap(.labelContains("Send"))
-        TestStep.wait(seconds: 2)
-        TestStep.iosScreenshot(label: "ios-prompt-submitted")
 
         // Verify the prompt submitted feedback is showing after submission
         TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-prompt-submitted")
 
         // Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
+        TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 5)
 
         // Re-enter session
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 3)
 
         // Verify the prompt submitted feedback persists after navigating back
         TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
+        // Wait for the terminal to finish (re)connecting — the baseline
+        // captures the connected state, so the screenshot must not race
+        // the "Connecting to terminal..." placeholder.
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
+        // Settle wait for the terminal view's push transition.
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-prompt-persists")
 
         // ──────────────────────────────────────────────────────────
@@ -94,7 +95,6 @@ public enum ClaudeSessionRepliesPersistScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Verify question 1 shows
         TestStep.iosWaitForElement(.labelContains("Which database"), timeout: 10)
@@ -102,7 +102,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Tap first option (single-select auto-advances to question 2)
         TestStep.iosTap(.labelContains("PostgreSQL"))
-        TestStep.wait(seconds: 1)
 
         // Verify question 2 shows
         TestStep.iosWaitForElement(.labelContains("Which caching"), timeout: 5)
@@ -110,7 +109,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Tap first option (single-select auto-advances to review)
         TestStep.iosTap(.labelContains("Redis"))
-        TestStep.wait(seconds: 1)
 
         // Verify review summary shows
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
@@ -118,7 +116,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Confirm answers
         TestStep.iosTap(.labelContains("Confirm"))
-        TestStep.wait(seconds: 2)
 
         // Verify completion feedback
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
@@ -126,14 +123,15 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
+        TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 5)
 
         // Re-enter session
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 3)
 
         // Verify feedback persists (not prompt box, not questions)
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-questions-answered-persists")
 
         // ──────────────────────────────────────────────────────────
@@ -157,7 +155,6 @@ public enum ClaudeSessionRepliesPersistScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Verify permission request UI shows
         TestStep.iosWaitForElement(.labelContains("Run Command"), timeout: 10)
@@ -166,7 +163,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Accept the permission
         TestStep.iosTap(.labelContains("Accept"))
-        TestStep.wait(seconds: 2)
 
         // Verify acceptance feedback
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 5)
@@ -174,14 +170,15 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Navigate back
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
+        TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 5)
 
         // Re-enter session
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 3)
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-permission-accepted-persists")
 
         // ──────────────────────────────────────────────────────────
@@ -207,7 +204,6 @@ public enum ClaudeSessionRepliesPersistScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Verify plan approval UI shows
         TestStep.iosWaitForElement(.labelContains("Plan Approval"), timeout: 10)
@@ -216,7 +212,6 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Approve the plan
         TestStep.iosTap(.labelContains("Approve"))
-        TestStep.wait(seconds: 2)
 
         // Verify acceptance feedback (ExitPlanMode sets .accepted → "Permission accepted")
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 5)
@@ -224,14 +219,15 @@ public enum ClaudeSessionRepliesPersistScenario {
 
         // Navigate back
         TestStep.iosTap(.labelContains("Sessions"))
-        TestStep.wait(seconds: 2)
+        TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 5)
 
         // Re-enter session
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 3)
 
         // Verify feedback persists
         TestStep.iosWaitForElement(.labelContains("Permission accepted"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-plan-approved-persists")
     }
 }

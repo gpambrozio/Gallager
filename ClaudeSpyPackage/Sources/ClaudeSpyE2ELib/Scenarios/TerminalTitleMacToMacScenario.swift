@@ -20,7 +20,6 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Creating tmux session on host")
         TestStep.tmuxCreateSession(name: "e2e-title", width: 80, height: 24)
-        TestStep.wait(seconds: 3)
 
         // ── Phase 6: Open Panes window on host and select pane ────────
 
@@ -40,7 +39,6 @@ public enum TerminalTitleMacToMacScenario {
             command: "printf '\\033]2;E2E Custom Title\\007'",
             literal: false
         )
-        TestStep.wait(seconds: 3)
 
         // ── Phase 8: Verify title appears on host's sidebar ───────────
 
@@ -53,11 +51,9 @@ public enum TerminalTitleMacToMacScenario {
         TestStep.log("Opening Panes window on viewer and verifying title")
         TestStep.macOpenPanesWindow(instance: 1)
         TestStep.macWaitForWindow(titled: "Gallager", timeout: 5, instance: 1)
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "e2e-title", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-title", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify the title shows on the viewer's window
         TestStep.macWaitForElement(titled: "E2E Custom Title", timeout: 10, instance: 1)
@@ -71,7 +67,6 @@ public enum TerminalTitleMacToMacScenario {
             command: "printf '\\033]2;Updated Title\\007'",
             literal: false
         )
-        TestStep.wait(seconds: 3)
 
         // Verify updated title on both host and viewer
         TestStep.macWaitForElement(titled: "Updated Title", timeout: 10)

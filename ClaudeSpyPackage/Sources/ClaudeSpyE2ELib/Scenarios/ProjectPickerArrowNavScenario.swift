@@ -22,7 +22,6 @@ public enum ProjectPickerArrowNavScenario {
             query: .identifier("new-session-local"),
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macScreenshot(label: "mac-popover-open")
 
@@ -76,7 +75,6 @@ public enum ProjectPickerArrowNavScenario {
         TestStep.wait(seconds: 0.3)
         TestStep.log("Typing 'alp': filters to AlphaProject and auto-selects it")
         TestStep.macType(text: "alp")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElementToDisappear(titled: "ZetaCore", timeout: 5)
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macScreenshot(label: "mac-filter-auto-selects-alpha")
@@ -91,7 +89,6 @@ public enum ProjectPickerArrowNavScenario {
         // ── Phase G: Return on highlighted project opens it ──────
         TestStep.log("Pressing Return: opens the highlighted AlphaProject session")
         TestStep.macPressKey(.return)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
         // Re-pin the window — claude session loading can grow the window asynchronously.
         TestStep.macResizeWindow(width: 1_000, height: 600)
@@ -104,12 +101,10 @@ public enum ProjectPickerArrowNavScenario {
             query: .identifier("new-session-local"),
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
         TestStep.macPressKey(.downArrow)
         TestStep.wait(seconds: 0.3)
         TestStep.macPressKey(.return)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
         // Same re-pin: a freshly opened terminal can also auto-grow the window.
         TestStep.macResizeWindow(width: 1_000, height: 600)

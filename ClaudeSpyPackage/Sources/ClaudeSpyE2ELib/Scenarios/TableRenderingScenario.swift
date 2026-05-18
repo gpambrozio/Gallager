@@ -105,7 +105,6 @@ public enum TableRenderingScenario {
         TestStep.macScreenshot(label: "mac-table-after-recapture")
 
         TestStep.iosTap(.labelContains("table-test"))
-        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         TestStep.wait(seconds: 3)
         TestStep.iosScreenshot(label: "ios-table-after-recapture")
