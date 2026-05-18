@@ -420,25 +420,25 @@ else
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyServer \
         -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
+        build 2>&1 | xcsift --format toon --executable
 
     step "Building E2E coordinator"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
+        build 2>&1 | xcsift --format toon --executable
 
     step "Building iOS app (ClaudeSpy)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpy \
         -destination "id=$SIM_UDID" \
-        build 2>&1 | xcsift --format toon --warnings --executable
+        build 2>&1 | xcsift --format toon --executable
 
     step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2EHost \
         -destination "id=$SIM_UDID" \
-        build-for-testing 2>&1 | xcsift --format toon --warnings --executable
+        build-for-testing 2>&1 | xcsift --format toon --executable
 fi
 
 # =====================================================
