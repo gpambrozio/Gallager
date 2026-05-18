@@ -31,7 +31,6 @@ public enum YoloModeMacToMacScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/MacPairProject"
         )
-        TestStep.wait(seconds: 3)
 
         // ── Phase 3: Verify both apps see the Claude session ─────────
 
@@ -44,7 +43,6 @@ public enum YoloModeMacToMacScenario {
         // ── Phase 4: Host enables yolo mode -> verify viewer sees it ─
 
         TestStep.macClickButton(titled: "Enable yolo mode to auto-approve permissions")
-        TestStep.wait(seconds: 3)
 
         // Verify host shows enabled
         TestStep.macWaitForElement(
@@ -63,7 +61,6 @@ public enum YoloModeMacToMacScenario {
         // ── Phase 5: Viewer disables yolo mode -> verify host sees it ─
 
         TestStep.macClickButton(titled: "Yolo mode: auto-approving permissions (click to disable)", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify viewer shows disabled
         TestStep.macWaitForElement(
@@ -82,7 +79,6 @@ public enum YoloModeMacToMacScenario {
         // ── Phase 6: Viewer enables yolo mode -> verify host sees it ─
 
         TestStep.macClickButton(titled: "Enable yolo mode to auto-approve permissions", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify viewer shows enabled
         TestStep.macWaitForElement(
@@ -101,7 +97,6 @@ public enum YoloModeMacToMacScenario {
         // ── Phase 7: Host disables yolo mode -> verify viewer sees it ─
 
         TestStep.macClickButton(titled: "Yolo mode: auto-approving permissions (click to disable)")
-        TestStep.wait(seconds: 3)
 
         // Verify host shows disabled
         TestStep.macWaitForElement(

@@ -13,14 +13,11 @@ public enum ProjectSearchIOSScenario {
         // ── Open project picker sheet ────────────────────────────
         TestStep.log("Opening project picker sheet")
         TestStep.iosTap(.label("New Session"))
-        TestStep.wait(seconds: 2)
-
-        // Wait for projects to load from the Mac host
-        TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
 
         // ── Verify all mock projects appear ──────────────────────
+        // (waiting for the project items implies the loading spinner is gone)
         TestStep.log("Verifying all mock projects are listed")
-        TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
@@ -29,9 +26,7 @@ public enum ProjectSearchIOSScenario {
         // ── Tap search field and type fuzzy search ────────────────
         TestStep.log("Tapping search field and typing 'alpr' to test fuzzy/subsequence matching")
         TestStep.iosTap(.role("SearchField"))
-        TestStep.wait(seconds: 1)
         TestStep.iosType(text: "alpr")
-        TestStep.wait(seconds: 1)
 
         // AlphaProject should still be visible, others should be filtered out
         TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
@@ -43,7 +38,6 @@ public enum ProjectSearchIOSScenario {
         // ── Press return to select the single result ────────────
         TestStep.log("Pressing return to select AlphaProject")
         TestStep.iosType(text: "\n")
-        TestStep.wait(seconds: 1)
         // Check the sheet closed by verifying a sheet-only element is gone.
         // "AlphaProject" can't be used here because it appears in the session list
         // as the newly created session's project label.

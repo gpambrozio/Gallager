@@ -28,7 +28,6 @@ public enum ClipboardSyncMacViewerScenario {
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "clip-mac", timeout: 10, instance: 1)
         TestStep.macClickButton(titled: "clip-mac", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Wait for the viewer to be streaming the terminal
         TestStep.macWaitForElementQuery(

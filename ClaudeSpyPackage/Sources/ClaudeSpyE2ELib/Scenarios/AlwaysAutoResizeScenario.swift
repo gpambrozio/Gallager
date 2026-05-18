@@ -59,7 +59,6 @@ public enum AlwaysAutoResizeScenario {
 
         // Re-select the pane (toolbar needs the pane focused after settings closes)
         TestStep.macClickButton(titled: "always-resize-1")
-        TestStep.wait(seconds: 1)
 
         // Verify toggle is now checked and manual resize button is hidden
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
@@ -89,7 +88,6 @@ public enum AlwaysAutoResizeScenario {
 
         // Select the new pane
         TestStep.macClickButton(titled: "always-resize-2")
-        TestStep.wait(seconds: 1)
 
         // Verify toggle is checked (inherited from global) and manual resize hidden
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
@@ -117,7 +115,6 @@ public enum AlwaysAutoResizeScenario {
 
         // Disable auto-resize for pane 2 by clicking the toggle
         TestStep.macClickButton(titled: "Auto-resize tmux pane when mirror view changes size")
-        TestStep.wait(seconds: 0.5)
 
         // Verify toggle is now unchecked and manual resize reappears
         TestStep.macWaitForElementQuery(autoResizeUnchecked, timeout: 5)
@@ -145,10 +142,22 @@ public enum AlwaysAutoResizeScenario {
 
         // Switch to pane 1 — it should still auto-resize (global default, no opt-out)
         TestStep.macClickButton(titled: "always-resize-1")
-        TestStep.wait(seconds: 1)
 
         // Verify toggle is checked for pane 1
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
+
+        // Poll the tmux pane width until the auto-resize triggered by pane 1's
+        // mirror view becoming visible at the new window size actually lands.
+        // The toolbar reflects the pane's stored preference immediately, but
+        // `handleAutoResize`'s debounce + tmux `resize-window` round trip takes
+        // longer — without this wait we race the resize chain and sample the
+        // stale phase 1 width.
+        TestStep.waitForTmuxDisplayMessageNotEqual(
+            target: "always-resize-1:0",
+            format: "#{pane_width}",
+            notEqualTo: "${phase1Width}",
+            timeout: 10
+        )
 
         TestStep.tmuxStorePaneDimensions(
             target: "always-resize-1:0",
@@ -174,7 +183,6 @@ public enum AlwaysAutoResizeScenario {
 
         // Re-select pane (toolbar needs the pane focused)
         TestStep.macClickButton(titled: "always-resize-1")
-        TestStep.wait(seconds: 1)
 
         // Verify toggle is unchecked for pane 1 (global off, opt-outs cleared)
         TestStep.macWaitForElementQuery(autoResizeUnchecked, timeout: 5)

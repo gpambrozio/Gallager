@@ -93,6 +93,8 @@ public enum TerminalTitleInitialConnectionScenario {
 
         // The title should appear in the iOS navigation bar immediately
         TestStep.iosWaitForElement(.labelContains("Initial Connection Title"), timeout: 15)
+        // Settle wait for the terminal view's content to finish loading.
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-receives-title-on-initial-connection")
     }
 }

@@ -141,7 +141,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         // ── Launch app ────────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "weblinks", timeout: 5)
         TestStep.macClickButton(titled: "weblinks")
@@ -169,12 +168,10 @@ public enum BrowserTabFromTerminalLinkScenario {
         // ── Phase 2: Switch away and back — tab survives ─────────
         TestStep.log("Phase 2: Switch to the other session, come back, browser tab still selected")
         TestStep.macClickButton(titled: "other")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Browser tab:", timeout: 5)
         TestStep.macScreenshot(label: "mac-other-session-no-browser-tab")
 
         TestStep.macClickButton(titled: "weblinks")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.labelContains("Browser tab:"), timeout: 5)
         // Let the page settle after the view tree rebuilds.
         TestStep.wait(seconds: 1)
@@ -184,7 +181,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 3: Click link 2; toggle 'Don't ask again' + In App → setting flips to .alwaysInApp")
         // Switch back to the terminal window-tab so the link is clickable.
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
             timeout: 5
@@ -215,7 +211,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 5: With .alwaysInApp, clicking link 3 opens directly (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
             timeout: 5
@@ -250,7 +245,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 7: With .alwaysInDefaultBrowser, clicking link 4 routes via URLOpener — no new in-app tab")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
             timeout: 5
@@ -258,7 +252,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.macClickAtPoint(x: linkClickX, y: link4Y)
         // Neither the confirmation sheet nor a new in-app tab should appear.
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3)
-        TestStep.wait(seconds: 2)
         // The terminal must still be the selected view (we just clicked it),
         // proving no new browser tab grabbed the detail pane.
         TestStep.macWaitForElementQuery(
@@ -301,7 +294,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 9: With global .ask + no domain rule, clicking link 5 shows the sheet")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-5")]),
             timeout: 5
@@ -337,7 +329,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 12: Click link 6 → opens directly via the per-domain rule (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-6")]),
             timeout: 5
@@ -353,7 +344,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "Browser", timeout: 5)
         TestStep.macClickButton(titled: "Remove rule for 127.0.0.1:8765")
-        TestStep.wait(seconds: 0.5)
         // Same as Phase 11: assert the remove-button help text vanishes, not
         // the host string, since the terminal panes' AX value still includes
         // "127.0.0.1" from the rendered OSC 8 link text.
@@ -366,7 +356,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 14: With the rule gone (global .ask), clicking link 7 shows the sheet again")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-7")]),
             timeout: 5
@@ -419,7 +408,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         // Wait until both sides confirm connection before driving the UI; the
         // `Viewer connected` / `Host connected` labels are surfaced via
@@ -479,12 +467,10 @@ public enum BrowserTabFromTerminalLinkScenario {
         // re-expose the same live `WKWebView` instance.
         TestStep.log("Phase 17: Switch to `other` session and back; the remote browser tab survives")
         TestStep.macClickButton(titled: "other", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Browser tab:", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-other-no-browser-tab", instance: 1)
 
         TestStep.macClickButton(titled: "weblinks", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.labelContains("Browser tab:"), timeout: 5, instance: 1)
         // Let the view tree settle after the session-switch rebuild.
         TestStep.wait(seconds: 1)
@@ -498,7 +484,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         // browser tab and re-exposes the terminal.
         TestStep.log("Phase 18: Click link 2 on viewer; toggle 'Don't ask again' + In App → viewer's global flips to .alwaysInApp")
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
             timeout: 5,
@@ -516,7 +501,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         // ── Phase 19: .alwaysInApp on viewer → link 3 opens directly ─
         TestStep.log("Phase 19: With viewer global .alwaysInApp, clicking link 3 opens directly")
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
             timeout: 5,
@@ -537,7 +521,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         // pane.
         TestStep.log("Phase 20: Cmd-W with remote browser tab focused → closes the tab, returns to terminal")
         TestStep.macPressKey(.character("w"), modifiers: .command, instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
             timeout: 5,
@@ -572,7 +555,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 22: With viewer .alwaysInDefaultBrowser, link 4 routes via URLOpener; no in-app tab")
         TestStep.macClickButton(titled: "weblinks", instance: 1)
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
             timeout: 5,
@@ -580,7 +562,6 @@ public enum BrowserTabFromTerminalLinkScenario {
         )
         TestStep.macClickAtPoint(x: linkClickX, y: link4Y, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3, instance: 1)
-        TestStep.wait(seconds: 2)
         // Terminal must still own the detail pane — proves no in-app browser
         // tab grabbed it.
         TestStep.macWaitForElementQuery(

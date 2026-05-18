@@ -37,7 +37,6 @@ public enum GallagerCLIScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Select the pane in the sidebar
         TestStep.macWaitForElement(titled: "cli-test", timeout: 5)
@@ -85,7 +84,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager new-session --name e2e-api > /tmp/e2e-cli-newsession.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
 
         // Click e2e-api to view it — stay here for all subsequent screenshots
         TestStep.macWaitForElement(titled: "e2e-api", timeout: 5)
@@ -193,7 +191,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state waiting --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Waiting for input", timeout: 10)
         TestStep.macScreenshot(label: "mac-state-waiting")
 
@@ -201,7 +198,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state idle --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
         TestStep.macScreenshot(label: "mac-state-idle")
 
@@ -209,7 +205,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state clear --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         // No status label in the row now — terminal icon returns. Confirm the
         // previous "Idle" hint is gone before snapping the cleared screenshot.
         TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
@@ -222,7 +217,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state idle --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
 
         TestStep.macSendHookEvent(
@@ -237,7 +231,6 @@ public enum GallagerCLIScenario {
             tmuxPane: "${apiPaneId}",
             projectPath: "/tmp/e2e-api"
         )
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macScreenshot(label: "mac-hook-overrides-cli")
 
@@ -429,7 +422,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager new-session --name e2e-color --color purple > /tmp/e2e-cli-newcolor.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "e2e-color", timeout: 10)
         TestStep.macWaitForElement(titled: "Purple color", timeout: 10)
         TestStep.macScreenshot(label: "mac-new-session-with-color")
@@ -560,7 +552,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager set-progress clear > /dev/null 2>&1"#
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 10)
     }
 }

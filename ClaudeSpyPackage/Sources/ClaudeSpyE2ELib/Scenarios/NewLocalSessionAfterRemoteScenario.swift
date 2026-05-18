@@ -41,7 +41,6 @@ public enum NewLocalSessionAfterRemoteScenario {
         // ── Phase 1: remote-selected → new local terminal ──────────
         TestStep.log("Phase 1: select remote session, then create a new local terminal")
         TestStep.macClickButton(titled: "remote-marker", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // The detail pane renders the remote terminal — its marker should
         // be visible in the accessibility value of the rendered terminal.
@@ -66,10 +65,8 @@ public enum NewLocalSessionAfterRemoteScenario {
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) },
             instance: 1
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5, instance: 1)
         TestStep.macClickButton(titled: "New Terminal", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // The new local terminal session must now be selected: the new
         // "terminal" row appears AND the remote terminal's content is no
@@ -93,7 +90,6 @@ public enum NewLocalSessionAfterRemoteScenario {
         // `selectedWindow`). This rebuilds the bug's precondition without
         // having to first close the Phase 1 local session.
         TestStep.macClickButton(titled: "remote-marker", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(
             .valueContains("REMOTE_MARKER_CONTENT"),
             timeout: 10,
@@ -125,10 +121,8 @@ public enum NewLocalSessionAfterRemoteScenario {
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) },
             instance: 1
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5, instance: 1)
         TestStep.macClickButton(titled: "New Terminal", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // The "Loading Session" placeholder must be gone — that's the
         // load-bearing regression check. A regression would leave it stuck.

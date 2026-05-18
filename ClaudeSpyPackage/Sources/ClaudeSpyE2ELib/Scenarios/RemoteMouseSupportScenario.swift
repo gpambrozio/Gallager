@@ -76,7 +76,6 @@ public enum RemoteMouseSupportScenario {
         // ── Test scroll down from viewer ─────────────────────────
         TestStep.log("Sending scroll-down events from viewer")
         TestStep.macScrollWheel(deltaY: -1, count: 5, instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Verify scroll events arrived at host tmux via relay
         TestStep.macWaitForElementQuery(
@@ -87,7 +86,6 @@ public enum RemoteMouseSupportScenario {
         // ── Test scroll up from viewer ───────────────────────────
         TestStep.log("Sending scroll-up events from viewer")
         TestStep.macScrollWheel(deltaY: 1, count: 10, instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Net scroll should be +5 (10 up - 5 down)
         TestStep.macWaitForElementQuery(
@@ -102,7 +100,6 @@ public enum RemoteMouseSupportScenario {
         // Terminal area starts around x=260.
         TestStep.log("Sending click event from viewer")
         TestStep.macClickAtPoint(x: 450, y: 200, instance: 1)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("CLICK:1")]),
@@ -112,7 +109,6 @@ public enum RemoteMouseSupportScenario {
         // ── Test second click at different position ──────────────
         TestStep.log("Sending second click from viewer")
         TestStep.macClickAtPoint(x: 650, y: 350, instance: 1)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("CLICK:2")]),

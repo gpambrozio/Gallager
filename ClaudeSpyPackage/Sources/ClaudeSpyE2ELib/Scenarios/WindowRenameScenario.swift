@@ -46,7 +46,6 @@ public enum WindowRenameScenario {
 
         TestStep.macWaitForElement(titled: "e2e-rename", timeout: 10)
         TestStep.macClickButton(titled: "e2e-rename")
-        TestStep.wait(seconds: 3)
 
         // Tabs show the tmux window name as their title (not the shell/command name).
         TestStep.macWaitForElement(titled: "win0", timeout: 10)
@@ -59,7 +58,6 @@ public enum WindowRenameScenario {
 
         TestStep.macWaitForElement(titled: "e2e-rename", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-rename", instance: 1)
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "win0", timeout: 10, instance: 1)
         TestStep.macWaitForElement(titled: "win1", timeout: 10, instance: 1)
@@ -78,7 +76,6 @@ public enum WindowRenameScenario {
         TestStep.macType(text: "HostRenamed", pressReturn: false)
         TestStep.macScreenshot(label: "host-rename-alert-typed")
         TestStep.macClickButton(titled: "Save")
-        TestStep.wait(seconds: 2)
 
         // Host tab updates to the new name.
         TestStep.macWaitForElement(titled: "HostRenamed", timeout: 10)
@@ -98,7 +95,6 @@ public enum WindowRenameScenario {
         TestStep.macType(text: "ViewerRenamed", pressReturn: false, instance: 1)
         TestStep.macScreenshot(label: "viewer-rename-alert-typed", instance: 1)
         TestStep.macClickButton(titled: "Save", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Viewer tab updates to the new name.
         TestStep.macWaitForElement(titled: "ViewerRenamed", timeout: 10, instance: 1)
@@ -116,7 +112,6 @@ public enum WindowRenameScenario {
         TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal", instance: 1)
-        TestStep.wait(seconds: 5)
 
         // No existing `terminal N` names in the session yet, so the next one is `terminal 1`.
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 15, instance: 1)

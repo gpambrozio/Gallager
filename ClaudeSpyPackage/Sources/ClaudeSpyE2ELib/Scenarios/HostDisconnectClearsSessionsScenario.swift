@@ -32,7 +32,6 @@ public enum HostDisconnectClearsSessionsScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/DisconnectTest"
         )
-        TestStep.wait(seconds: 3)
 
         // 5. Verify iOS shows the Claude session
         TestStep.iosWaitForElement(.labelContains("DisconnectTest"), timeout: 15)
@@ -45,7 +44,6 @@ public enum HostDisconnectClearsSessionsScenario {
 
         // 7. Disconnect the host from the relay server
         TestStep.serverBlockDevice(.host)
-        TestStep.wait(seconds: 5)
 
         // 8. Verify iOS no longer shows the session
         TestStep.iosWaitForElementToDisappear(.labelContains("DisconnectTest"), timeout: 15)

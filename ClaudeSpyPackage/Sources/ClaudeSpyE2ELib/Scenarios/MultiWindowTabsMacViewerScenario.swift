@@ -45,7 +45,6 @@ public enum MultiWindowTabsMacViewerScenario {
 
         TestStep.macWaitForElement(titled: "e2e-mw-mac", timeout: 10)
         TestStep.macClickButton(titled: "e2e-mw-mac")
-        TestStep.wait(seconds: 3)
 
         // Host should show window 0 selected (tmux-active)
         TestStep.macWaitForElementQuery(
@@ -61,7 +60,6 @@ public enum MultiWindowTabsMacViewerScenario {
 
         TestStep.macWaitForElement(titled: "e2e-mw-mac", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-mw-mac", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify window 0 tab is selected on viewer
         TestStep.macWaitForElementQuery(
@@ -76,7 +74,6 @@ public enum MultiWindowTabsMacViewerScenario {
         // ── Phase 4: Switch to window 1 via viewer tab bar ──────
         TestStep.log("Phase 4: Click window 1 tab on viewer and verify host follows")
         TestStep.macClickButton(titled: "e2e-mw-mac:1", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify window 1 is now selected on viewer
         TestStep.macWaitForElementQuery(
@@ -103,7 +100,6 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal", instance: 1)
-        TestStep.wait(seconds: 5)
 
         // Verify new tab appears and is auto-selected
         TestStep.macWaitForElementQuery(
@@ -120,7 +116,6 @@ public enum MultiWindowTabsMacViewerScenario {
         // ── Phase 6: Switch back to window 1 ────────────────────
         TestStep.log("Phase 6: Switch back to window 1 and verify content")
         TestStep.macClickButton(titled: "e2e-mw-mac:1", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify content in window 1 via terminal view
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10, instance: 1)
@@ -138,7 +133,6 @@ public enum MultiWindowTabsMacViewerScenario {
         // ── Phase 8: Close window 1 via "exit", verify 2 tabs ───
         TestStep.log("Phase 8: Exit window 1 shell and verify tab removal")
         Shortcut.tmuxRunCommand(target: "e2e-mw-mac:1.0", command: "exit")
-        TestStep.wait(seconds: 5)
 
         // Verify window 1 tab is gone on host and terminal renders content
         TestStep.macWaitForElementQueryToDisappear(

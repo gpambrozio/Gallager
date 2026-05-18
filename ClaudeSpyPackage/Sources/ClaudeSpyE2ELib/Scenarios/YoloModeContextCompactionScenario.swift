@@ -42,7 +42,6 @@ public enum YoloModeContextCompactionScenario {
 
         // Select the pane in sidebar to see yolo button
         TestStep.macClickButton(titled: "yolo-compact")
-        TestStep.wait(seconds: 1)
 
         // Verify yolo mode starts disabled
         TestStep.macWaitForElement(
@@ -54,7 +53,6 @@ public enum YoloModeContextCompactionScenario {
 
         TestStep.log("Phase 2: Enable yolo mode")
         TestStep.macClickButton(titled: "Enable yolo mode to auto-approve permissions")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
@@ -76,7 +74,6 @@ public enum YoloModeContextCompactionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/CompactionProject"
         )
-        TestStep.wait(seconds: 3)
 
         // CRITICAL: Yolo mode must still be enabled after the restart
         TestStep.macWaitForElement(
@@ -100,7 +97,6 @@ public enum YoloModeContextCompactionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/CompactionProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Session ended — Claude status indicator should disappear
         TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
@@ -124,7 +120,6 @@ public enum YoloModeContextCompactionScenario {
 
         // Select the pane again
         TestStep.macClickButton(titled: "yolo-compact")
-        TestStep.wait(seconds: 1)
 
         // Yolo mode should be disabled on the fresh session
         TestStep.macWaitForElement(

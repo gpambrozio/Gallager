@@ -57,16 +57,13 @@ public enum RemoteTabReorderScenario {
         // ── Open the host's panes window (forces a pane refresh) ────────
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_300, height: 700)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "rtabreorder", timeout: 15)
 
         // ── Select the remote session on the viewer side ────────────────
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macResizeWindow(width: 1_300, height: 700, instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "rtabreorder", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "rtabreorder", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Viewer should now show the three windows in the remote tab bar.
         TestStep.macWaitForElement(titled: "winA", timeout: 10, instance: 1)
@@ -108,7 +105,6 @@ public enum RemoteTabReorderScenario {
         TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal", instance: 1)
-        TestStep.wait(seconds: 5)
 
         // The new terminal is created on the host after the existing windows,
         // named "terminal 1" because the existing windows used non-numbered
@@ -125,7 +121,6 @@ public enum RemoteTabReorderScenario {
         TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Browser", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // The new browser tab labels with "about:blank" until the user types
         // a real URL. The address bar should have focus — typing here goes
@@ -137,7 +132,6 @@ public enum RemoteTabReorderScenario {
         // Browser tabs are scoped to the viewer only — clean up immediately so
         // later phases work against the same tab set.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"), instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5, instance: 1)
 
         // ── Phase 3: Drag winC ahead of winA via the AX-driven helper ───
@@ -173,11 +167,9 @@ public enum RemoteTabReorderScenario {
         // ── Phase 4: Session round-trip preserves the new order ─────────
         TestStep.log("Phase 4: Switch to the other session and back on the viewer — order survives")
         TestStep.macClickButton(titled: "rtabreorder-other", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "rtabreorder:0 winC", timeout: 5, instance: 1)
 
         TestStep.macClickButton(titled: "rtabreorder", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "rtabreorder:0 winC", timeout: 5, instance: 1)
         TestStep.macWaitForElement(titled: "rtabreorder:1 winA", timeout: 5, instance: 1)
         TestStep.macWaitForElement(titled: "rtabreorder:2 winB", timeout: 5, instance: 1)
@@ -187,7 +179,6 @@ public enum RemoteTabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "rtabreorder:0 winC", instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("rtabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5,
@@ -196,7 +187,6 @@ public enum RemoteTabReorderScenario {
 
         // Cmd-Shift-] → next visible tab (winA).
         TestStep.macPressKey(.character("]"), modifiers: [.command, .shift], instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("rtabreorder:1 winA"), .valueContains("selected")]),
             timeout: 5,
@@ -206,7 +196,6 @@ public enum RemoteTabReorderScenario {
 
         // Cmd-Shift-[ → previous visible tab (winC again).
         TestStep.macPressKey(.character("["), modifiers: [.command, .shift], instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("rtabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5,
@@ -219,7 +208,6 @@ public enum RemoteTabReorderScenario {
         // visibility gating and the close-confirmation alert — this is a
         // reconcile smoke test, not a UI-flow test.
         TestStep.tmuxCommand(arguments: ["kill-window", "-t", "rtabreorder:winA"])
-        TestStep.wait(seconds: 5)
         TestStep.macWaitForElementToDisappear(titled: "rtabreorder:1 winA", timeout: 10, instance: 1)
 
         // After the close, the remaining windows shift down: winB takes the
@@ -298,7 +286,6 @@ public enum RemoteTabReorderScenario {
         // window names (and therefore the split-toggle labels) are stable.
         TestStep.log("Phase 8: Click winB's split toggle — winB moves to the right pane")
         TestStep.macClickButton(titled: "Open terminal in split: winB", instance: 1)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Move terminal to left: winB", timeout: 5, instance: 1)
         // Every remaining terminal on the left now shows a "to right" arrow.
         TestStep.macWaitForElementQuery(.labelContains("Move terminal to right:"), timeout: 5, instance: 1)
@@ -417,7 +404,6 @@ public enum RemoteTabReorderScenario {
         // "Move terminal to right: winC" is stable across renumbers.
         TestStep.log("Phase 9: Click winC's split toggle — winC also lands on the right")
         TestStep.macClickButton(titled: "Move terminal to right: winC", instance: 1)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Move terminal to left: winC", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-winC-also-on-right", instance: 1)
 
@@ -429,7 +415,6 @@ public enum RemoteTabReorderScenario {
         // the strip flips back to single-pane icons.
         TestStep.log("Phase 10: Move terminal 1 to right → split collapses")
         TestStep.macClickButton(titled: "Move terminal to right: terminal 1", instance: 1)
-        TestStep.wait(seconds: 3)
         // Every "Move *" arrow should be gone; "Open … in split" icons return.
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move terminal to left:"),
@@ -456,7 +441,6 @@ public enum RemoteTabReorderScenario {
         TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Browser", instance: 1)
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "URL", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-rtabreorder-browser-new-on-left", instance: 1)
 
@@ -468,7 +452,6 @@ public enum RemoteTabReorderScenario {
             query: .labelContains("Open browser tab in split:"),
             instance: 1
         )
-        TestStep.wait(seconds: 3)
         // Browser is now on the right; the toggle's icon flips and the
         // label changes to "Move browser tab to left: …".
         TestStep.macWaitForElementQuery(
@@ -506,7 +489,6 @@ public enum RemoteTabReorderScenario {
             query: .labelContains("Move browser tab to left:"),
             instance: 1
         )
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move browser tab to left:"),
             timeout: 5,
@@ -518,7 +500,6 @@ public enum RemoteTabReorderScenario {
         // Tidy up — close the browser tab so the teardown leaves a clean
         // session state.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"), instance: 1)
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5, instance: 1)
 
         // ── Tear down ────────────────────────────────────────────────
