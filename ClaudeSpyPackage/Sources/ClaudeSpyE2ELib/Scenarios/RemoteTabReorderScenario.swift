@@ -37,6 +37,15 @@ public enum RemoteTabReorderScenario {
         TestStep.tmuxCommand(arguments: ["rename-window", "-t", "rtabreorder:0", "winA"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "rtabreorder", "-n", "winB"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "rtabreorder", "-n", "winC"])
+        // Force a stable, minimal prompt on every pane. The default zsh prompt
+        // embeds the worktree path and current git branch, which differ from
+        // run to run (e2e CI worktrees are named `ClaudeSpy-e2e-worktree-pr-<N>`
+        // and check out the PR's branch). That noise shows up inside the
+        // terminal screenshots and pushes the per-pixel diff just over the 2%
+        // tolerance even when nothing about the actual feature changed.
+        Shortcut.tmuxClearAndSetPrompt(target: "rtabreorder:winA")
+        Shortcut.tmuxClearAndSetPrompt(target: "rtabreorder:winB")
+        Shortcut.tmuxClearAndSetPrompt(target: "rtabreorder:winC")
         // Echo each window's name so the per-pane mirror has unique content.
         // Without this every idle bash prompt looks identical and the split
         // screenshots can't prove the left/right panes show *different*
@@ -110,6 +119,9 @@ public enum RemoteTabReorderScenario {
         // named "terminal 1" because the existing windows used non-numbered
         // names. The viewer mirrors the new tab once the host pushes state.
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 15, instance: 1)
+        // Set the same stable prompt on the new pane before echoing so its
+        // screenshot output stays free of the worktree path and branch name.
+        Shortcut.tmuxClearAndSetPrompt(target: "rtabreorder:terminal 1")
         // Same identifying-echo trick as the setup windows — gives
         // "terminal 1" recognisable content for the split-pane screenshots.
         TestStep.tmuxCommand(arguments: ["send-keys", "-t", "rtabreorder:terminal 1", "echo terminal 1", "Enter"])

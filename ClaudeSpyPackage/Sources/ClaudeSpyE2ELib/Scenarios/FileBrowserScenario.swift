@@ -501,7 +501,9 @@ public enum FileBrowserScenario {
         // session is destroyed at the end of the scenario.
         TestStep.tmuxCreateSession(name: "scrollalt", width: 160, height: 50)
         Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "echo '=== ALT SESSION ==='")
-        TestStep.macWaitForElement(titled: "scrollalt", timeout: 5)
+        // Longer timeout: the sidebar discovery for a newly-created session can
+        // take more than 5s in a busy scenario (#540 removed a 2s pre-wait here).
+        TestStep.macWaitForElement(titled: "scrollalt", timeout: 15)
 
         // ── Phase 27: Scroll position persists across tab and session switches ─
         //
