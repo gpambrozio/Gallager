@@ -265,6 +265,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
         MarkHandledScenario.scenario,
+        BadgeAggregationScenario.scenario,
         WindowDescriptionSyncScenario.scenario,
         MultiPaneIOSScenario.scenario,
         KittyKeyboardProtocolScenario.scenario,

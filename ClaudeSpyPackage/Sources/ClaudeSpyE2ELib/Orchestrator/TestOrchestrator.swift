@@ -374,6 +374,74 @@ public actor TestOrchestrator {
         case .stopServer:
             try await serverDriver.stop()
 
+        case let .waitForAPNSPushCount(count, timeout):
+            try await serverDriver.waitForAPNSPushLog(count: count, timeout: timeout)
+
+        case let .verifyLastAPNSPush(expectedAggregated, expectedSilent, expectedPushType):
+            let entries = await serverDriver.readAPNSPushLog()
+            guard let last = entries.last else {
+                throw OrchestratorError.assertionFailed("APNs push log is empty")
+            }
+            if last.aggregatedBadge != expectedAggregated {
+                throw OrchestratorError.assertionFailed(
+                    "Expected aggregatedBadge=\(expectedAggregated.map(String.init) ?? "nil"), " +
+                        "got \(last.aggregatedBadge.map(String.init) ?? "nil") " +
+                        "(pairId=\(last.pairId), silent=\(last.silent), pushType=\(last.pushType))"
+                )
+            }
+            if last.silent != expectedSilent {
+                throw OrchestratorError.assertionFailed(
+                    "Expected silent=\(expectedSilent), got \(last.silent)"
+                )
+            }
+            if last.pushType != expectedPushType {
+                throw OrchestratorError.assertionFailed(
+                    "Expected pushType=\(expectedPushType), got \(last.pushType)"
+                )
+            }
+
+        case .clearAPNSPushLog:
+            try? FileManager.default.removeItem(atPath: ServerDriver.defaultAPNSLogPath)
+
+        case let .serverReadFirstViewerIdentity(prefix):
+            guard let identity = await serverDriver.firstViewerIdentity() else {
+                throw OrchestratorError.assertionFailed(
+                    "serverReadFirstViewerIdentity: no active pair on the relay"
+                )
+            }
+            context.set("\(prefix)PairId", value: identity.pairId)
+            context.set("\(prefix)DeviceId", value: identity.deviceId)
+            context.set("\(prefix)DeviceName", value: identity.deviceName)
+            context.set("\(prefix)PublicKey", value: identity.publicKey)
+            context.set("\(prefix)PublicKeyId", value: identity.publicKeyId)
+            context.set("\(prefix)PushToken", value: identity.pushToken ?? "")
+
+        case let .serverCompletePairingAsViewer(codeKey, pushTokenKey, viewerPrefix, storeAs):
+            let code = context.resolve("${\(codeKey)}")
+            let pushToken = context.resolve("${\(pushTokenKey)}")
+            let identity = ViewerIdentity(
+                pairId: context.resolve("${\(viewerPrefix)PairId}"),
+                deviceId: context.resolve("${\(viewerPrefix)DeviceId}"),
+                deviceName: context.resolve("${\(viewerPrefix)DeviceName}"),
+                publicKey: context.resolve("${\(viewerPrefix)PublicKey}"),
+                publicKeyId: context.resolve("${\(viewerPrefix)PublicKeyId}"),
+                pushToken: pushToken.isEmpty ? nil : pushToken
+            )
+            let pairId = try await serverDriver.completePairingAsViewer(
+                code: code,
+                viewer: identity,
+                pushToken: pushToken
+            )
+            context.set(storeAs, value: pairId)
+
+        case let .serverInjectPush(pairIdKey, hostBadge, silent):
+            let pairId = context.resolve("${\(pairIdKey)}")
+            try await serverDriver.injectPush(
+                pairId: pairId,
+                hostBadge: hostBadge,
+                silent: silent
+            )
+
         // iOS Simulator
         case let .launchIOSApp(appVersion, minRequiredPartnerVersion):
             guard let iosAppPath else {

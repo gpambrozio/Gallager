@@ -25,6 +25,16 @@ actor APNsService {
     /// `pendingSessionCount`).
     private var lastBadge: [String: Int] = [:]
 
+    /// E2E-test mode: when non-nil, every outgoing push is appended as a JSON
+    /// line to this file *instead of* being sent over the wire (the real APNs
+    /// client is also nil in E2E since no key/team is configured). Lets E2E
+    /// scenarios assert on what the relay would have sent — including the
+    /// aggregated `aps.badge` and the `apns-push-type` chosen for silent vs.
+    /// alert pushes. Mirrors the Mac-side `TerminalNotificationService.e2eTest`
+    /// pattern, just plumbed via env var because the relay doesn't use the
+    /// Point-Free Dependencies library.
+    private let e2eLogPath: String?
+
     // MARK: - Initialization
 
     init(
@@ -35,7 +45,8 @@ actor APNsService {
         keyId: String? = nil,
         teamId: String? = nil,
         bundleId: String? = nil,
-        environment: APNSEnvironment = .development
+        environment: APNSEnvironment = .development,
+        e2eLogPath: String? = nil
     ) async {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
@@ -43,6 +54,8 @@ actor APNsService {
         self.bundleId = bundleId
             ?? ProcessInfo.processInfo.environment["APNS_BUNDLE_ID"]
             ?? "com.yourcompany.ClaudeSpy"
+        self.e2eLogPath = e2eLogPath
+            ?? ProcessInfo.processInfo.environment["APNS_E2E_LOG_PATH"]
 
         // Get config from environment or parameters
         let resolvedKeyPath = keyPath ?? ProcessInfo.processInfo.environment["APNS_KEY_PATH"]
@@ -117,7 +130,14 @@ actor APNsService {
             return
         }
 
-        guard let client else {
+        // The aggregation block runs in both production and E2E. In E2E the
+        // real `client` is nil (no APNs key/team configured), so we'd normally
+        // bail here — but we still want to exercise the badge-aggregation logic
+        // and record what would have been sent. Production paths still hit the
+        // `client.send(...)` branches below; E2E paths short-circuit to the log
+        // file and never touch the network.
+        let isE2EMode = e2eLogPath != nil
+        if client == nil, !isE2EMode {
             logger.warning("APNs client not configured, cannot send notification")
             return
         }
@@ -149,6 +169,20 @@ actor APNsService {
             logger.error("Failed to encode encrypted payload: \(error)")
             return
         }
+
+        if isE2EMode {
+            recordE2EPush(
+                pairId: pairId,
+                deviceToken: deviceToken,
+                hostBadge: payload.badge,
+                aggregatedBadge: aggregatedBadge,
+                silent: payload.silent
+            )
+            await metricsService.incrementPushNotifications()
+            return
+        }
+
+        guard let client else { return } // Cannot happen here — guarded above.
 
         do {
             if payload.silent {
@@ -207,6 +241,43 @@ actor APNsService {
         }
     }
 
+    /// Append a JSON-line record of an outgoing push to the E2E log file.
+    /// Format matches what scenarios assert on; see `APNsPushLogEntry` below.
+    private func recordE2EPush(
+        pairId: String,
+        deviceToken: String,
+        hostBadge: Int?,
+        aggregatedBadge: Int?,
+        silent: Bool
+    ) {
+        guard let path = e2eLogPath else { return }
+        let entry = APNsPushLogEntry(
+            timestamp: Date().timeIntervalSince1970,
+            pairId: pairId,
+            deviceToken: deviceToken,
+            hostBadge: hostBadge,
+            aggregatedBadge: aggregatedBadge,
+            silent: silent,
+            pushType: silent ? "background" : "alert"
+        )
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = []
+            let data = try encoder.encode(entry)
+            var line = data
+            line.append(0x0A) // newline
+            if let handle = FileHandle(forWritingAtPath: path) {
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: line)
+            } else {
+                FileManager.default.createFile(atPath: path, contents: line)
+            }
+        } catch {
+            logger.error("Failed to write E2E push log entry: \(error)")
+        }
+    }
+
     /// Drop the per-host badge contribution for a pair. Called when a pair is
     /// removed (via the unpair endpoint, `resetState`, or a `BadDeviceToken`
     /// response from APNs) so the stale entry doesn't linger in memory.
@@ -248,6 +319,37 @@ actor APNsService {
 }
 
 // MARK: - Custom Payloads
+
+/// One line in the E2E push log: a record of what the relay would have sent
+/// to APNs. The same shape is decoded on the test side to assert on badge
+/// values and push types across the aggregation scenarios.
+public struct APNsPushLogEntry: Codable, Sendable, Equatable {
+    public let timestamp: TimeInterval
+    public let pairId: String
+    public let deviceToken: String
+    public let hostBadge: Int?
+    public let aggregatedBadge: Int?
+    public let silent: Bool
+    public let pushType: String // "alert" or "background"
+
+    public init(
+        timestamp: TimeInterval,
+        pairId: String,
+        deviceToken: String,
+        hostBadge: Int?,
+        aggregatedBadge: Int?,
+        silent: Bool,
+        pushType: String
+    ) {
+        self.timestamp = timestamp
+        self.pairId = pairId
+        self.deviceToken = deviceToken
+        self.hostBadge = hostBadge
+        self.aggregatedBadge = aggregatedBadge
+        self.silent = silent
+        self.pushType = pushType
+    }
+}
 
 /// Custom payload for encrypted ClaudeSpy push notifications.
 ///
