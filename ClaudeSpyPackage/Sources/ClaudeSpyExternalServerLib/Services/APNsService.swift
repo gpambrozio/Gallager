@@ -150,46 +150,49 @@ actor APNsService {
             return
         }
 
-        // Silent badge-only pushes (e.g. after the host clears a session from
-        // "needs attention" state) send an empty-alert push so iOS updates the
-        // badge without showing any UI and without invoking the Notification
-        // Service Extension. Priority 5 lets APNs batch with other low-priority
-        // traffic, which is what Apple recommends for non-urgent silent pushes.
-        let alert: APNSAlertNotificationContent
-        let priority: APNSPriority
-        let mutableContent: Double?
-        let sound: APNSAlertNotificationSound?
-        if payload.silent {
-            alert = APNSAlertNotificationContent()
-            priority = .consideringDevicePower
-            mutableContent = nil
-            sound = nil
-        } else {
-            alert = APNSAlertNotificationContent(
-                title: .raw("Claude Code"),
-                body: .raw("New activity") // Placeholder - extension replaces this
-            )
-            priority = .immediately
-            mutableContent = 1 // Triggers Notification Service Extension
-            sound = nil
-        }
-
-        let notification = APNSAlertNotification(
-            alert: alert,
-            expiration: .immediately,
-            priority: priority,
-            topic: bundleId,
-            payload: encryptedPayload,
-            badge: aggregatedBadge,
-            sound: sound,
-            mutableContent: mutableContent
-        )
-
         do {
-            _ = try await client.sendAlertNotification(
-                notification,
-                deviceToken: deviceToken
-            )
+            if payload.silent {
+                // Silent badge-only updates (e.g. after `markSessionHandled`)
+                // ship as `apns-push-type: background` so they're delivered
+                // under APNs' background-push rules — not gated by alert
+                // permission or Focus filtering. APNSwift's stock
+                // `APNSBackgroundNotification` only emits `content-available`,
+                // so we use our own message type to also set `aps.badge`.
+                let bgMessage = EncryptedBackgroundNotification(
+                    badge: aggregatedBadge,
+                    payload: encryptedPayload
+                )
+                let request = APNSRequest(
+                    message: bgMessage,
+                    deviceToken: deviceToken,
+                    pushType: .background,
+                    expiration: .immediately,
+                    priority: .consideringDevicePower,
+                    apnsID: nil,
+                    topic: bundleId,
+                    collapseID: nil
+                )
+                _ = try await client.send(request)
+            } else {
+                let alert = APNSAlertNotificationContent(
+                    title: .raw("Claude Code"),
+                    body: .raw("New activity") // Placeholder - extension replaces this
+                )
+                let notification = APNSAlertNotification(
+                    alert: alert,
+                    expiration: .immediately,
+                    priority: .immediately,
+                    topic: bundleId,
+                    payload: encryptedPayload,
+                    badge: aggregatedBadge,
+                    sound: nil,
+                    mutableContent: 1 // Triggers Notification Service Extension
+                )
+                _ = try await client.sendAlertNotification(
+                    notification,
+                    deviceToken: deviceToken
+                )
+            }
             await metricsService.incrementPushNotifications()
             logger.info("Encrypted push notification sent", metadata: [
                 "pairId": "\(pairId)",
@@ -202,6 +205,13 @@ actor APNsService {
         } catch {
             logger.error("Failed to send encrypted push notification: \(error)")
         }
+    }
+
+    /// Drop the per-host badge contribution for a pair. Called when a pair is
+    /// removed (via the unpair endpoint, `resetState`, or a `BadDeviceToken`
+    /// response from APNs) so the stale entry doesn't linger in memory.
+    func clearBadge(pairId: String) {
+        lastBadge.removeValue(forKey: pairId)
     }
 
     /// Graceful shutdown
@@ -231,6 +241,8 @@ actor APNsService {
                     logger.warning("Removed invalid push token for pair", metadata: ["pairId": "\(pairId)"])
                 }
             }
+            // Note: pair-removed cleanup of `lastBadge` is wired through
+            // `PairingService.setOnPairRemoved` in `configure(_:)`.
         }
     }
 }
@@ -248,4 +260,34 @@ struct EncryptedClaudeSpyPayload: Codable, Sendable {
 
     /// Pair ID for reference (also in encrypted content)
     let pairId: String
+}
+
+/// Background notification that combines `content-available: 1` with an
+/// `aps.badge` value plus our encrypted payload at the root. APNSwift's
+/// `APNSBackgroundNotification` only emits `content-available`, so we roll our
+/// own `APNSMessage` to support badge-only silent updates over
+/// `apns-push-type: background`.
+struct EncryptedBackgroundNotification: APNSMessage {
+    struct APS: Encodable, Sendable {
+        enum CodingKeys: String, CodingKey {
+            case contentAvailable = "content-available"
+            case badge
+        }
+
+        let contentAvailable = 1
+        let badge: Int?
+    }
+
+    enum CodingKeys: CodingKey {
+        case aps
+    }
+
+    let badge: Int?
+    let payload: EncryptedClaudeSpyPayload
+
+    func encode(to encoder: Encoder) throws {
+        try payload.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(APS(badge: badge), forKey: .aps)
+    }
 }

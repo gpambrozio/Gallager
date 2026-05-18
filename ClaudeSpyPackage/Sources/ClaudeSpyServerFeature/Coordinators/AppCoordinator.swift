@@ -985,9 +985,8 @@
             // Outgoing pushes carry the host's current needs-attention count as
             // the iOS app icon badge. The same provider feeds silent badge
             // updates broadcast on markSessionHandled.
-            let winManagerForBadge = windowManager
-            connectionManager.pendingSessionCountProvider = { [winManagerForBadge] in
-                winManagerForBadge.pendingSessionCount
+            connectionManager.pendingSessionCountProvider = { [windowManager] in
+                windowManager.pendingSessionCount
             }
 
             // Configure terminal stream service with connection manager

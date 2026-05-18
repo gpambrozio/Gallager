@@ -33,6 +33,15 @@ public func configure(_ app: Application) async throws {
         environment: apnsEnvironment
     )
 
+    // Release per-pair badge state when a pair is unpaired (via the API or
+    // `resetState` in tests). Without this hook the entry stays in
+    // `APNsService.lastBadge` for the process lifetime; harmless for the
+    // aggregated total (the pair stops matching the device token), but a small
+    // leak we can avoid by hanging it off the canonical removal path.
+    await pairingService.setOnPairRemoved { [apnsService] pairId in
+        await apnsService.clearBadge(pairId: pairId)
+    }
+
     // Initialize relay service with all dependencies
     let relayService = RelayService(
         pairingService: pairingService,
