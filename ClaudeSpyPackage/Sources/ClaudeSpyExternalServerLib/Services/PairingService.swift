@@ -291,6 +291,16 @@ actor PairingService {
         activePairs[pairId]?.pushToken != nil
     }
 
+    /// All pairIds whose registered push token matches `token`. A single iOS
+    /// device paired with multiple Macs surfaces here as multiple pairIds that
+    /// share one APNs token — used to aggregate per-host badge counts into a
+    /// single device-wide badge.
+    func pairIds(withToken token: String) -> [String] {
+        activePairs.compactMap { pairId, pair in
+            pair.pushToken == token ? pairId : nil
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func cleanupExpiredCodes() {

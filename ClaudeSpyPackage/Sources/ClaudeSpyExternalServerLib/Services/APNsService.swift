@@ -16,6 +16,15 @@ actor APNsService {
     private let logger = Logger(label: "apns-service")
     private let bundleId: String
 
+    /// Latest per-host needs-attention contribution to the iOS app badge,
+    /// keyed by pairId. The APS `aps.badge` we send is the sum across every
+    /// pair that maps to the same APNs device token, so a single iOS device
+    /// paired with multiple Macs sees the *total* unhandled count rather than
+    /// last-write-wins. In-memory only: if the server restarts, each Mac's
+    /// next push re-establishes its entry (Macs always send their current
+    /// `pendingSessionCount`).
+    private var lastBadge: [String: Int] = [:]
+
     // MARK: - Initialization
 
     init(
@@ -113,6 +122,20 @@ actor APNsService {
             return
         }
 
+        // Aggregate this host's contribution into the device-wide badge by
+        // summing over every pair that shares the same APNs device token.
+        // Hosts that haven't reported a count yet (nil entries) are treated as
+        // zero — accurate, since "haven't reported" means we have no evidence
+        // of unhandled work from that Mac.
+        let aggregatedBadge: Int?
+        if let hostBadge = payload.badge {
+            lastBadge[pairId] = hostBadge
+            let siblingPairs = await pairingService.pairIds(withToken: deviceToken)
+            aggregatedBadge = siblingPairs.compactMap { lastBadge[$0] }.reduce(0, +)
+        } else {
+            aggregatedBadge = nil
+        }
+
         // Encode the encrypted content for the payload
         let encryptedPayload: EncryptedClaudeSpyPayload
         do {
@@ -157,7 +180,7 @@ actor APNsService {
             priority: priority,
             topic: bundleId,
             payload: encryptedPayload,
-            badge: payload.badge,
+            badge: aggregatedBadge,
             sound: sound,
             mutableContent: mutableContent
         )
@@ -171,7 +194,8 @@ actor APNsService {
             logger.info("Encrypted push notification sent", metadata: [
                 "pairId": "\(pairId)",
                 "silent": "\(payload.silent)",
-                "badge": "\(payload.badge.map(String.init) ?? "nil")",
+                "hostBadge": "\(payload.badge.map(String.init) ?? "nil")",
+                "aggregatedBadge": "\(aggregatedBadge.map(String.init) ?? "nil")",
             ])
         } catch let error as APNSError {
             handleAPNsError(error, pairId: pairId, deviceToken: deviceToken)
@@ -199,7 +223,9 @@ actor APNsService {
         if let reason = error.reason?.reason {
             // reason is a String, check for known invalid token errors
             if reason == "BadDeviceToken" || reason == "Unregistered" {
-                // Device token is no longer valid, remove it
+                // Device token is no longer valid, remove it and stop counting
+                // this pair toward the aggregated badge total.
+                lastBadge.removeValue(forKey: pairId)
                 Task {
                     await pairingService.removePushToken(for: pairId)
                     logger.warning("Removed invalid push token for pair", metadata: ["pairId": "\(pairId)"])

@@ -114,11 +114,24 @@ No code changes required for v1.
 - iOS automatically applies `aps.badge` from any incoming push (foreground, background, or silent).
 - The Notification Service Extension is only invoked for `mutable-content: 1` alert pushes, which silent pushes are not — so it won't run and won't see (or need to decrypt) the silent payload.
 
+## Server-side badge aggregation
+
+Each Mac reports only its *own* `pendingSessionCount` (it has no knowledge of sibling Macs). The relay turns those per-host counts into a single device-wide badge:
+
+- `APNsService` keeps an in-memory `lastBadge: [pairId: Int]`. Whenever an incoming `EncryptedPushPayload` carries a `badge` value, that pair's entry is updated.
+- Before sending to APNs, the server asks `PairingService.pairIds(withToken:)` for every pairId whose `pushToken` matches the destination device token, then sums `lastBadge` across them. That sum becomes the APS `aps.badge` value.
+- An iOS device paired with two Macs (one pair per Mac, both sharing the same APNs token) gets `badge = count_macA + count_macB` — actually correct, not last-write-wins.
+- When APNs returns `BadDeviceToken`/`Unregistered`, the pair's `lastBadge` entry is dropped alongside the push token.
+
+What stays encrypted: nothing changes. The server only ever sees `pairId` and small integer badge counts — both already unencrypted by design. Title, body, event type, paneId all stay end-to-end encrypted.
+
+`lastBadge` is in-memory only. If the server restarts, each Mac's next push re-establishes its entry (Macs always include their current `pendingSessionCount`), so the aggregated badge converges within one push per host. Acceptable.
+
 ## Trade-offs
 
-- **Multi-host viewers.** Each Mac sends `badge = its own pendingSessionCount`. With two paired Macs, the last push wins on iOS rather than summing — the badge becomes approximate. Acceptable for v1; revisit with iOS-side aggregation if users complain.
 - **Background-push delivery is best-effort.** Apple may throttle silent pushes. If a silent push is dropped, the badge stays stale until the user opens the app (WebSocket reconnect refreshes state). Same risk exists today for alert pushes.
 - **Single-host correctness regression check.** Existing alert pushes will start sending `badge: pendingSessionCount` rather than `1`. With one needing-attention session that's still `1`; with three it'll be `3`. This is the desired behavior, but if there's any test that asserts `badge == 1` it needs updating.
+- **Server-side `lastBadge` leaks a metadata signal.** The relay learns one extra fact per pair: its per-host needs-attention count. It already saw event frequency, push timing, and pair existence, so this is a marginal regression. The end-to-end-encrypted body remains opaque.
 
 ## Implementation order
 
@@ -127,9 +140,9 @@ No code changes required for v1.
 3. Add `onPendingSessionCount` plumbing on `ConnectedViewer` / `ConnectedViewerManager`, wire from `AppCoordinator`.
 4. Add `sendBadgeUpdate` / `broadcastBadgeUpdate`.
 5. Trigger from `markHandled` paths (command + local).
-6. Build macOS scheme to verify.
+6. Add `PairingService.pairIds(withToken:)` and `APNsService.lastBadge` aggregation.
+7. Build macOS scheme to verify.
 
 ## Out of scope (possible follow-ups)
 
 - iOS-side `setBadgeCount` from `SessionStore.needsAttention` so the badge stays accurate while the app is online (today APNs is skipped when WebSocket is up).
-- Multi-host badge aggregation in the iOS extension via an App Group shared counter.
