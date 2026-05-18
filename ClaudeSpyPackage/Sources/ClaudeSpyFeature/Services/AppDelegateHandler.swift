@@ -36,6 +36,27 @@
             }
         }
 
+        /// Handles silent (`apns-push-type: background`) pushes used by the
+        /// relay to keep the iOS badge in sync with the host's
+        /// needs-attention count. iOS auto-applies `aps.badge` only when it
+        /// displays a notification banner — silent pushes wake the app in
+        /// the background with no UI, so we must read the badge ourselves
+        /// and apply it.
+        public func application(
+            _: UIApplication,
+            didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+            fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+        ) {
+            if
+                let aps = userInfo["aps"] as? [String: Any],
+                let badge = aps["badge"] as? Int {
+                Task { @MainActor in
+                    PushNotificationService.shared.applyBadge(badge)
+                }
+            }
+            completionHandler(.noData)
+        }
+
         // MARK: - UNUserNotificationCenterDelegate
 
         /// Called when user taps on a notification (app was in background or terminated)

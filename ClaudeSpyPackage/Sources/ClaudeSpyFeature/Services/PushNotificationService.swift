@@ -194,6 +194,16 @@
             client.setBadgeCount(0)
         }
 
+        /// Apply an absolute badge count to the app icon. Used when a silent
+        /// (`apns-push-type: background`) push carries an `aps.badge` value —
+        /// iOS only auto-applies the badge for alert notifications, so the
+        /// relay's silent decrement path relies on us reading the badge in
+        /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
+        /// and pushing it through here.
+        public func applyBadge(_ count: Int) {
+            client.setBadgeCount(count)
+        }
+
         // MARK: - Local Notifications
 
         /// Schedule a local notification immediately.
