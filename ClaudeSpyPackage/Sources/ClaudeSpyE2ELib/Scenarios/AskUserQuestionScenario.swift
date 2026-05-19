@@ -87,8 +87,8 @@ public enum AskUserQuestionScenario {
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 
         // Wait for the keystrokes to flow and the logger to idle out
-        // (its IDLE_TIMEOUT is 3 s).
-        TestStep.wait(seconds: 5)
+        // (transit ~delay×keys, plus IDLE_TIMEOUT of 3 s, plus margin).
+        TestStep.wait(seconds: 8)
         // Capture screenshot first so the terminal pane (including the
         // logger's SEQUENCE line) is preserved even if the assert fails.
         TestStep.iosScreenshot(label: "ios-aq-p1-done")
@@ -167,7 +167,7 @@ public enum AskUserQuestionScenario {
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 
-        TestStep.wait(seconds: 5)
+        TestStep.wait(seconds: 8)
         TestStep.iosScreenshot(label: "ios-aq-p2-done")
         TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase2Sequence")
         TestStep.assertStoredContains(
@@ -267,7 +267,7 @@ public enum AskUserQuestionScenario {
 
         TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
 
-        TestStep.wait(seconds: 5)
+        TestStep.wait(seconds: 8)
         TestStep.iosScreenshot(label: "ios-aq-p3-done")
         TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase3Sequence")
         TestStep.assertStoredContains(
