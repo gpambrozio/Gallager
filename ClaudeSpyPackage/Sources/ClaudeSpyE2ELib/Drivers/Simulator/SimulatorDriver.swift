@@ -152,7 +152,14 @@ public actor SimulatorDriver {
         installedAppPath = appPath
     }
 
-    /// Launch an app in the simulator
+    /// Launch an app in the simulator.
+    ///
+    /// When the XCTest runner is up we route the launch through its
+    /// `/launchApp` endpoint (backed by `XCUIApplication.launch()`) so XCTest's
+    /// accessibility tracking re-binds to the new PID. A `simctl launch` here
+    /// leaves the tracking pointed at the previous (dead) PID and every
+    /// subsequent `snapshot()` returns a stale tree — which is what broke 36
+    /// scenarios when the runner started persisting across scenarios.
     public func launchApp(bundleId: String, arguments: [String] = []) async throws {
         guard let udid else {
             throw SimulatorDriverError.simulatorNotRunning
@@ -163,7 +170,20 @@ public actor SimulatorDriver {
             try await startE2ERunner()
         }
 
-        logger.info("Launching app: \(bundleId)")
+        if runnerProcess?.isRunning == true {
+            logger.info("Launching app via XCTest runner: \(bundleId)")
+            let success = try await SimulatorHTTPClient.launchApp(
+                bundleId: bundleId,
+                arguments: arguments
+            )
+            guard success else {
+                throw SimulatorDriverError.configurationError("Runner failed to launch \(bundleId)")
+            }
+            appBundleId = bundleId
+            return
+        }
+
+        logger.info("Launching app via simctl: \(bundleId)")
         var args = ["simctl", "launch", udid, bundleId]
         args.append(contentsOf: arguments)
 
@@ -177,13 +197,23 @@ public actor SimulatorDriver {
         try await Task.sleep(for: .seconds(2))
     }
 
-    /// Terminate a running app
+    /// Terminate a running app.
+    ///
+    /// Mirrors `launchApp`: when the XCTest runner is up we route through it so
+    /// XCTest observes the termination and clears its AX tracking. Otherwise
+    /// fall back to `simctl terminate`.
     public func terminateApp(bundleId: String? = nil) async throws {
         guard let udid else { return }
         let bid = bundleId ?? appBundleId ?? ""
         guard !bid.isEmpty else { return }
 
-        logger.info("Terminating app: \(bid)")
+        if runnerProcess?.isRunning == true {
+            logger.info("Terminating app via XCTest runner: \(bid)")
+            _ = try? await SimulatorHTTPClient.terminateApp(bundleId: bid)
+            return
+        }
+
+        logger.info("Terminating app via simctl: \(bid)")
         _ = try await processRunner.run(
             "/usr/bin/xcrun",
             arguments: ["simctl", "terminate", udid, bid]

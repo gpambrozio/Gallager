@@ -33,3 +33,12 @@ struct ViewHierarchyRequest: Codable {
         self.bundleId = bundleId
     }
 }
+
+struct LaunchAppRequest: Codable {
+    let bundleId: String
+    let arguments: [String]?
+}
+
+struct TerminateAppRequest: Codable {
+    let bundleId: String
+}
