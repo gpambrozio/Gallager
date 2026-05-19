@@ -318,9 +318,13 @@
             let daFiltered = TerminalResponseFilter.stripDAQueries(tmuxFiltered)
             guard !daFiltered.isEmpty else { return }
 
+            // Strip DSR query sequences (CPR, DECXCPR, status) for the same reason.
+            let dsrFiltered = TerminalResponseFilter.stripDSRQueries(daFiltered)
+            guard !dsrFiltered.isEmpty else { return }
+
             // Strip Kitty keyboard protocol negotiation sequences so mirroring
             // SwiftTerm instances never enter an unsupported keyboard mode.
-            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(daFiltered)
+            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(dsrFiltered)
             guard !kittyFiltered.isEmpty else { return }
 
             // Parse and strip OSC 9/777 notification sequences

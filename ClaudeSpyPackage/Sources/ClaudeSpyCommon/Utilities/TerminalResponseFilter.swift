@@ -81,6 +81,81 @@ public enum TerminalResponseFilter {
         return result.count == data.count ? data : result
     }
 
+    // MARK: - Feed-level: strip DSR queries
+
+    /// Strips Device Status Report query sequences from terminal output data so that
+    /// mirroring SwiftTerm instances never see them and never generate responses.
+    ///
+    /// Matched queries (all end with `n` and carry a digit parameter):
+    /// - DSR-OS:        `ESC [ 5 n`
+    /// - CPR:           `ESC [ 6 n`        → would respond `ESC [ row ; col R`
+    /// - DECXCPR:       `ESC [ ? 6 n`      → would respond `ESC [ ? row ; col ; page R`
+    /// - DEC private:   `ESC [ ? 15 n`, `ESC [ ? 25 n`, `ESC [ ? 26 n`, etc.
+    ///
+    /// Without this filter, SwiftTerm processes the query and forwards the response via
+    /// its `send()` delegate; the response is then sent back to tmux as input and appears
+    /// as typed garbage in the user's pane (e.g. `[?58;3;1R`).
+    ///
+    /// Returns the data with all matching sequences removed. If no queries are found
+    /// the original data is returned unchanged (no copy).
+    public static func stripDSRQueries(_ data: Data) -> Data {
+        guard data.contains(0x1B) else { return data }
+
+        var result = Data()
+        result.reserveCapacity(data.count)
+        var i = data.startIndex
+
+        while i < data.endIndex {
+            guard data[i] == 0x1B else {
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Need at least ESC [ digit n (4 bytes)
+            let remaining = data.distance(from: i, to: data.endIndex)
+            guard remaining >= 4, data[i + 1] == 0x5B else { // [
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Optional '?' prefix for DEC private DSR queries
+            var j = i + 2
+            if data[j] == 0x3F { // ?
+                j += 1
+            }
+
+            // Scan parameter bytes (digits and semicolons). Require ≥1 digit
+            // so we don't accidentally strip sequences like ESC[;;n (valid CSI
+            // syntax but never emitted as a real DSR query by any program).
+            var sawDigit = false
+            while j < data.endIndex {
+                let b = data[j]
+                if b >= 0x30, b <= 0x39 {
+                    sawDigit = true
+                    j += 1
+                } else if b == 0x3B { // ';'
+                    j += 1
+                } else {
+                    break
+                }
+            }
+
+            // Must have ≥1 digit and end with 'n' (0x6E)
+            if sawDigit, j < data.endIndex, data[j] == 0x6E {
+                i = j + 1
+                continue
+            }
+
+            // Not a DSR query — pass ESC through
+            result.append(data[i])
+            i = data.index(after: i)
+        }
+
+        return result.count == data.count ? data : result
+    }
+
     // MARK: - Feed-level: strip Kitty keyboard protocol sequences
 
     /// Strips Kitty keyboard protocol negotiation sequences from terminal output
@@ -240,6 +315,8 @@ public enum TerminalResponseFilter {
         if thirdByte == 0x3E, lastByte == 0x63 { return true } // >...c
         // Cursor Position Report: ESC [ digits ; digits R
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x52 { return true } // digit...R
+        // Extended Cursor Position Report (DECXCPR): ESC [ ? digits ; digits ; digits R
+        if thirdByte == 0x3F, lastByte == 0x52 { return true } // ?...R
         // Terminal Parameter Report: ESC [ digits ... x
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x78 { return true } // digit...x
         // Kitty keyboard protocol response: ESC [ ? ... u
