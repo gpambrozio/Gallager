@@ -17,6 +17,10 @@ enum RouteHandlerFactory {
             CustomActionHandler()
         case .status:
             StatusHandler()
+        case .launchApp:
+            LaunchAppHandler()
+        case .terminateApp:
+            TerminateAppHandler()
         }
     }
 }

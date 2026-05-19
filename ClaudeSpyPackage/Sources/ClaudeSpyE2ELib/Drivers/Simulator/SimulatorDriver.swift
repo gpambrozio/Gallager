@@ -13,6 +13,14 @@ public actor SimulatorDriver {
     private var runnerProcess: Process?
     /// Path to the derived data containing the built XCTest runner
     private var e2eRunnerDerivedDataPath: String?
+    /// Tracks which iOS app bundle path has been installed in the current
+    /// simulator session, so repeat `installApp` calls become no-ops across
+    /// scenarios — the install is expensive (~5s) and the bundle does not
+    /// change between scenarios in a single test run.
+    private var installedAppPath: String?
+    /// Whether the XCTest E2E host app has been installed in the current
+    /// simulator session. Mirrors `installedAppPath` for `startE2ERunner`.
+    private var hostAppInstalled = false
 
     /// Default port for the in-app `TestAccessibilityServer` on iOS.
     /// Chosen above the Mac range so parallel Mac instances don't collide.
@@ -37,6 +45,15 @@ public actor SimulatorDriver {
     /// Boot a simulator by name, returning its UDID
     @discardableResult
     public func bootSimulator(name: String) async throws -> String {
+        // Fast path: this driver already booted (or attached to) the sim in a
+        // previous scenario. The configuration (keyboard, point-accurate mode,
+        // status bar) persists for the lifetime of the sim, so we can return
+        // immediately and skip the ~3–5s of redundant `simctl list` + `open
+        // Simulator` + sleep + reconfigure work that runs once per scenario.
+        if let existingUDID = udid {
+            return existingUDID
+        }
+
         logger.info("Booting simulator: \(name)")
 
         // Find the device UDID
@@ -109,10 +126,21 @@ public actor SimulatorDriver {
         return udid
     }
 
-    /// Install an app in the simulator
+    /// Install an app in the simulator.
+    ///
+    /// `simctl install` itself is idempotent (it overwrites an existing
+    /// install), but it still takes a few seconds. Across an E2E test run
+    /// the bundle never changes, so we cache the installed path and skip
+    /// subsequent calls. `uninstallApp` clears the cache so an explicit
+    /// uninstall/reinstall cycle still works if a scenario needs it.
     public func installApp(appPath: String) async throws {
         guard let udid else {
             throw SimulatorDriverError.simulatorNotRunning
+        }
+
+        if installedAppPath == appPath {
+            logger.info("App already installed at \(appPath); skipping reinstall")
+            return
         }
 
         logger.info("Installing app: \(appPath)")
@@ -121,9 +149,17 @@ public actor SimulatorDriver {
             arguments: ["simctl", "install", udid, appPath],
             timeout: 120
         )
+        installedAppPath = appPath
     }
 
-    /// Launch an app in the simulator
+    /// Launch an app in the simulator.
+    ///
+    /// When the XCTest runner is up we route the launch through its
+    /// `/launchApp` endpoint (backed by `XCUIApplication.launch()`) so XCTest's
+    /// accessibility tracking re-binds to the new PID. A `simctl launch` here
+    /// leaves the tracking pointed at the previous (dead) PID and every
+    /// subsequent `snapshot()` returns a stale tree — which is what broke 36
+    /// scenarios when the runner started persisting across scenarios.
     public func launchApp(bundleId: String, arguments: [String] = []) async throws {
         guard let udid else {
             throw SimulatorDriverError.simulatorNotRunning
@@ -134,7 +170,20 @@ public actor SimulatorDriver {
             try await startE2ERunner()
         }
 
-        logger.info("Launching app: \(bundleId)")
+        if runnerProcess?.isRunning == true {
+            logger.info("Launching app via XCTest runner: \(bundleId)")
+            let success = try await SimulatorHTTPClient.launchApp(
+                bundleId: bundleId,
+                arguments: arguments
+            )
+            guard success else {
+                throw SimulatorDriverError.configurationError("Runner failed to launch \(bundleId)")
+            }
+            appBundleId = bundleId
+            return
+        }
+
+        logger.info("Launching app via simctl: \(bundleId)")
         var args = ["simctl", "launch", udid, bundleId]
         args.append(contentsOf: arguments)
 
@@ -148,13 +197,23 @@ public actor SimulatorDriver {
         try await Task.sleep(for: .seconds(2))
     }
 
-    /// Terminate a running app
+    /// Terminate a running app.
+    ///
+    /// Mirrors `launchApp`: when the XCTest runner is up we route through it so
+    /// XCTest observes the termination and clears its AX tracking. Otherwise
+    /// fall back to `simctl terminate`.
     public func terminateApp(bundleId: String? = nil) async throws {
         guard let udid else { return }
         let bid = bundleId ?? appBundleId ?? ""
         guard !bid.isEmpty else { return }
 
-        logger.info("Terminating app: \(bid)")
+        if runnerProcess?.isRunning == true {
+            logger.info("Terminating app via XCTest runner: \(bid)")
+            _ = try? await SimulatorHTTPClient.terminateApp(bundleId: bid)
+            return
+        }
+
+        logger.info("Terminating app via simctl: \(bid)")
         _ = try await processRunner.run(
             "/usr/bin/xcrun",
             arguments: ["simctl", "terminate", udid, bid]
@@ -182,6 +241,12 @@ public actor SimulatorDriver {
             "/usr/bin/xcrun",
             arguments: ["simctl", "uninstall", udid, bid]
         )
+        // Clear install caches so the next `installApp` / `startE2ERunner`
+        // performs the install again. We don't know which bundle id maps to
+        // which cache, so we clear both: the worst case is one extra
+        // (idempotent) reinstall.
+        installedAppPath = nil
+        hostAppInstalled = false
     }
 
     // MARK: - E2E Runner Lifecycle
@@ -191,8 +256,20 @@ public actor SimulatorDriver {
         e2eRunnerDerivedDataPath = path
     }
 
-    /// Install and start the XCTest E2E runner
+    /// Install and start the XCTest E2E runner.
+    ///
+    /// If the runner is already running from a previous scenario, returns
+    /// immediately — the runner is independent of the main app process and
+    /// survives `terminateApp`, so we keep it alive across scenarios to skip
+    /// the ~15–30s `xcodebuild test-without-building` cold start.
     public func startE2ERunner() async throws {
+        if
+            let process = runnerProcess, process.isRunning,
+            await SimulatorHTTPClient.isRunnerReady() {
+            logger.info("XCTest runner already running; skipping startup")
+            return
+        }
+
         guard let udid else {
             throw SimulatorDriverError.simulatorNotRunning
         }
@@ -204,14 +281,20 @@ public actor SimulatorDriver {
         let xctestrunPath = try await findXCTestRunFile(in: derivedDataPath)
         logger.info("Found xctestrun: \(xctestrunPath)")
 
-        // Install the host app
-        let hostAppPath = try await findHostApp(in: derivedDataPath)
-        logger.info("Installing E2E host app: \(hostAppPath)")
-        _ = try await processRunner.runOrThrow(
-            "/usr/bin/xcrun",
-            arguments: ["simctl", "install", udid, hostAppPath],
-            timeout: 120
-        )
+        // Install the host app (skip if already installed in this session —
+        // the bundle never changes mid-run).
+        if hostAppInstalled {
+            logger.info("E2E host app already installed; skipping reinstall")
+        } else {
+            let hostAppPath = try await findHostApp(in: derivedDataPath)
+            logger.info("Installing E2E host app: \(hostAppPath)")
+            _ = try await processRunner.runOrThrow(
+                "/usr/bin/xcrun",
+                arguments: ["simctl", "install", udid, hostAppPath],
+                timeout: 120
+            )
+            hostAppInstalled = true
+        }
 
         // Start xcodebuild test-without-building in the background
         logger.info("Starting XCTest runner via xcodebuild test-without-building")

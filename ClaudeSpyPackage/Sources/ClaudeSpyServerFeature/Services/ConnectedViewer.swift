@@ -162,6 +162,11 @@ final public class ConnectedViewer: Identifiable {
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
+    /// Provides the current pending-attention session count, used as the badge
+    /// value on outgoing push notifications so the iOS app icon badge stays in
+    /// sync with the host's needs-attention count.
+    public var onPendingSessionCount: (@MainActor @Sendable () async -> Int)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -313,11 +318,59 @@ final public class ConnectedViewer: Identifiable {
 
         do {
             let encryptedContent = try await e2eeService.encrypt(content)
-            let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: id)
+            let badge = await onPendingSessionCount?()
+            let payload = EncryptedPushPayload(
+                encryptedContent: encryptedContent,
+                pairId: id,
+                badge: badge,
+                silent: false
+            )
             await send(.encryptedPush(payload))
             pushNotificationLog.logPushSent("cli.notify", paneId)
         } catch {
             logger.error("Failed to encrypt custom push notification: \(error)")
+        }
+    }
+
+    /// Send a silent (background) APNs push that only updates the iOS app
+    /// badge — no alert, no sound, no Notification Service Extension. Used when
+    /// the host clears a session from the "needs attention" state so the iOS
+    /// badge tracks the new lower count.
+    public func sendBadgeUpdate(badge: Int) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send badge update")
+            return
+        }
+
+        guard await e2eeService.isSessionEstablished else {
+            logger.error("E2EE session not established, cannot send badge update")
+            return
+        }
+
+        // Encrypt a placeholder content so the wire shape matches event pushes.
+        // The Notification Service Extension never runs for silent pushes, so
+        // the receiver only consumes the unencrypted `badge` field.
+        let content = NotificationContent(
+            title: "",
+            body: "",
+            eventType: "badge.update",
+            pairId: id,
+            paneId: nil,
+            timestamp: Date()
+        )
+
+        do {
+            let encryptedContent = try await e2eeService.encrypt(content)
+            let payload = EncryptedPushPayload(
+                encryptedContent: encryptedContent,
+                pairId: id,
+                badge: badge,
+                silent: true
+            )
+            await send(.encryptedPush(payload))
+            pushNotificationLog.logPushSent("badge.update", nil)
+        } catch {
+            logger.error("Failed to encrypt badge update: \(error)")
         }
     }
 
@@ -771,7 +824,13 @@ final public class ConnectedViewer: Identifiable {
 
         do {
             let encryptedContent = try await e2eeService.encrypt(content)
-            let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: id)
+            let badge = await onPendingSessionCount?()
+            let payload = EncryptedPushPayload(
+                encryptedContent: encryptedContent,
+                pairId: id,
+                badge: badge,
+                silent: false
+            )
             let message = WebSocketMessage.encryptedPush(payload)
             await send(message)
             pushNotificationLog.logPushSent(event.action.eventName, event.tmuxPane)
