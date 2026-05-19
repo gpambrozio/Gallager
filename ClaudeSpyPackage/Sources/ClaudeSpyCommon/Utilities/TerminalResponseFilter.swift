@@ -99,61 +99,11 @@ public enum TerminalResponseFilter {
     /// Returns the data with all matching sequences removed. If no queries are found
     /// the original data is returned unchanged (no copy).
     public static func stripDSRQueries(_ data: Data) -> Data {
-        guard data.contains(0x1B) else { return data }
-
-        var result = Data()
-        result.reserveCapacity(data.count)
-        var i = data.startIndex
-
-        while i < data.endIndex {
-            guard data[i] == 0x1B else {
-                result.append(data[i])
-                i = data.index(after: i)
-                continue
-            }
-
-            // Need at least ESC [ digit n (4 bytes)
-            let remaining = data.distance(from: i, to: data.endIndex)
-            guard remaining >= 4, data[i + 1] == 0x5B else { // [
-                result.append(data[i])
-                i = data.index(after: i)
-                continue
-            }
-
-            // Optional '?' prefix for DEC private DSR queries
-            var j = i + 2
-            if data[j] == 0x3F { // ?
-                j += 1
-            }
-
-            // Scan parameter bytes (digits and semicolons). Require ≥1 digit
-            // so we don't accidentally strip sequences like ESC[;;n (valid CSI
-            // syntax but never emitted as a real DSR query by any program).
-            var sawDigit = false
-            while j < data.endIndex {
-                let b = data[j]
-                if b >= 0x30, b <= 0x39 {
-                    sawDigit = true
-                    j += 1
-                } else if b == 0x3B { // ';'
-                    j += 1
-                } else {
-                    break
-                }
-            }
-
-            // Must have ≥1 digit and end with 'n' (0x6E)
-            if sawDigit, j < data.endIndex, data[j] == 0x6E {
-                i = j + 1
-                continue
-            }
-
-            // Not a DSR query — pass ESC through
-            result.append(data[i])
-            i = data.index(after: i)
+        stripCSIQueries(data) { d, j in
+            // Terminator: 'n' (0x6E)
+            guard j < d.endIndex, d[j] == 0x6E else { return nil }
+            return 1
         }
-
-        return result.count == data.count ? data : result
     }
 
     // MARK: - Feed-level: strip DECRQM (Request Mode) queries
@@ -173,6 +123,36 @@ public enum TerminalResponseFilter {
     /// Returns the data with all matching sequences removed. If no queries are
     /// found the original data is returned unchanged (no copy).
     public static func stripDECRQMQueries(_ data: Data) -> Data {
+        stripCSIQueries(data) { d, j in
+            // Terminator: '$' (0x24) intermediate + 'p' (0x70) final
+            guard
+                j + 1 < d.endIndex,
+                d[j] == 0x24,
+                d[j + 1] == 0x70
+            else { return nil }
+            return 2
+        }
+    }
+
+    // MARK: - Feed-level: shared CSI query stripper
+
+    /// Strips CSI query sequences of the form `ESC [ (?)? digits;… <terminator>` from
+    /// `data`. Used by ``stripDSRQueries(_:)`` and ``stripDECRQMQueries(_:)``.
+    ///
+    /// - Parameters:
+    ///   - data: Raw bytes to scan.
+    ///   - terminator: Closure that, given the data and the index immediately after
+    ///     the parameter bytes, returns the number of bytes the terminator occupies
+    ///     (or `nil` if no match). Lets each caller handle both single-byte
+    ///     terminators (e.g. `n`) and intermediate+final pairs (e.g. `$p`).
+    ///
+    /// The parameter-byte scan requires ≥1 digit so valid-but-degenerate CSI
+    /// sequences like `ESC[;;n` (semicolons only) are passed through unchanged —
+    /// no real terminal program emits those as queries.
+    private static func stripCSIQueries(
+        _ data: Data,
+        terminator: (Data, Data.Index) -> Int?
+    ) -> Data {
         guard data.contains(0x1B) else { return data }
 
         var result = Data()
@@ -186,15 +166,15 @@ public enum TerminalResponseFilter {
                 continue
             }
 
-            // Need at least ESC [ digit $ p (5 bytes)
+            // Need at least ESC [ digit X (4 bytes)
             let remaining = data.distance(from: i, to: data.endIndex)
-            guard remaining >= 5, data[i + 1] == 0x5B else { // [
+            guard remaining >= 4, data[i + 1] == 0x5B else { // [
                 result.append(data[i])
                 i = data.index(after: i)
                 continue
             }
 
-            // Optional '?' prefix for DEC private DECRQM
+            // Optional '?' prefix for DEC private sequences
             var j = i + 2
             if data[j] == 0x3F { // ?
                 j += 1
@@ -214,16 +194,13 @@ public enum TerminalResponseFilter {
                 }
             }
 
-            // Must have ≥1 digit, then '$' intermediate (0x24), then 'p' (0x70)
-            if
-                sawDigit,
-                j < data.endIndex, data[j] == 0x24,
-                j + 1 < data.endIndex, data[j + 1] == 0x70 {
-                i = j + 2
+            // Must have ≥1 digit, then a matching terminator
+            if sawDigit, let terminatorLength = terminator(data, j) {
+                i = j + terminatorLength
                 continue
             }
 
-            // Not a DECRQM query — pass ESC through
+            // No match — pass ESC through
             result.append(data[i])
             i = data.index(after: i)
         }
