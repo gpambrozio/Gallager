@@ -30,8 +30,6 @@ public enum NewTerminalScenario {
 
         // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 15)
-        // Settle wait for push transition animation to finish before snapshotting.
-        TestStep.wait(seconds: 0.5)
         TestStep.iosScreenshot(label: "ios-new-terminal")
     }
 }
