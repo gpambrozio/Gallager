@@ -283,6 +283,49 @@ enum SimulatorHTTPClient {
         return success
     }
 
+    // MARK: - App Lifecycle
+
+    /// Launch (or relaunch) the app under test via the runner's
+    /// `XCUIApplication.launch()`. Using the runner instead of `simctl launch`
+    /// keeps XCTest's accessibility tracking bound to the new PID — otherwise
+    /// `snapshot()` returns stale data from the previous process and every
+    /// element query times out after the first scenario.
+    @discardableResult
+    static func launchApp(bundleId: String, arguments: [String]) async throws -> Bool {
+        let url = URL(string: "\(baseURL)/launchApp")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        let body: [String: Any] = ["bundleId": bundleId, "arguments": arguments]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let success = (response as? HTTPURLResponse)?.statusCode == 200
+        logger.info("HTTP launch-app \(bundleId): \(success ? "ok" : "failed")")
+        return success
+    }
+
+    /// Terminate the app under test via the runner so XCTest observes the
+    /// process death and clears its accessibility tracking.
+    @discardableResult
+    static func terminateApp(bundleId: String) async throws -> Bool {
+        let url = URL(string: "\(baseURL)/terminateApp")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+
+        let body: [String: Any] = ["bundleId": bundleId]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let success = (response as? HTTPURLResponse)?.statusCode == 200
+        logger.info("HTTP terminate-app \(bundleId): \(success ? "ok" : "failed")")
+        return success
+    }
+
     // MARK: - Custom Actions
 
     /// Perform a custom accessibility action on an element via the XCTest runner
