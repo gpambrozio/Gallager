@@ -28,11 +28,9 @@ public enum CloseWindowTabScenario {
         TestStep.log("Stage 2: Launch app and verify two tabs")
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "closetest", timeout: 5)
         TestStep.macClickButton(titled: "closetest")
-        TestStep.wait(seconds: 3)
 
         // Sidebar click selects the tmux-active window (window 1, since we just created it)
         TestStep.macWaitForElementQuery(
@@ -44,7 +42,6 @@ public enum CloseWindowTabScenario {
         // 3. Close the selected idle window 1 via the X button (no confirmation expected)
         TestStep.log("Stage 3: Close idle window 1 via X button")
         TestStep.macClickButton(titled: "Close window")
-        TestStep.wait(seconds: 3)
 
         // Window 1 should be gone, only window 0 remains
         TestStep.macWaitForElementToDisappear(titled: "closetest:1", timeout: 5)
@@ -64,7 +61,6 @@ public enum CloseWindowTabScenario {
         )
 
         TestStep.macClickButton(titled: "Close window")
-        TestStep.wait(seconds: 2)
 
         // Confirmation alert should appear with the process name
         TestStep.macWaitForElement(titled: "Close Window?", timeout: 5)
@@ -73,7 +69,6 @@ public enum CloseWindowTabScenario {
         // 5. Press Escape to cancel — window should remain
         TestStep.log("Stage 5: Press Escape to cancel the confirmation")
         TestStep.macPressKey(.escape)
-        TestStep.wait(seconds: 2)
 
         // Tab should still be there
         TestStep.macWaitForElementQuery(
@@ -89,7 +84,6 @@ public enum CloseWindowTabScenario {
 
         // Now the window is idle — close should work without confirmation
         TestStep.macClickButton(titled: "Close window")
-        TestStep.wait(seconds: 3)
 
         // Session should be gone since it was the last window
         TestStep.macWaitForElementToDisappear(titled: "closetest", timeout: 10)
@@ -117,7 +111,6 @@ public enum CloseWindowTabScenario {
 
         // Right-click sidebar → Close Session
         TestStep.macContextMenuClick(elementTitle: "forceclose", menuItem: "Close Session")
-        TestStep.wait(seconds: 2)
 
         // Confirmation should appear since sleep is running
         TestStep.macWaitForElement(titled: "Close Session?", timeout: 5)
@@ -125,7 +118,6 @@ public enum CloseWindowTabScenario {
 
         // "Close Anyway" is the default action — press Return to confirm
         TestStep.macPressKey(.return)
-        TestStep.wait(seconds: 3)
 
         // Session should be gone despite the running process
         TestStep.macWaitForElementToDisappear(titled: "forceclose", timeout: 10)

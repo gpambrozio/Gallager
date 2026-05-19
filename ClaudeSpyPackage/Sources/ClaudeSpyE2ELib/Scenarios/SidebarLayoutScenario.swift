@@ -135,7 +135,6 @@ public enum SidebarLayoutScenario {
         // custom description set, the first non-empty field is Project Name —
         // so the window title should become "AlphaProject".
         TestStep.macCGClick(titled: "AlphaProject")
-        TestStep.wait(seconds: 1)
         TestStep.macAssertWindowTitle(equals: "AlphaProject", timeout: 5)
 
         // ── Phase 2: Change fields to show Session Name + Command ─
@@ -186,7 +185,6 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
 
         TestStep.macCloseWindow(titled: "Sidebar")
-        TestStep.wait(seconds: 1)
 
         // Verify sidebar now shows session names as primary for all
         TestStep.macWaitForElement(titled: "alpha-project", timeout: 5)
@@ -240,7 +238,6 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
 
         TestStep.macCloseWindow(titled: "Sidebar")
-        TestStep.wait(seconds: 1)
 
         // Claude sessions should show project name as primary
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
@@ -279,7 +276,6 @@ public enum SidebarLayoutScenario {
 
         TestStep.macScreenshot(label: "sidebar-settings-terminal-session-only")
         TestStep.macCloseWindow(titled: "Sidebar")
-        TestStep.wait(seconds: 1)
 
         // Verify terminal shows session name, Claude sessions still show project name
         TestStep.macWaitForElement(titled: "delta-terminal", timeout: 5)

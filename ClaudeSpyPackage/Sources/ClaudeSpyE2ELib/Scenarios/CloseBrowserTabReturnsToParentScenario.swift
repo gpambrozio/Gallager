@@ -101,7 +101,6 @@ public enum CloseBrowserTabReturnsToParentScenario {
         )
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "Browser")
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "popups", timeout: 5)
         TestStep.macClickButton(titled: "popups")
@@ -184,7 +183,6 @@ public enum CloseBrowserTabReturnsToParentScenario {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
         TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
@@ -209,7 +207,6 @@ public enum CloseBrowserTabReturnsToParentScenario {
         // the fixed-pixel link coordinates apply 1:1.
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
-        TestStep.wait(seconds: 1)
 
         // The OSC 8 link printed earlier in `popups:0` is still in the
         // pane (terminal scrollback persists), so the viewer's mirror of

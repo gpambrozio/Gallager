@@ -35,7 +35,6 @@ public enum UnpairFromIOSScenario {
 
         // 4. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
-        TestStep.wait(seconds: 2)
 
         // 5. Verify server has 0 pairings
         TestStep.waitForNoPairings(timeout: 15)

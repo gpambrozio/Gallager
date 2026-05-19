@@ -32,7 +32,6 @@ public enum YoloModeStateSyncScenario {
         TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "session-1")
-        TestStep.wait(seconds: 1)
 
         // 7. Verify macOS shows yolo mode as enabled (help text)
         TestStep.macWaitForElement(
@@ -62,7 +61,6 @@ public enum YoloModeStateSyncScenario {
         //        (Done as inline steps to keep the menu open between verify and tap,
         //         avoiding a dismiss-then-reopen cycle which has proven flaky.)
         TestStep.iosTap(.labelContains("Commands"))
-        TestStep.wait(seconds: 0.5)
         TestStep.iosWaitForElement(.labelContains("Disable Yolo Mode"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-re-enabled-from-mac")
         TestStep.iosTap(.labelContains("Disable Yolo Mode"))

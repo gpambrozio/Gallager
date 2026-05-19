@@ -1,5 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
+    import ClaudeSpyEncryption
     import Dependencies
     import Foundation
     import SwiftUI
@@ -193,6 +194,12 @@
 
             // Load paired hosts
             self.pairedHosts = loadPairedHosts()
+
+            // didSet doesn't fire during init, so refresh the App Group mirror
+            // explicitly so the Notification Service Extension can label
+            // notifications even if the user hasn't changed pairings since
+            // upgrading.
+            mirrorHostNamesToAppGroup()
         }
 
         // MARK: - Paired Hosts Storage
@@ -215,6 +222,21 @@
                 return
             }
             preferences.setData(data, Keys.pairedHosts)
+            mirrorHostNamesToAppGroup()
+        }
+
+        /// Mirror pairId → display-name into the shared App Group container so the
+        /// Notification Service Extension can label notifications by host.
+        private func mirrorHostNamesToAppGroup() {
+            let duplicateHostNames = Dictionary(grouping: pairedHosts, by: \.hostName)
+                .filter { $0.value.count > 1 }
+                .keys
+            let mapping = Dictionary(uniqueKeysWithValues: pairedHosts.map { host in
+                let showUsername = host.customName == nil
+                    && duplicateHostNames.contains(host.hostName)
+                return (host.id, host.displayName(showUsername: showUsername))
+            })
+            PairedHostNameStore.save(mapping)
         }
 
         // MARK: - Pairing Management

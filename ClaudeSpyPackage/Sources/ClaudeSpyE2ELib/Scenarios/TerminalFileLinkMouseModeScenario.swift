@@ -48,11 +48,9 @@ public enum TerminalFileLinkMouseModeScenario {
         // ── Launch app ───────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "termlink-mm", timeout: 5)
         TestStep.macClickButton(titled: "termlink-mm")
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("click-here-to-open-hello")]),
@@ -63,7 +61,6 @@ public enum TerminalFileLinkMouseModeScenario {
         // ── Click the link → file tab opens ──────────────────────
         TestStep.log("Click the file link with mouse mode active")
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
         TestStep.macWaitForElementQuery(

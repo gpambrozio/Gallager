@@ -88,7 +88,7 @@ Create the scenario file in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/
 - **No manual number prefixes in labels** — auto-numbered by the framework
 - **Use existing Shortcuts** — don't duplicate setup steps that shortcuts already provide
 - **Add numbered phase comments** — group steps into logical phases with `// 1. Description`
-- **Use `wait(seconds:)` after actions** sparingly — prefer `*WaitForElement*`, `waitForTmuxDisplayMessage`, `waitForFileContains` when an observable signal exists
+- **Avoid `wait(seconds:)` whenever a state-driven wait works.** Never put a fixed `wait` directly before a `*WaitFor*` step (`iosWaitForElement`, `macWaitForElement`, `macWaitForElementQuery`, `waitForHostConnected`, `verifyServerHasPairings`, `waitForTmuxDisplayMessage`, `waitForFileContains`) or before `iosTap` / `macClickButton` (both wait up to 5s for their target internally). Prefer `*WaitForElement*`, `waitForTmuxDisplayMessage`, or `waitForFileContains` over fixed sleeps. See e2e-testing skill `references/patterns.md` "Waiting for UI Transitions" for the full checklist.
 
 #### Adding accessibility hooks
 

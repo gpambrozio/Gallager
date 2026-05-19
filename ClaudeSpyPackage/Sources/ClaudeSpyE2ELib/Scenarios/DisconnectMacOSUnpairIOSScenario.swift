@@ -12,7 +12,6 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 2. Server: block the host (macOS) from reconnecting and disconnect it.
         //    This prevents auto-reconnection so the unpair truly happens while macOS is offline.
         TestStep.serverBlockDevice(.host)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementToDisappear(titled: "Connected")
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
@@ -41,7 +40,6 @@ public enum DisconnectMacOSUnpairIOSScenario {
 
         // 5. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
-        TestStep.wait(seconds: 2)
 
         // 6. Verify server has 0 pairings (while macOS is still blocked)
         TestStep.waitForNoPairings(timeout: 15)
@@ -50,8 +48,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 7. Unblock macOS so it can reconnect. The server will reject it with INVALID_PAIR
         //    since the pairing was removed. macOS should detect the error and clean up.
         TestStep.serverUnblockDevice(.host)
-        TestStep.wait(seconds: 15)
-        TestStep.macWaitForElement(titled: "Generate Pairing Code")
+        TestStep.macWaitForElement(titled: "Generate Pairing Code", timeout: 20)
 
         // 8. Verify macOS cleaned up
         TestStep.macScreenshot(label: "mac-invalid-pair-cleanup")

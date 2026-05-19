@@ -74,7 +74,6 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.log("Stage 4: Open macOS panes window and verify window 1 is selected")
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Click the session in the sidebar — should show window 1 (tmux-active after iOS switch)
         TestStep.macWaitForElement(titled: "ios-tabs", timeout: 5)

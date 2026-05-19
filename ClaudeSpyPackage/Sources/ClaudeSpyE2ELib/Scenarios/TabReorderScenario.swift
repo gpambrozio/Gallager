@@ -44,11 +44,9 @@ public enum TabReorderScenario {
         // ── Launch app ────────────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_300, height: 700)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "tabreorder", timeout: 10)
         TestStep.macClickButton(titled: "tabreorder")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "winA", timeout: 10)
         TestStep.macWaitForElement(titled: "winB", timeout: 10)
@@ -65,7 +63,6 @@ public enum TabReorderScenario {
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 3)
 
         // The new terminal is created after the existing windows, named
         // "terminal 1" because the existing windows used non-numbered names.
@@ -77,7 +74,6 @@ public enum TabReorderScenario {
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Browser")
-        TestStep.wait(seconds: 2)
 
         // The new browser tab labels with "about:blank" until the user types
         // a real URL. The address bar should have focus — typing here goes
@@ -90,7 +86,6 @@ public enum TabReorderScenario {
         // closeable browser tab is enough proof — clean up immediately so
         // later phases work against the same tab set.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"))
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5)
 
         // ── Phase 3: Drag winC ahead of winA via the AX-driven helper ─
@@ -124,11 +119,9 @@ public enum TabReorderScenario {
         // ── Phase 4: Session round-trip preserves the new order ───────
         TestStep.log("Phase 4: Switch to the other session and back — order survives")
         TestStep.macClickButton(titled: "tabreorder-other")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "tabreorder:0 winC", timeout: 5)
 
         TestStep.macClickButton(titled: "tabreorder")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "tabreorder:0 winC", timeout: 5)
         TestStep.macWaitForElement(titled: "tabreorder:1 winA", timeout: 5)
         TestStep.macWaitForElement(titled: "tabreorder:2 winB", timeout: 5)
@@ -138,7 +131,6 @@ public enum TabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "tabreorder:0 winC")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5
@@ -146,7 +138,6 @@ public enum TabReorderScenario {
 
         // Cmd-Shift-] → next visible tab (winA).
         TestStep.macPressKey(.character("]"), modifiers: [.command, .shift])
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:1 winA"), .valueContains("selected")]),
             timeout: 5
@@ -155,7 +146,6 @@ public enum TabReorderScenario {
 
         // Cmd-Shift-[ → previous visible tab (winC again).
         TestStep.macPressKey(.character("["), modifiers: [.command, .shift])
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5
@@ -169,7 +159,6 @@ public enum TabReorderScenario {
         // gating and the close-confirmation alert — this is a reconcile
         // smoke test, not a UI-flow test.
         TestStep.tmuxCommand(arguments: ["kill-window", "-t", "tabreorder:winA"])
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementToDisappear(titled: "tabreorder:1 winA", timeout: 5)
 
         // After the close, the remaining windows shift down: winB takes the
@@ -239,15 +228,12 @@ public enum TabReorderScenario {
         // specific window name.
         TestStep.log("Phase 8: Open hello.txt, split it, then drag a terminal across the divider")
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 10)
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
 
         // Open split via hello.txt's split toggle.
         TestStep.macClickButton(titled: "Open file tab in split: hello.txt")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Move file tab to left: hello.txt", timeout: 5)
         // Every terminal on the left should now show a "to right" arrow,
         // confirming the unified split-toggle wired up for window tabs too.
@@ -261,9 +247,11 @@ public enum TabReorderScenario {
             from: .labelContains("tabreorder:0"),
             to: .label("Move file tab to left: hello.txt")
         )
-        TestStep.wait(seconds: 3)
         // A terminal arrow now points left — some window lives on the right.
         TestStep.macWaitForElementQuery(.labelContains("Move terminal to left:"), timeout: 5)
+        // Settle wait for the split-pane animation; the element appears
+        // before the layout finishes transitioning.
+        TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "mac-tabreorder-terminal-on-right")
 
         // ── Phase 9: Drag the file explorer onto the right pane ─────
@@ -279,7 +267,6 @@ public enum TabReorderScenario {
             from: .label("Files"),
             to: .label("Move file tab to left: hello.txt")
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Move file explorer to left: Files", timeout: 5)
         TestStep.macScreenshot(label: "mac-tabreorder-explorer-on-right")
 
@@ -299,11 +286,14 @@ public enum TabReorderScenario {
         TestStep.macCGClickElement(query: .labelContains("Move terminal to right:"))
         TestStep.wait(seconds: 1)
         TestStep.macCGClickElement(query: .labelContains("Move terminal to right:"))
-        TestStep.wait(seconds: 3)
+        // Settle wait for the split-collapse layout transition — the AX
+        // tree can lag the reconcile briefly after the last terminal
+        // moves right, so give the collapse animation room before polling.
+        TestStep.wait(seconds: 2)
         // Every "Move *" arrow should be gone; "Open … in split" icons return.
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move terminal to left:"),
-            timeout: 5
+            timeout: 10
         )
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move file tab to left:"),
@@ -327,14 +317,12 @@ public enum TabReorderScenario {
         TestStep.log("Phase 11: Kill the right-side terminal via tmux → split collapses")
         // Click any "Open terminal in split:" arrow to open the split.
         TestStep.macCGClickElement(query: .labelContains("Open terminal in split:"))
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.labelContains("Move terminal to left:"), timeout: 5)
         TestStep.macScreenshot(label: "mac-tabreorder-split-only-terminal-right")
 
         // tmux kill-window with a window-name target works regardless of
         // its current index after the prior reorders.
         TestStep.tmuxCommand(arguments: ["kill-window", "-t", "tabreorder:winC"])
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementQueryToDisappear(
             .labelContains("Move terminal to left:"),
             timeout: 5

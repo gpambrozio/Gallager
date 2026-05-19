@@ -74,7 +74,6 @@ public enum SplitTabScenario {
         )
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "split", timeout: 5)
         TestStep.macClickButton(titled: "split")
@@ -115,11 +114,9 @@ public enum SplitTabScenario {
         // ── Phase 1: Open two file tabs in the single-pane layout ──
         TestStep.log("Phase 1: Open hello.txt and README.md as file tabs")
         TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "README.md", timeout: 10)
 
         TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
 
         // Switch back to the tree so the second file's right-click hits the row
@@ -127,7 +124,6 @@ public enum SplitTabScenario {
         TestStep.macClickButton(titled: "Files")
         TestStep.wait(seconds: 1)
         TestStep.macContextMenuClick(elementTitle: "README.md", menuItem: "Open in New Tab")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
 
         // Select hello.txt so the icon next to its close button is visible
@@ -139,7 +135,6 @@ public enum SplitTabScenario {
         // ── Phase 2: Click the split icon on hello.txt → split opens ──
         TestStep.log("Phase 2: Click split icon on hello.txt; layout splits and the tab moves to the right")
         TestStep.macClickButton(titled: "Open file tab in split: hello.txt")
-        TestStep.wait(seconds: 2)
 
         // The split divider should now be on screen and the right pane should
         // exist. The arrow icons replace the split icons on every file tab.
@@ -241,7 +236,6 @@ public enum SplitTabScenario {
         TestStep.macClickButton(titled: "File tab: README.md")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Move file tab to right: README.md")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Move file tab to left: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-split-both-on-right")
 
@@ -250,7 +244,6 @@ public enum SplitTabScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Move file tab to left: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Move file tab to right: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "Move file tab to left: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-split-hello-left-readme-right")
@@ -258,14 +251,12 @@ public enum SplitTabScenario {
         // ── Phase 5: Persistence across session switch ──────────────
         TestStep.log("Phase 5: Switch to a different session and back; split state survives")
         TestStep.macClickButton(titled: "other")
-        TestStep.wait(seconds: 2)
         // The arrow-icon AX labels for the file tabs should be gone while we're
         // viewing the other session — its `SessionFileTabsState` is empty.
         TestStep.macWaitForElementToDisappear(titled: "Move file tab to right: hello.txt", timeout: 5)
         TestStep.macScreenshot(label: "mac-split-other-session-no-tabs")
 
         TestStep.macClickButton(titled: "split")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Move file tab to right: hello.txt", timeout: 5)
         TestStep.macWaitForElement(titled: "Move file tab to left: README.md", timeout: 5)
         TestStep.macScreenshot(label: "mac-split-restored-after-session-roundtrip")
@@ -309,13 +300,11 @@ public enum SplitTabScenario {
         // browser tab must land directly on the right pane.
         TestStep.macClickButton(titled: "split")
         TestStep.macClickButton(titled: "split:0")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-EASY-CLICK-TARGET")]),
             timeout: 10
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
-        TestStep.wait(seconds: 2)
         // The browser tab arrow should read "to left", proving it lives on
         // the right pane.
         TestStep.macWaitForElementQuery(.labelContains("Move browser tab to left:"), timeout: 5)
@@ -329,7 +318,6 @@ public enum SplitTabScenario {
         TestStep.macClickButton(titled: "File tab: README.md")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Close file tab: README.md")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "File tab: README.md", timeout: 5)
 
         // The browser tab is still on the right and the split must still be
@@ -342,10 +330,8 @@ public enum SplitTabScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(titled: "Move file tab to right: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Move file tab to left: hello.txt", timeout: 5)
         TestStep.macClickButton(titled: "Move file tab to left: hello.txt")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(titled: "Move file tab to right: hello.txt", timeout: 5)
 
         // Now close the lone right-side browser tab — split should collapse.
@@ -354,7 +340,6 @@ public enum SplitTabScenario {
         // route a CGEvent click through the element matched by labelContains
         // so the assertion isn't tied to the exact host/port shape.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"))
-        TestStep.wait(seconds: 1)
         // After the close, no arrow icons should remain — every file/browser
         // tab is back to its single-pane "split" icon.
         TestStep.macWaitForElementToDisappear(titled: "Move file tab to right: hello.txt", timeout: 5)

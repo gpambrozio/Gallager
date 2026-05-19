@@ -48,7 +48,6 @@ public enum MouseSupportScenario {
         // ── Test scroll down ─────────────────────────────────────
         TestStep.log("Sending scroll-down events")
         TestStep.macScrollWheel(deltaY: -1, count: 5)
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("SCROLL:-")]),
@@ -58,7 +57,6 @@ public enum MouseSupportScenario {
         // ── Test scroll up ───────────────────────────────────────
         TestStep.log("Sending scroll-up events")
         TestStep.macScrollWheel(deltaY: 1, count: 10)
-        TestStep.wait(seconds: 2)
 
         // Net scroll should now be +5 (10 up - 5 down)
         TestStep.macWaitForElementQuery(
@@ -73,7 +71,6 @@ public enum MouseSupportScenario {
         // the terminal to verify click events arrive with coordinates.
         TestStep.log("Sending click event")
         TestStep.macClickAtPoint(x: 450, y: 200)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("CLICK:1")]),
@@ -83,7 +80,6 @@ public enum MouseSupportScenario {
         // ── Test second click at different position ──────────────
         TestStep.log("Sending second click at different position")
         TestStep.macClickAtPoint(x: 650, y: 350)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("CLICK:2")]),
@@ -96,7 +92,6 @@ public enum MouseSupportScenario {
         // sequences are synthesized and delivered to the app.
         TestStep.log("Sending drag event")
         TestStep.macDrag(fromX: 400, fromY: 200, toX: 700, toY: 400)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("DRAG:")]),

@@ -43,7 +43,6 @@ public enum ImagePasteRemoteScenario {
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "image-paste", timeout: 10, instance: 1)
         TestStep.macClickButton(titled: "image-paste", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Confirm the viewer's terminal is fully attached to the stream
         // before we paste — without this, a Cmd+V dispatched too early can

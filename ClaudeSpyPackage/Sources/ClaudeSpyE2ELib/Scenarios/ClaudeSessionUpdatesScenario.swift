@@ -27,7 +27,6 @@ public enum ClaudeSessionUpdatesScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // 3. Verify iOS still shows the session (MyProject) with updated event
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
@@ -46,7 +45,6 @@ public enum ClaudeSessionUpdatesScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // 5. Verify the session is gone — pane should now show as a plain terminal
         //    The pane still exists in tmux, so it should appear as a terminal row

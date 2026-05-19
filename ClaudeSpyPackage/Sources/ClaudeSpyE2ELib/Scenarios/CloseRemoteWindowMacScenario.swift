@@ -36,7 +36,6 @@ public enum CloseRemoteWindowMacScenario {
         Shortcut.openPanesWindow()
         TestStep.macWaitForElement(titled: "mac-close", timeout: 10)
         TestStep.macClickButton(titled: "mac-close")
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("mac-close:0"), .valueContains("selected")]),
             timeout: 5
@@ -46,11 +45,9 @@ public enum CloseRemoteWindowMacScenario {
         TestStep.log("Phase 3: Viewer opens panes window and selects session")
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
-        TestStep.wait(seconds: 1)
 
         TestStep.macWaitForElement(titled: "mac-close", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "mac-close", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Verify both tabs are visible on viewer
         TestStep.macWaitForElementQuery(
@@ -63,7 +60,6 @@ public enum CloseRemoteWindowMacScenario {
         // 5. Switch to window 1 on viewer, then close it via X button
         TestStep.log("Phase 4: Switch to window 1 and close via X button")
         TestStep.macClickButton(titled: "mac-close:1", instance: 1)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("mac-close:1"), .valueContains("selected")]),
             timeout: 5,
@@ -72,7 +68,6 @@ public enum CloseRemoteWindowMacScenario {
 
         // Close the selected window via the X button (no confirmation — idle window)
         TestStep.macClickButton(titled: "Close window", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Window 1 should be gone, viewer should show window 0
         TestStep.macWaitForElementQueryToDisappear(
@@ -116,7 +111,6 @@ public enum CloseRemoteWindowMacScenario {
 
         // Close session via toolbar button
         TestStep.macClickButton(titled: "Close session", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Confirmation alert should appear
         TestStep.macWaitForElement(titled: "Close Session?", timeout: 5, instance: 1)
@@ -125,7 +119,6 @@ public enum CloseRemoteWindowMacScenario {
         // 7. Confirm with "Close Anyway" (default action — press Return)
         TestStep.log("Phase 6: Confirm close — session should be killed")
         TestStep.macPressKey(.return, instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Session should be gone from both host and viewer
         TestStep.macWaitForElementToDisappear(titled: "mac-close", timeout: 10, instance: 1)

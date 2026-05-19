@@ -265,7 +265,16 @@ Use for terminal rendering tests where Python helpers draw deterministic output 
 ## General Steps
 
 ### `wait(seconds: TimeInterval)`
-Sleep for the specified duration. Use after actions that trigger UI transitions or network operations. Typical values: 0.5–3 seconds for UI, 3–5 for network operations. Prefer `*WaitForElement*` over fixed sleeps when an observable signal is available.
+Sleep for the specified duration. **Avoid this whenever a state-driven wait works** — fixed sleeps pay their full duration whether the UI needed it or not, and they compound across the scenario suite.
+
+Specifically:
+- **Never put `wait` immediately before a `*WaitFor*` step** (`iosWaitForElement`, `macWaitForElement`, `macWaitForElementQuery`, `macWaitForWindow`, `waitForHostConnected`, `waitForViewerConnected`, `waitForNoPairings`, `verifyServerHasPairings`, `waitForTmuxDisplayMessage*`, `waitForFileContains`) — those steps already poll until the condition is met.
+- **Avoid `wait` before `iosTap` / `macClickButton`** — both wait up to 5s for their target element internally.
+- **Don't use `waitForElementToDisappear` as a "loading finished" signal** without a separate signal that the element was visible — if it never appeared, the step returns immediately. Prefer waiting for the post-loaded element.
+
+A fixed `wait` is still appropriate when there's no observable signal — typically before a screenshot of an animated state (cursor blink, scroll deceleration), between `tmuxRunCommand` and an immediate `tmuxCapturePaneContent`, or after a debounced resize where you can't easily express the post-state. Keep those durations tight (0.3–1s).
+
+See `references/patterns.md` "Waiting for UI Transitions" for the full checklist.
 
 ### `storeValue(key: String, value: String)`
 Store a literal string value in the execution context for use in assertions or interpolation.
