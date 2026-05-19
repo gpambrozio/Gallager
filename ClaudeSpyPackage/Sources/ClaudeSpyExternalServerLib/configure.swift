@@ -1,4 +1,6 @@
 import APNSCore
+import ClaudeSpyEncryption
+import ClaudeSpyNetworking
 import Vapor
 
 /// Configures the Vapor application
@@ -32,6 +34,15 @@ public func configure(_ app: Application) async throws {
         metricsService: metricsService,
         environment: apnsEnvironment
     )
+
+    // Release per-pair badge state when a pair is unpaired (via the API or
+    // `resetState` in tests). Without this hook the entry stays in
+    // `APNsService.lastBadge` for the process lifetime; harmless for the
+    // aggregated total (the pair stops matching the device token), but a small
+    // leak we can avoid by hanging it off the canonical removal path.
+    await pairingService.setOnPairRemoved { [apnsService] pairId in
+        await apnsService.clearBadge(pairId: pairId)
+    }
 
     // Initialize relay service with all dependencies
     let relayService = RelayService(
@@ -199,6 +210,108 @@ public extension Application {
                 return true
             }
             return false
+        }
+    }
+
+    /// Inspect the viewer-side identity stored on the first active pair. Used
+    /// by E2E to "borrow" the real iOS viewer's public key when synthesizing a
+    /// second-host pair completion, so the second host's E2EE session
+    /// establishes successfully against real key material.
+    func firstViewerIdentity() async -> (
+        pairId: String,
+        deviceId: String,
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String,
+        pushToken: String?
+    )? {
+        let ids = await pairingService.activePairIds
+        for id in ids {
+            if let pair = await pairingService.getPair(pairId: id) {
+                return (
+                    pairId: id,
+                    deviceId: pair.viewerDeviceId,
+                    deviceName: pair.viewerDeviceName,
+                    publicKey: pair.viewerPublicKey,
+                    publicKeyId: pair.viewerPublicKeyId,
+                    pushToken: pair.pushToken
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Complete a pending pair as if a viewer had submitted the code. Used by
+    /// E2E to add a second host's pair without driving the iOS "Add Host" UI:
+    /// pass the real iOS viewer's identity (looked up via
+    /// `firstViewerIdentity()`) so the resulting pair record carries iOS's
+    /// actual public key. Then `registerPushToken` for the same APNs token the
+    /// real iOS already sent, so the relay's badge aggregation sees both pairs
+    /// as siblings of one device.
+    func completePairingAsViewer(
+        code: String,
+        deviceId: String,
+        deviceName: String,
+        publicKey: String,
+        publicKeyId: String,
+        pushToken: String
+    ) async throws -> String {
+        let response = await pairingService.completePairing(
+            code: code,
+            deviceId: deviceId,
+            deviceName: deviceName,
+            publicKey: publicKey,
+            publicKeyId: publicKeyId
+        )
+        switch response {
+        case let .paired(info):
+            await pairingService.registerPushToken(pushToken, for: info.pairId)
+            return info.pairId
+        case let .error(info):
+            throw E2EHelperError.completePairingFailed(info.message)
+        case .registered:
+            throw E2EHelperError.completePairingFailed("Unexpected `registered` response")
+        }
+    }
+
+    /// Inject a push to the relay's `APNsService` as if a host had sent it.
+    /// Used to fire "Mac1's" pushes for a synthesized pair where no real Mac
+    /// host process is running — the badge-aggregation scenarios only care
+    /// that the relay correctly aggregates across two pairs sharing one APNs
+    /// device token. The encrypted body is a placeholder (iOS would decrypt
+    /// nothing real, but the E2E path skips the network entirely).
+    func injectE2EPush(pairId: String, hostBadge: Int?, silent: Bool) async throws {
+        guard let service = apnsService else {
+            throw E2EHelperError.injectPushFailed("APNsService not configured")
+        }
+        let placeholder = EncryptedPayload(
+            ciphertext: Data(),
+            senderKeyId: "e2e-synthetic"
+        )
+        let payload = EncryptedPushPayload(
+            encryptedContent: placeholder,
+            pairId: pairId,
+            badge: hostBadge,
+            silent: silent
+        )
+        await service.sendEncryptedNotificationIfNeeded(
+            payload: payload,
+            pairId: pairId
+        )
+    }
+}
+
+/// Errors thrown by the E2E-only helpers above.
+public enum E2EHelperError: Error, CustomStringConvertible {
+    case completePairingFailed(String)
+    case injectPushFailed(String)
+
+    public var description: String {
+        switch self {
+        case let .completePairingFailed(message):
+            "completePairingAsViewer failed: \(message)"
+        case let .injectPushFailed(message):
+            "injectE2EPush failed: \(message)"
         }
     }
 }

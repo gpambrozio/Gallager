@@ -154,7 +154,8 @@ struct PushModelsTests {
                 "senderKeyId": "sender-key",
                 "version": 1
             },
-            "pairId": "pair-xyz"
+            "pairId": "pair-xyz",
+            "silent": false
         }
         """
 
@@ -369,7 +370,8 @@ struct WebSocketMessageTests {
                     "senderKeyId": "sender",
                     "version": 1
                 },
-                "pairId": "test-pair"
+                "pairId": "test-pair",
+                "silent": false
             }
         }
         """

@@ -90,6 +90,53 @@ public enum TestStep: Sendable {
     /// Stop the server
     case stopServer
 
+    // MARK: - APNs E2E (Relay-Side Push Recording)
+
+    /// Wait until the relay's APNs E2E push log has at least `count` entries.
+    /// The log is populated by `APNsService` when `APNS_E2E_LOG_PATH` is set
+    /// (always true under the E2E `ServerDriver`).
+    case waitForAPNSPushCount(_ count: Int, timeout: TimeInterval = 10)
+
+    /// Verify the last entry in the APNs push log. `aggregatedBadge` is the
+    /// `aps.badge` value the relay would set on the outgoing APS payload —
+    /// the assertion target for the badge-aggregation scenarios. `pushType`
+    /// should be `"alert"` for event pushes or `"background"` for silent
+    /// badge-only updates.
+    case verifyLastAPNSPush(aggregatedBadge: Int?, silent: Bool, pushType: String)
+
+    /// Delete the APNs push log file so subsequent
+    /// `verifyLastAPNSPush` / `waitForAPNSPushCount` assertions only see
+    /// pushes recorded after this point.
+    case clearAPNSPushLog
+
+    // MARK: - Synthetic Pairing (E2E Test-Only)
+
+    /// Read the first active pair's viewer identity from the relay's
+    /// `PairingService` into context keys: `${storePrefix}DeviceId`,
+    /// `${storePrefix}DeviceName`, `${storePrefix}PublicKey`,
+    /// `${storePrefix}PublicKeyId`, `${storePrefix}PushToken`. Used by badge
+    /// aggregation scenarios to "borrow" the iOS viewer's key material before
+    /// synthesizing a second host's pair completion.
+    case serverReadFirstViewerIdentity(storePrefix: String = "viewer")
+
+    /// Complete a host's pending pairing as if a viewer had submitted the
+    /// `code`, using the viewer fields previously stored by
+    /// `serverReadFirstViewerIdentity(storePrefix:)`. Registers `pushToken`
+    /// on the new pair so the relay's badge aggregation sees both pairs as
+    /// siblings of the same APNs device.
+    case serverCompletePairingAsViewer(
+        codeKey: String,
+        pushTokenKey: String,
+        viewerKeysPrefix: String = "viewer",
+        storeAs: String
+    )
+
+    /// Inject a push to the relay's `APNsService` as if a host had sent it.
+    /// `pairIdKey` looks up the target pair in the execution context (typically
+    /// stored by `serverCompletePairingAsViewer`). Used by badge-aggregation
+    /// scenarios where the second host isn't a real running Mac.
+    case serverInjectPush(pairIdKey: String, hostBadge: Int?, silent: Bool)
+
     // MARK: - iOS Simulator
 
     /// Launch the iOS app in the simulator. Pass optional version overrides to simulate

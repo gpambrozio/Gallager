@@ -47,6 +47,11 @@ final public class ConnectedViewerManager {
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
 
+    /// Provides the current pending-attention session count. Forwarded to every
+    /// `ConnectedViewer` so outgoing pushes (event and silent) carry the right
+    /// APNs badge value.
+    public var pendingSessionCountProvider: (@MainActor @Sendable () async -> Int)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -272,6 +277,17 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Send a silent badge-update push to all connected viewers. Used after
+    /// `markSessionHandled` to bring the iOS badge in line with the host's new
+    /// (lower) pending-attention session count.
+    public func broadcastBadgeUpdate(badge: Int) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendBadgeUpdate(badge: badge) }
+            }
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func createE2EEService(for viewer: PairedViewer) async -> E2EEService? {
@@ -325,6 +341,10 @@ final public class ConnectedViewerManager {
             guard let self else { return }
             self.connections.removeValue(forKey: viewerId)
             await self.onUnpaired?(viewerId)
+        }
+
+        connection.onPendingSessionCount = { [weak self] in
+            await self?.pendingSessionCountProvider?() ?? 0
         }
     }
 }
