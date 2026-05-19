@@ -281,6 +281,7 @@ public actor TestOrchestrator {
     /// Remove all E2E apps from the simulator after test runs complete
     private func uninstallSimulatorApps() async {
         logger.info("=== Uninstalling simulator apps ===")
+        await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         try? await simulatorDriver.uninstallApp()
@@ -291,12 +292,19 @@ public actor TestOrchestrator {
         logger.info("=== Simulator apps uninstalled ===")
     }
 
-    /// Tear down all running processes regardless of scenario outcome
+    /// Tear down all running processes regardless of scenario outcome.
+    ///
+    /// Between scenarios we deliberately keep the simulator booted, the iOS
+    /// app installed, and the XCTest runner alive. The iOS app uses fully
+    /// in-memory `PreferencesService` and `SecretsService` in `--e2e-test`
+    /// mode, so `terminateApp` is enough to wipe app state — the next
+    /// `launchIOSApp` gives a clean slate without paying the simulator-boot
+    /// (~3s), app-install (~5s) and `xcodebuild test-without-building` cold
+    /// start (~15–30s) costs each time. Final per-suite uninstall happens in
+    /// `uninstallSimulatorApps` once all scenarios are done.
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
         cleanupInjectedScripts()
-        await simulatorDriver.resetStatusBar()
-        await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         let instanceKeys = Array(macDrivers.keys)
         for driver in macDrivers.values {
@@ -403,8 +411,13 @@ public actor TestOrchestrator {
             try await simulatorDriver.terminateApp()
 
         case .uninstallIOSApp:
+            // Historically this fully uninstalled the app to guarantee a clean
+            // state. The iOS app now uses in-memory `PreferencesService` and
+            // `SecretsService` under `--e2e-test`, so terminating the process
+            // is sufficient — the next launch starts from empty stores. Skipping
+            // the real uninstall lets `installApp` short-circuit on the next
+            // `launchIOSApp` and saves ~5s per scenario.
             try await simulatorDriver.terminateApp()
-            try await simulatorDriver.uninstallApp()
 
         case let .iosWaitForElement(query, timeout):
             _ = try await simulatorDriver.waitForElement(matching: query, timeout: timeout)
