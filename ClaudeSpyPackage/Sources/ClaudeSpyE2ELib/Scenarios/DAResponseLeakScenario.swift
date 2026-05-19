@@ -123,12 +123,10 @@ public enum DAResponseLeakScenario {
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDSR")
         // SwiftTerm's DECXCPR response shape is `ESC[?row;col;1R`. The `;1R`
         // tail (page=1) is highly unusual in normal terminal output and only
-        // appears here if SwiftTerm's response leaked through.
+        // appears here if SwiftTerm's response leaked through. We deliberately
+        // do not assert on `[?` because the shell echoes the typed command line
+        // (`printf '\e[?6n' …`) into the pane, which already contains `[?`.
         TestStep.assertStoredNotContains(key: "bothDSR", substring: ";1R")
-        // Also assert no `[?` literal: a leaked response would display the
-        // private-CSI prefix as visible text (ESC is typically rendered as
-        // nothing or `^[`, so `[?` lands in the pane).
-        TestStep.assertStoredNotContains(key: "bothDSR", substring: "[?")
 
         // Verify the terminal UI also shows the completion marker
         TestStep.macWaitForElementQuery(
@@ -154,10 +152,11 @@ public enum DAResponseLeakScenario {
         TestStep.wait(seconds: 3)
 
         TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDECRQM")
-        // DECRPM response fragments. `$y` is the canonical terminator and
-        // `?2026` is the mode-number prefix we queried; neither should appear.
-        TestStep.assertStoredNotContains(key: "bothDECRQM", substring: "$y")
-        TestStep.assertStoredNotContains(key: "bothDECRQM", substring: "?2026")
+        // SwiftTerm's DECRPM response for mode 2026 is `ESC[?2026;2$y` (status=2,
+        // reset). The `;2$y` tail is unique to a leaked response — the typed
+        // command line that the shell echoes contains `$p`, not `$y`, and `?2026`
+        // alone is part of the typed query so we don't assert on it.
+        TestStep.assertStoredNotContains(key: "bothDECRQM", substring: ";2$y")
 
         // Verify the terminal UI also shows the completion marker
         TestStep.macWaitForElementQuery(
