@@ -156,6 +156,81 @@ public enum TerminalResponseFilter {
         return result.count == data.count ? data : result
     }
 
+    // MARK: - Feed-level: strip DECRQM (Request Mode) queries
+
+    /// Strips DEC Request Mode query sequences from terminal output data so that
+    /// mirroring SwiftTerm instances never see them and never generate `DECRPM`
+    /// responses.
+    ///
+    /// Matched queries (CSI with `$` intermediate byte and final `p`):
+    /// - Standard:    `ESC [ Pm $ p`
+    /// - DEC private: `ESC [ ? Pm $ p`   (e.g. mode 2026 = synchronized output)
+    ///
+    /// Without this filter, SwiftTerm replies `ESC [ ? Pm ; Ps $ y` (DECRPM) via
+    /// its `send()` delegate; the response is then forwarded to tmux as input and
+    /// appears as visible text (e.g. `[?2026;2$y`).
+    ///
+    /// Returns the data with all matching sequences removed. If no queries are
+    /// found the original data is returned unchanged (no copy).
+    public static func stripDECRQMQueries(_ data: Data) -> Data {
+        guard data.contains(0x1B) else { return data }
+
+        var result = Data()
+        result.reserveCapacity(data.count)
+        var i = data.startIndex
+
+        while i < data.endIndex {
+            guard data[i] == 0x1B else {
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Need at least ESC [ digit $ p (5 bytes)
+            let remaining = data.distance(from: i, to: data.endIndex)
+            guard remaining >= 5, data[i + 1] == 0x5B else { // [
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Optional '?' prefix for DEC private DECRQM
+            var j = i + 2
+            if data[j] == 0x3F { // ?
+                j += 1
+            }
+
+            // Scan parameter bytes (digits and semicolons). Require ≥1 digit.
+            var sawDigit = false
+            while j < data.endIndex {
+                let b = data[j]
+                if b >= 0x30, b <= 0x39 {
+                    sawDigit = true
+                    j += 1
+                } else if b == 0x3B { // ';'
+                    j += 1
+                } else {
+                    break
+                }
+            }
+
+            // Must have ≥1 digit, then '$' intermediate (0x24), then 'p' (0x70)
+            if
+                sawDigit,
+                j < data.endIndex, data[j] == 0x24,
+                j + 1 < data.endIndex, data[j + 1] == 0x70 {
+                i = j + 2
+                continue
+            }
+
+            // Not a DECRQM query — pass ESC through
+            result.append(data[i])
+            i = data.index(after: i)
+        }
+
+        return result.count == data.count ? data : result
+    }
+
     // MARK: - Feed-level: strip Kitty keyboard protocol sequences
 
     /// Strips Kitty keyboard protocol negotiation sequences from terminal output
@@ -299,6 +374,12 @@ public enum TerminalResponseFilter {
 
     /// Detects terminal auto-response sequences that SwiftTerm generates internally.
     /// Used as a fallback filter in the `send()` delegate path.
+    ///
+    /// The catch-all `ESC [ ? …` rule covers all DEC private responses regardless of
+    /// terminator (Primary DA `?…c`, DECXCPR `?…R`, DECRPM `?…$y`, kitty `?…u`, etc.)
+    /// — these shapes are never legitimate user input from SwiftTerm's `send()`
+    /// delegate, so it's safe to drop them all. Individual non-`?` shapes are listed
+    /// explicitly below.
     public static func isTerminalResponse(_ data: ArraySlice<UInt8>) -> Bool {
         guard
             data.count >= 3,
@@ -309,18 +390,19 @@ public enum TerminalResponseFilter {
         let thirdByte = data[data.startIndex + 2]
         let lastByte = data[data.index(before: data.endIndex)]
 
-        // Primary DA response: ESC [ ? ... c
-        if thirdByte == 0x3F, lastByte == 0x63 { return true } // ?...c
+        // Catch-all for DEC private responses: ESC [ ? … (any terminator)
+        if thirdByte == 0x3F { return true }
         // Secondary DA response: ESC [ > ... c
         if thirdByte == 0x3E, lastByte == 0x63 { return true } // >...c
         // Cursor Position Report: ESC [ digits ; digits R
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x52 { return true } // digit...R
-        // Extended Cursor Position Report (DECXCPR): ESC [ ? digits ; digits ; digits R
-        if thirdByte == 0x3F, lastByte == 0x52 { return true } // ?...R
         // Terminal Parameter Report: ESC [ digits ... x
         if thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x78 { return true } // digit...x
-        // Kitty keyboard protocol response: ESC [ ? ... u
-        if thirdByte == 0x3F, lastByte == 0x75 { return true } // ?...u
+        // Standard DECRPM (Report Mode) response: ESC [ digits ; digits $ y
+        if
+            thirdByte >= 0x30, thirdByte <= 0x39, lastByte == 0x79, data.count >= 5,
+            data[data.index(before: data.index(before: data.endIndex))] == 0x24 // '$'
+        { return true } // digit...$y
 
         return false
     }

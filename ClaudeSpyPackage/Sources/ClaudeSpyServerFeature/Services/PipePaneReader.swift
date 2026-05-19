@@ -322,9 +322,13 @@
             let dsrFiltered = TerminalResponseFilter.stripDSRQueries(daFiltered)
             guard !dsrFiltered.isEmpty else { return }
 
+            // Strip DECRQM (Request Mode) queries — e.g. mode 2026 synchronized output.
+            let decrqmFiltered = TerminalResponseFilter.stripDECRQMQueries(dsrFiltered)
+            guard !decrqmFiltered.isEmpty else { return }
+
             // Strip Kitty keyboard protocol negotiation sequences so mirroring
             // SwiftTerm instances never enter an unsupported keyboard mode.
-            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(dsrFiltered)
+            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(decrqmFiltered)
             guard !kittyFiltered.isEmpty else { return }
 
             // Parse and strip OSC 9/777 notification sequences

@@ -138,5 +138,34 @@ public enum DAResponseLeakScenario {
 
         TestStep.macScreenshot(label: "mac-both-after-dsr", compare: false)
         TestStep.iosScreenshot(label: "ios-after-dsr", compare: false)
+
+        // ── Phase 8: Test DECRQM query (ESC[?2026$p) with both mirrors active ─
+        // Mode 2026 = synchronized output. SwiftTerm would respond with
+        // `ESC[?2026;2$y` (DECRPM). If the response leaks, the literal
+        // `[?2026;2$y` appears in the pane.
+        Shortcut.tmuxRunCommand(target: "e2e-da-leak:0", command: "clear")
+        TestStep.wait(seconds: 1)
+
+        TestStep.log("Sending DECRQM query (ESC[?2026$p) — both mirrors active")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-da-leak:0",
+            command: #"printf '\e[?2026$p' && sleep 1 && echo BOTH_DECRQM_DONE"#
+        )
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothDECRQM")
+        // DECRPM response fragments. `$y` is the canonical terminator and
+        // `?2026` is the mode-number prefix we queried; neither should appear.
+        TestStep.assertStoredNotContains(key: "bothDECRQM", substring: "$y")
+        TestStep.assertStoredNotContains(key: "bothDECRQM", substring: "?2026")
+
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("BOTH_DECRQM_DONE")]),
+            timeout: 10
+        )
+
+        TestStep.macScreenshot(label: "mac-both-after-decrqm", compare: false)
+        TestStep.iosScreenshot(label: "ios-after-decrqm", compare: false)
     }
 }
