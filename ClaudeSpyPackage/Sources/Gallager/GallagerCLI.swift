@@ -17,6 +17,7 @@ struct GallagerCLI: ParsableCommand {
             SetTitleCommand.self,
             SetColorCommand.self,
             SetEmojiCommand.self,
+            FindEmojiCommand.self,
             // Windows
             ListWindowsCommand.self,
             NewWindowCommand.self,

@@ -271,7 +271,14 @@ struct SetEmojiCommand: ParsableCommand {
         `@gallager-emoji` so it survives app restarts. Pass an empty string
         or "none" to clear the emoji.
 
-        Any platform-supported emoji works (e.g. "🚀", "🐛", "📝").
+        Accepts either:
+          • An emoji character directly (e.g. "🚀", "🐛")
+          • A Unicode name or description (e.g. "rocket", "bug",
+            "smiling face with heart-eyes")
+
+        When a name matches multiple emoji the candidates are listed so you
+        can rerun with a more specific query. Use `gallager find-emoji <query>`
+        to browse matches without committing.
 
         Targeting:
           --session SESSION  the session to update
@@ -279,29 +286,14 @@ struct SetEmojiCommand: ParsableCommand {
         """
     )
 
-    @Argument(help: "Emoji character. Pass an empty string (\"\") or \"none\" to clear.")
+    @Argument(help: "Emoji character or name (e.g. \"🚀\", \"rocket\"). Pass an empty string (\"\") or \"none\" to clear.")
     var emoji: String
 
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
-        // Pass an empty string when the user requested to clear so the API
-        // treats it consistently with `set-title` and `set-color`.
-        let normalized: String
-        if emoji.lowercased() == "none" || emoji.isEmpty {
-            normalized = ""
-        } else {
-            // Reject non-emoji input so arbitrary text doesn't get persisted
-            // to tmux and broadcast to viewers — matches how `set-color`
-            // rejects unknown color names via `SessionColor.parse`.
-            guard emoji.unicodeScalars.contains(where: \.properties.isEmoji) else {
-                throw ValidationError(
-                    "\"\(emoji)\" doesn't contain an emoji. Pass an emoji character (e.g. \"🚀\") or \"none\"/\"\" to clear."
-                )
-            }
-            normalized = emoji
-        }
-        var params: [String: JSONValue] = ["emoji": .string(normalized)]
+        let resolved = try Self.resolveEmoji(from: emoji)
+        var params: [String: JSONValue] = ["emoji": .string(resolved.value)]
         if let session = options.session {
             params["session_id"] = .string(session)
         } else if let pane = options.callingPaneId {
@@ -315,10 +307,102 @@ struct SetEmojiCommand: ParsableCommand {
         if options.json {
             printResponse(response, json: true)
         } else if response.ok {
-            if normalized.isEmpty {
+            if resolved.value.isEmpty {
                 print("Cleared session emoji.")
+            } else if let resolvedName = resolved.resolvedName {
+                print("Set session emoji to \(resolved.value) (\(resolvedName)).")
             } else {
-                print("Set session emoji to \(normalized).")
+                print("Set session emoji to \(resolved.value).")
+            }
+        }
+    }
+
+    /// Outcome of parsing the argument: an empty `value` means "clear",
+    /// a populated `value` is the string to persist, and `resolvedName` is set
+    /// only when we looked up the emoji by name so the confirmation can echo it.
+    struct Resolved {
+        let value: String
+        let resolvedName: String?
+    }
+
+    static func resolveEmoji(from input: String) throws -> Resolved {
+        if input.isEmpty || input.lowercased() == "none" {
+            return Resolved(value: "", resolvedName: nil)
+        }
+        // Direct emoji input — keep the existing fast path so users who paste
+        // the character still get the original behavior.
+        if input.unicodeScalars.contains(where: \.properties.isEmoji) {
+            return Resolved(value: input, resolvedName: nil)
+        }
+        // Fall back to name/description lookup.
+        let matches = EmojiNameLookup.search(query: input)
+        switch matches.count {
+        case 0:
+            throw ValidationError(
+                "\"\(input)\" doesn't match any emoji. Pass the emoji character itself, an empty string to clear, or try `gallager find-emoji \(input)` to search."
+            )
+        case 1:
+            let match = matches[0]
+            return Resolved(value: match.emoji, resolvedName: match.name.lowercased())
+        default:
+            var message = "\"\(input)\" matches multiple emoji — be more specific:\n"
+            let preview = matches.prefix(20)
+            for match in preview {
+                message += "  \(match.emoji)  \(match.name.lowercased())\n"
+            }
+            if matches.count > preview.count {
+                message += "  …and \(matches.count - preview.count) more (try `gallager find-emoji \(input)`).\n"
+            }
+            throw ValidationError(message)
+        }
+    }
+}
+
+struct FindEmojiCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "find-emoji",
+        abstract: "Search for emoji by Unicode name or description",
+        discussion: """
+        Looks up emoji by their official Unicode name. Every whitespace-separated
+        word in the query must appear in the candidate's name (case-insensitive).
+
+        Examples:
+          gallager find-emoji rocket
+          gallager find-emoji "smiling face"
+          gallager find-emoji heart
+        """
+    )
+
+    @Argument(help: "Search query (e.g. \"rocket\", \"smiling face\").")
+    var query: String
+
+    @Flag(name: .long, help: "Output as JSON")
+    var json = false
+
+    func run() throws {
+        let matches = EmojiNameLookup.search(query: query)
+        if matches.isEmpty {
+            if json {
+                print("[]")
+            } else {
+                FileHandle.standardError.write(
+                    Data("No emoji matches \"\(query)\".\n".utf8)
+                )
+            }
+            throw ExitCode.failure
+        }
+        if json {
+            let payload = matches.map { match in
+                ["emoji": match.emoji, "name": match.name.lowercased()]
+            }
+            if
+                let data = try? JSONEncoder().encode(payload),
+                let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            for match in matches {
+                print("\(match.emoji)  \(match.name.lowercased())")
             }
         }
     }
