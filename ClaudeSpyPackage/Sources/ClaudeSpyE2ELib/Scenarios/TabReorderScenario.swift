@@ -252,6 +252,18 @@ public enum TabReorderScenario {
         // Settle wait for the split-pane animation; the element appears
         // before the layout finishes transitioning.
         TestStep.wait(seconds: 3)
+        // The cross-divider drag may have reassigned `selectedWindow` to a
+        // different left-side window than the one we registered with the
+        // file browser at the start of this phase (the click on "Files"
+        // above only inserted the *then-current* selection into
+        // `fileBrowserActiveWindowIds`). Without an explicit click here,
+        // the left pane shows the file explorer or a terminal depending on
+        // which window the auto-reassignment landed on — non-deterministic
+        // (issue regenerated this baseline twice already in #534 / #540).
+        // Re-click Files so the current selected window is registered and
+        // the screenshot always captures the file-explorer state.
+        TestStep.macClickButton(titled: "Files")
+        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-tabreorder-terminal-on-right")
 
         // ── Phase 9: Drag the file explorer onto the right pane ─────
