@@ -330,8 +330,11 @@ struct SetEmojiCommand: ParsableCommand {
             return Resolved(value: "", resolvedName: nil)
         }
         // Direct emoji input — keep the existing fast path so users who paste
-        // the character still get the original behavior.
-        if input.unicodeScalars.contains(where: \.properties.isEmoji) {
+        // the character still get the original behavior. Require every scalar
+        // to be emoji-ish (emoji, variation selector, or ZWJ joiner) so a
+        // name typo containing one stray emoji like "rocekt 🚀" still falls
+        // through to the lookup path instead of being persisted verbatim.
+        if isEntirelyEmoji(input) {
             return Resolved(value: input, resolvedName: nil)
         }
         // Fall back to name/description lookup.
@@ -354,6 +357,21 @@ struct SetEmojiCommand: ParsableCommand {
                 message += "  …and \(matches.count - preview.count) more (try `gallager find-emoji \(input)`).\n"
             }
             throw ValidationError(message)
+        }
+    }
+
+    /// True when every scalar in `input` is either an emoji or a glue scalar
+    /// (variation selector or ZWJ) used inside emoji sequences — i.e. the
+    /// whole string is a sequence of emoji characters with no surrounding
+    /// text. Allows multi-scalar emoji (skin tones, ZWJ sequences like
+    /// 👨‍🚀, flags, ❤️) through the fast path while routing anything mixed
+    /// with prose ("rocket 🚀", "fire fox") to the name lookup.
+    private static func isEntirelyEmoji(_ input: String) -> Bool {
+        guard !input.isEmpty else { return false }
+        return input.unicodeScalars.allSatisfy { scalar in
+            scalar.properties.isEmoji
+                || scalar.properties.isVariationSelector
+                || scalar == "\u{200D}"
         }
     }
 }
@@ -383,12 +401,17 @@ struct FindEmojiCommand: ParsableCommand {
         let matches = EmojiNameLookup.search(query: query)
         if matches.isEmpty {
             if json {
+                // Scripted callers (`gallager find-emoji foo --json | jq ...`)
+                // treat an empty array as "success, but no results", so emit
+                // `[]` on stdout and exit 0. Interactive callers still get a
+                // non-zero exit + stderr message so shell scripts can branch
+                // on `if gallager find-emoji foo > /dev/null; then …`.
                 print("[]")
-            } else {
-                FileHandle.standardError.write(
-                    Data("No emoji matches \"\(query)\".\n".utf8)
-                )
+                return
             }
+            FileHandle.standardError.write(
+                Data("No emoji matches \"\(query)\".\n".utf8)
+            )
             throw ExitCode.failure
         }
         if json {

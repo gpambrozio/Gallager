@@ -22,9 +22,11 @@ enum EmojiNameLookup {
 
     private static func buildDatabase() -> [Match] {
         var result: [Match] = []
-        // 0x1FAFF covers Symbols & Pictographs Extended-A; anything above that
-        // is not used for emoji as of Unicode 15.
-        for codepoint in 0x80...0x1FAFF {
+        // Walk the full Supplementary Multilingual Plane. The `isEmoji`
+        // property does the actual selection, so widening the loop just lets
+        // future Unicode releases land emoji in higher blocks (e.g. Symbols
+        // & Pictographs Extended-B) without a code change here.
+        for codepoint in 0x80...0x1FFFF {
             guard let scalar = Unicode.Scalar(codepoint) else { continue }
             guard scalar.properties.isEmoji else { continue }
             guard let name = scalar.properties.name else { continue }
@@ -41,7 +43,9 @@ enum EmojiNameLookup {
     /// Returns matches for `query`. An exact (case-insensitive) hit on the full
     /// Unicode name short-circuits and returns just that emoji. Otherwise every
     /// whitespace-separated word in the query must appear as a substring of the
-    /// candidate's name.
+    /// candidate's name, and substring matches are sorted shortest-name-first
+    /// so the most canonical candidate (e.g. `EAR` before `EARTH GLOBE
+    /// AMERICAS`) floats to the top of ambiguous results.
     static func search(query: String) -> [Match] {
         let upper = query.uppercased()
         if let exact = database.first(where: { $0.name == upper }) {
@@ -52,8 +56,10 @@ enum EmojiNameLookup {
             .map(String.init)
             .filter { !$0.isEmpty }
         guard !words.isEmpty else { return [] }
-        return database.filter { match in
-            words.allSatisfy { match.name.contains($0) }
-        }
+        return database
+            .filter { match in
+                words.allSatisfy { match.name.contains($0) }
+            }
+            .sorted { $0.name.count < $1.name.count }
     }
 }
