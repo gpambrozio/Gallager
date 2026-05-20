@@ -204,14 +204,16 @@ Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gra
 
 ---
 
-#### `set-emoji <emoji>`
+#### `set-emoji <emoji-or-name>`
 
 Set or clear the sidebar emoji icon for a session. The choice is persisted as the `@gallager-emoji` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
 
-Like `set-title` and `set-color`, emoji icons always apply at session scope. Any platform-supported emoji works (e.g. `"🚀"`, `"🐛"`, `"📝"`); non-emoji input is rejected with a validation error so arbitrary text doesn't get persisted.
+Like `set-title` and `set-color`, emoji icons always apply at session scope. The argument accepts either an emoji character directly (`"🚀"`, `"🐛"`) or a Unicode name / description (`rocket`, `bug`, `"smiling face heart"`). Name lookup uses `Unicode.Scalar.Properties.name` locally — an exact match short-circuits to a single result, ambiguous queries print the candidate glyphs with their names and exit non-zero so you can rerun with a more specific phrase. Use `find-emoji` to browse matches without committing. Input that's neither an emoji nor a recognised Unicode name is rejected with a validation error so arbitrary text doesn't get persisted.
 
 ```bash
-gallager set-emoji "🚀" --session work          # explicit session
+gallager set-emoji "🚀" --session work          # literal emoji character
+gallager set-emoji rocket --session work        # same — looked up by Unicode name
+gallager set-emoji "smiling face heart"         # any word-set substring of a Unicode name works
 gallager set-emoji "🐛"                         # current pane's session via $TMUX_PANE
 gallager set-emoji none                         # clear
 ```
@@ -220,6 +222,22 @@ gallager set-emoji none                         # clear
 - Method: `session.set_emoji`
 - Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }` _(empty `emoji` clears)_
 - Response: `{ "ok": true }`
+
+---
+
+#### `find-emoji <query>`
+
+Search the Unicode emoji database by name and print one match per line as `<glyph>  <name>`. Every whitespace-separated word in the query must appear in the candidate's name (case-insensitive); results are sorted shortest-name-first so the most canonical candidate floats to the top. Pure local lookup — this command does not contact the relay or tmux, so it works even when Gallager isn't running.
+
+```bash
+gallager find-emoji rocket
+gallager find-emoji "smiling face"
+gallager find-emoji heart --json
+```
+
+With `--json` the output is a JSON array of `{ "emoji", "name" }` entries. An empty match set is `[]` with exit 0 (so scripts can pipe through `jq`); the human-readable mode exits 1 with a stderr message instead so shell branches like `if gallager find-emoji foo > /dev/null` work the way you'd expect.
+
+**JSON-RPC**: this command is CLI-only — no JSON-RPC method, since name lookup happens entirely in the CLI process.
 
 ---
 
