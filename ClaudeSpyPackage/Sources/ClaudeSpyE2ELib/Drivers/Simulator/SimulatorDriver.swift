@@ -531,6 +531,13 @@ public actor SimulatorDriver {
             throw SimulatorDriverError.simulatorNotRunning
         }
 
+        // Settle wait so in-flight UIKit/SwiftUI animations (push transitions,
+        // sheet presentations, button-state crossfades) finish before the
+        // pixel grab. Without this we keep getting flaky mismatches where
+        // the baseline shows the post-animation state and the actual is
+        // still mid-animation.
+        try await Task.sleep(for: .milliseconds(500))
+
         _ = try await processRunner.runOrThrow(
             "/usr/bin/xcrun",
             arguments: ["simctl", "io", udid, "screenshot", output]
