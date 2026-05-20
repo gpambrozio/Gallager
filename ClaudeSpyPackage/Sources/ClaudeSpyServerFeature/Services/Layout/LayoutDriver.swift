@@ -209,9 +209,16 @@
                 }
             }
 
+            // The bootstrap window/pane inherits the session's cwd, so window[0]
+            // and its first pane's `start_directory` only take effect if folded
+            // into the session creation path. Cascade: pane > window > session.
+            let firstWindow = config.windows.first
+            let firstWindowFirstPane = firstWindow?.panes.first
             let sessionDir = resolvedDirectory(
-                start: config.startDirectory,
-                fallbacks: [],
+                start: firstWindowFirstPane?.startDirectory
+                    ?? firstWindow?.startDirectory
+                    ?? config.startDirectory,
+                fallbacks: [firstWindow?.startDirectory, config.startDirectory],
                 configDirectory: configDirectory,
                 shellEnvironment: shellEnvironment
             )
@@ -353,9 +360,13 @@
             claudeCommandPath: String,
             tmux: TmuxService
         ) async throws {
+            // First pane's `start_directory` is the window's effective cwd —
+            // the bootstrap pane has no separate creation step that would honor
+            // it otherwise. Cascade: pane > window > session.
+            let firstPane = window.panes.first
             let windowDir = resolvedDirectory(
-                start: window.startDirectory,
-                fallbacks: [sessionConfig.startDirectory],
+                start: firstPane?.startDirectory ?? window.startDirectory,
+                fallbacks: [window.startDirectory, sessionConfig.startDirectory],
                 configDirectory: configDirectory,
                 shellEnvironment: shellEnvironment
             )

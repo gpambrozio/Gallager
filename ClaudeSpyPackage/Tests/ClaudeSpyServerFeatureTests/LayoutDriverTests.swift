@@ -69,7 +69,98 @@
             }
         }
 
+        /// Regression test: a pane-level `start_directory` on the *first* pane
+        /// of a window was silently dropped because the window/session was
+        /// created with only the window-level (or session-level) cwd. The first
+        /// pane's `start_directory` is now folded into the cascade so:
+        /// - For window > 0: `tmux.newWindow` is invoked with the pane's dir.
+        /// - For window 0:   `tmux.createSession` is invoked with the pane's dir.
+        /// Regression: a pane-level `start_directory` on the *first* pane of a
+        /// window was silently dropped because the window/session was created
+        /// using only the window-level (or session-level) cwd. Fix folds the
+        /// first pane's directory into the cascade so:
+        /// - window > 0  → `tmux.newWindow` is invoked with the pane's dir.
+        /// - window == 0 → `tmux.createSession` is invoked with the pane's dir.
+        @Test("First pane's start_directory is honored for window > 0")
+        @MainActor
+        func firstPaneStartDirectoryHonoredForLaterWindow() async throws {
+            try await withDryRunDriver { driver in
+                let config = LayoutConfig(
+                    sessionName: "first-pane-cwd-w1",
+                    windows: [
+                        LayoutConfig.Window(name: "w0", panes: [LayoutConfig.Pane()]),
+                        LayoutConfig.Window(
+                            name: "w1",
+                            panes: [
+                                LayoutConfig.Pane(
+                                    shellCommands: ["./serve.sh"],
+                                    startDirectory: "/tmp"
+                                ),
+                            ]
+                        ),
+                    ]
+                )
+
+                let result = try await driver.apply(config, dryRun: true, configDirectory: "/tmp")
+
+                #expect(result.plannedActions.contains {
+                    $0.contains("window.create name=w1") && $0.contains("path=/tmp")
+                })
+            }
+        }
+
+        @Test("First pane's start_directory is honored for window 0")
+        @MainActor
+        func firstPaneStartDirectoryHonoredForBootstrapWindow() async throws {
+            try await withDryRunDriver { driver in
+                let config = LayoutConfig(
+                    sessionName: "first-pane-cwd-w0",
+                    windows: [
+                        LayoutConfig.Window(
+                            name: "w0",
+                            panes: [
+                                LayoutConfig.Pane(
+                                    shellCommands: ["./run.sh"],
+                                    startDirectory: "/tmp"
+                                ),
+                            ]
+                        ),
+                    ]
+                )
+
+                let result = try await driver.apply(config, dryRun: true, configDirectory: "/var")
+
+                #expect(result.plannedActions.contains {
+                    $0.contains("session.create name=first-pane-cwd-w0") && $0.contains("path=/tmp")
+                })
+            }
+        }
+
         // MARK: - Helpers
+
+        /// Builds a `LayoutDriver` pointed at a non-existent tmux socket so
+        /// `sessionExists` returns false without spinning up a real server.
+        /// Suitable for dry-run-only assertions that never hit live tmux.
+        @MainActor
+        private func withDryRunDriver(
+            _ body: @MainActor (LayoutDriver) async throws -> Void
+        ) async throws {
+            let tmuxPath = try #require(Self.tmuxPath)
+            let socketPath = uniqueSocketPath()
+            defer { killServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+            try await withDependencies {
+                $0[ProcessRunner.self] = .liveValue
+            } operation: {
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                let driver = LayoutDriver(
+                    tmuxAccessor: { tmux },
+                    descriptionApplier: { _, _ in },
+                    colorApplier: { _, _ in },
+                    progressApplier: { _, _ in }
+                )
+                try await body(driver)
+            }
+        }
 
         private func uniqueSocketPath() -> String {
             // Per-test socket so `swift test --parallel` runs don't collide.
