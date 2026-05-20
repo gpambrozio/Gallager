@@ -404,7 +404,46 @@ public enum GallagerCLIScenario {
         )
         TestStep.assertStoredContains(key: "tmuxEmojiOption", substring: "🚀")
 
-        // 16g. set-emoji none clears the emoji. The badge disappears and the
+        // 16g. set-emoji also accepts a Unicode name or description instead of
+        // a literal emoji character. The CLI resolves "bug" → 🐛 via
+        // `Unicode.Scalar.Properties.name`, the success message echoes the
+        // resolved name in parens, and the sidebar badge swaps to the new
+        // glyph just as it would for a direct emoji argument.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji bug --session e2e-api > /tmp/e2e-cli-emoji-by-name.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-by-name.txt", storeAs: "emojiByNameResult")
+        TestStep.assertStoredContains(key: "emojiByNameResult", substring: "Set session emoji to 🐛 (bug).")
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-set-by-name")
+
+        // Confirm the name-resolved emoji round-tripped to tmux as the literal
+        // 🐛 character, not as the string "bug" — i.e. lookup happens CLI-side
+        // and the relay/tmux only ever see the resolved glyph.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api",
+            format: "#{@gallager-emoji}",
+            storeAs: "tmuxEmojiOptionByName"
+        )
+        TestStep.assertStoredContains(key: "tmuxEmojiOptionByName", substring: "🐛")
+
+        // 16h. find-emoji searches the Unicode emoji database by name. Running
+        // it in the terminal must print "<glyph>  <lowercased name>" for every
+        // match — an exact name match short-circuits to a single result, so
+        // "rocket" is guaranteed to be the only line.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager find-emoji rocket > /tmp/e2e-cli-find-emoji.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-emoji.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-find-emoji.txt", storeAs: "findEmojiResult")
+        TestStep.assertStoredContains(key: "findEmojiResult", substring: "🚀  rocket")
+        TestStep.assertStoredContains(key: "findEmojiResult", substring: "exit=0")
+
+        // 16i. set-emoji none clears the emoji. The badge disappears and the
         // tmux option is unset.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
@@ -413,7 +452,7 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-emoji-clear.txt", storeAs: "emojiClearResult")
         TestStep.assertStoredContains(key: "emojiClearResult", substring: "Cleared session emoji.")
-        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🐛", timeout: 10)
         TestStep.macScreenshot(label: "mac-emoji-cleared")
 
         // 17. new-session --color creates a session that opens with the color

@@ -228,15 +228,6 @@
                 return nil
             }
 
-            let claudeDir = url.appendingPathComponent(".claude")
-            guard
-                fileManager.fileExists(atPath: claudeDir.path, isDirectory: &isDirectory),
-                isDirectory.boolValue
-            else {
-                logger.debug("No .claude directory in project: \(url.path)")
-                return nil
-            }
-
             let name = url.lastPathComponent
             let lastUsed = getLastUsedTimestamp(projectPath: url.path, sessionBasePath: sessionBasePath)
 
