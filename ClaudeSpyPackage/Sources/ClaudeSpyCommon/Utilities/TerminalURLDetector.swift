@@ -114,6 +114,12 @@ public enum TerminalURLDetector {
 
     /// Finds the URL at a specific column position in a terminal row (with OSC 8 support).
     ///
+    /// Routes through `detectURLs` so the same whitespace-trimming logic
+    /// applies to clicks as to hover highlighting. This matters because tmux's
+    /// `capture-pane -e` extends OSC 8 payloads across trailing whitespace to
+    /// the end of the line — a naive per-cell payload check would treat every
+    /// trailing space cell as part of the link.
+    ///
     /// - Parameters:
     ///   - col: The column position to check.
     ///   - row: The viewport row index.
@@ -133,14 +139,14 @@ public enum TerminalURLDetector {
         cellPayload: (Int, Int) -> String?,
         allowedSchemes: Set<String> = defaultAllowedSchemes
     ) -> String? {
-        // Check OSC 8 first (higher priority)
-        if
-            let payload = cellPayload(col, row),
-            let url = urlFromOSC8Payload(payload, allowedSchemes: allowedSchemes) {
-            return url
-        }
-        // Fall back to regex
-        return urlAt(col: col, row: row, lineText: lineText)
+        let urls = detectURLs(
+            row: row,
+            cols: cols,
+            lineText: lineText,
+            cellPayload: cellPayload,
+            allowedSchemes: allowedSchemes
+        )
+        return urls.first(where: { col >= $0.startCol && col < $0.endCol })?.url
     }
 
     /// Finds the URL at a specific column position using regex only.

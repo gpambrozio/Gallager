@@ -71,11 +71,23 @@
         private var cachedCellSize: CGSize?
 
         /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
-        /// Structure: [absoluteBufferRow: [col: payloadString]]
+        /// Structure: [absoluteBufferRow: [col: CachedPayload]]
         /// Keyed by absolute buffer row so lookups remain correct after scrolling.
-        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
-        /// but cache them here so our URL detection still works.
-        private var cachedPayloads: [Int: [Int: String]] = [:]
+        ///
+        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline
+        /// rendering, but cache them here so our URL detection still works. Each
+        /// entry remembers the cell's character + attribute at the time of
+        /// caching so we can detect when a cell has been overwritten by later
+        /// content (a different character or attribute) and invalidate the
+        /// stale entry — otherwise a tap on a cell whose visible content has
+        /// changed would still open the original link.
+        struct CachedPayload {
+            let payload: String
+            let character: Character
+            let attribute: Attribute
+        }
+
+        private var cachedPayloads: [Int: [Int: CachedPayload]] = [:]
 
         /// Set to `true` once `init` has fully run. SwiftTerm's `Terminal.init`
         /// fires `mouseMode.didSet` from inside its setup, which calls our
@@ -180,14 +192,22 @@
             let payloads = cachedPayloads
             return (
                 lineText: { terminal.getScrollInvariantLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in payloads[row]?[col] }
+                cellPayload: { col, row in payloads[row]?[col]?.payload }
             )
         }
 
         /// Scans ALL terminal buffer lines for OSC 8 payloads, merges them into the cache, then clears them.
         /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
         /// to prevent SwiftTerm from rendering its own dashed underlines.
-        /// Merges rather than replaces so payloads from earlier feeds (already cleared) are preserved.
+        ///
+        /// Merges rather than replaces so payloads from earlier feeds (already
+        /// cleared) are preserved. Each cached entry records the cell's
+        /// `CharData.code` at cache time; on subsequent passes, a cell whose
+        /// current code no longer matches the cached snapshot is treated as
+        /// overwritten and its cache entry is dropped. Without this, a Claude
+        /// Code TUI that redraws a cell where an OSC 8 link used to live would
+        /// leave the stale payload in the cache, so a tap on the cell's new
+        /// (visible) content would still open the original link.
         private func extractAndClearPayloads() {
             let terminal = getTerminal()
             // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
@@ -206,11 +226,26 @@
                             if cachedPayloads[absoluteRow] == nil {
                                 cachedPayloads[absoluteRow] = [:]
                             }
-                            cachedPayloads[absoluteRow]?[col] = payload
+                            cachedPayloads[absoluteRow]?[col] = CachedPayload(
+                                payload: payload,
+                                character: cd.getCharacter(),
+                                attribute: cd.attribute
+                            )
                         }
                         cd.setPayload(atom: emptyAtom)
                         line[col] = cd
+                    } else if
+                        let cached = cachedPayloads[absoluteRow]?[col],
+                        cached.character != cd.getCharacter() || cached.attribute != cd.attribute {
+                        // Cell has no live payload and its character or
+                        // attribute has changed since we cached — content was
+                        // overwritten, so the cached link no longer describes
+                        // what's on screen at this position.
+                        cachedPayloads[absoluteRow]?[col] = nil
                     }
+                }
+                if cachedPayloads[absoluteRow]?.isEmpty == true {
+                    cachedPayloads.removeValue(forKey: absoluteRow)
                 }
             }
 
