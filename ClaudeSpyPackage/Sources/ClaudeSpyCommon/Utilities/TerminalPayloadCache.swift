@@ -67,14 +67,21 @@
 
             for absoluteRow in 0..<totalLines {
                 guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else { continue }
+                // Hoist the per-row dictionary out of the inner loop so each
+                // cell costs at most one local-variable read instead of two
+                // dictionary lookups, and so rows with no cached entries skip
+                // the invalidation branch entirely (the common case once a
+                // pane is mostly free of stale links). Reassigned in place
+                // through the loop, then written back once at the end.
+                var rowEntries = entries[absoluteRow]
                 for col in 0..<cols {
                     var cd = line[col]
                     if cd.hasPayload {
                         if let payload = cd.getPayload() as? String, !payload.isEmpty {
-                            if entries[absoluteRow] == nil {
-                                entries[absoluteRow] = [:]
+                            if rowEntries == nil {
+                                rowEntries = [:]
                             }
-                            entries[absoluteRow]?[col] = CachedPayload(
+                            rowEntries?[col] = CachedPayload(
                                 payload: payload,
                                 character: cd.getCharacter(),
                                 attribute: cd.attribute
@@ -83,16 +90,31 @@
                         cd.setPayload(atom: emptyAtom)
                         line[col] = cd
                     } else if
-                        let cached = entries[absoluteRow]?[col],
+                        rowEntries != nil,
+                        let cached = rowEntries?[col],
                         cached.character != cd.getCharacter() || cached.attribute != cd.attribute {
                         // Cell has no live payload and its character or
                         // attribute has changed since we cached — content was
                         // overwritten, so the cached link no longer describes
                         // what's on screen at this position.
-                        entries[absoluteRow]?[col] = nil
+                        //
+                        // Note: the snapshot check is intentionally loose. A
+                        // redraw that happens to leave the cell with the same
+                        // `(character, attribute)` pair (e.g. an OSC 8 link
+                        // on `file.txt` followed by a non-OSC-8 redraw of
+                        // `file.bak` — the leading `file.` cells match) will
+                        // not invalidate. Tightening this would require
+                        // remembering more cell state (e.g. the payload
+                        // itself in the live cell, or a write-generation
+                        // counter), which costs memory on every cell. The
+                        // failure mode is a stale click on an unusually
+                        // similar redraw, which we accept.
+                        rowEntries?[col] = nil
                     }
                 }
-                if entries[absoluteRow]?.isEmpty == true {
+                if let rowEntries, !rowEntries.isEmpty {
+                    entries[absoluteRow] = rowEntries
+                } else {
                     entries.removeValue(forKey: absoluteRow)
                 }
             }
