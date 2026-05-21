@@ -41,9 +41,13 @@ public struct ClaudeSession: Codable, Sendable {
     /// Project path detected via process scanning at startup (before any hook events arrive).
     public var detectedProjectPath: String?
 
-    public init(paneId: String, detectedProjectPath: String? = nil) {
+    /// Which coding-agent CLI is running in this session.
+    public var agent: CodingAgent
+
+    public init(paneId: String, detectedProjectPath: String? = nil, agent: CodingAgent = .claudeCode) {
         self.paneId = paneId
         self.detectedProjectPath = detectedProjectPath
+        self.agent = agent
     }
 
     /// Adds an event to the session, keeping only the last 5
@@ -161,11 +165,14 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
     public let action: HookAction
     public let projectPath: String?
     public let tmuxPane: String?
+    /// Which coding-agent CLI produced this event.
+    public let agent: CodingAgent
 
     public init(
         action: HookAction,
         projectPath: String?,
-        tmuxPane: String?
+        tmuxPane: String?,
+        agent: CodingAgent = .claudeCode
     ) {
         self.id = UUID()
         // Use timestamp from action if available, otherwise fall back to current time
@@ -173,6 +180,7 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
         self.action = action
         self.projectPath = projectPath
         self.tmuxPane = tmuxPane
+        self.agent = agent
     }
 
     /// Whether this event indicates the session is actively working.

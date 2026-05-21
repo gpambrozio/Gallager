@@ -332,6 +332,19 @@ final public class AppSettings {
         didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
     }
 
+    /// Path to codex command (for auto-run in Codex project folders)
+    public var codexCommandPath: String = Defaults.codexCommandPath {
+        didSet { preferences.setString(codexCommandPath, Keys.codexCommandPath) }
+    }
+
+    /// Resolves the command path for a given coding agent.
+    public func commandPath(for agent: CodingAgent) -> String {
+        switch agent {
+        case .claudeCode: claudeCommandPath
+        case .codex: codexCommandPath
+        }
+    }
+
     /// tmux socket path (empty for default)
     public var tmuxSocket: String = Defaults.tmuxSocket {
         didSet { preferences.setString(tmuxSocket, Keys.tmuxSocket) }
@@ -463,6 +476,7 @@ final public class AppSettings {
         self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
         self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
         self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
+        self.codexCommandPath = preferences.string(Keys.codexCommandPath) ?? Defaults.codexCommandPath
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
@@ -535,6 +549,7 @@ final public class AppSettings {
         case tmuxSocket
         case autoRunClaudeInProjects
         case claudeCommandPath
+        case codexCommandPath
         case closePaneOnSessionEnd
         case terminalApp
         case customTerminalPath
@@ -584,6 +599,7 @@ final public class AppSettings {
         static let tmuxSocket = ""
         static let autoRunClaudeInProjects = true
         static let claudeCommandPath = "claude"
+        static let codexCommandPath = "codex"
         static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""

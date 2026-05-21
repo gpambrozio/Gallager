@@ -498,21 +498,39 @@ struct ClaudeProjectInfoTests {
         #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
     }
 
-    @Test("Decodes legacy JSON without claudeConfigDir as nil")
-    func decodesLegacyJSON() throws {
+    @Test("Decodes JSON without claudeConfigDir as nil")
+    func decodesJSONWithoutConfigDir() throws {
         let json = """
         {
-            "name": "LegacyProject",
-            "path": "/Users/test/LegacyProject",
-            "lastUsed": null
+            "name": "PlainProject",
+            "path": "/Users/test/PlainProject",
+            "lastUsed": null,
+            "agent": "claude-code"
         }
         """
 
         let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
 
-        #expect(decoded.name == "LegacyProject")
-        #expect(decoded.path == "/Users/test/LegacyProject")
+        #expect(decoded.name == "PlainProject")
+        #expect(decoded.path == "/Users/test/PlainProject")
         #expect(decoded.claudeConfigDir == nil)
+        #expect(decoded.agent == .claudeCode)
+    }
+
+    @Test("Decodes Codex project JSON")
+    func decodesCodexProject() throws {
+        let json = """
+        {
+            "name": "CodexProject",
+            "path": "/Users/test/CodexProject",
+            "lastUsed": null,
+            "agent": "codex"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+
+        #expect(decoded.agent == .codex)
     }
 }
 

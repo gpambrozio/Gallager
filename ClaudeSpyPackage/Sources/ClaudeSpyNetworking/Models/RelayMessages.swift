@@ -283,11 +283,14 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
 
 // MARK: - Claude Projects
 
-/// Information about a discovered Claude project
+/// Information about a discovered coding-agent project (Claude Code or Codex).
+///
+/// The type name is retained for source compatibility; the `agent` field
+/// distinguishes Claude Code projects from Codex projects.
 public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
-    /// Unique identifier (based on path)
+    /// Unique identifier (agent + path; two agents can share a working directory).
     public var id: String {
-        path
+        "\(agent.rawValue):\(path)"
     }
 
     /// Project name (last component of path)
@@ -301,14 +304,24 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
 
     /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
     /// in a non-default `.claude` folder. `nil` when the project lives in the
-    /// default `~/.claude` location.
+    /// default `~/.claude` location. Always `nil` for Codex projects.
     public let claudeConfigDir: String?
 
-    public init(name: String, path: String, lastUsed: Date? = nil, claudeConfigDir: String? = nil) {
+    /// Which coding-agent CLI this project belongs to.
+    public let agent: CodingAgent
+
+    public init(
+        name: String,
+        path: String,
+        lastUsed: Date? = nil,
+        claudeConfigDir: String? = nil,
+        agent: CodingAgent = .claudeCode
+    ) {
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
         self.claudeConfigDir = claudeConfigDir
+        self.agent = agent
     }
 }
 
