@@ -396,6 +396,7 @@
             let scanner = projectScanner
             let codexScanner = codexScanner
             let claudeCommandPath = settings.claudeCommandPath
+            let codexCommandPath = settings.codexCommandPath
 
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
@@ -815,7 +816,7 @@
                     let projects = await claude + codex
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
-                onProjectStart: { [tmux, claudeCommandPath] path, args in
+                onProjectStart: { [tmux, claudeCommandPath, codexCommandPath] path, args, agent in
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     var isDirectory: ObjCBool = false
                     guard
@@ -824,12 +825,16 @@
                     else {
                         throw APIError.notFound("Path does not exist or is not a directory: \(path)")
                     }
+                    let commandPath: String = switch agent {
+                    case .claudeCode: claudeCommandPath
+                    case .codex: codexCommandPath
+                    }
                     let runCommand: String
                     if args.isEmpty {
-                        runCommand = shellQuoteSingle(claudeCommandPath)
+                        runCommand = shellQuoteSingle(commandPath)
                     } else {
                         let quoted = args.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(claudeCommandPath)) \(quoted)"
+                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,

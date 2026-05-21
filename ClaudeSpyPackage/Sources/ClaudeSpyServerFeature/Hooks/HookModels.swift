@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 import Vapor
 
@@ -12,10 +13,23 @@ public typealias ClaudeSession = ClaudeSpyCommon.ClaudeSession
 struct HookQueryParams: Content {
     let projectPath: String?
     let tmuxPane: String?
+    /// Which coding agent posted the hook. Optional on the wire so
+    /// older bridge scripts keep working — absent means `claude-code`.
+    let agent: String?
 
     enum CodingKeys: String, CodingKey {
         case projectPath = "project_path"
         case tmuxPane = "tmux_pane"
+        case agent
+    }
+
+    /// Resolves the `agent` query param to a `CodingAgent`, defaulting to
+    /// `.claudeCode` when the value is missing or unrecognized.
+    func resolvedAgent() -> CodingAgent {
+        guard let raw = agent, let parsed = CodingAgent(rawValue: raw) else {
+            return .claudeCode
+        }
+        return parsed
     }
 }
 

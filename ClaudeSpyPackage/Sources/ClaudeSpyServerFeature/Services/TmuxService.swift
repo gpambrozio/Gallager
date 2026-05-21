@@ -368,14 +368,20 @@ final public class TmuxService {
 
     /// Detects tmux panes that have a running Claude Code process as a descendant.
     ///
+    /// Metadata for an agent process detected in a pane.
+    public struct DetectedAgentPane: Sendable {
+        public let path: String
+        public let agent: CodingAgent
+    }
+
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
-    /// from `ps` output to find any descendant process named `claude`. This handles cases
-    /// where Claude Code is launched through shell wrappers or scripts (not a direct child
-    /// of the pane shell).
+    /// from `ps` output to find any descendant process named `claude` or `codex`. This
+    /// handles cases where the agent CLI is launched through shell wrappers or scripts
+    /// (not a direct child of the pane shell).
     ///
-    /// Returns a mapping of pane ID (e.g., `%0`) to the pane's current working directory
-    /// for each pane where Claude Code is running.
-    public func detectClaudePanes() async -> [String: String] {
+    /// Returns a mapping of pane ID (e.g., `%0`) to the detected agent and the pane's
+    /// current working directory.
+    public func detectClaudePanes() async -> [String: DetectedAgentPane] {
         do {
             // Get pane IDs, shell PIDs, and current paths in one tmux call
             let result = try await runTmuxCommand([
@@ -396,16 +402,29 @@ final public class TmuxService {
             let tree = try await processTree()
             guard let tree else { return [:] }
 
-            // Walk the subtree of each pane shell, looking for a "claude" descendant
-            var claudePanes: [String: String] = [:]
+            // Walk the subtree of each pane shell, looking for a "claude" or "codex" descendant.
+            // If both are running in the same pane (rare), prefer the most-recently-started
+            // process by taking the deepest match in the tree walk.
+            var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
-                if descendants.contains(where: { tree.processName(for: $0) == "claude" }) {
-                    claudePanes[paneId] = info.path
+                var match: CodingAgent?
+                for pid in descendants {
+                    let name = tree.processName(for: pid)
+                    if name == "claude" {
+                        match = .claudeCode
+                        // keep scanning — a child codex shouldn't displace a parent
+                        // claude, but if no claude found we'd still want codex.
+                    } else if name == "codex", match == nil {
+                        match = .codex
+                    }
+                }
+                if let agent = match {
+                    detected[paneId] = DetectedAgentPane(path: info.path, agent: agent)
                 }
             }
 
-            return claudePanes
+            return detected
         } catch {
             logger.warning("detectClaudePanes failed: \(error)")
             return [:]

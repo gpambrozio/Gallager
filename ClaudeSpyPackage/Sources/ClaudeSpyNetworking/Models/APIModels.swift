@@ -118,12 +118,14 @@ public struct APIProjectInfo: Codable, Sendable {
     public let name: String
     public let path: String
     public let lastUsed: Date?
+    public let agent: CodingAgent
 
-    public init(id: String, name: String, path: String, lastUsed: Date?) {
+    public init(id: String, name: String, path: String, lastUsed: Date?, agent: CodingAgent = .claudeCode) {
         self.id = id
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
+        self.agent = agent
     }
 
     public init(_ info: ClaudeProjectInfo) {
@@ -131,6 +133,7 @@ public struct APIProjectInfo: Codable, Sendable {
         self.name = info.name
         self.path = info.path
         self.lastUsed = info.lastUsed
+        self.agent = info.agent
     }
 
     public func toJSONValue() -> [String: JSONValue] {
@@ -138,6 +141,7 @@ public struct APIProjectInfo: Codable, Sendable {
             "id": .string(id),
             "name": .string(name),
             "path": .string(path),
+            "agent": .string(agent.rawValue),
         ]
         if let lastUsed {
             dict["last_used"] = .string(Self.iso8601.string(from: lastUsed))
