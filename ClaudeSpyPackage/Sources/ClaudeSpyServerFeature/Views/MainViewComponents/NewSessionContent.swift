@@ -144,7 +144,8 @@ struct NewSessionContent: View {
                                     symbol: .folder,
                                     isCreating: creatingSelection == .project(project.id),
                                     isDisabled: isCreating,
-                                    isSelected: selection == .project(project.id)
+                                    isSelected: selection == .project(project.id),
+                                    badge: project.agent == .claudeCode ? nil : project.agent.shortName
                                 ) {
                                     dismiss()
                                     onCreate(project)
@@ -219,6 +220,9 @@ struct NewSessionRow: View {
     let isCreating: Bool
     let isDisabled: Bool
     var isSelected = false
+    /// Optional badge text shown next to the title, used to mark non-default
+    /// agents (e.g. "Codex") so users can tell them apart in mixed lists.
+    var badge: String?
     let action: () -> Void
 
     private var iconStyle: AnyShapeStyle {
@@ -242,9 +246,22 @@ struct NewSessionRow: View {
                     .frame(width: 28)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.primary)
+
+                        if let badge {
+                            Text(badge)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(Color.accentColor.opacity(0.18))
+                                )
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    }
 
                     Text(subtitle)
                         .font(.caption)

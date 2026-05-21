@@ -232,6 +232,27 @@ struct GeneralSettingsView: View {
                     .help("Automatically close the tmux pane after Claude Code exits normally")
             }
 
+            Section("Codex CLI") {
+                HStack {
+                    TextField("Command", text: $settings.codexCommandPath)
+                        .help("Path to the codex command (full path or just 'codex' if in PATH)")
+                        .textFieldStyle(.roundedBorder)
+                    Button("Browse...") {
+                        browseForCodex(settings: settings)
+                    }
+                }
+
+                Text(
+                    "Codex hooks are installed globally at ~/.codex/hooks.json. " +
+                        "The first time you start Codex after installing, Codex itself will ask you " +
+                        "to review and trust the hook commands — approve them so events flow into ClaudeSpy."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                CodexHookInstallerRow()
+            }
+
             Section("Project Folders") {
                 Text("Directories containing .claude.json and .claude/ to scan for projects.")
                     .font(.caption)
@@ -475,6 +496,20 @@ private func browseForClaude(settings: AppSettings) {
 
     if panel.runModal() == .OK, let url = panel.url {
         settings.claudeCommandPath = url.path
+    }
+}
+
+@MainActor
+private func browseForCodex(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+    panel.message = "Select the codex executable"
+
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.codexCommandPath = url.path
     }
 }
 
