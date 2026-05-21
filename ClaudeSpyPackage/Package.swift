@@ -38,7 +38,7 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
     #if os(macOS)
         switch target {
         case "ClaudeSpyCommon":
-            return [.sfSymbolsMacro, .swiftEmojiPicker]
+            return [.sfSymbolsMacro, .swiftEmojiPicker, .swiftTerm]
         case "ClaudeSpyFeature":
             return [.swiftTerm]
         case "ClaudeSpyServerFeature":

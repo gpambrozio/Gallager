@@ -70,12 +70,10 @@
         /// runtime font change is ever added, clear this from the setter.
         private var cachedCellSize: CGSize?
 
-        /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
-        /// Structure: [absoluteBufferRow: [col: payloadString]]
-        /// Keyed by absolute buffer row so lookups remain correct after scrolling.
-        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
-        /// but cache them here so our URL detection still works.
-        private var cachedPayloads: [Int: [Int: String]] = [:]
+        /// OSC 8 hyperlink payload cache, mirrored from SwiftTerm cells before
+        /// we clear them to suppress SwiftTerm's own dashed underline rendering.
+        /// See `TerminalPayloadCache` for the full rationale.
+        private let payloadCache = TerminalPayloadCache()
 
         /// Set to `true` once `init` has fully run. SwiftTerm's `Terminal.init`
         /// fires `mouseMode.didSet` from inside its setup, which calls our
@@ -177,54 +175,15 @@
             lineText: (Int) -> String?,
             cellPayload: (Int, Int) -> String?
         ) {
-            let payloads = cachedPayloads
+            let cache = payloadCache
             return (
                 lineText: { terminal.getScrollInvariantLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in payloads[row]?[col] }
+                cellPayload: { col, row in cache.cellPayload(col: col, absoluteRow: row) }
             )
         }
 
-        /// Scans ALL terminal buffer lines for OSC 8 payloads, merges them into the cache, then clears them.
-        /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
-        /// to prevent SwiftTerm from rendering its own dashed underlines.
-        /// Merges rather than replaces so payloads from earlier feeds (already cleared) are preserved.
         private func extractAndClearPayloads() {
-            let terminal = getTerminal()
-            // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
-            // empty has code 0 which makes CharData.hasPayload return false.
-            assert(MemoryLayout<TinyAtom>.size == MemoryLayout<UInt16>.size, "TinyAtom layout changed — unsafeBitCast assumption is invalid")
-            let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
-            let cols = terminal.cols
-            let totalLines = terminal.buffer.yDisp + terminal.rows
-
-            for absoluteRow in 0..<totalLines {
-                guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else { continue }
-                for col in 0..<cols {
-                    var cd = line[col]
-                    if cd.hasPayload {
-                        if let payload = cd.getPayload() as? String, !payload.isEmpty {
-                            if cachedPayloads[absoluteRow] == nil {
-                                cachedPayloads[absoluteRow] = [:]
-                            }
-                            cachedPayloads[absoluteRow]?[col] = payload
-                        }
-                        cd.setPayload(atom: emptyAtom)
-                        line[col] = cd
-                    }
-                }
-            }
-
-            // Prune entries for lines that have been trimmed from the circular buffer
-            let minRow = cachedPayloads.keys.min() ?? 0
-            if minRow < totalLines {
-                for row in minRow..<totalLines where cachedPayloads[row] != nil {
-                    if terminal.getScrollInvariantLine(row: row) == nil {
-                        cachedPayloads.removeValue(forKey: row)
-                    } else {
-                        break // Lines are contiguous; once we find a valid one, the rest are valid
-                    }
-                }
-            }
+            payloadCache.extractAndClear(from: getTerminal())
         }
 
         private func setupURLLongPress() {
