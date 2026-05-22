@@ -284,11 +284,12 @@ final public class TmuxService {
     ///      always have at least one pane, so non-empty list-sessions means
     ///      list-panes lied).
     private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
-        // `customColor` and `customEmoji` sit before `customDescription`
-        // because they're single tokens with no `|`, while a description may
-        // contain `|` and is rejoined from the trailing components by
-        // `PaneInfo.init(fromTmuxOutput:)`.
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.emojiOptionKey)}|#{\(Self.descriptionOptionKey)}"
+        // Fields are joined with ASCII Unit Separator (U+001F) — see
+        // `PaneInfo.fieldSeparator`. Using `|` here used to break parsing as
+        // soon as `pane_title` contained a `|` (Codex CLI does this when it
+        // surfaces "Action Required | <session>" titles).
+        let sep = String(PaneInfo.fieldSeparator)
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
 
         let result: ProcessResult
         do {

@@ -94,13 +94,28 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
 }
 
 public extension PaneInfo {
-    /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName|windowActive|customColor|customEmoji|customDescription
-    /// `customColor` and `customEmoji` are single tokens (no `|`) so they sit
-    /// before `customDescription`, which may contain `|` and is rejoined from
-    /// the trailing components.
+    /// Field separator used between substituted tmux format variables.
+    ///
+    /// ASCII Unit Separator (U+001F) is the canonical "this byte exists for
+    /// field separation and nothing else" choice — it can't legitimately appear
+    /// in `pane_title`, `window_name`, paths, commands, or user-set
+    /// descriptions, so the parser never has to defend against a field value
+    /// that collides with the delimiter. tmux passes the byte through `#{...}`
+    /// substitution untouched (verified against tmux 3.x).
+    ///
+    /// `|` was used before and broke as soon as a client (Codex CLI) set a
+    /// `pane_title` containing `|`; the shifted parse parked the emoji glyph
+    /// in the description slot.
+    static let fieldSeparator: Character = "\u{1F}"
+
+    /// Creates a PaneInfo from tmux format output.
+    ///
+    /// Expected field order (separated by `fieldSeparator`):
+    /// id, session, window, pane, command, path, width, height, active,
+    /// title, layout, windowName, windowActive, customColor, customEmoji,
+    /// customDescription.
     init?(fromTmuxOutput line: String) {
-        let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        let components = line.split(separator: Self.fieldSeparator, omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
 
         guard
@@ -141,10 +156,8 @@ public extension PaneInfo {
             self.customEmoji = nil
         }
         if components.count >= 16 {
-            // Descriptions may contain `|`, so rejoin everything past the fixed fields
-            // instead of only taking components[15].
-            let description = components[15...].joined(separator: "|")
-            self.customDescription = description.isEmpty ? nil : description
+            let raw = components[15]
+            self.customDescription = raw.isEmpty ? nil : raw
         } else {
             self.customDescription = nil
         }
