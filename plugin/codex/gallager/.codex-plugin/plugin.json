@@ -1,5 +1,5 @@
 {
-  "name": "codex-gallager",
+  "name": "gallager",
   "version": "1.0.0",
   "description": "Forward Codex CLI lifecycle events to the local Gallager monitoring app.",
   "author": {

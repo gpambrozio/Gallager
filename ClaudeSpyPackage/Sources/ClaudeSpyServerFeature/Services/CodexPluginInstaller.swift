@@ -5,7 +5,7 @@
     import Foundation
     import Logging
 
-    /// Installs the `codex-gallager` Codex CLI plugin so Codex forwards every
+    /// Installs the `gallager` Codex CLI plugin so Codex forwards every
     /// lifecycle event to the local Gallager HTTP server.
     ///
     /// The plugin and its marketplace ship inside the app bundle at
@@ -19,11 +19,11 @@
     /// trusts the hooks. There is no documented way to bypass that prompt.
     @DependencyClient
     public struct CodexPluginInstaller: Sendable {
-        /// Installs (or refreshes) the codex-gallager plugin. Pass the path to
+        /// Installs (or refreshes) the gallager plugin. Pass the path to
         /// the user's `codex` binary so we can invoke `codex plugin add`.
         public var install: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
 
-        /// Uninstalls the codex-gallager plugin via `codex plugin remove`.
+        /// Uninstalls the gallager plugin via `codex plugin remove`.
         public var uninstall: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
 
         /// Whether `codex plugin list` reports our plugin as installed. Pass
@@ -64,12 +64,12 @@
         private let processRunner: ProcessRunner
 
         /// Plugin folder name on disk and in the manifest.
-        private static let pluginName = "codex-gallager"
+        private static let pluginName = "gallager"
 
         /// Marketplace name we register with Codex. Matches the `name` field
         /// inside `plugin/codex/.agents/plugins/marketplace.json` that ships
         /// in the app bundle.
-        private static let marketplaceName = "claudespy"
+        private static let marketplaceName = "gallager"
 
         private static var pluginSelector: String {
             "\(pluginName)@\(marketplaceName)"
@@ -91,24 +91,7 @@
             // to write a shadow copy of the plugin to the user's home — and
             // Sparkle-replacing the .app in place keeps the bundle path
             // stable across updates.
-            let mpResult = try await processRunner.run(
-                codexPath,
-                ["plugin", "marketplace", "add", bundleMarketplaceRoot.path],
-                nil,
-                30
-            )
-            if !mpResult.isSuccess {
-                let stderr = mpResult.stderrString.lowercased()
-                let benign = stderr.contains("already")
-                guard benign else {
-                    throw CodexPluginInstallError.codexInvocationFailed(
-                        command: "plugin marketplace add",
-                        exitCode: mpResult.exitCode,
-                        stderr: mpResult.stderrString
-                    )
-                }
-                logger.info("Codex reports the marketplace is already added; continuing.")
-            }
+            try await registerMarketplace(codexPath: codexPath, source: bundleMarketplaceRoot.path)
 
             let addResult = try await processRunner.run(
                 codexPath,
@@ -129,6 +112,54 @@
                 logger.info("Codex reports the plugin is already installed; treating as success.")
             }
             logger.info("Installed \(Self.pluginSelector) from \(bundleMarketplaceRoot.path)")
+        }
+
+        /// Runs `codex plugin marketplace add <source>`. If Codex reports
+        /// that a marketplace by the same name is already registered from a
+        /// different source (e.g. the bundle's own Claude marketplace shows
+        /// up under the same `gallager` name when discovered at a higher
+        /// path), removes that registration and retries the add so the new
+        /// source wins.
+        private func registerMarketplace(codexPath: String, source: String) async throws {
+            let result = try await processRunner.run(
+                codexPath,
+                ["plugin", "marketplace", "add", source],
+                nil,
+                30
+            )
+            if result.isSuccess { return }
+
+            let stderr = result.stderrString.lowercased()
+            if stderr.contains("already added from a different source") {
+                logger.info("Codex's existing '\(Self.marketplaceName)' marketplace points elsewhere; replacing it.")
+                _ = try? await processRunner.run(
+                    codexPath,
+                    ["plugin", "marketplace", "remove", Self.marketplaceName],
+                    nil,
+                    30
+                )
+                let retry = try await processRunner.run(
+                    codexPath,
+                    ["plugin", "marketplace", "add", source],
+                    nil,
+                    30
+                )
+                guard retry.isSuccess else {
+                    throw CodexPluginInstallError.codexInvocationFailed(
+                        command: "plugin marketplace add",
+                        exitCode: retry.exitCode,
+                        stderr: retry.stderrString
+                    )
+                }
+                return
+            }
+
+            // Any other failure is fatal.
+            throw CodexPluginInstallError.codexInvocationFailed(
+                command: "plugin marketplace add",
+                exitCode: result.exitCode,
+                stderr: result.stderrString
+            )
         }
 
         // MARK: - Uninstall

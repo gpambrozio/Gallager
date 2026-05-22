@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "codex-gallager",
+      "name": "gallager",
       "source": {
         "source": "local",
-        "path": "./codex-gallager"
+        "path": "./gallager"
       },
       "policy": {
         "installation": "AVAILABLE",
