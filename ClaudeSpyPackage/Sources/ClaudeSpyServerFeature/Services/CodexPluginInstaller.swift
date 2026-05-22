@@ -78,16 +78,20 @@
         // MARK: - Install
 
         func install(codexCommand: String) async throws {
+            // Resolve the codex binary BEFORE touching the filesystem so a
+            // PATH miss doesn't leave half-installed state on disk that
+            // makes `isInstalled` lie afterwards.
+            let codexPath = try await resolveCodexExecutable(codexCommand)
+
             let bundled = try locateBundledPlugin()
             let destination = pluginDestinationURL()
 
             try copyPluginFolder(from: bundled, to: destination)
             try updateMarketplaceJSON()
 
-            // `codex plugin add` is idempotent-ish: it returns an error if the
-            // plugin is already added. We swallow the "already installed"
-            // failure so reinstall is a one-click operation.
-            let codexPath = try resolveExecutable(codexCommand)
+            // `codex plugin add` returns an error if the plugin is already
+            // added. We swallow the "already installed" failure so reinstall
+            // is a one-click operation.
             let result = try await processRunner.run(
                 codexPath,
                 ["plugin", "add", "\(Self.pluginName)@\(Self.marketplaceName)"],
@@ -111,7 +115,7 @@
         // MARK: - Uninstall
 
         func uninstall(codexCommand: String) async throws {
-            let codexPath = try resolveExecutable(codexCommand)
+            let codexPath = try await resolveCodexExecutable(codexCommand)
             let result = try await processRunner.run(
                 codexPath,
                 ["plugin", "remove", "\(Self.pluginName)@\(Self.marketplaceName)"],
@@ -134,9 +138,28 @@
         // MARK: - Installed Check
 
         func isInstalled() async -> Bool {
-            let destinationExists = fileManager.fileExists(atPath: pluginDestinationURL().path)
-            let inMarketplace = marketplaceContainsOurPlugin()
-            return destinationExists && inMarketplace
+            // Source of truth is what Codex itself records. `codex plugin
+            // add` writes a `[plugins."<name>@<marketplace>"]` table to
+            // `~/.codex/config.toml`; `codex plugin remove` deletes it. Our
+            // on-disk plugin folder and marketplace.json can persist past a
+            // failed add, so checking those alone gives false positives.
+            let configURL = codexConfigURL()
+            guard
+                fileManager.fileExists(atPath: configURL.path),
+                let data = try? Data(contentsOf: configURL),
+                let toml = String(data: data, encoding: .utf8) else {
+                return false
+            }
+            return toml.contains("\(Self.pluginName)@\(Self.marketplaceName)")
+        }
+
+        private func codexConfigURL() -> URL {
+            if let override = ProcessInfo.processInfo.environment["CODEX_HOME"], !override.isEmpty {
+                return URL(fileURLWithPath: override).appendingPathComponent("config.toml")
+            }
+            return fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex")
+                .appendingPathComponent("config.toml")
         }
 
         // MARK: - File Layout
@@ -248,27 +271,77 @@
 
         // MARK: - Executable Resolution
 
-        /// Resolves a possibly-relative `codex` command to an absolute path.
-        /// If the caller passed a bare command name (the default), we walk
-        /// `PATH` ourselves rather than relying on the shell.
-        private func resolveExecutable(_ command: String) throws -> String {
+        /// Resolves a possibly-bare `codex` command to an absolute path.
+        ///
+        /// macOS apps launched from the Finder/Dock inherit a minimal `PATH`
+        /// (`/usr/bin:/bin:/usr/sbin:/sbin`) — Homebrew, Volta, nvm, asdf,
+        /// cargo, etc. are not in it even though `codex` works fine in the
+        /// user's terminal. We try, in order:
+        ///   1. Absolute path → use directly.
+        ///   2. The app's own `PATH` plus a curated list of common Codex
+        ///      install locations.
+        ///   3. The user's login shell (`/bin/zsh -ilc 'command -v codex'`)
+        ///      which loads their `~/.zprofile`/`~/.zshrc` and resolves
+        ///      whatever path manager they actually use.
+        private func resolveCodexExecutable(_ command: String) async throws -> String {
             if command.hasPrefix("/") {
                 guard fileManager.isExecutableFile(atPath: command) else {
                     throw CodexPluginInstallError.codexNotFound(command)
                 }
                 return command
             }
-            let searchPaths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+
+            if let curated = curatedLookup(command) {
+                return curated
+            }
+
+            if let viaShell = try? await loginShellLookup(command), !viaShell.isEmpty {
+                if fileManager.isExecutableFile(atPath: viaShell) {
+                    return viaShell
+                }
+            }
+
+            throw CodexPluginInstallError.codexNotFound(command)
+        }
+
+        private func curatedLookup(_ command: String) -> String? {
+            let home = fileManager.homeDirectoryForCurrentUser.path
+            let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "")
                 .split(separator: ":")
                 .map(String.init)
-            let fallbacks = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
-            for dir in searchPaths + fallbacks {
+            let fallbacks = [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "\(home)/.local/bin",
+                "\(home)/.cargo/bin",
+                "\(home)/.npm-global/bin",
+                "\(home)/.volta/bin",
+                "\(home)/.bun/bin",
+            ]
+            for dir in pathDirs + fallbacks {
                 let candidate = (dir as NSString).appendingPathComponent(command)
                 if fileManager.isExecutableFile(atPath: candidate) {
                     return candidate
                 }
             }
-            throw CodexPluginInstallError.codexNotFound(command)
+            return nil
+        }
+
+        /// Asks the user's login shell to resolve the command. Captures
+        /// version-manager shims (nvm / asdf / volta / mise / fnm) that
+        /// don't live at any fixed path.
+        private func loginShellLookup(_ command: String) async throws -> String {
+            let zsh = "/bin/zsh"
+            guard fileManager.isExecutableFile(atPath: zsh) else { return "" }
+            let result = try await processRunner.run(
+                zsh,
+                ["-ilc", "command -v \(command) 2>/dev/null"],
+                nil,
+                5
+            )
+            guard result.isSuccess else { return "" }
+            return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
