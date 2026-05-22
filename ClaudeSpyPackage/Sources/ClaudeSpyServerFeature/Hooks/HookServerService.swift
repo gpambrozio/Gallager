@@ -207,6 +207,7 @@ private actor LiveHookServer {
         let queryParams = try? req.query.decode(HookQueryParams.self)
         let projectPath = queryParams?.projectPath
         let tmuxPane = queryParams?.tmuxPane
+        let agent = queryParams?.resolvedAgent() ?? .claudeCode
 
         guard let bodyBuffer = req.body.data else {
             logger.error("Hook request with empty body")
@@ -251,7 +252,8 @@ private actor LiveHookServer {
         let event = HookEvent(
             action: hookAction,
             projectPath: projectPath,
-            tmuxPane: tmuxPane
+            tmuxPane: tmuxPane,
+            agent: agent
         )
 
         if let onHookEvent {

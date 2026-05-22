@@ -3,7 +3,6 @@ import sys
 import os
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode
-from urllib.error import URLError
 
 def read_port():
     """Read the hook server port from the per-user port file."""
@@ -52,7 +51,7 @@ def main():
             # Read response but don't do anything with it
             response.read().decode('utf-8')
             exit(0)
-    except (URLError, Exception):
+    except Exception:
         # Fallback response if server is not available
         exit(0)
 

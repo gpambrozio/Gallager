@@ -144,6 +144,10 @@ struct TmuxPaneMirrorApp: App {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
                 $0[ClaudeProjectScanner.self] = .inMemory()
+                // Don't let the live Codex scanner walk `~/.codex/sessions/`
+                // on every session-state request — heavy disk I/O there can
+                // stall the iOS terminal reconnect long enough to time out.
+                $0[CodexProjectScanner.self] = .inMemory(projects: [])
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle
                 // via --sample-files-dir passed by the test orchestrator.

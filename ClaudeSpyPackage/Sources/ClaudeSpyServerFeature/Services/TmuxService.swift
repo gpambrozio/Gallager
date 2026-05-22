@@ -284,11 +284,12 @@ final public class TmuxService {
     ///      always have at least one pane, so non-empty list-sessions means
     ///      list-panes lied).
     private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
-        // `customColor` and `customEmoji` sit before `customDescription`
-        // because they're single tokens with no `|`, while a description may
-        // contain `|` and is rejoined from the trailing components by
-        // `PaneInfo.init(fromTmuxOutput:)`.
-        let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.colorOptionKey)}|#{\(Self.emojiOptionKey)}|#{\(Self.descriptionOptionKey)}"
+        // Fields are joined with ASCII Unit Separator (U+001F) — see
+        // `PaneInfo.fieldSeparator`. Using `|` here used to break parsing as
+        // soon as `pane_title` contained a `|` (Codex CLI does this when it
+        // surfaces "Action Required | <session>" titles).
+        let sep = String(PaneInfo.fieldSeparator)
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
 
         let result: ProcessResult
         do {
@@ -368,25 +369,34 @@ final public class TmuxService {
 
     /// Detects tmux panes that have a running Claude Code process as a descendant.
     ///
+    /// Metadata for an agent process detected in a pane.
+    public struct DetectedAgentPane: Sendable {
+        public let path: String
+        public let agent: CodingAgent
+    }
+
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
-    /// from `ps` output to find any descendant process named `claude`. This handles cases
-    /// where Claude Code is launched through shell wrappers or scripts (not a direct child
-    /// of the pane shell).
+    /// from `ps` output to find any descendant process named `claude` or `codex`. This
+    /// handles cases where the agent CLI is launched through shell wrappers or scripts
+    /// (not a direct child of the pane shell).
     ///
-    /// Returns a mapping of pane ID (e.g., `%0`) to the pane's current working directory
-    /// for each pane where Claude Code is running.
-    public func detectClaudePanes() async -> [String: String] {
+    /// Returns a mapping of pane ID (e.g., `%0`) to the detected agent and the pane's
+    /// current working directory.
+    public func detectClaudePanes() async -> [String: DetectedAgentPane] {
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call
+            // Get pane IDs, shell PIDs, and current paths in one tmux call.
+            // Joined with U+001F so a `|` in a working-directory path can't
+            // shift fields — see `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
             let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}|#{pane_current_path}",
+                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
             ])
             guard result.isSuccess else { return [:] }
 
             // Build paneId -> (panePid, currentPath) mapping
             var paneInfo: [String: (pid: String, path: String)] = [:]
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3 else { continue }
                 paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
             }
@@ -396,16 +406,30 @@ final public class TmuxService {
             let tree = try await processTree()
             guard let tree else { return [:] }
 
-            // Walk the subtree of each pane shell, looking for a "claude" descendant
-            var claudePanes: [String: String] = [:]
+            // Walk the subtree of each pane shell, looking for a "claude" or "codex" descendant.
+            // Tie-break rule: Claude wins. If a pane has both processes running (including
+            // when one was launched as a child of the other), the pane reports as Claude.
+            // This favors the older / more common integration; a future refinement could
+            // pick the deepest match instead.
+            var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
-                if descendants.contains(where: { tree.processName(for: $0) == "claude" }) {
-                    claudePanes[paneId] = info.path
+                var match: CodingAgent?
+                for pid in descendants {
+                    let name = tree.processName(for: pid)
+                    if name == "claude" {
+                        match = .claudeCode
+                        break
+                    } else if name == "codex", match == nil {
+                        match = .codex
+                    }
+                }
+                if let agent = match {
+                    detected[paneId] = DetectedAgentPane(path: info.path, agent: agent)
                 }
             }
 
-            return claudePanes
+            return detected
         } catch {
             logger.warning("detectClaudePanes failed: \(error)")
             return [:]
@@ -414,8 +438,11 @@ final public class TmuxService {
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
     private func getAttachedSessionNames() async -> Set<String> {
+        // Joined with U+001F so a `|` in a tmux session name can't shift
+        // fields — see `PaneInfo.fieldSeparator`.
+        let sep = String(PaneInfo.fieldSeparator)
         guard
-            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}|#{session_name}"]),
+            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}\(sep)#{session_name}"]),
             result.isSuccess
         else {
             return []
@@ -426,7 +453,7 @@ final public class TmuxService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
             .compactMap { line -> String? in
-                let parts = line.split(separator: "|", maxSplits: 1)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 1)
                 guard parts.count == 2, parts[0] == "0" else { return nil }
                 return String(parts[1])
             }
@@ -2169,7 +2196,11 @@ final public class TmuxService {
     /// Shared implementation for detecting running processes in tmux panes.
     private func runningProcesses(listPanesArgs: [String]) async -> [RunningProcess] {
         do {
-            let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
+            // Joined with U+001F so a `|` in a process name (unusual but
+            // permitted) can't corrupt the pid field — see
+            // `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
+            let format = "#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_pid}"
             let result = try await runTmuxCommand(
                 ["list-panes"] + listPanesArgs + ["-F", format]
             )
@@ -2183,7 +2214,7 @@ final public class TmuxService {
 
             var entries: [PaneEntry] = []
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3, let index = Int(parts[0]) else { continue }
                 entries.append(PaneEntry(paneIndex: index, command: String(parts[1]), pid: String(parts[2])))
             }

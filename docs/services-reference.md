@@ -146,17 +146,23 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 
 ### HookServerService (`ClaudeSpyServerFeature/Hooks/HookServerService.swift`)
 
-`actor` HTTP server on a dynamically allocated port (written to `~/.claudespy-port`).
+`actor` HTTP server on a dynamically allocated port (written to `~/.claudespy-port`). Accepts hook events from both Claude Code and Codex CLI.
 
 **Endpoints:**
 - `GET /health` - Health check
 - `POST /api/hooks` - Hook event receiver
 
+**Query params on `/api/hooks`:**
+- `tmux_pane` - tmux pane target (e.g. `main:0.1`)
+- `agent` - `claude-code` (default) or `codex`. Resolved via `HookQueryParams.resolvedAgent()` and stamped onto the resulting `HookEvent` so downstream UI and notification copy can branch on agent.
+
 **Events:**
 - `SessionStart` - auto-opens mirror window
-- `SessionEnd` - auto-closes window
+- `SessionEnd` - auto-closes window (Claude Code only; Codex has no `SessionEnd` — see `docs/codex-cli-integration-plan.md` §5)
 - `NotificationSend` - notification events
 - `Stop` - stop events
+
+Codex contributes additional events (`PreCompact`/`PostCompact`, `SubagentStart`, `PermissionRequest`); the server accepts any JSON payload of the right shape and does not validate event names against a Claude-specific enum.
 
 ### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
 
@@ -235,6 +241,15 @@ Actor executing commands from iOS devices.
 - Installs bundled plugin from app resources
 - First-launch setup flow via `PluginSetupView`
 
+### CodexPluginInstaller (`ClaudeSpyServerFeature/Services/CodexPluginInstaller.swift`)
+
+`Sendable struct` (Point-Free `@DependencyClient`) that installs the bundled `gallager` Codex plugin so Codex forwards hook events to the local hook server.
+
+- Locates the bundled marketplace under `~/.claudespy/marketplaces/gallager/` (copied out of the app resources at install time so Codex can re-discover it)
+- Registers the marketplace via `codex plugin marketplace add` and installs the plugin via `codex plugin install gallager`
+- Writes hooks at the **global layer** (`~/.codex/hooks.json`) to avoid per-project trust prompts on every repo
+- Exposes `install` / `uninstall` / `isInstalled` closures; surfaced in Settings via `CodexPluginInstallerRow`
+
 ### ClaudeProjectScanner (`ClaudeSpyServerFeature/Services/ClaudeProjectScanner.swift`)
 
 Actor scanning for Claude Code projects.
@@ -242,7 +257,17 @@ Actor scanning for Claude Code projects.
 - Reads `~/.claude.json` for project paths
 - Validates projects have `.claude` subdirectory
 - Sorts by most recently used (session timestamps)
-- Results sent to iOS for project list display
+- Tags each result with `agent: .claudeCode`
+- Results merged with `CodexProjectScanner` output by `AppCoordinator.scanProjects()` and sent to iOS for project list display
+
+### CodexProjectScanner (`ClaudeSpyServerFeature/Services/CodexProjectScanner.swift`)
+
+`Sendable struct` (Point-Free `@DependencyClient`) discovering Codex projects.
+
+- Walks `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, honoring `CODEX_HOME` if set (rollouts are date-partitioned, not project-partitioned, so the scanner must read each file's header)
+- Reads each rollout's first JSON line (a `SessionMetaLine`) to recover the working directory. Accepts `cwd`, `working_directory`, or `payload.cwd` because Codex's schema is evolving
+- Groups rollouts by working directory and emits one `ClaudeProjectInfo` per project with `agent: .codex`
+- Output is merged with `ClaudeProjectScanner` results in `AppCoordinator.scanProjects()` and the project-list relay payload, so the iOS picker shows a unified "most recently used" list with a per-row agent badge
 
 ### ClaudePathDetector (`ClaudeSpyServerFeature/Services/ClaudePathDetector.swift`)
 
@@ -250,6 +275,7 @@ Static utility detecting the `claude` CLI path.
 
 - Checks common locations (`/usr/local/bin/claude`, homebrew paths, etc.)
 - Used by `TerminalLauncher` for auto-running Claude in new sessions
+- The matching `codex` path is resolved against `AppSettings.codexCommandPath` (default `codex`) rather than auto-detection
 
 ### TerminalLauncher (`ClaudeSpyServerFeature/Services/TerminalLauncher.swift`)
 
@@ -321,6 +347,23 @@ Actor for external processes.
 
 ## Models
 
+### CodingAgent (`ClaudeSpyNetworking/Models/CodingAgent.swift`)
+
+```swift
+public enum CodingAgent: String, Codable, Sendable, CaseIterable, Hashable {
+    case claudeCode = "claude-code"   // Anthropic Claude Code CLI (`claude`)
+    case codex                         // OpenAI Codex CLI (`codex`)
+}
+```
+
+Carries display metadata used to render agent-aware UI:
+
+- `displayName` — `"Claude Code"` / `"Codex"` (full notification titles)
+- `shortName` — `"Claude"` / `"Codex"` (sidebar badges, compact toasts)
+- `processName` — `"claude"` / `"codex"` (matched against tmux pane process trees in `TmuxService.detectAgentPanes`)
+
+`HookEvent`, `ClaudeSession`, and `ClaudeProjectInfo` all carry an `agent` field that defaults to `.claudeCode` when missing, so older Mac builds and older relay payloads still decode cleanly.
+
 ### PaneInfo (`ClaudeSpyServerFeature/Models/PaneInfo.swift`)
 
 ```swift
@@ -336,7 +379,7 @@ command, currentPath, width, height, isActive
 - **Behavior:** openPanesWindowOnLaunch, showStatusBar, autoConnectToServer, preventSleepDuringSessions
 - **Tmux:** tmuxPath, tmuxSocket
 - **Remote Access:** externalServerURL, deviceId, pairedDevices
-- **Claude:** autoRunClaudeInProjects, claudeCommandPath
+- **Coding agents:** autoRunClaudeInProjects, claudeCommandPath, codexCommandPath. `commandPath(for: CodingAgent)` returns the right binary path for an agent
 - **Plugin:** hasCompletedPluginSetup
 
 ### PairedDevice (`ClaudeSpyServerFeature/Models/Settings.swift`)

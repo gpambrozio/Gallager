@@ -4,14 +4,19 @@ import Testing
 
 @Suite("PaneInfo parsing")
 struct PaneInfoTests {
+    /// ASCII Unit Separator (U+001F) — the field delimiter the live tmux
+    /// format produces. Pulled into a constant so the fixture strings stay
+    /// legible.
+    private static let sep = "\u{1F}"
+
     /// Legacy format with no color, emoji, or description columns.
-    private static let legacyLine = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1"
+    private static let legacyLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1"
     /// Pre-color format with only `@gallager-description` at index 13.
-    private static let preColorLine = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|My custom description"
+    private static let preColorLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)My custom description"
     /// Pre-emoji format: color at 13, description at 14+ (no emoji column).
-    private static let preEmojiLine = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|blue|My custom description"
-    /// Current format: color at index 13, emoji at 14, description at 15+.
-    private static let currentLine = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|blue|🚀|My custom description"
+    private static let preEmojiLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)My custom description"
+    /// Current format: color at index 13, emoji at 14, description at 15.
+    private static let currentLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)🚀\(Self.sep)My custom description"
 
     @Test("Parses a full tmux line including color, emoji, and description")
     func parsesCustomColorEmojiAndDescription() throws {
@@ -28,7 +33,7 @@ struct PaneInfoTests {
 
     @Test("Empty color, emoji, and description parse as nil")
     func emptyOptionsParseAsNil() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|||"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)\(Self.sep)"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == nil)
         #expect(pane.customEmoji == nil)
@@ -37,7 +42,7 @@ struct PaneInfoTests {
 
     @Test("Color set without an emoji or description still parses")
     func colorOnlyParses() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|red||"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)red\(Self.sep)\(Self.sep)"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == .red)
         #expect(pane.customEmoji == nil)
@@ -46,7 +51,7 @@ struct PaneInfoTests {
 
     @Test("Emoji set without a color or description still parses")
     func emojiOnlyParses() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1||🐛|"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)🐛\(Self.sep)"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == nil)
         #expect(pane.customEmoji == "🐛")
@@ -55,7 +60,7 @@ struct PaneInfoTests {
 
     @Test("Description set without a color or emoji still parses")
     func descriptionOnlyParses() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|||some description"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)\(Self.sep)some description"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == nil)
         #expect(pane.customEmoji == nil)
@@ -64,7 +69,7 @@ struct PaneInfoTests {
 
     @Test("Unknown color values fall back to nil but emoji and description still parse")
     func unknownColorParsesAsNil() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|chartreuse|🚀|My description"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)chartreuse\(Self.sep)🚀\(Self.sep)My description"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == nil)
         #expect(pane.customEmoji == "🚀")
@@ -104,7 +109,9 @@ struct PaneInfoTests {
 
     @Test("Pipe characters inside the description are preserved")
     func pipesInDescriptionArePreserved() throws {
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1|||foo | bar | baz"
+        // The format separator is U+001F, so `|` is just another character
+        // and pipes appear verbatim in the parsed description.
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)\(Self.sep)foo | bar | baz"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customColor == nil)
         #expect(pane.customEmoji == nil)
@@ -115,8 +122,23 @@ struct PaneInfoTests {
     func multiCharacterEmojiParses() throws {
         // Family emoji is composed of multiple codepoints joined by ZWJs;
         // make sure the parse path doesn't truncate or mishandle it.
-        let line = "%5|work|2|0|zsh|/tmp|80|24|1|Title|d0c6,80x24|main|1||👨‍👩‍👧|"
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)👨‍👩‍👧\(Self.sep)"
         let pane = try #require(PaneInfo(fromTmuxOutput: line))
         #expect(pane.customEmoji == "👨‍👩‍👧")
+    }
+
+    @Test("Pane title containing a pipe does not shift later fields")
+    func paneTitleWithPipeDoesNotShiftFields() throws {
+        // Codex CLI sets `pane_title` to strings like
+        // `[ ! ] Action Required | ios-amion-v2-2`, which embeds a literal
+        // `|`. Splitting the format on `|` shifted every later field by one
+        // and parked the emoji glyph in the description slot, so the sidebar
+        // rendered "💖" as a description and showed nothing under the bell.
+        let line = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)[ ! ] Action Required | ios-amion-v2-2\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)\(Self.sep)💖\(Self.sep)"
+        let pane = try #require(PaneInfo(fromTmuxOutput: line))
+        #expect(pane.paneTitle == "[ ! ] Action Required | ios-amion-v2-2")
+        #expect(pane.customColor == nil)
+        #expect(pane.customEmoji == "💖")
+        #expect(pane.customDescription == nil)
     }
 }

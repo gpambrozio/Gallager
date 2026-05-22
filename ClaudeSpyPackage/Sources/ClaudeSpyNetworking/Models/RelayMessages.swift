@@ -283,11 +283,14 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
 
 // MARK: - Claude Projects
 
-/// Information about a discovered Claude project
+/// Information about a discovered coding-agent project (Claude Code or Codex).
+///
+/// The type name is retained for source compatibility; the `agent` field
+/// distinguishes Claude Code projects from Codex projects.
 public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
-    /// Unique identifier (based on path)
+    /// Unique identifier (agent + path; two agents can share a working directory).
     public var id: String {
-        path
+        "\(agent.rawValue):\(path)"
     }
 
     /// Project name (last component of path)
@@ -301,14 +304,67 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
 
     /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
     /// in a non-default `.claude` folder. `nil` when the project lives in the
-    /// default `~/.claude` location.
+    /// default `~/.claude` location. Always `nil` for Codex projects.
     public let claudeConfigDir: String?
 
-    public init(name: String, path: String, lastUsed: Date? = nil, claudeConfigDir: String? = nil) {
+    /// Which coding-agent CLI this project belongs to.
+    public let agent: CodingAgent
+
+    public init(
+        name: String,
+        path: String,
+        lastUsed: Date? = nil,
+        claudeConfigDir: String? = nil,
+        agent: CodingAgent = .claudeCode
+    ) {
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
         self.claudeConfigDir = claudeConfigDir
+        self.agent = agent
+    }
+
+    // MARK: - Codable
+
+    // Custom decoder so this build can pair with hosts running an older
+    // version that predates the `agent` field. Treat absence as
+    // Claude Code — the only agent those versions know about.
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case path
+        case lastUsed
+        case claudeConfigDir
+        case agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
+        self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
+        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+    }
+}
+
+public extension Sequence where Element == ClaudeProjectInfo {
+    /// Sorts projects newest-first by `lastUsed`. Projects without a
+    /// timestamp fall to the bottom in name order. Centralising this so the
+    /// scanner, the project-list API, and the relay session-state response
+    /// can't drift.
+    func sortedByLastUsed() -> [ClaudeProjectInfo] {
+        sorted { lhs, rhs in
+            switch (lhs.lastUsed, rhs.lastUsed) {
+            case let (lhsDate?, rhsDate?):
+                lhsDate > rhsDate
+            case (nil, .some):
+                false
+            case (.some, nil):
+                true
+            case (nil, nil):
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
     }
 }
 

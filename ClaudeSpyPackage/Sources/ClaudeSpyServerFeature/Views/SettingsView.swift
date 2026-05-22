@@ -232,6 +232,32 @@ struct GeneralSettingsView: View {
                     .help("Automatically close the tmux pane after Claude Code exits normally")
             }
 
+            Section("Codex CLI") {
+                Toggle("Auto-run Codex in project folders", isOn: $settings.autoRunCodexInProjects)
+                    .help("When creating a session in a Codex project folder, automatically run the codex command")
+
+                if settings.autoRunCodexInProjects {
+                    HStack {
+                        TextField("Command", text: $settings.codexCommandPath)
+                            .help("Path to the codex command (full path or just 'codex' if in PATH)")
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse...") {
+                            browseForCodex(settings: settings)
+                        }
+                    }
+                }
+
+                Text(
+                    "Gallager ships as a Codex plugin (codex-gallager). " +
+                        "The first time you start Codex after installing, Codex will ask you " +
+                        "to review and trust the plugin's hook commands — approve them so events flow into Gallager."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                CodexPluginInstallerRow(settings: settings)
+            }
+
             Section("Project Folders") {
                 Text("Directories containing .claude.json and .claude/ to scan for projects.")
                     .font(.caption)
@@ -475,6 +501,20 @@ private func browseForClaude(settings: AppSettings) {
 
     if panel.runModal() == .OK, let url = panel.url {
         settings.claudeCommandPath = url.path
+    }
+}
+
+@MainActor
+private func browseForCodex(settings: AppSettings) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+    panel.message = "Select the codex executable"
+
+    if panel.runModal() == .OK, let url = panel.url {
+        settings.codexCommandPath = url.path
     }
 }
 

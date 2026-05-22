@@ -14,13 +14,17 @@ public enum ProjectSearchIOSScenario {
         TestStep.log("Opening project picker sheet")
         TestStep.iosTap(.label("New Session"))
 
-        // ── Verify all mock projects appear ──────────────────────
+        // ── Verify mock projects appear ──────────────────────────
+        // Projects are sorted alphabetically when `lastUsed` is nil, so
+        // these are the first rows in the sheet at the medium detent.
+        // Rows further down (e.g. GammaService) sit outside the iOS
+        // List's render buffer and aren't in the XCUI hierarchy.
         // (waiting for the project items implies the loading spinner is gone)
-        TestStep.log("Verifying all mock projects are listed")
+        TestStep.log("Verifying alphabetically-first mock projects are listed")
         TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("BetaProject"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("EpsilonHub"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-all-projects-visible")
 
         // ── Tap search field and type fuzzy search ────────────────
@@ -31,8 +35,8 @@ public enum ProjectSearchIOSScenario {
         // AlphaProject should still be visible, others should be filtered out
         TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("BetaProject"), timeout: 5)
-        TestStep.iosWaitForElementToDisappear(.labelContains("GammaService"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("DeltaApp"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("EpsilonHub"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-fuzzy-search-filtered")
 
         // ── Press return to select the single result ────────────

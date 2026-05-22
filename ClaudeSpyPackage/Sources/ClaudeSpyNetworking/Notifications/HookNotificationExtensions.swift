@@ -1,7 +1,8 @@
 public extension HookEventMessage {
     /// Convert HookEventMessage to a notification title and body if applicable
     func buildNotification() -> (title: String, body: String)? {
-        let projectName = projectName ?? "Claude Code"
+        let agent = event.agent
+        let projectName = projectName ?? agent.displayName
 
         // AskUserQuestion gets a dedicated, more descriptive notification
         // (the question text or a count) instead of the generic permission copy.
@@ -11,18 +12,18 @@ public extension HookEventMessage {
             let detail: String = if params.questions.count == 1, let only = params.questions.first {
                 only.question
             } else {
-                "Claude has \(params.questions.count) questions"
+                "\(agent.shortName) has \(params.questions.count) questions"
             }
-            return (title: "Claude wants answers", body: "\(projectName): \(detail)")
+            return (title: "\(agent.shortName) wants answers", body: "\(projectName): \(detail)")
         }
 
         let body: String
 
         switch event.action {
         case .permissionRequest:
-            body = "\(projectName): Claude needs your approval"
+            body = "\(projectName): \(agent.shortName) needs your approval"
         case .sessionStart:
-            body = "\(projectName): Claude Code session started"
+            body = "\(projectName): \(agent.displayName) session started"
         case let .stop(stopBody):
             if let summary = stopBody.lastAssistantMessage {
                 let truncated = summary.count > 256
@@ -30,7 +31,7 @@ public extension HookEventMessage {
                     : summary
                 body = "\(projectName): \(truncated)"
             } else {
-                body = "\(projectName): Claude Code is waiting for your input"
+                body = "\(projectName): \(agent.displayName) is waiting for your input"
             }
         case let .notification(notifBody):
             guard notifBody.shouldSendToServer, let message = notifBody.message else {

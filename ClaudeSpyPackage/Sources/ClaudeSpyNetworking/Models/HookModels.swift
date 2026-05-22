@@ -41,9 +41,13 @@ public struct ClaudeSession: Codable, Sendable {
     /// Project path detected via process scanning at startup (before any hook events arrive).
     public var detectedProjectPath: String?
 
-    public init(paneId: String, detectedProjectPath: String? = nil) {
+    /// Which coding-agent CLI is running in this session.
+    public var agent: CodingAgent
+
+    public init(paneId: String, detectedProjectPath: String? = nil, agent: CodingAgent = .claudeCode) {
         self.paneId = paneId
         self.detectedProjectPath = detectedProjectPath
+        self.agent = agent
     }
 
     /// Adds an event to the session, keeping only the last 5
@@ -110,6 +114,33 @@ public struct ClaudeSession: Codable, Sendable {
         handledUpToEventId = latestEvent?.id
     }
 
+    // MARK: - Codable
+
+    // Custom decoder so this build can pair with a host running an older
+    // version that predates the `agent` field. Treat absence as Claude Code
+    // — the only agent those versions know about. Encoding falls through to
+    // the auto-synthesized path so newer peers receive the field.
+    private enum CodingKeys: String, CodingKey {
+        case paneId
+        case events
+        case latestEvent
+        case handledUpToEventId
+        case detectedProjectPath
+        case agent
+        case isWorking
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.paneId = try container.decode(String.self, forKey: .paneId)
+        self.events = try container.decodeIfPresent([HookEvent].self, forKey: .events) ?? []
+        self.latestEvent = try container.decodeIfPresent(HookEvent.self, forKey: .latestEvent)
+        self.handledUpToEventId = try container.decodeIfPresent(UUID.self, forKey: .handledUpToEventId)
+        self.detectedProjectPath = try container.decodeIfPresent(String.self, forKey: .detectedProjectPath)
+        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+        self.isWorking = try container.decodeIfPresent(Bool.self, forKey: .isWorking) ?? false
+    }
+
     /// Marks the current latest event as handled, clearing the `needsAttention` flag.
     /// Clears for most notification-triggering events. Permission requests require explicit
     /// user action (approve/deny) and should not be auto-dismissed by viewing the session.
@@ -161,11 +192,14 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
     public let action: HookAction
     public let projectPath: String?
     public let tmuxPane: String?
+    /// Which coding-agent CLI produced this event.
+    public let agent: CodingAgent
 
     public init(
         action: HookAction,
         projectPath: String?,
-        tmuxPane: String?
+        tmuxPane: String?,
+        agent: CodingAgent = .claudeCode
     ) {
         self.id = UUID()
         // Use timestamp from action if available, otherwise fall back to current time
@@ -173,6 +207,30 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
         self.action = action
         self.projectPath = projectPath
         self.tmuxPane = tmuxPane
+        self.agent = agent
+    }
+
+    // MARK: - Codable
+
+    // Custom decoder so this build can pair with a host running an older
+    // version that predates the `agent` field. Treat absence as Claude Code.
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case timestamp
+        case action
+        case projectPath
+        case tmuxPane
+        case agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        self.action = try container.decode(HookAction.self, forKey: .action)
+        self.projectPath = try container.decodeIfPresent(String.self, forKey: .projectPath)
+        self.tmuxPane = try container.decodeIfPresent(String.self, forKey: .tmuxPane)
+        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
     }
 
     /// Whether this event indicates the session is actively working.

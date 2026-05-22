@@ -126,6 +126,9 @@
         @ObservationIgnored
         @Dependency(ClaudeProjectScanner.self) private var projectScanner
 
+        @ObservationIgnored
+        @Dependency(CodexProjectScanner.self) private var codexScanner
+
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -200,9 +203,11 @@
             return createPairingManager()
         }
 
-        /// Scans for Claude projects using the project scanner dependency.
+        /// Scans for Claude Code and Codex projects, merging results.
         public func scanProjects() async -> [ClaudeProjectInfo] {
-            await projectScanner.scanProjects()
+            async let claude = projectScanner.scanProjects()
+            async let codex = codexScanner.scanProjects()
+            return (await claude + codex).sortedByLastUsed()
         }
 
         /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
@@ -377,7 +382,9 @@
             let editorManager = editorSessionManager
             let notificationService = terminalNotificationService
             let scanner = projectScanner
+            let codexScanner = codexScanner
             let claudeCommandPath = settings.claudeCommandPath
+            let codexCommandPath = settings.codexCommandPath
 
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
@@ -791,11 +798,13 @@
                         ).toJSONValue()
                     }
                 },
-                onProjectList: { [scanner] in
-                    let projects = await scanner.scanProjects()
+                onProjectList: { [scanner, codexScanner] in
+                    async let claude = scanner.scanProjects()
+                    async let codex = codexScanner.scanProjects()
+                    let projects = (await claude + codex).sortedByLastUsed()
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
-                onProjectStart: { [tmux, claudeCommandPath] path, args in
+                onProjectStart: { [tmux, claudeCommandPath, codexCommandPath] path, args, agent in
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     var isDirectory: ObjCBool = false
                     guard
@@ -804,12 +813,16 @@
                     else {
                         throw APIError.notFound("Path does not exist or is not a directory: \(path)")
                     }
+                    let commandPath: String = switch agent {
+                    case .claudeCode: claudeCommandPath
+                    case .codex: codexCommandPath
+                    }
                     let runCommand: String
                     if args.isEmpty {
-                        runCommand = shellQuoteSingle(claudeCommandPath)
+                        runCommand = shellQuoteSingle(commandPath)
                     } else {
                         let quoted = args.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(claudeCommandPath)) \(quoted)"
+                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
@@ -1255,7 +1268,9 @@
 
             // Set up session state handler
             let scanner = projectScanner
-            connectionManager.onSessionStateRequest = { [weak windowManager, tmuxService, scanner, editorManager] in
+            let codexProjectScanner = codexScanner
+            connectionManager.onSessionStateRequest = {
+                [weak windowManager, tmuxService, scanner, codexProjectScanner, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
@@ -1270,7 +1285,9 @@
                     paneStates[paneId] = state
                 }
 
-                let claudeProjects = await scanner.scanProjects()
+                async let claudeOnly = scanner.scanProjects()
+                async let codexOnly = codexProjectScanner.scanProjects()
+                let claudeProjects = (await claudeOnly + codexOnly).sortedByLastUsed()
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
