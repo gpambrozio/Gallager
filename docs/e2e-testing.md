@@ -333,9 +333,33 @@ Scripts live in `ClaudeSpyE2ELib/Scenarios/Scripts/` as plain files (Python, she
 
 | Step | Description |
 |------|-------------|
-| `wait(seconds:)` | Sleep for a duration |
+| `wait(seconds:)` | Sleep for a duration. **Avoid** when a state-driven wait works — see [Avoid redundant waits](#avoid-redundant-waits) below. |
 | `storeValue(key:value:)` | Store a literal value in the execution context |
 | `log(_:)` | Log a message (supports `${variable}` interpolation) |
+
+### Avoid redundant waits
+
+Fixed `wait(seconds:)` calls compound across the scenario suite and are the biggest single source of slow E2E runs. The `*WaitFor*` family of steps (`iosWaitForElement`, `iosWaitForElementToDisappear`, `macWaitForElement`, `macWaitForElementQuery`, `macWaitForWindow`, `macAssertWindowTitle`, `waitForHostConnected`, `waitForViewerConnected`, `waitForNoPairings`, `verifyServerHasPairings`, `waitForTmuxDisplayMessage*`, `waitForFileContains`) already poll until the condition is satisfied or the timeout expires, so a fixed `wait` directly before them is always redundant and should be removed.
+
+`iosTap` and `macClickButton` also have a 5-second internal element wait, so a `wait` before them is almost never useful.
+
+Two anti-patterns to watch out for:
+
+1. **`waitForElementToDisappear` as a "loading finished" signal.** If the element hasn't appeared yet when the check runs, `waitForElementToDisappear` returns immediately — and the test continues before the loading has actually started. Instead, wait for an element that only exists in the post-loaded state:
+
+   ```swift
+   // ❌ may return immediately if spinner hasn't shown yet
+   TestStep.iosTap(.label("New Session"))
+   TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
+
+   // ✅ waiting for a project item proves the list rendered
+   TestStep.iosTap(.label("New Session"))
+   TestStep.iosWaitForElement(.labelContains("New Terminal"), timeout: 15)
+   ```
+
+2. **Fixed wait around terminal/tmux state.** When you need to wait for the terminal to reach a known state, use `waitForTmuxDisplayMessage` / `waitForTmuxDisplayMessageNotEqual` keyed on `#{pane_title}`, `#{pane_width}x#{pane_height}`, etc., so the test moves on the instant the state lands rather than after a worst-case sleep.
+
+Fixed waits are still appropriate when there's no observable signal — typically before a `*Screenshot` that captures a debounced/animated state (cursor blink, scroll deceleration), or between a `tmuxRunCommand` and an immediate `tmuxCapturePaneContent`. Keep those durations tight (0.3–1s).
 
 ## Element queries (iOS)
 

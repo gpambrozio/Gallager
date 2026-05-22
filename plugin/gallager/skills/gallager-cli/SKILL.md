@@ -84,7 +84,7 @@ If `gallager` is not on `PATH`, ask the user to run **Gallager menu → Install 
 
 ## Core mental model
 
-Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `set-emoji` / `session-state` / `set-progress` (label), `capture-pane` (read), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
+Every command is one of: `list-*` (inspect), `new-*` / `split-pane` / `start-project` (create), `select-*` (focus), `close-*` (destroy), `rename-window` (relabel a tab), `send` / `send-key` (input), `set-title` / `set-color` / `set-emoji` / `session-state` / `set-progress` (label), `capture-pane` (read), `find-emoji` (local Unicode lookup), `notify` (alert), `edit` (block on prompt editor), or a utility (`ping`, `capabilities`, `identify`, `wait-ready`).
 
 Commands default to the **current** session/window/pane (inferred from the calling shell's `$TMUX_PANE`). Override with `--session <id>`, `--window <id>`, or `--pane <id>` when targeting something else. (`set-title`, `set-color`, and `set-emoji` are session-only — they accept `--session` but not `--window` or `--pane`.)
 
@@ -110,7 +110,11 @@ gallager set-title ""                                     # default targets call
 gallager set-color blue --session work                    # set/replace sidebar dot color (none/empty clears)
 gallager set-color none                                   # clear color on calling pane's session
 gallager set-emoji "🚀" --session work                    # set/replace sidebar emoji icon (none/empty clears)
+gallager set-emoji rocket --session work                  # same — looks up emoji by Unicode name/description
+gallager set-emoji "smiling face heart" --session work    # any word-set substring of a Unicode name works
 gallager set-emoji none                                   # clear emoji on calling pane's session
+gallager find-emoji rocket                                # search the Unicode emoji database — prints "<glyph>  <name>"
+gallager find-emoji rocket --json                         # JSON array; empty match set is `[]` with exit 0
 gallager select-session work
 gallager current-session
 gallager close-session work
@@ -174,7 +178,8 @@ gallager start-project ~/code/proj -- --resume   # forwards `--resume` to claude
 - **`new-session --if-missing` is idempotent.** Use it when a script needs *some* session called `--name` to exist without caring whether this run created it. The response includes `created: true|false` so you can branch on whether to populate panes.
 - **`set-title` is session-only.** It writes to the `@gallager-description` tmux user option that Gallager's sidebar reads — the underlying tmux session/window names are untouched. The CLI only accepts `--session` (or defaults to the calling pane's session via `$TMUX_PANE`); there is no window/pane scope. Pass an empty string to clear. To rename the tab label of one window, use `gallager rename-window` instead.
 - **`set-color` mirrors `set-title`** but writes the `@gallager-color` user option to render a small dot next to the session in the sidebar. Same session-only targeting rules. Valid names are `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray` (aliases: `violet`→purple, `magenta`→pink, `grey`→gray). Pass `none` or `""` to clear. The same flag also works at session creation: `gallager new-session --color blue`. Inside a `gallager apply` YAML, set `color: blue` at the top level for the same effect — re-applying the file syncs the color (clearing it when the field is removed).
-- **`set-emoji` mirrors `set-title`** but writes the `@gallager-emoji` user option to render an emoji icon next to the session in the sidebar (in addition to or in place of the color dot). Same session-only targeting rules. Any platform-supported emoji works (e.g. `"🚀"`, `"🐛"`, `"📝"`); non-emoji input is rejected with a `validation` error so junk doesn't get persisted. Pass `none` or `""` to clear.
+- **`set-emoji` mirrors `set-title`** but writes the `@gallager-emoji` user option to render an emoji icon next to the session in the sidebar (in addition to or in place of the color dot). Same session-only targeting rules. The argument accepts either an emoji character (`"🚀"`, `"🐛"`) or a Unicode name / description (`rocket`, `bug`, `"smiling face heart"`); names are resolved locally via `Unicode.Scalar.Properties.name` — an exact match short-circuits to a single result, ambiguous queries print candidates and exit non-zero so the caller can be more specific. Input that's neither emoji nor a recognised name is rejected with a `validation` error. Pass `none` or `""` to clear.
+- **`find-emoji <query>`** browses the Unicode emoji database without committing — prints `<glyph>  <name>` (one per line) for every match. Every whitespace-separated word in the query must appear in the candidate's name (case-insensitive); results are sorted shortest-name-first so the most canonical candidate floats to the top. `--json` emits `[{"emoji": "...", "name": "..."}, …]`; an empty match set is `[]` with exit 0 (success, no results) in JSON mode, exit 1 with a stderr message in human mode. Pure local lookup — never touches the relay/tmux.
 - **`rename-window` is the only window-scoped CLI mutation.** Required arguments are the window ID (`session:index`) and the new name; both are positional. It calls `tmux rename-window`, which also disables tmux's automatic-rename for that window so the tab stops tracking the running command. Empty names are rejected.
 - **`capture-pane` returns plain text**, not the JSON-RPC envelope. It's the same thing as `tmux capture-pane -p`; use `--scrollback` (`-S -`) to grab the full history when grepping.
 - **`wait-ready` is the gate for scripts that auto-launch the app.** It polls `system.ping` until success or `--timeout` (default 30s) elapses; on timeout it writes the error to stderr and exits non-zero. Cheaper and more reliable than sleeping for a fixed time.

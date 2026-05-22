@@ -73,7 +73,6 @@ public enum WindowDescriptionSyncScenario {
         TestStep.macType(text: "My Test Description", pressReturn: false)
         TestStep.macScreenshot(label: "host-alert-add-typed")
         TestStep.macClickButton(titled: "Save")
-        TestStep.wait(seconds: 2)
 
         // Verify on all three platforms
         TestStep.macWaitForElement(titled: "My Test Description", timeout: 10)
@@ -98,7 +97,6 @@ public enum WindowDescriptionSyncScenario {
         TestStep.macType(text: "Viewer Updated", pressReturn: false, instance: 1)
         TestStep.macScreenshot(label: "viewer-alert-edit-typed", instance: 1)
         TestStep.macClickButton(titled: "Save", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Verify on all three platforms
         TestStep.macWaitForElement(titled: "Viewer Updated", timeout: 10)
@@ -115,7 +113,6 @@ public enum WindowDescriptionSyncScenario {
         TestStep.log("Host removing description via context menu")
 
         TestStep.macContextMenuClick(elementTitle: "Viewer Updated", menuItem: "Remove Description")
-        TestStep.wait(seconds: 2)
 
         // Verify removed on all three platforms
         TestStep.macWaitForElementToDisappear(titled: "Viewer Updated", timeout: 5)
@@ -142,7 +139,6 @@ public enum WindowDescriptionSyncScenario {
         TestStep.macPressKey(.tab)
         TestStep.macType(text: "Persist Across Restart", pressReturn: false)
         TestStep.macClickButton(titled: "Save")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Persist Across Restart", timeout: 10)
         TestStep.macScreenshot(label: "host-before-restart")
 

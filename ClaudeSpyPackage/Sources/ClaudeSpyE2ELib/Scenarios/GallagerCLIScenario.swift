@@ -37,7 +37,6 @@ public enum GallagerCLIScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
-        TestStep.wait(seconds: 1)
 
         // Select the pane in the sidebar
         TestStep.macWaitForElement(titled: "cli-test", timeout: 5)
@@ -85,7 +84,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager new-session --name e2e-api > /tmp/e2e-cli-newsession.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
 
         // Click e2e-api to view it — stay here for all subsequent screenshots
         TestStep.macWaitForElement(titled: "e2e-api", timeout: 5)
@@ -193,7 +191,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state waiting --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Waiting for input", timeout: 10)
         TestStep.macScreenshot(label: "mac-state-waiting")
 
@@ -201,7 +198,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state idle --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
         TestStep.macScreenshot(label: "mac-state-idle")
 
@@ -209,7 +205,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state clear --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         // No status label in the row now — terminal icon returns. Confirm the
         // previous "Idle" hint is gone before snapping the cleared screenshot.
         TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
@@ -222,7 +217,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager session-state idle --session e2e-api"#
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
 
         TestStep.macSendHookEvent(
@@ -237,7 +231,6 @@ public enum GallagerCLIScenario {
             tmuxPane: "${apiPaneId}",
             projectPath: "/tmp/e2e-api"
         )
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macScreenshot(label: "mac-hook-overrides-cli")
 
@@ -411,7 +404,46 @@ public enum GallagerCLIScenario {
         )
         TestStep.assertStoredContains(key: "tmuxEmojiOption", substring: "🚀")
 
-        // 16g. set-emoji none clears the emoji. The badge disappears and the
+        // 16g. set-emoji also accepts a Unicode name or description instead of
+        // a literal emoji character. The CLI resolves "bug" → 🐛 via
+        // `Unicode.Scalar.Properties.name`, the success message echoes the
+        // resolved name in parens, and the sidebar badge swaps to the new
+        // glyph just as it would for a direct emoji argument.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-emoji bug --session e2e-api > /tmp/e2e-cli-emoji-by-name.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-emoji-by-name.txt", storeAs: "emojiByNameResult")
+        TestStep.assertStoredContains(key: "emojiByNameResult", substring: "Set session emoji to 🐛 (bug).")
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 10)
+        TestStep.macScreenshot(label: "mac-emoji-set-by-name")
+
+        // Confirm the name-resolved emoji round-tripped to tmux as the literal
+        // 🐛 character, not as the string "bug" — i.e. lookup happens CLI-side
+        // and the relay/tmux only ever see the resolved glyph.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-api",
+            format: "#{@gallager-emoji}",
+            storeAs: "tmuxEmojiOptionByName"
+        )
+        TestStep.assertStoredContains(key: "tmuxEmojiOptionByName", substring: "🐛")
+
+        // 16h. find-emoji searches the Unicode emoji database by name. Running
+        // it in the terminal must print "<glyph>  <lowercased name>" for every
+        // match — an exact name match short-circuits to a single result, so
+        // "rocket" is guaranteed to be the only line.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager find-emoji rocket > /tmp/e2e-cli-find-emoji.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-emoji.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-find-emoji.txt", storeAs: "findEmojiResult")
+        TestStep.assertStoredContains(key: "findEmojiResult", substring: "🚀  rocket")
+        TestStep.assertStoredContains(key: "findEmojiResult", substring: "exit=0")
+
+        // 16i. set-emoji none clears the emoji. The badge disappears and the
         // tmux option is unset.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
@@ -420,7 +452,7 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-cli-emoji-clear.txt", storeAs: "emojiClearResult")
         TestStep.assertStoredContains(key: "emojiClearResult", substring: "Cleared session emoji.")
-        TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 10)
+        TestStep.macWaitForElementToDisappear(titled: "emoji 🐛", timeout: 10)
         TestStep.macScreenshot(label: "mac-emoji-cleared")
 
         // 17. new-session --color creates a session that opens with the color
@@ -429,7 +461,6 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager new-session --name e2e-color --color purple > /tmp/e2e-cli-newcolor.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "e2e-color", timeout: 10)
         TestStep.macWaitForElement(titled: "Purple color", timeout: 10)
         TestStep.macScreenshot(label: "mac-new-session-with-color")
@@ -560,7 +591,133 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager set-progress clear > /dev/null 2>&1"#
         )
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 10)
+
+        // 20. apply — build a tmux session from a declarative YAML. This
+        // section exercises the full schema surface: session-level
+        // `description`/`color`/`start_directory`/`environment`/
+        // `suppress_history`, cold-start `before_script` + `on_create` +
+        // always-run `on_apply` hooks, multi-window layout with `focus`,
+        // multi-pane window with pane-level `start_directory` + `progress`.
+        //
+        // The pane-level `start_directory` on w1's *first* pane is the
+        // regression case where it used to be silently dropped (only splits
+        // cascaded), so the new window ended up at the YAML's directory
+        // instead of /tmp.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"rm -f /tmp/e2e-apply-before.txt /tmp/e2e-apply-oncreate.txt /tmp/e2e-apply-onapply.txt"#
+        )
+        TestStep.wait(seconds: 0.5)
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"printf 'session_name: e2e-apply\ndescription: E2E apply scenario\ncolor: orange\nstart_directory: /tmp\nenvironment:\n  E2E_APPLY_VAR: from-yaml\nsuppress_history: true\nbefore_script: "echo before-script-ran > /tmp/e2e-apply-before.txt"\non_create:\n  - "echo on-create-ran > /tmp/e2e-apply-oncreate.txt"\non_apply:\n  - "echo on-apply-ran > /tmp/e2e-apply-onapply.txt"\nwindows:\n  - window_name: w0\n    panes:\n      - shell_command: echo w0 ready\n  - window_name: w1\n    start_directory: /var\n    layout: main-vertical\n    panes:\n      - start_directory: /tmp\n        shell_command: echo w1-p0 ready\n        progress: 75\n      - shell_command: echo w1-p1 ready\n  - window_name: w2\n    focus: true\n    panes:\n      - shell_command: echo w2 ready\n' > /tmp/e2e-apply.yaml"#
+        )
+        TestStep.wait(seconds: 1)
+
+        // 20a. Dry-run first: planned actions must show w1's create line
+        // landing at `path=/tmp` (not at the YAML dir or window-level
+        // `/var`). This is the regression that proves pane > window > session
+        // cascading for the first pane of a window.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager apply /tmp/e2e-apply.yaml --dry-run > /tmp/e2e-cli-apply-dry.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-apply-dry.txt", storeAs: "applyDryResult")
+        TestStep.assertStoredContains(
+            key: "applyDryResult",
+            substring: "window.create name=w1"
+        )
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "path=/tmp")
+        // Dry-run also lists the hooks and the focus step so we can confirm
+        // the parser routed the schema correctly even before tmux runs.
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "before_script: echo before-script-ran")
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "on_create: echo on-create-ran")
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "on_apply: echo on-apply-ran")
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "window.select e2e-apply:w2")
+        TestStep.assertStoredContains(key: "applyDryResult", substring: "select_layout main-vertical")
+
+        // 20b. Real apply: --detach keeps focus on cli-test so the sidebar
+        // doesn't switch out from under the rest of the scenario.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager apply /tmp/e2e-apply.yaml --detach --json > /tmp/e2e-cli-apply.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 3)
+        TestStep.readFile(path: "/tmp/e2e-cli-apply.txt", storeAs: "applyResult")
+        TestStep.assertStoredContains(key: "applyResult", substring: #""session_name":"e2e-apply""#)
+        TestStep.assertStoredContains(key: "applyResult", substring: #""created":true"#)
+
+        // 20c. Sidebar reflects description + color from the YAML. The
+        // description is shown as the session title (overriding the tmux
+        // session name) and the color renders the dot badge.
+        TestStep.macWaitForElement(titled: "E2E apply scenario", timeout: 10)
+        TestStep.macWaitForElement(titled: "Orange color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-apply-session-created")
+
+        // 20d. Pane cwds verify the start_directory cascade:
+        //   - w1 pane 0 has pane.start_directory=/tmp → /private/tmp
+        //   - w1 pane 1 (split) has no pane.start_directory and falls back
+        //     to window.start_directory=/var → /private/var
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager list-panes --window e2e-apply:1 --json > /tmp/e2e-cli-apply-panes.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-apply-panes.txt", storeAs: "applyPanesResult")
+        TestStep.assertStoredContains(
+            key: "applyPanesResult",
+            substring: #""cwd":"\/private\/tmp""#
+        )
+        TestStep.assertStoredContains(
+            key: "applyPanesResult",
+            substring: #""cwd":"\/private\/var""#
+        )
+
+        // 20e. focus: true on w2 should have driven the session's current
+        // window to w2 even with --detach. list-windows confirms all three
+        // windows exist; display-message resolves the session's active
+        // window unambiguously (key order in the JSON dict isn't stable, so
+        // grepping `"is_active":true` next to `"name":"w2"` would be flaky).
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager list-windows --session e2e-apply --json > /tmp/e2e-cli-apply-windows.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-apply-windows.txt", storeAs: "applyWindowsResult")
+        TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w0""#)
+        TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w1""#)
+        TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w2""#)
+        TestStep.tmuxStoreDisplayMessage(
+            target: "e2e-apply",
+            format: "#W",
+            storeAs: "applyActiveWindow"
+        )
+        TestStep.assertStoredContains(key: "applyActiveWindow", substring: "w2")
+
+        // 20f. Hooks: bundle the three hook output files into one read so
+        // we only pay one tmuxRunCommand round-trip. before_script runs
+        // before tmux is touched; on_create runs after the session is built;
+        // on_apply runs every apply (including warm-attach).
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"{ echo BEFORE=$(cat /tmp/e2e-apply-before.txt 2>/dev/null); echo ONCREATE=$(cat /tmp/e2e-apply-oncreate.txt 2>/dev/null); echo ONAPPLY=$(cat /tmp/e2e-apply-onapply.txt 2>/dev/null); } > /tmp/e2e-cli-apply-hooks.txt"#
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.readFile(path: "/tmp/e2e-cli-apply-hooks.txt", storeAs: "applyHooksResult")
+        TestStep.assertStoredContains(key: "applyHooksResult", substring: "BEFORE=before-script-ran")
+        TestStep.assertStoredContains(key: "applyHooksResult", substring: "ONCREATE=on-create-ran")
+        TestStep.assertStoredContains(key: "applyHooksResult", substring: "ONAPPLY=on-apply-ran")
+
+        // 20g. progress: 75 on w1 pane 0 must surface as a sidebar progress
+        // bar. The combined AX value includes the session name "E2E apply
+        // scenario" (description) and the bar's value; requiring both
+        // proves the bar landed on the right pane.
+        TestStep.macWaitForElementQuery(
+            .allOf([.labelContains("Terminal progress"), .valueContains("75%")]),
+            timeout: 10
+        )
+        TestStep.macScreenshot(label: "mac-apply-progress-75")
     }
 }

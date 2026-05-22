@@ -74,8 +74,11 @@ private struct ScannerBar: View {
             let phase = context.date.timeIntervalSinceReferenceDate
                 .truncatingRemainder(dividingBy: Self.cycleDuration) / Self.cycleDuration
             // Triangle wave: 0 → 1 → 0 over the cycle.
-            let progress = phase < 0.5 ? phase * 2 : (1 - phase) * 2
-            let x = travel * progress
+            let linear = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+            // Smoothstep easing so velocity tapers to zero at both edges,
+            // softening the direction reversal instead of snapping.
+            let eased = linear * linear * (3 - 2 * linear)
+            let x = travel * eased
 
             Capsule()
                 .fill(.blue)

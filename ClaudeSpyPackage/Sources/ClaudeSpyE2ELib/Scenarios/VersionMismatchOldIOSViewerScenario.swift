@@ -43,7 +43,6 @@ public enum VersionMismatchOldIOSViewerScenario {
         // 6. Enter the code on iOS — the pairing REST call succeeds, but the
         //    peer-to-peer `peerHello` exchange that follows will surface the mismatch.
         TestStep.iosType(text: "${pairingCode}")
-        TestStep.wait(seconds: 3)
 
         // 7. Server accepted the pair record (versions are enforced in peerHello, not pairing)
         TestStep.verifyServerHasPairings(count: 1)
@@ -61,7 +60,6 @@ public enum VersionMismatchOldIOSViewerScenario {
         //    should surface the HostVersionMismatchRow callout ("Update this app"
         //    + the required version) so the user sees why they can't connect
         //    without having to drill into Settings.
-        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("Update this app"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)

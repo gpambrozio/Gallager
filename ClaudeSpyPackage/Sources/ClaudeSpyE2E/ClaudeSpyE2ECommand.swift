@@ -24,7 +24,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Simulator device name")
     var simName = "iPhone 16"
 
-    @Option(name: .long, help: "Run specific scenario by name (in interactive mode, runs it before waiting)")
+    @Option(name: .long, help: "Run specific scenario(s) by name; comma-separated for multiple (in interactive mode, runs the first one before waiting)")
     var scenario: String?
 
     @Option(name: .long, help: "Directory for screenshots")
@@ -79,12 +79,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         E2ELogging.bootstrapFileLogging(to: logPath)
 
         // Determine which scenarios we'll run to validate required paths
-        let selectedScenarios: [TestScenario]
-        if let scenarioName = scenario {
-            selectedScenarios = Self.allScenarios.filter { $0.name == scenarioName }
-        } else {
-            selectedScenarios = Self.allScenarios
-        }
+        let selectedScenarios: [TestScenario] = resolveScenarios()
         let needsIOS = selectedScenarios.contains { !$0.tags.contains("macos-only") }
 
         if needsIOS {
@@ -265,6 +260,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
         MarkHandledScenario.scenario,
+        BadgeAggregationScenario.scenario,
         WindowDescriptionSyncScenario.scenario,
         MultiPaneIOSScenario.scenario,
         KittyKeyboardProtocolScenario.scenario,
@@ -318,13 +314,20 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ProjectPickerArrowNavScenario.scenario,
         NewLocalSessionAfterRemoteScenario.scenario,
         CloseBrowserTabReturnsToParentScenario.scenario,
+        TerminalFileLinkStaleCacheScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
-        if let scenarioName = scenario {
-            return Self.allScenarios.filter { $0.name == scenarioName }
+        guard let scenario else { return Self.allScenarios }
+        let requested = scenario
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // Preserve the user-provided order so scenarios run in the sequence
+        // the caller asked for, regardless of `allScenarios` ordering.
+        return requested.compactMap { name in
+            Self.allScenarios.first { $0.name == name }
         }
-        return Self.allScenarios
     }
 
     private func runTests(scenarios scenariosToRun: [TestScenario], orchestrator: TestOrchestrator) async throws {

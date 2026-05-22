@@ -31,7 +31,6 @@ public enum FileDropRemoteScenario {
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "drop-remote", timeout: 10, instance: 1)
         TestStep.macClickButton(titled: "drop-remote", instance: 1)
-        TestStep.wait(seconds: 3)
 
         // Confirm the viewer's terminal is fully attached to the stream
         // before we drop — without this, a drop dispatched too early can

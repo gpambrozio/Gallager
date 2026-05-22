@@ -129,10 +129,8 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macFocusElement(titled: "Search")
         TestStep.macType(text: "rocket")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "🚀", timeout: 5)
         TestStep.macCGClick(titled: "🚀")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🚀", timeout: 15, instance: 1)
@@ -145,10 +143,8 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macFocusElement(titled: "Search")
         TestStep.macType(text: "bug")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "🐛", timeout: 5)
         TestStep.macCGClick(titled: "🐛")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🐛", timeout: 15, instance: 1)
@@ -161,10 +157,8 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macFocusElement(titled: "Search")
         TestStep.macType(text: "memo")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "📝", timeout: 5)
         TestStep.macCGClick(titled: "📝")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "emoji 📝", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 📝", timeout: 15, instance: 1)
@@ -191,10 +185,8 @@ public enum SessionEmojiSyncScenario {
         // filter does substring contains() against the lowercased searchKey,
         // so a multi-word "check mark button" wouldn't match.
         TestStep.macType(text: "checkmark")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "✅", timeout: 5)
         TestStep.macCGClick(titled: "✅")
-        TestStep.wait(seconds: 2)
 
         // 🐛 must be gone everywhere, replaced by ✅. 🚀 and 📝 unchanged.
         TestStep.macWaitForElementToDisappear(titled: "emoji 🐛", timeout: 15)
@@ -232,10 +224,8 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macFocusElement(titled: "Search", instance: 1)
         TestStep.macType(text: "palette", instance: 1)
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "🎨", timeout: 5, instance: 1)
         TestStep.macCGClick(titled: "🎨", instance: 1)
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 📝", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 🎨", timeout: 15)
@@ -272,7 +262,6 @@ public enum SessionEmojiSyncScenario {
         TestStep.iosWaitForElement(.label("😍"), timeout: 5)
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("😍"))
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji ✅", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15)
@@ -307,7 +296,6 @@ public enum SessionEmojiSyncScenario {
         TestStep.iosLongPress(.label("AlphaProject"), duration: 1)
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("Clear Emoji"))
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 🚀", timeout: 15)
         TestStep.macWaitForElement(titled: "emoji 😍", timeout: 15)
@@ -331,14 +319,12 @@ public enum SessionEmojiSyncScenario {
             elementTitle: "e2e-emoji-b",
             menuItem: "Clear Emoji"
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "emoji 😍", timeout: 15)
 
         TestStep.macContextMenuClick(
             elementTitle: "e2e-emoji-c",
             menuItem: "Clear Emoji"
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "emoji 🎨", timeout: 15)
 
         TestStep.macWaitForElementToDisappear(titled: "emoji 😍", timeout: 15, instance: 1)
@@ -365,10 +351,8 @@ public enum SessionEmojiSyncScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macFocusElement(titled: "Search")
         TestStep.macType(text: "floppy")
-        TestStep.wait(seconds: 0.5)
         TestStep.macWaitForElement(titled: "💾", timeout: 5)
         TestStep.macCGClick(titled: "💾")
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElement(titled: "emoji 💾", timeout: 10)
         TestStep.macScreenshot(label: "host-before-restart")
 

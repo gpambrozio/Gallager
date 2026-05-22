@@ -57,6 +57,9 @@ public enum TerminalTitleMacToIOSScenario {
 
         // Verify the terminal title appears in the iOS navigation title
         TestStep.iosWaitForElement(.labelContains("iOS Title Test"), timeout: 15)
+        // Settle wait — the terminal view's content rendering races with
+        // the title bar update; without this the baseline is flaky.
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-custom-title")
 
         // ── Phase 7: Change title and verify it updates on iOS ────────
@@ -67,7 +70,6 @@ public enum TerminalTitleMacToIOSScenario {
             command: "printf '\\033]2;Updated iOS Title\\007'",
             literal: false
         )
-        TestStep.wait(seconds: 3)
 
         // Verify updated title on host
         TestStep.macWaitForElement(titled: "Updated iOS Title", timeout: 10)
@@ -110,6 +112,7 @@ public enum TerminalTitleMacToIOSScenario {
 
         // Verify the title that was set while the pane was inactive appears on iOS
         TestStep.iosWaitForElement(.labelContains("Inactive iOS Title"), timeout: 15)
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-inactive-pane-title")
     }
 }

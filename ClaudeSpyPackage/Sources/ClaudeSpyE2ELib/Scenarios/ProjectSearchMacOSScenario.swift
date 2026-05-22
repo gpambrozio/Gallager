@@ -19,7 +19,6 @@ public enum ProjectSearchMacOSScenario {
             query: .identifier("new-session-local"),
             pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
         )
-        TestStep.wait(seconds: 2)
 
         // ── Verify all mock projects appear ──────────────────────
         TestStep.log("Verifying all mock projects are listed")
@@ -32,19 +31,17 @@ public enum ProjectSearchMacOSScenario {
         // ── Type fuzzy search to filter projects ────────────────
         TestStep.log("Typing 'alpr' to test fuzzy/subsequence matching")
         TestStep.macType(text: "alpr")
-        TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-fuzzy-search-filtered", compare: false)
 
         // AlphaProject should still be visible, others should be filtered out
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "GammaService", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "DeltaApp", timeout: 5)
+        TestStep.macScreenshot(label: "mac-fuzzy-search-filtered", compare: false)
 
         // ── Press return to select the single result ────────────
         TestStep.log("Pressing return to select AlphaProject")
         TestStep.macType(text: "", pressReturn: true)
-        TestStep.wait(seconds: 1)
         // Check the popover closed by verifying a popover-only element is gone.
         // "AlphaProject" can't be used here because it appears in the sidebar
         // as the newly created session's project label.

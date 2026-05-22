@@ -130,7 +130,6 @@ public enum SessionColorSyncScenario {
             parentMenuItem: "Set Color",
             submenuItem: "Red"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "Red color", timeout: 15)
         TestStep.macWaitForElement(titled: "Red color", timeout: 15, instance: 1)
@@ -143,7 +142,6 @@ public enum SessionColorSyncScenario {
             parentMenuItem: "Set Color",
             submenuItem: "Green"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "Green color", timeout: 15)
         TestStep.macWaitForElement(titled: "Green color", timeout: 15, instance: 1)
@@ -156,7 +154,6 @@ public enum SessionColorSyncScenario {
             parentMenuItem: "Set Color",
             submenuItem: "Blue"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElement(titled: "Blue color", timeout: 15)
         TestStep.macWaitForElement(titled: "Blue color", timeout: 15, instance: 1)
@@ -180,7 +177,6 @@ public enum SessionColorSyncScenario {
             parentMenuItem: "Color: Green",
             submenuItem: "Purple"
         )
-        TestStep.wait(seconds: 2)
 
         // Green must be gone everywhere, replaced by Purple. Red and Blue
         // are unaffected.
@@ -216,7 +212,6 @@ public enum SessionColorSyncScenario {
             submenuItem: "Yellow",
             instance: 1
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Blue color", timeout: 15)
         TestStep.macWaitForElement(titled: "Yellow color", timeout: 15)
@@ -250,7 +245,6 @@ public enum SessionColorSyncScenario {
         TestStep.iosTap(.labelContains("Color: Red"))
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("Pink"))
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Red color", timeout: 15)
         TestStep.macWaitForElement(titled: "Pink color", timeout: 15)
@@ -281,7 +275,6 @@ public enum SessionColorSyncScenario {
             elementTitle: "e2e-color-a",
             menuItem: "Clear Color"
         )
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Pink color", timeout: 15)
         TestStep.macWaitForElement(titled: "Purple color", timeout: 15)
@@ -307,14 +300,12 @@ public enum SessionColorSyncScenario {
             elementTitle: "e2e-color-b",
             menuItem: "Clear Color"
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Purple color", timeout: 15)
 
         TestStep.macContextMenuClick(
             elementTitle: "e2e-color-c",
             menuItem: "Clear Color"
         )
-        TestStep.wait(seconds: 2)
         TestStep.macWaitForElementToDisappear(titled: "Yellow color", timeout: 15)
 
         TestStep.macWaitForElementToDisappear(titled: "Purple color", timeout: 15, instance: 1)

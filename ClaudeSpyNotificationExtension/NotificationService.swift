@@ -52,27 +52,32 @@ class NotificationService: UNNotificationServiceExtension {
 
     private func decryptAndUpdateNotification(request: UNNotificationRequest) async {
         guard let content = bestAttemptContent else {
-            deliverWithFailure(reason: .noContent)
+            deliverWithFailure(reason: .noContent, hostName: nil)
             return
         }
 
         // Extract pairId from userInfo (identifies which Mac sent this notification)
         guard let pairId = request.content.userInfo["pairId"] as? String else {
             // Server should always include pairId - this is unexpected
-            deliverWithFailure(reason: .missingPairId)
+            deliverWithFailure(reason: .missingPairId, hostName: nil)
             return
         }
+
+        // Resolve the display name now so every failure path can show which
+        // host the notification came from. Users often have multiple paired
+        // Macs and need to know which one to act on when decryption fails.
+        let hostName = PairedHostNameStore.displayName(for: pairId)
 
         // Extract encrypted payload from notification userInfo
         guard let encryptedBase64 = request.content.userInfo["encrypted"] as? String else {
             // Server should always send encrypted payloads - this is unexpected
-            deliverWithFailure(reason: .missingEncryptedPayload)
+            deliverWithFailure(reason: .missingEncryptedPayload, hostName: hostName)
             return
         }
 
         // Decode the encrypted payload
         guard let encryptedData = Data(base64Encoded: encryptedBase64) else {
-            deliverWithFailure(reason: .base64DecodeFailed)
+            deliverWithFailure(reason: .base64DecodeFailed, hostName: hostName)
             return
         }
 
@@ -80,7 +85,7 @@ class NotificationService: UNNotificationServiceExtension {
         do {
             encryptedPayload = try JSONDecoder().decode(EncryptedPayload.self, from: encryptedData)
         } catch {
-            deliverWithFailure(reason: .payloadDecodeFailed)
+            deliverWithFailure(reason: .payloadDecodeFailed, hostName: hostName)
             return
         }
 
@@ -90,12 +95,12 @@ class NotificationService: UNNotificationServiceExtension {
         do {
             sessionKeyData = try await keyManager.loadSessionKey(for: pairId)
         } catch {
-            deliverWithFailure(reason: .keychainError)
+            deliverWithFailure(reason: .keychainError, hostName: hostName)
             return
         }
 
         guard let sessionKeyData else {
-            deliverWithFailure(reason: .noSessionKey)
+            deliverWithFailure(reason: .noSessionKey, hostName: hostName)
             return
         }
 
@@ -129,12 +134,12 @@ class NotificationService: UNNotificationServiceExtension {
         } catch let error as DecryptionError {
             switch error {
             case .versionMismatch:
-                deliverWithFailure(reason: .versionMismatch)
+                deliverWithFailure(reason: .versionMismatch, hostName: hostName)
             case .invalidPayload:
-                deliverWithFailure(reason: .decryptionFailed)
+                deliverWithFailure(reason: .decryptionFailed, hostName: hostName)
             }
         } catch {
-            deliverWithFailure(reason: .decryptionFailed)
+            deliverWithFailure(reason: .decryptionFailed, hostName: hostName)
         }
     }
 
@@ -164,12 +169,12 @@ class NotificationService: UNNotificationServiceExtension {
         }
     }
 
-    private func deliverWithFailure(reason: DecryptionFailureReason) {
+    private func deliverWithFailure(reason: DecryptionFailureReason, hostName: String?) {
         guard let contentHandler, let content = bestAttemptContent else {
             return
         }
 
-        content.title = "Encrypted Message"
+        content.title = hostName ?? "Encrypted Message"
         content.body = reason.userMessage
         content.userInfo["decrypted"] = false
         content.userInfo["failureReason"] = reason.rawValue

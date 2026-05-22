@@ -30,7 +30,6 @@ public enum TerminalEnvVarsScenario {
         // 2. Click "New Terminal" — this is the path users take, and the only
         //    path that hits TmuxService.createSession with our wrapper chained.
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElement(titled: "terminal", timeout: 10)
 
         // 3. Capture the spawned pane's ID (stable across base-index configs)

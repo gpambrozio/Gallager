@@ -6,6 +6,49 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.31</title>
+         <sparkle:version>31</sparkle:version>
+         <sparkle:shortVersionString>1.31</sparkle:shortVersionString>
+         <pubDate>Tue, 19 May 2026 19:19:51 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.31
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>New browser tab support</strong>: Links with `target="_blank"` now open as new browser tabs instead of replacing the current view.</li>
+<li><strong>Remote tab bar parity</strong>: Split, the + menu, and drag-to-reorder are now available in the remote tab bar, matching the local experience.</li>
+<li><strong>Arrow-key navigation</strong>: The new-session project picker now supports keyboard arrow navigation.</li>
+<li><strong>Pending session indicator</strong>: Sessions awaiting attention in the menu bar now use the accent color and a wave icon for better visibility.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Host name in decryption failures</strong>: Notifications about decryption failures now display the originating host name to help identify the source.</li>
+<li><strong>Silent badge updates</strong>: When a host clears its needs-attention state, the badge updates silently without triggering a visible notification.</li>
+<li><strong>Push notification feedback</strong>: Push notifications now play the default sound and trigger haptic feedback.</li>
+<li><strong>Split pane terminal sizing</strong>: The terminal now resizes to fit the width of split panes correctly.</li>
+<li><strong>Session selection on launch</strong>: New local sessions are now selected appropriately even when a remote session was last interacted with.</li>
+<li><strong>File browser refresh</strong>: The file tree now reloads when a watcher attaches, so newly added files appear without manual refresh.</li>
+<li><strong>Smoother progress animation</strong>: The progress animation has been refined for a better visual experience.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Cursor-position leak</strong>: Fixed an issue where DECXCPR cursor-position responses could leak into the tmux pane.</li>
+<li><strong>Start directory honored</strong>: `gallager apply` now correctly honors the `start_directory` of the first pane.</li>
+<li><strong>Toolbar accessibility on macOS 26</strong>: Corrected the accessibility label for toolbar icon buttons on macOS 26.</li>
+<li><strong>Window filtering</strong>: Window resize and move operations now filter to standard windows and retry as needed for improved reliability.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.31.dmg"
+                    sparkle:edSignature="FmnGND/fQqsA5DXODQuX7rZWrqFT7jxYogExBCYmpImk6AUA97y/9vAuI0PfAHHdoZWUNES/h9lHG+npMiPHAw=="
+                    length="31193963"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.30</title>
          <sparkle:version>30</sparkle:version>
          <sparkle:shortVersionString>1.30</sparkle:shortVersionString>

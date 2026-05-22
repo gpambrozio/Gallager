@@ -121,7 +121,6 @@ public enum Shortcut {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${twoMac.pairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         // Verify pairing succeeded
         TestStep.verifyServerHasPairings(count: 1)
@@ -194,7 +193,6 @@ public enum Shortcut {
         ) {
             TestStep.iosWaitForElement(.labelContains(sessionName), timeout: 15)
             TestStep.iosTap(.labelContains(sessionName))
-            TestStep.wait(seconds: 3)
             TestStep.iosWaitForElementToDisappear(.labelContains("Connecting"), timeout: 15)
         }
     }
@@ -219,7 +217,6 @@ public enum Shortcut {
             tags: ["shortcut"]
         ) {
             TestStep.iosTap(.labelContains("Commands"))
-            TestStep.wait(seconds: 0.5)
             TestStep.iosWaitForElement(.labelContains(label), timeout: timeout)
             TestStep.iosTap(.labelContains(label))
         }
@@ -243,7 +240,6 @@ public enum Shortcut {
             tags: ["shortcut"]
         ) {
             TestStep.iosTap(.labelContains("Commands"))
-            TestStep.wait(seconds: 0.5)
             TestStep.iosWaitForElement(.labelContains(label), timeout: timeout)
             // Dismiss menu by tapping the terminal area
             TestStep.iosTapCoordinate(x: 200, y: 500)
@@ -287,7 +283,6 @@ public enum Shortcut {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
     }

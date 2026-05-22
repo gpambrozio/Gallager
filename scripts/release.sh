@@ -659,7 +659,6 @@ main() {
     echo ""
 
     check_prerequisites
-    run_unit_tests
 
     local current_version
     current_version=$(get_version)
@@ -674,6 +673,8 @@ main() {
         log_info "Release cancelled"
         exit 0
     fi
+
+    run_unit_tests
 
     trap rollback_on_failure EXIT
     bump_version "$current_version"
