@@ -325,6 +325,27 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
+public extension Sequence where Element == ClaudeProjectInfo {
+    /// Sorts projects newest-first by `lastUsed`. Projects without a
+    /// timestamp fall to the bottom in name order. Centralising this so the
+    /// scanner, the project-list API, and the relay session-state response
+    /// can't drift.
+    func sortedByLastUsed() -> [ClaudeProjectInfo] {
+        sorted { lhs, rhs in
+            switch (lhs.lastUsed, rhs.lastUsed) {
+            case let (lhsDate?, rhsDate?):
+                lhsDate > rhsDate
+            case (nil, .some):
+                false
+            case (.some, nil):
+                true
+            case (nil, nil):
+                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
+    }
+}
+
 // MARK: - Viewer Connection Notifications
 
 /// Message sent when a paired viewer connects, includes public key for E2EE session establishment

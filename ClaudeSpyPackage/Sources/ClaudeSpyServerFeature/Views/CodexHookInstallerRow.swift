@@ -3,9 +3,11 @@
     import Dependencies
     import SwiftUI
 
-    /// Settings-pane row for installing or removing the global Codex CLI
-    /// hooks that forward lifecycle events to ClaudeSpy.
+    /// Settings-pane row for installing or removing the codex-gallager plugin
+    /// in Codex CLI.
     struct CodexHookInstallerRow: View {
+        @Bindable var settings: AppSettings
+
         @State private var status: Status = .checking
         @State private var inFlight = false
         @State private var lastError: String?
@@ -24,9 +26,11 @@
                 Spacer()
                 actionButton
             }
+            // `.task` runs on @MainActor already, so we can mutate @State
+            // directly inside `refresh()` without an extra hop.
             .task { await refresh() }
             .alert(
-                "Codex hook install failed",
+                "Codex plugin install failed",
                 isPresented: Binding(
                     get: { lastError != nil },
                     set: { if !$0 { lastError = nil } }
@@ -43,13 +47,13 @@
         private var statusLabel: some View {
             switch status {
             case .checking:
-                Label("Checking Codex hook status…", symbol: .ellipsisCircle)
+                Label("Checking Codex plugin status…", symbol: .ellipsisCircle)
                     .foregroundStyle(.secondary)
             case .installed:
-                Label("Codex hooks installed", symbol: .checkmarkCircle)
+                Label("codex-gallager plugin installed", symbol: .checkmarkCircle)
                     .foregroundStyle(.green)
             case .notInstalled:
-                Label("Codex hooks not installed", symbol: .exclamationmarkTriangle)
+                Label("codex-gallager plugin not installed", symbol: .exclamationmarkTriangle)
                     .foregroundStyle(.secondary)
             }
         }
@@ -67,38 +71,39 @@
                         .disabled(inFlight)
                 }
             case .notInstalled:
-                Button("Install Codex Hooks") { Task { await install() } }
+                Button("Install Codex Plugin") { Task { await install() } }
                     .disabled(inFlight)
                     .buttonStyle(.borderedProminent)
             }
         }
 
+        @MainActor
         private func refresh() async {
             let installed = await installer.isInstalled()
-            await MainActor.run {
-                status = installed ? .installed : .notInstalled
-            }
+            status = installed ? .installed : .notInstalled
         }
 
+        @MainActor
         private func install() async {
             inFlight = true
             defer { inFlight = false }
             do {
-                try await installer.install()
+                try await installer.install(codexCommand: settings.codexCommandPath)
                 await refresh()
             } catch {
-                await MainActor.run { lastError = error.localizedDescription }
+                lastError = error.localizedDescription
             }
         }
 
+        @MainActor
         private func uninstall() async {
             inFlight = true
             defer { inFlight = false }
             do {
-                try await installer.uninstall()
+                try await installer.uninstall(codexCommand: settings.codexCommandPath)
                 await refresh()
             } catch {
-                await MainActor.run { lastError = error.localizedDescription }
+                lastError = error.localizedDescription
             }
         }
     }

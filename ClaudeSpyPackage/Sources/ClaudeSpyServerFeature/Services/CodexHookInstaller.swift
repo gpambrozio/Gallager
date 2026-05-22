@@ -5,26 +5,33 @@
     import Foundation
     import Logging
 
-    /// Installs the global Codex CLI hook configuration that forwards every
-    /// lifecycle event to the local ClaudeSpy HTTP server.
+    /// Installs the `codex-gallager` Codex CLI plugin so Codex forwards every
+    /// lifecycle event to the local Gallager HTTP server.
     ///
-    /// Codex's per-project hook config (`<repo>/.codex/hooks.json`) requires
-    /// the user to explicitly trust the project, which produces one trust
-    /// prompt per repository. The global layer (`~/.codex/hooks.json`) needs
-    /// approval only once, so that's what we write to.
+    /// The plugin ships inside the app bundle at
+    /// `Resources/plugin/codex-gallager/`. Install copies it to
+    /// `~/.agents/plugins/codex-gallager/`, registers it in the personal
+    /// marketplace at `~/.agents/plugins/marketplace.json`, then invokes
+    /// `codex plugin add codex-gallager@personal` so Codex picks it up.
+    ///
+    /// The first time Codex runs after install it will still surface its own
+    /// trust prompt for the hook commands — we register the plugin, the user
+    /// trusts the hooks. There is no documented way to bypass that prompt.
     @DependencyClient
     public struct CodexHookInstaller: Sendable {
-        /// Installs (or refreshes) the Codex hook configuration. Idempotent;
-        /// rewrites the config to point at the current ClaudeSpy bridge script.
-        public var install: @Sendable () async throws -> Void = { }
+        /// Installs (or refreshes) the codex-gallager plugin. Pass the path to
+        /// the user's `codex` binary so we can invoke `codex plugin add`.
+        public var install: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
 
-        /// Removes the ClaudeSpy-managed hook entries from Codex's config. The
-        /// global config file itself is left in place (it may host hooks the
-        /// user added manually).
-        public var uninstall: @Sendable () async throws -> Void = { }
+        /// Uninstalls the codex-gallager plugin via `codex plugin remove`.
+        /// Leaves the marketplace entry and copied plugin folder in place so
+        /// reinstall is a one-click operation.
+        public var uninstall: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
 
-        /// Whether Codex hooks pointing at the current ClaudeSpy bridge are
-        /// currently installed.
+        /// Whether the plugin folder and marketplace entry exist. This is a
+        /// best-effort proxy for "Codex knows about us"; the source of truth
+        /// (enabled vs. disabled per-plugin) lives in `~/.codex/config.toml`
+        /// as TOML which Swift can't parse without an extra dep.
         public var isInstalled: @Sendable () async -> Bool = { false }
     }
 
@@ -32,14 +39,19 @@
 
     extension CodexHookInstaller: DependencyKey {
         public static var previewValue: CodexHookInstaller {
-            CodexHookInstaller(install: { }, uninstall: { }, isInstalled: { false })
+            CodexHookInstaller(install: { _ in }, uninstall: { _ in }, isInstalled: { false })
         }
 
         public static var liveValue: CodexHookInstaller {
-            let installer = LiveCodexHookInstaller()
+            @Dependency(ProcessRunner.self) var processRunner
+            let installer = LiveCodexHookInstaller(processRunner: processRunner)
             return CodexHookInstaller(
-                install: { try await installer.install() },
-                uninstall: { try await installer.uninstall() },
+                install: { codexCommand in
+                    try await installer.install(codexCommand: codexCommand)
+                },
+                uninstall: { codexCommand in
+                    try await installer.uninstall(codexCommand: codexCommand)
+                },
                 isInstalled: { await installer.isInstalled() }
             )
         }
@@ -50,213 +62,231 @@
     private actor LiveCodexHookInstaller {
         private let logger = Logger(label: "com.claudespy.codexinstaller")
         private let fileManager = FileManager.default
+        private let processRunner: ProcessRunner
 
-        /// The complete set of Codex hook events we register handlers for.
-        /// Mirrors the events Codex CLI v0.132+ emits.
-        private static let codexEvents: [String] = [
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "PermissionRequest",
-            "PreCompact",
-            "PostCompact",
-            "SubagentStart",
-            "SubagentStop",
-            "Stop",
-        ]
+        /// Plugin folder name on disk and in the marketplace entry.
+        private static let pluginName = "codex-gallager"
 
-        /// Marker so we can detect (and only modify) our own hook entries when
-        /// rewriting `~/.codex/hooks.json` — never touch entries the user
-        /// installed themselves.
-        private static let managedMarker = "claudespy-bridge"
+        /// Personal marketplace name used by Codex's auto-discovered
+        /// `~/.agents/plugins/marketplace.json`.
+        private static let marketplaceName = "personal"
 
-        func install() async throws {
-            let bridgePath = try await ensureBridgeOnDisk()
-            try writeHooksFile(bridgePath: bridgePath)
-            logger.info("Installed Codex hooks pointing at \(bridgePath.path)")
+        init(processRunner: ProcessRunner) {
+            self.processRunner = processRunner
         }
 
-        func uninstall() async throws {
-            let hooksURL = codexHomeURL().appendingPathComponent("hooks.json")
-            guard fileManager.fileExists(atPath: hooksURL.path) else { return }
-            let data = try Data(contentsOf: hooksURL)
-            guard
-                let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                var hooks = raw["hooks"] as? [String: [[String: Any]]] else {
-                return
+        // MARK: - Install
+
+        func install(codexCommand: String) async throws {
+            let bundled = try locateBundledPlugin()
+            let destination = pluginDestinationURL()
+
+            try copyPluginFolder(from: bundled, to: destination)
+            try updateMarketplaceJSON()
+
+            // `codex plugin add` is idempotent-ish: it returns an error if the
+            // plugin is already added. We swallow the "already installed"
+            // failure so reinstall is a one-click operation.
+            let codexPath = try resolveExecutable(codexCommand)
+            let result = try await processRunner.run(
+                codexPath,
+                ["plugin", "add", "\(Self.pluginName)@\(Self.marketplaceName)"],
+                nil,
+                30
+            )
+            if !result.isSuccess {
+                let stderr = result.stderrString.lowercased()
+                let benign = stderr.contains("already") && stderr.contains("install")
+                guard benign else {
+                    throw CodexHookInstallError.codexInvocationFailed(
+                        exitCode: result.exitCode,
+                        stderr: result.stderrString
+                    )
+                }
+                logger.info("Codex reports the plugin is already installed; treating as success.")
             }
-            for event in Self.codexEvents {
-                guard var entries = hooks[event] else { continue }
-                entries.removeAll(where: { isOurEntry($0) })
-                if entries.isEmpty {
-                    hooks.removeValue(forKey: event)
-                } else {
-                    hooks[event] = entries
+            logger.info("Installed \(Self.pluginName) at \(destination.path)")
+        }
+
+        // MARK: - Uninstall
+
+        func uninstall(codexCommand: String) async throws {
+            let codexPath = try resolveExecutable(codexCommand)
+            let result = try await processRunner.run(
+                codexPath,
+                ["plugin", "remove", "\(Self.pluginName)@\(Self.marketplaceName)"],
+                nil,
+                30
+            )
+            if !result.isSuccess {
+                let stderr = result.stderrString.lowercased()
+                let benign = stderr.contains("not installed") || stderr.contains("not found")
+                guard benign else {
+                    throw CodexHookInstallError.codexInvocationFailed(
+                        exitCode: result.exitCode,
+                        stderr: result.stderrString
+                    )
                 }
             }
-            var updated = raw
-            if hooks.isEmpty {
-                updated.removeValue(forKey: "hooks")
-            } else {
-                updated["hooks"] = hooks
-            }
-            try writeJSON(updated, to: hooksURL)
-            logger.info("Uninstalled ClaudeSpy entries from Codex hooks.json")
+            logger.info("Removed \(Self.pluginName) from Codex")
         }
+
+        // MARK: - Installed Check
 
         func isInstalled() async -> Bool {
-            let hooksURL = codexHomeURL().appendingPathComponent("hooks.json")
-            guard
-                fileManager.fileExists(atPath: hooksURL.path),
-                let data = try? Data(contentsOf: hooksURL),
-                let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let hooks = raw["hooks"] as? [String: [[String: Any]]] else {
-                return false
-            }
-            return hooks.values.flatMap(\.self).contains(where: isOurEntry)
+            let destinationExists = fileManager.fileExists(atPath: pluginDestinationURL().path)
+            let inMarketplace = marketplaceContainsOurPlugin()
+            return destinationExists && inMarketplace
         }
 
-        // MARK: - Hooks JSON
+        // MARK: - File Layout
 
-        private func writeHooksFile(bridgePath: URL) throws {
-            let hooksURL = codexHomeURL().appendingPathComponent("hooks.json")
+        private func pluginDestinationURL() -> URL {
+            agentsPluginsRoot().appendingPathComponent(Self.pluginName, isDirectory: true)
+        }
+
+        private func marketplaceJSONURL() -> URL {
+            agentsPluginsRoot().appendingPathComponent("marketplace.json")
+        }
+
+        private func agentsPluginsRoot() -> URL {
+            fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent(".agents", isDirectory: true)
+                .appendingPathComponent("plugins", isDirectory: true)
+        }
+
+        private func locateBundledPlugin() throws -> URL {
+            guard
+                let candidate = Bundle.main.resourceURL?
+                    .appendingPathComponent("plugin", isDirectory: true)
+                    .appendingPathComponent(Self.pluginName, isDirectory: true),
+                fileManager.fileExists(atPath: candidate.path) else {
+                throw CodexHookInstallError.bundledPluginNotFound
+            }
+            return candidate
+        }
+
+        // MARK: - Copy
+
+        private func copyPluginFolder(from source: URL, to destination: URL) throws {
             try fileManager.createDirectory(
-                at: codexHomeURL(),
+                at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
 
-            var root: [String: Any] = [:]
-            if
-                let data = try? Data(contentsOf: hooksURL),
-                let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                root = existing
+            // Codex inspects the plugin folder lazily; replacing it atomically
+            // would require a sibling-rename dance. Doing a remove-then-copy is
+            // good enough because install is user-initiated and a half-state
+            // is recoverable by re-running install.
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
             }
-
-            var existingHooks = (root["hooks"] as? [String: [[String: Any]]]) ?? [:]
-            let ourEntry = buildHookEntry(bridgePath: bridgePath)
-
-            for event in Self.codexEvents {
-                var entries = existingHooks[event] ?? []
-                entries.removeAll(where: { isOurEntry($0) })
-                entries.append(ourEntry)
-                existingHooks[event] = entries
-            }
-            root["hooks"] = existingHooks
-
-            try writeJSON(root, to: hooksURL)
+            try fileManager.copyItem(at: source, to: destination)
         }
 
-        private func buildHookEntry(bridgePath: URL) -> [String: Any] {
-            let pythonPath = "/usr/bin/env"
-            let command = "\(pythonPath) python3 \(shellEscape(bridgePath.path)) --agent codex"
-            return [
-                "matcher": ".*",
-                // The Codex schema nests an array of hook handlers under the
-                // matcher entry. We attach our marker on the outer matcher
-                // dict so uninstall can find it without inspecting commands.
-                Self.managedMarker: true,
-                "hooks": [
-                    [
-                        "type": "command",
-                        "command": command,
-                        "timeout": 30,
-                    ],
-                ],
-            ]
-        }
+        // MARK: - Marketplace JSON
 
-        private func isOurEntry(_ entry: [String: Any]) -> Bool {
-            if entry[Self.managedMarker] as? Bool == true { return true }
-            // Fallback: detect our bridge via the command string in case the
-            // marker was stripped by an external editor.
-            if
-                let nested = entry["hooks"] as? [[String: Any]],
-                nested.contains(where: { ($0["command"] as? String)?.contains("--agent codex") == true }) {
-                return true
+        private func updateMarketplaceJSON() throws {
+            try fileManager.createDirectory(
+                at: agentsPluginsRoot(),
+                withIntermediateDirectories: true
+            )
+
+            let url = marketplaceJSONURL()
+            var root = readExistingMarketplace(at: url)
+
+            // Seed top-level fields if this is a brand-new marketplace.
+            if root["name"] == nil {
+                root["name"] = Self.marketplaceName
             }
-            return false
-        }
+            if root["interface"] == nil {
+                root["interface"] = ["displayName": "Personal"]
+            }
 
-        private func writeJSON(_ object: [String: Any], to url: URL) throws {
+            var plugins = (root["plugins"] as? [[String: Any]]) ?? []
+            plugins.removeAll { ($0["name"] as? String) == Self.pluginName }
+            plugins.append(buildPluginEntry())
+            root["plugins"] = plugins
+
             let data = try JSONSerialization.data(
-                withJSONObject: object,
+                withJSONObject: root,
                 options: [.prettyPrinted, .sortedKeys]
             )
             try data.write(to: url, options: .atomic)
         }
 
-        private func shellEscape(_ path: String) -> String {
-            "'\(path.replacingOccurrences(of: "'", with: "'\\''"))'"
+        private func readExistingMarketplace(at url: URL) -> [String: Any] {
+            guard
+                fileManager.fileExists(atPath: url.path),
+                let data = try? Data(contentsOf: url),
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return [:]
+            }
+            return json
         }
 
-        // MARK: - Codex Home
-
-        private func codexHomeURL() -> URL {
-            if let override = ProcessInfo.processInfo.environment["CODEX_HOME"], !override.isEmpty {
-                return URL(fileURLWithPath: override).standardizedFileURL
-            }
-            return fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent(".codex")
-                .standardizedFileURL
+        private func buildPluginEntry() -> [String: Any] {
+            [
+                "name": Self.pluginName,
+                "source": [
+                    "source": "local",
+                    "path": "./plugins/\(Self.pluginName)",
+                ],
+                "policy": [
+                    "installation": "AVAILABLE",
+                    "authentication": "ON_INSTALL",
+                ],
+                "category": "Productivity",
+            ]
         }
 
-        // MARK: - Bridge Script
-
-        /// Copies the bundled `hook.py` to a stable path under
-        /// `~/.claudespy/bin/` so Codex's hook config can reference it without
-        /// depending on the gallager Claude-plugin install layout. Re-copies
-        /// when the bundled version differs from the on-disk copy.
-        private func ensureBridgeOnDisk() async throws -> URL {
-            let destinationDir = fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent(".claudespy")
-                .appendingPathComponent("bin")
-            try fileManager.createDirectory(at: destinationDir, withIntermediateDirectories: true)
-            let destination = destinationDir.appendingPathComponent("hook.py")
-
-            guard let bundled = bundledHookURL() else {
-                throw CodexHookInstallError.bridgeNotFound
-            }
-
-            // Copy only when the on-disk copy is missing or stale.
-            let bundledData = try Data(contentsOf: bundled)
-            let existingData = (try? Data(contentsOf: destination)) ?? Data()
-            if bundledData != existingData {
-                try bundledData.write(to: destination, options: .atomic)
-                try fileManager.setAttributes(
-                    [.posixPermissions: 0o755],
-                    ofItemAtPath: destination.path
-                )
-            }
-            return destination
+        private func marketplaceContainsOurPlugin() -> Bool {
+            let json = readExistingMarketplace(at: marketplaceJSONURL())
+            let plugins = (json["plugins"] as? [[String: Any]]) ?? []
+            return plugins.contains { ($0["name"] as? String) == Self.pluginName }
         }
 
-        private func bundledHookURL() -> URL? {
-            // Resource path in Bundle.main; falls back to walking the bundled
-            // plugin directory for development builds where the script lives
-            // next to the .app rather than inside Resources.
-            if
-                let resourceURL = Bundle.main.resourceURL?
-                    .appendingPathComponent("plugin")
-                    .appendingPathComponent("gallager")
-                    .appendingPathComponent("scripts")
-                    .appendingPathComponent("hook.py"),
-                fileManager.fileExists(atPath: resourceURL.path) {
-                return resourceURL
+        // MARK: - Executable Resolution
+
+        /// Resolves a possibly-relative `codex` command to an absolute path.
+        /// If the caller passed a bare command name (the default), we walk
+        /// `PATH` ourselves rather than relying on the shell.
+        private func resolveExecutable(_ command: String) throws -> String {
+            if command.hasPrefix("/") {
+                guard fileManager.isExecutableFile(atPath: command) else {
+                    throw CodexHookInstallError.codexNotFound(command)
+                }
+                return command
             }
-            return nil
+            let searchPaths = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+                .split(separator: ":")
+                .map(String.init)
+            let fallbacks = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+            for dir in searchPaths + fallbacks {
+                let candidate = (dir as NSString).appendingPathComponent(command)
+                if fileManager.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
+            throw CodexHookInstallError.codexNotFound(command)
         }
     }
 
     // MARK: - Errors
 
     public enum CodexHookInstallError: Error, LocalizedError {
-        case bridgeNotFound
+        case bundledPluginNotFound
+        case codexNotFound(String)
+        case codexInvocationFailed(exitCode: Int32, stderr: String)
 
         public var errorDescription: String? {
             switch self {
-            case .bridgeNotFound:
-                "Could not locate the bundled ClaudeSpy hook bridge script."
+            case .bundledPluginNotFound:
+                "Could not locate the bundled codex-gallager plugin inside the app."
+            case let .codexNotFound(command):
+                "Couldn't find the codex executable (\(command)). Check the Codex CLI Command path in Settings."
+            case let .codexInvocationFailed(exitCode, stderr):
+                "`codex plugin` failed (exit \(exitCode)): \(stderr)"
             }
         }
     }

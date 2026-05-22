@@ -223,7 +223,10 @@
                 }
                 // First parseable line that isn't a session-meta line tells us
                 // this rollout doesn't lead with metadata — bail rather than
-                // scanning the whole file.
+                // scanning the whole file. If Codex ever inserts non-meta
+                // events ahead of the meta line, this would silently drop all
+                // rollouts, so log at debug so the gap is visible.
+                logger.debug("Rollout \(url.lastPathComponent) leads with a non-meta JSON line; skipping")
                 return nil
             }
 

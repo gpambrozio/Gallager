@@ -233,24 +233,29 @@ struct GeneralSettingsView: View {
             }
 
             Section("Codex CLI") {
-                HStack {
-                    TextField("Command", text: $settings.codexCommandPath)
-                        .help("Path to the codex command (full path or just 'codex' if in PATH)")
-                        .textFieldStyle(.roundedBorder)
-                    Button("Browse...") {
-                        browseForCodex(settings: settings)
+                Toggle("Auto-run Codex in project folders", isOn: $settings.autoRunCodexInProjects)
+                    .help("When creating a session in a Codex project folder, automatically run the codex command")
+
+                if settings.autoRunCodexInProjects {
+                    HStack {
+                        TextField("Command", text: $settings.codexCommandPath)
+                            .help("Path to the codex command (full path or just 'codex' if in PATH)")
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse...") {
+                            browseForCodex(settings: settings)
+                        }
                     }
                 }
 
                 Text(
-                    "Codex hooks are installed globally at ~/.codex/hooks.json. " +
-                        "The first time you start Codex after installing, Codex itself will ask you " +
-                        "to review and trust the hook commands — approve them so events flow into ClaudeSpy."
+                    "Gallager ships as a Codex plugin (codex-gallager). " +
+                        "The first time you start Codex after installing, Codex will ask you " +
+                        "to review and trust the plugin's hook commands — approve them so events flow into Gallager."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                CodexHookInstallerRow()
+                CodexHookInstallerRow(settings: settings)
             }
 
             Section("Project Folders") {

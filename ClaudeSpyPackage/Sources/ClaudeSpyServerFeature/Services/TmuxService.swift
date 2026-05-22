@@ -403,8 +403,10 @@ final public class TmuxService {
             guard let tree else { return [:] }
 
             // Walk the subtree of each pane shell, looking for a "claude" or "codex" descendant.
-            // If both are running in the same pane (rare), prefer the most-recently-started
-            // process by taking the deepest match in the tree walk.
+            // Tie-break rule: Claude wins. If a pane has both processes running (including
+            // when one was launched as a child of the other), the pane reports as Claude.
+            // This favors the older / more common integration; a future refinement could
+            // pick the deepest match instead.
             var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
@@ -413,8 +415,6 @@ final public class TmuxService {
                     let name = tree.processName(for: pid)
                     if name == "claude" {
                         match = .claudeCode
-                        // keep scanning — a child codex shouldn't displace a parent
-                        // claude, but if no claude found we'd still want codex.
                     } else if name == "codex", match == nil {
                         match = .codex
                     }

@@ -337,6 +337,13 @@ final public class AppSettings {
         didSet { preferences.setString(codexCommandPath, Keys.codexCommandPath) }
     }
 
+    /// Whether to automatically run `codex` when creating a session in a
+    /// Codex project folder. Defaults to true; mirrors
+    /// `autoRunClaudeInProjects` so per-session opt-out stays possible.
+    public var autoRunCodexInProjects: Bool = Defaults.autoRunCodexInProjects {
+        didSet { preferences.setBool(autoRunCodexInProjects, Keys.autoRunCodexInProjects) }
+    }
+
     /// Resolves the command path for a given coding agent.
     public func commandPath(for agent: CodingAgent) -> String {
         switch agent {
@@ -477,6 +484,7 @@ final public class AppSettings {
         self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
         self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
         self.codexCommandPath = preferences.string(Keys.codexCommandPath) ?? Defaults.codexCommandPath
+        self.autoRunCodexInProjects = preferences.optionalBool(Keys.autoRunCodexInProjects) ?? Defaults.autoRunCodexInProjects
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
@@ -550,6 +558,7 @@ final public class AppSettings {
         case autoRunClaudeInProjects
         case claudeCommandPath
         case codexCommandPath
+        case autoRunCodexInProjects
         case closePaneOnSessionEnd
         case terminalApp
         case customTerminalPath
@@ -600,6 +609,7 @@ final public class AppSettings {
         static let autoRunClaudeInProjects = true
         static let claudeCommandPath = "claude"
         static let codexCommandPath = "codex"
+        static let autoRunCodexInProjects = true
         static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""

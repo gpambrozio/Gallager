@@ -207,19 +207,7 @@
         public func scanProjects() async -> [ClaudeProjectInfo] {
             async let claude = projectScanner.scanProjects()
             async let codex = codexScanner.scanProjects()
-            let merged = await claude + codex
-            return merged.sorted { lhs, rhs in
-                switch (lhs.lastUsed, rhs.lastUsed) {
-                case let (lhsDate?, rhsDate?):
-                    lhsDate > rhsDate
-                case (nil, .some):
-                    false
-                case (.some, nil):
-                    true
-                case (nil, nil):
-                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-                }
-            }
+            return (await claude + codex).sortedByLastUsed()
         }
 
         /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
@@ -813,7 +801,7 @@
                 onProjectList: { [scanner, codexScanner] in
                     async let claude = scanner.scanProjects()
                     async let codex = codexScanner.scanProjects()
-                    let projects = await claude + codex
+                    let projects = (await claude + codex).sortedByLastUsed()
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
                 onProjectStart: { [tmux, claudeCommandPath, codexCommandPath] path, args, agent in
@@ -1299,7 +1287,7 @@
 
                 async let claudeOnly = scanner.scanProjects()
                 async let codexOnly = codexProjectScanner.scanProjects()
-                let claudeProjects = await claudeOnly + codexOnly
+                let claudeProjects = (await claudeOnly + codexOnly).sortedByLastUsed()
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(

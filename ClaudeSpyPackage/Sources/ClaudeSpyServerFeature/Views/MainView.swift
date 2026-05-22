@@ -3659,16 +3659,15 @@ public struct MainView: View {
                 let sessionName = project?.name ?? "terminal"
                 let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine which agent command to launch. Codex projects
-                // always autorun (Codex doesn't expose a meaningful "blank
-                // terminal" mode in this folder); Claude projects honor the
-                // autoRunClaudeInProjects toggle for backward compatibility.
+                // Determine which agent command to launch. Each agent has its
+                // own auto-run toggle so a user can keep "open Codex folders
+                // in a bare shell" as a real choice.
                 let runCommand: String? = if let project {
                     switch project.agent {
                     case .claudeCode:
                         settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
                     case .codex:
-                        settings.codexCommandPath
+                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
                     }
                 } else {
                     nil
