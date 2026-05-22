@@ -1,0 +1,20 @@
+{
+  "name": "claudespy",
+  "interface": {
+    "displayName": "ClaudeSpy"
+  },
+  "plugins": [
+    {
+      "name": "codex-gallager",
+      "source": {
+        "source": "local",
+        "path": "./codex-gallager"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -79,7 +79,7 @@
 
         @MainActor
         private func refresh() async {
-            let installed = await installer.isInstalled()
+            let installed = await installer.isInstalled(codexCommand: settings.codexCommandPath)
             status = installed ? .installed : .notInstalled
         }
 
