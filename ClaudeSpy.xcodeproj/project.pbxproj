@@ -358,6 +358,7 @@
 				81E2E2332F8576310057AA49 /* Copy GallagerCLI to bundle */,
 				815F9E5A2F09BFF8003791F7 /* Frameworks */,
 				815F9E5B2F09BFF8003791F7 /* Resources */,
+				81B5E4A02F90000100000001 /* Sync Codex Skills */,
 				817BF9C02F0ED00000BD1D53 /* SwiftLint */,
 			);
 			buildRules = (
@@ -691,6 +692,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# Build GallagerCLI and copy into app bundle\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"${DEST}/GallagerCLI\"\nelse\n    echo \"warning: GallagerCLI not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
+		};
+		81B5E4A02F90000100000001 /* Sync Codex Skills */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/plugin/gallager/skills/gallager-cli",
+				"$(SRCROOT)/scripts/sync-codex-skills.sh",
+			);
+			name = "Sync Codex Skills";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Resources/plugin/codex/gallager/skills/gallager-cli",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/sync-codex-skills.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
