@@ -384,16 +384,19 @@ final public class TmuxService {
     /// current working directory.
     public func detectClaudePanes() async -> [String: DetectedAgentPane] {
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call
+            // Get pane IDs, shell PIDs, and current paths in one tmux call.
+            // Joined with U+001F so a `|` in a working-directory path can't
+            // shift fields — see `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
             let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}|#{pane_current_path}",
+                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
             ])
             guard result.isSuccess else { return [:] }
 
             // Build paneId -> (panePid, currentPath) mapping
             var paneInfo: [String: (pid: String, path: String)] = [:]
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3 else { continue }
                 paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
             }
@@ -435,8 +438,11 @@ final public class TmuxService {
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
     private func getAttachedSessionNames() async -> Set<String> {
+        // Joined with U+001F so a `|` in a tmux session name can't shift
+        // fields — see `PaneInfo.fieldSeparator`.
+        let sep = String(PaneInfo.fieldSeparator)
         guard
-            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}|#{session_name}"]),
+            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}\(sep)#{session_name}"]),
             result.isSuccess
         else {
             return []
@@ -447,7 +453,7 @@ final public class TmuxService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
             .compactMap { line -> String? in
-                let parts = line.split(separator: "|", maxSplits: 1)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 1)
                 guard parts.count == 2, parts[0] == "0" else { return nil }
                 return String(parts[1])
             }
@@ -2190,7 +2196,11 @@ final public class TmuxService {
     /// Shared implementation for detecting running processes in tmux panes.
     private func runningProcesses(listPanesArgs: [String]) async -> [RunningProcess] {
         do {
-            let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
+            // Joined with U+001F so a `|` in a process name (unusual but
+            // permitted) can't corrupt the pid field — see
+            // `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
+            let format = "#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_pid}"
             let result = try await runTmuxCommand(
                 ["list-panes"] + listPanesArgs + ["-F", format]
             )
@@ -2204,7 +2214,7 @@ final public class TmuxService {
 
             var entries: [PaneEntry] = []
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3, let index = Int(parts[0]) else { continue }
                 entries.append(PaneEntry(paneIndex: index, command: String(parts[1]), pid: String(parts[2])))
             }
