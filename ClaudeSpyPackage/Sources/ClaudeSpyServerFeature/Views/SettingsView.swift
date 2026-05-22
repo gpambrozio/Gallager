@@ -255,7 +255,7 @@ struct GeneralSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                CodexHookInstallerRow(settings: settings)
+                CodexPluginInstallerRow(settings: settings)
             }
 
             Section("Project Folders") {

@@ -18,7 +18,7 @@
     /// trust prompt for the hook commands — we register the plugin, the user
     /// trusts the hooks. There is no documented way to bypass that prompt.
     @DependencyClient
-    public struct CodexHookInstaller: Sendable {
+    public struct CodexPluginInstaller: Sendable {
         /// Installs (or refreshes) the codex-gallager plugin. Pass the path to
         /// the user's `codex` binary so we can invoke `codex plugin add`.
         public var install: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
@@ -37,15 +37,15 @@
 
     // MARK: - DependencyKey
 
-    extension CodexHookInstaller: DependencyKey {
-        public static var previewValue: CodexHookInstaller {
-            CodexHookInstaller(install: { _ in }, uninstall: { _ in }, isInstalled: { false })
+    extension CodexPluginInstaller: DependencyKey {
+        public static var previewValue: CodexPluginInstaller {
+            CodexPluginInstaller(install: { _ in }, uninstall: { _ in }, isInstalled: { false })
         }
 
-        public static var liveValue: CodexHookInstaller {
+        public static var liveValue: CodexPluginInstaller {
             @Dependency(ProcessRunner.self) var processRunner
-            let installer = LiveCodexHookInstaller(processRunner: processRunner)
-            return CodexHookInstaller(
+            let installer = LiveCodexPluginInstaller(processRunner: processRunner)
+            return CodexPluginInstaller(
                 install: { codexCommand in
                     try await installer.install(codexCommand: codexCommand)
                 },
@@ -59,8 +59,8 @@
 
     // MARK: - Live Implementation
 
-    private actor LiveCodexHookInstaller {
-        private let logger = Logger(label: "com.claudespy.codexinstaller")
+    private actor LiveCodexPluginInstaller {
+        private let logger = Logger(label: "com.claudespy.codexplugininstaller")
         private let fileManager = FileManager.default
         private let processRunner: ProcessRunner
 
@@ -98,7 +98,7 @@
                 let stderr = result.stderrString.lowercased()
                 let benign = stderr.contains("already") && stderr.contains("install")
                 guard benign else {
-                    throw CodexHookInstallError.codexInvocationFailed(
+                    throw CodexPluginInstallError.codexInvocationFailed(
                         exitCode: result.exitCode,
                         stderr: result.stderrString
                     )
@@ -122,7 +122,7 @@
                 let stderr = result.stderrString.lowercased()
                 let benign = stderr.contains("not installed") || stderr.contains("not found")
                 guard benign else {
-                    throw CodexHookInstallError.codexInvocationFailed(
+                    throw CodexPluginInstallError.codexInvocationFailed(
                         exitCode: result.exitCode,
                         stderr: result.stderrString
                     )
@@ -161,7 +161,7 @@
                     .appendingPathComponent("plugin", isDirectory: true)
                     .appendingPathComponent(Self.pluginName, isDirectory: true),
                 fileManager.fileExists(atPath: candidate.path) else {
-                throw CodexHookInstallError.bundledPluginNotFound
+                throw CodexPluginInstallError.bundledPluginNotFound
             }
             return candidate
         }
@@ -254,7 +254,7 @@
         private func resolveExecutable(_ command: String) throws -> String {
             if command.hasPrefix("/") {
                 guard fileManager.isExecutableFile(atPath: command) else {
-                    throw CodexHookInstallError.codexNotFound(command)
+                    throw CodexPluginInstallError.codexNotFound(command)
                 }
                 return command
             }
@@ -268,13 +268,13 @@
                     return candidate
                 }
             }
-            throw CodexHookInstallError.codexNotFound(command)
+            throw CodexPluginInstallError.codexNotFound(command)
         }
     }
 
     // MARK: - Errors
 
-    public enum CodexHookInstallError: Error, LocalizedError {
+    public enum CodexPluginInstallError: Error, LocalizedError {
         case bundledPluginNotFound
         case codexNotFound(String)
         case codexInvocationFailed(exitCode: Int32, stderr: String)

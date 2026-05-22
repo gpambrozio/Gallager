@@ -5,14 +5,14 @@
 
     /// Settings-pane row for installing or removing the codex-gallager plugin
     /// in Codex CLI.
-    struct CodexHookInstallerRow: View {
+    struct CodexPluginInstallerRow: View {
         @Bindable var settings: AppSettings
 
         @State private var status: Status = .checking
         @State private var inFlight = false
         @State private var lastError: String?
 
-        @Dependency(CodexHookInstaller.self) private var installer
+        @Dependency(CodexPluginInstaller.self) private var installer
 
         enum Status {
             case checking
