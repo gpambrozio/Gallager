@@ -3,6 +3,12 @@
 Status: ✅ **Shipped** — Phases 0–4 landed via [PR #549](https://github.com/gpambrozio/ClaudeSpy/pull/549) on branch `feat/codex-cli-integration`.
 Last updated: 2026-05-22
 
+> **Upstream source:** Codex CLI is open source at <https://github.com/openai/codex> (Rust workspace under `codex-rs/`). When behavior, hook payload shape, theme handling, or terminal-background detection is ambiguous, read the upstream code directly — Codex's release cadence is fast and the published docs lag. Useful entry points:
+> - `codex-rs/tui/` — TUI renderer, status line, "Working" indicator color resolution
+> - `codex-rs/tui/src/render/highlight.rs` — `[tui].theme` (syntect) wiring
+> - `codex-rs/app-server-protocol/` — full event firehose schema (richer than hooks)
+> - `codex-rs/core/src/hooks/` — hook event names, payload shape, exit-code semantics
+>
 > The sections below are kept as the historical research / planning record. For the current code shape, see:
 > - `docs/architecture.md` — `CodingAgent` abstraction in the service overview
 > - `docs/services-reference.md` — `CodingAgent`, `CodexProjectScanner`, `CodexPluginInstaller` reference entries
