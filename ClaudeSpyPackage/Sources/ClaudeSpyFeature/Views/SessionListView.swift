@@ -530,7 +530,7 @@
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                VStack(spacing: 2) {
+                VStack(spacing: 8) {
                     Group {
                         if let cliSessionState {
                             SessionStatusIndicator(cliState: cliSessionState)
@@ -633,7 +633,7 @@
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                VStack(spacing: 2) {
+                VStack(spacing: 8) {
                     Group {
                         if let cliState = pane.cliSessionState {
                             SessionStatusIndicator(cliState: cliState)

@@ -12,7 +12,7 @@ struct SessionStatusBadge: View {
     let customEmoji: String?
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 8) {
             if let cliSessionState {
                 SessionStatusIndicator(cliState: cliSessionState)
                     .font(.system(size: 16))
