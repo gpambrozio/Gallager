@@ -1,7 +1,7 @@
 {
-  "name": "claudespy",
+  "name": "gallager",
   "interface": {
-    "displayName": "ClaudeSpy"
+    "displayName": "Gallager"
   },
   "plugins": [
     {
