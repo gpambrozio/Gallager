@@ -15,7 +15,7 @@
 ## Overview
 
 Transform ClaudeSpy from a standalone Mac app into a distributed system with three components:
-1. **Mac App** - Receives Claude Code hooks, forwards to external server, receives commands
+1. **Mac App** - Receives coding-agent hooks (Claude Code and Codex CLI, behind a shared `CodingAgent` abstraction), forwards to external server, receives commands
 2. **External Server** - Vapor-based relay server, handles device pairing, runs in Docker
 3. **iOS App** - Monitors sessions remotely, sends commands back to Mac
 
@@ -53,11 +53,12 @@ Transform ClaudeSpy from a standalone Mac app into a distributed system with thr
 
 ### Event Flow (Mac → iOS)
 ```
-1. Claude Code sends hook event to Mac app (HTTP POST localhost:<dynamic port>)
-2. Mac app processes event locally (updates UI, session state)
+1. Claude Code or Codex CLI sends hook event to Mac app
+   (HTTP POST localhost:<dynamic port>/api/hooks?agent=claude-code|codex&tmux_pane=…)
+2. Mac app processes event locally (updates UI, session state); HookEvent carries `agent` field
 3. Mac app forwards event to external server via WebSocket
 4. External server relays to connected iOS client via WebSocket
-5. iOS app displays event in session monitor
+5. iOS app displays event in session monitor (with per-agent badges and notification copy)
 ```
 
 ### Command Flow (iOS → Mac)
@@ -109,7 +110,7 @@ Sources/ClaudeSpyNetworking/
 - `PairingRegistration`, `PairingCompletion`, `PairingResponse` - HTTP pairing flow
 - `RegisterMacMessage`, `RegisterIOSMessage` - WebSocket registration after pairing
 - `CommandMessage`, `CommandResponseMessage` - Remote command protocol
-- `HookEvent`, `ClaudeSession`, `HookAction` - Full Claude Code integration
+- `HookEvent`, `ClaudeSession`, `HookAction` - Coding-agent integration (Claude Code + Codex CLI, tagged via the `CodingAgent` enum on every event/session/project)
 - `SessionStateMessage`, `HookEventMessage` - State sync messages
 - `AnyCodable` - Type-erased wrapper for arbitrary JSON payloads
 

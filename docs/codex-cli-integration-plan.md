@@ -1,7 +1,16 @@
 # Codex CLI Integration Plan
 
-Status: Proposal / pre-implementation
-Last updated: 2026-05-20
+Status: ✅ **Shipped** — Phases 0–4 landed via [PR #549](https://github.com/gpambrozio/ClaudeSpy/pull/549) on branch `feat/codex-cli-integration`.
+Last updated: 2026-05-22
+
+> The sections below are kept as the historical research / planning record. For the current code shape, see:
+> - `docs/architecture.md` — `CodingAgent` abstraction in the service overview
+> - `docs/services-reference.md` — `CodingAgent`, `CodexProjectScanner`, `CodexPluginInstaller` reference entries
+> - `ClaudeSpyNetworking/Models/CodingAgent.swift` — the enum itself
+>
+> Implementation notes vs. the plan below:
+> - **CodexHookInstaller was renamed to `CodexPluginInstaller`**, and install/uninstall now go through `codex plugin install gallager` against a bundled marketplace at `~/.claudespy/marketplaces/gallager/` (instead of writing `~/.codex/hooks.json` directly). The bridge script is shipped via the same `gallager` plugin that backs Claude Code.
+> - **Out of scope (deferred):** type renames (`ClaudeProjectInfo` → `AgentProjectInfo` etc.), `codex exec --json` streaming firehose, embedded OpenTelemetry collector, and auto-install on first launch.
 
 ## 1. Goal
 
