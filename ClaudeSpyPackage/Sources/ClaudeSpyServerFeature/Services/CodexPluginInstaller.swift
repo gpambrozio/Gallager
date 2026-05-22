@@ -64,12 +64,16 @@
         private let fileManager = FileManager.default
         private let processRunner: ProcessRunner
 
-        /// Plugin folder name on disk and in the marketplace entry.
+        /// Plugin folder name on disk and in the manifest.
         private static let pluginName = "codex-gallager"
 
-        /// Personal marketplace name used by Codex's auto-discovered
-        /// `~/.agents/plugins/marketplace.json`.
-        private static let marketplaceName = "personal"
+        /// Marketplace name we register with Codex. Lives inside our
+        /// self-contained marketplace under `~/.claudespy/`; the personal
+        /// auto-discovered marketplace at `~/.agents/plugins/marketplace.json`
+        /// would force the plugin to live at `~/plugins/<name>/` (Codex
+        /// resolves `./plugins/<name>` relative to the marketplace root,
+        /// which is `~/` for the personal layout), which we don't want.
+        private static let marketplaceName = "claudespy"
 
         init(processRunner: ProcessRunner) {
             self.processRunner = processRunner
@@ -84,32 +88,53 @@
             let codexPath = try await resolveCodexExecutable(codexCommand)
 
             let bundled = try locateBundledPlugin()
-            let destination = pluginDestinationURL()
+            let marketplaceRoot = marketplaceRootURL()
+            let pluginDest = pluginDestinationURL()
 
-            try copyPluginFolder(from: bundled, to: destination)
-            try updateMarketplaceJSON()
+            try copyPluginFolder(from: bundled, to: pluginDest)
+            try writeMarketplaceJSON()
+            cleanupLegacyPaths()
 
-            // `codex plugin add` returns an error if the plugin is already
-            // added. We swallow the "already installed" failure so reinstall
-            // is a one-click operation.
-            let result = try await processRunner.run(
+            // Register the marketplace with Codex. Idempotent on success;
+            // when the marketplace is already added Codex returns non-zero
+            // with a benign "already" message which we swallow.
+            let mpResult = try await processRunner.run(
+                codexPath,
+                ["plugin", "marketplace", "add", marketplaceRoot.path],
+                nil,
+                30
+            )
+            if !mpResult.isSuccess {
+                let stderr = mpResult.stderrString.lowercased()
+                let benign = stderr.contains("already")
+                guard benign else {
+                    throw CodexPluginInstallError.codexInvocationFailed(
+                        exitCode: mpResult.exitCode,
+                        stderr: mpResult.stderrString
+                    )
+                }
+                logger.info("Codex reports the marketplace is already added; continuing.")
+            }
+
+            // Install the plugin from the now-registered marketplace.
+            let addResult = try await processRunner.run(
                 codexPath,
                 ["plugin", "add", "\(Self.pluginName)@\(Self.marketplaceName)"],
                 nil,
                 30
             )
-            if !result.isSuccess {
-                let stderr = result.stderrString.lowercased()
+            if !addResult.isSuccess {
+                let stderr = addResult.stderrString.lowercased()
                 let benign = stderr.contains("already") && stderr.contains("install")
                 guard benign else {
                     throw CodexPluginInstallError.codexInvocationFailed(
-                        exitCode: result.exitCode,
-                        stderr: result.stderrString
+                        exitCode: addResult.exitCode,
+                        stderr: addResult.stderrString
                     )
                 }
                 logger.info("Codex reports the plugin is already installed; treating as success.")
             }
-            logger.info("Installed \(Self.pluginName) at \(destination.path)")
+            logger.info("Installed \(Self.pluginName) at \(pluginDest.path)")
         }
 
         // MARK: - Uninstall
@@ -133,6 +158,48 @@
                 }
             }
             logger.info("Removed \(Self.pluginName) from Codex")
+        }
+
+        /// Best-effort removal of plugin/marketplace state written by older
+        /// versions of this installer that targeted the personal marketplace
+        /// under `~/.agents/plugins/`. Silently ignores missing paths.
+        private func cleanupLegacyPaths() {
+            let home = fileManager.homeDirectoryForCurrentUser
+            let legacyPluginDir = home
+                .appendingPathComponent(".agents")
+                .appendingPathComponent("plugins")
+                .appendingPathComponent(Self.pluginName)
+            if fileManager.fileExists(atPath: legacyPluginDir.path) {
+                try? fileManager.removeItem(at: legacyPluginDir)
+                logger.info("Removed legacy plugin folder at \(legacyPluginDir.path)")
+            }
+
+            // Strip our entry out of the personal marketplace.json so the
+            // user doesn't see a stale "AVAILABLE" plugin pointing at a
+            // path that no longer exists.
+            let legacyMarketplace = home
+                .appendingPathComponent(".agents")
+                .appendingPathComponent("plugins")
+                .appendingPathComponent("marketplace.json")
+            guard
+                fileManager.fileExists(atPath: legacyMarketplace.path),
+                let data = try? Data(contentsOf: legacyMarketplace),
+                var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                var plugins = root["plugins"] as? [[String: Any]] else {
+                return
+            }
+            let before = plugins.count
+            plugins.removeAll { ($0["name"] as? String) == Self.pluginName }
+            guard plugins.count != before else { return }
+            root["plugins"] = plugins
+            if
+                let updated = try? JSONSerialization.data(
+                    withJSONObject: root,
+                    options: [.prettyPrinted, .sortedKeys]
+                ) {
+                try? updated.write(to: legacyMarketplace, options: .atomic)
+                logger.info("Pruned legacy entry from \(legacyMarketplace.path)")
+            }
         }
 
         // MARK: - Installed Check
@@ -163,19 +230,42 @@
         }
 
         // MARK: - File Layout
+        //
+        // The marketplace lives in a self-contained directory under
+        // `~/.claudespy/` so the user's home doesn't gain a top-level
+        // `plugins/` folder (which is what Codex would expect if we used the
+        // personal marketplace at `~/.agents/plugins/marketplace.json`).
+        //
+        //  ~/.claudespy/codex-marketplace/
+        //    .agents/plugins/marketplace.json     (name = "claudespy")
+        //    plugins/codex-gallager/
+        //      .codex-plugin/plugin.json
+        //      hooks/hooks.json
+        //      scripts/hook.py
+        //
+        // Codex resolves a marketplace's "root" by walking up from the
+        // marketplace.json path stripping `.agents/plugins/marketplace.json`,
+        // so the root of this layout is the `codex-marketplace/` dir, and a
+        // plugin source path of `./plugins/codex-gallager` resolves to
+        // `~/.claudespy/codex-marketplace/plugins/codex-gallager/`.
+
+        private func marketplaceRootURL() -> URL {
+            fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claudespy", isDirectory: true)
+                .appendingPathComponent("codex-marketplace", isDirectory: true)
+        }
 
         private func pluginDestinationURL() -> URL {
-            agentsPluginsRoot().appendingPathComponent(Self.pluginName, isDirectory: true)
+            marketplaceRootURL()
+                .appendingPathComponent("plugins", isDirectory: true)
+                .appendingPathComponent(Self.pluginName, isDirectory: true)
         }
 
         private func marketplaceJSONURL() -> URL {
-            agentsPluginsRoot().appendingPathComponent("marketplace.json")
-        }
-
-        private func agentsPluginsRoot() -> URL {
-            fileManager.homeDirectoryForCurrentUser
+            marketplaceRootURL()
                 .appendingPathComponent(".agents", isDirectory: true)
                 .appendingPathComponent("plugins", isDirectory: true)
+                .appendingPathComponent("marketplace.json")
         }
 
         private func locateBundledPlugin() throws -> URL {
@@ -209,21 +299,20 @@
 
         // MARK: - Marketplace JSON
 
-        private func updateMarketplaceJSON() throws {
+        private func writeMarketplaceJSON() throws {
+            let url = marketplaceJSONURL()
             try fileManager.createDirectory(
-                at: agentsPluginsRoot(),
+                at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
 
-            let url = marketplaceJSONURL()
             var root = readExistingMarketplace(at: url)
 
-            // Seed top-level fields if this is a brand-new marketplace.
-            if root["name"] == nil {
-                root["name"] = Self.marketplaceName
-            }
+            // Seed/refresh top-level fields so the marketplace is always
+            // a complete and valid manifest after install.
+            root["name"] = Self.marketplaceName
             if root["interface"] == nil {
-                root["interface"] = ["displayName": "Personal"]
+                root["interface"] = ["displayName": "ClaudeSpy"]
             }
 
             var plugins = (root["plugins"] as? [[String: Any]]) ?? []
