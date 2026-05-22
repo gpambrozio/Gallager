@@ -39,6 +39,10 @@ public extension HookEventMessage {
             body = "\(projectName): \(message)"
         case let .stopFailure(failureBody):
             body = "\(projectName): Error — \(failureBody.errorType ?? "unknown failure")"
+        case let .taskCompleted(taskBody):
+            body = "\(projectName): Task completed — \(taskBody.taskSubject ?? "unknown task")"
+        case let .teammateIdle(idleBody):
+            body = "\(projectName): Teammate idle — \(idleBody.teammateName ?? "unknown")"
         case .setup,
              .sessionEnd,
              .preToolUse,
@@ -50,9 +54,7 @@ public extension HookEventMessage {
              .userPromptExpansion,
              .subagentStart,
              .subagentStop,
-             .teammateIdle,
              .taskCreated,
-             .taskCompleted,
              .preCompact,
              .postCompact,
              .instructionsLoaded,

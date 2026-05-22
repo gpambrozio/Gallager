@@ -120,7 +120,9 @@ public struct ClaudeSession: Codable, Sendable {
              .stop,
              .notification,
              .stopFailure,
-             .elicitation:
+             .elicitation,
+             .taskCompleted,
+             .teammateIdle:
             handledUpToEventId = latest.id
         case .setup,
              .sessionEnd,
@@ -134,9 +136,7 @@ public struct ClaudeSession: Codable, Sendable {
              .userPromptExpansion,
              .subagentStart,
              .subagentStop,
-             .teammateIdle,
              .taskCreated,
-             .taskCompleted,
              .preCompact,
              .postCompact,
              .instructionsLoaded,
