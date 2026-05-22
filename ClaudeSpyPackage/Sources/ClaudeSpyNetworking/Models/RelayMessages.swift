@@ -323,6 +323,28 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
         self.claudeConfigDir = claudeConfigDir
         self.agent = agent
     }
+
+    // MARK: - Codable
+
+    // Custom decoder so this build can pair with hosts running an older
+    // version that predates the `agent` field. Treat absence as
+    // Claude Code — the only agent those versions know about.
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case path
+        case lastUsed
+        case claudeConfigDir
+        case agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
+        self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
+        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+    }
 }
 
 public extension Sequence where Element == ClaudeProjectInfo {
