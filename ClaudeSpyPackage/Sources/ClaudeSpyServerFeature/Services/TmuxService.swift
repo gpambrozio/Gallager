@@ -415,6 +415,7 @@ final public class TmuxService {
                     let name = tree.processName(for: pid)
                     if name == "claude" {
                         match = .claudeCode
+                        break
                     } else if name == "codex", match == nil {
                         match = .codex
                     }

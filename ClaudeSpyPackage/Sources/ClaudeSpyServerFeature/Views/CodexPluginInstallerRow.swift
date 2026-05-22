@@ -10,7 +10,8 @@
 
         @State private var status: Status = .checking
         @State private var inFlight = false
-        @State private var lastError: String?
+        @State private var showingError = false
+        @State private var errorMessage = ""
 
         @Dependency(CodexPluginInstaller.self) private var installer
 
@@ -29,17 +30,10 @@
             // `.task` runs on @MainActor already, so we can mutate @State
             // directly inside `refresh()` without an extra hop.
             .task { await refresh() }
-            .alert(
-                "Codex plugin install failed",
-                isPresented: Binding(
-                    get: { lastError != nil },
-                    set: { if !$0 { lastError = nil } }
-                ),
-                presenting: lastError
-            ) { _ in
-                Button("OK", role: .cancel) { lastError = nil }
-            } message: { message in
-                Text(message)
+            .alert("Codex plugin install failed", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage)
             }
         }
 
@@ -91,7 +85,8 @@
                 try await installer.install(codexCommand: settings.codexCommandPath)
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                errorMessage = error.localizedDescription
+                showingError = true
             }
         }
 
@@ -103,7 +98,8 @@
                 try await installer.uninstall(codexCommand: settings.codexCommandPath)
                 await refresh()
             } catch {
-                lastError = error.localizedDescription
+                errorMessage = error.localizedDescription
+                showingError = true
             }
         }
     }

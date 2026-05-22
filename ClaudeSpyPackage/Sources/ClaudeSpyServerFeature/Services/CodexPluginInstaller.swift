@@ -132,12 +132,27 @@
             let stderr = result.stderrString.lowercased()
             if stderr.contains("already added from a different source") {
                 logger.info("Codex's existing '\(Self.marketplaceName)' marketplace points elsewhere; replacing it.")
-                _ = try? await processRunner.run(
+                // Surface — don't swallow — failure of the remove. If remove
+                // fails for any reason other than "not present" (permissions,
+                // pinned marketplace, codex CLI quirk), the retry below will
+                // hit the same "already added from a different source" error
+                // and the user gets the same opaque message; logging the
+                // stderr here keeps a stuck install diagnosable.
+                let removeResult = try await processRunner.run(
                     codexPath,
                     ["plugin", "marketplace", "remove", Self.marketplaceName],
                     nil,
                     30
                 )
+                if !removeResult.isSuccess {
+                    let removeStderr = removeResult.stderrString.lowercased()
+                    let benign = removeStderr.contains("not found") || removeStderr.contains("not present")
+                    if !benign {
+                        logger.warning(
+                            "`codex plugin marketplace remove \(Self.marketplaceName)` failed (exit \(removeResult.exitCode)): \(removeResult.stderrString.trimmingCharacters(in: .whitespacesAndNewlines))"
+                        )
+                    }
+                }
                 let retry = try await processRunner.run(
                     codexPath,
                     ["plugin", "marketplace", "add", source],

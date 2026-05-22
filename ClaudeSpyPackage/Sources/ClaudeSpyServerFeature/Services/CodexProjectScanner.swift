@@ -74,11 +74,33 @@
             var projectsByPath: [String: ClaudeProjectInfo] = [:]
             let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
 
-            let rollouts = enumerateRollouts(under: sessionsRoot)
-            logger.debug("Found \(rollouts.count) Codex rollout files")
+            let rollouts = enumerateRollouts(under: sessionsRoot, limit: Self.maxRolloutsToRead)
+            logger.debug("Found \(rollouts.count) Codex rollout candidates")
 
-            for rollout in rollouts.prefix(Self.maxRolloutsToRead) {
-                guard let meta = readSessionMeta(at: rollout) else { continue }
+            // Reads block on synchronous FileHandle I/O. Fan them out to a
+            // utility-priority task group so a heavy Codex user's 500-file
+            // scan doesn't serialize on this actor's executor. Results come
+            // back in completion order; we re-sort by rollout mtime below to
+            // preserve the "newest rollout wins" merge behavior.
+            let metas = await withTaskGroup(
+                of: (RolloutCandidate, SessionMeta?).self,
+                returning: [(RolloutCandidate, SessionMeta)].self
+            ) { group in
+                let logger = self.logger
+                for rollout in rollouts {
+                    group.addTask(priority: .utility) {
+                        (rollout, Self.readSessionMeta(at: rollout.url, logger: logger))
+                    }
+                }
+                var results: [(RolloutCandidate, SessionMeta)] = []
+                for await (rollout, meta) in group {
+                    if let meta { results.append((rollout, meta)) }
+                }
+                results.sort { $0.0.mtime > $1.0.mtime }
+                return results
+            }
+
+            for (_, meta) in metas {
                 guard let cwd = meta.cwd, !cwd.isEmpty else { continue }
 
                 let projectURL = URL(fileURLWithPath: cwd).standardizedFileURL
@@ -143,9 +165,21 @@
 
         // MARK: - Rollout Enumeration
 
-        /// Returns all rollout file URLs under `~/.codex/sessions/**/*.jsonl`,
-        /// sorted by file modification date, newest first.
-        private func enumerateRollouts(under root: URL) -> [URL] {
+        /// Bundles a rollout URL with its mtime so the parallel reader can
+        /// restore newest-first ordering after the TaskGroup yields results
+        /// in completion order.
+        fileprivate struct RolloutCandidate: Sendable {
+            let url: URL
+            let mtime: Date
+        }
+
+        /// Returns rollout file URLs under `~/.codex/sessions/`, newest first,
+        /// up to `limit` candidates. Leans on Codex's `YYYY/MM/DD/` partition
+        /// to stop walking once the limit is reached rather than enumerating
+        /// the full tree, sorting, and slicing. Falls back to a recursive
+        /// scan if the year/month/day layout isn't present (e.g. Codex
+        /// changes its on-disk schema).
+        private func enumerateRollouts(under root: URL, limit: Int) -> [RolloutCandidate] {
             var isDirectory: ObjCBool = false
             guard
                 fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory),
@@ -155,6 +189,72 @@
                 return []
             }
 
+            let years = sortedNumericChildren(of: root)
+            if !years.isEmpty {
+                var candidates: [RolloutCandidate] = []
+                outer: for year in years {
+                    for month in sortedNumericChildren(of: year) {
+                        for day in sortedNumericChildren(of: month) {
+                            candidates.append(contentsOf: jsonlFilesInDay(day))
+                            if candidates.count >= limit {
+                                break outer
+                            }
+                        }
+                    }
+                }
+                return Array(candidates.prefix(limit))
+            }
+
+            logger.debug("Codex sessions root has no year/month/day folders; falling back to recursive scan")
+            return recursiveEnumerateRollouts(under: root, limit: limit)
+        }
+
+        /// Lists immediate subdirectories of `dir` whose names are all-digit
+        /// (e.g. `2026`, `05`, `21`), sorted descending. Since all sibling
+        /// names share a length at each level (4-digit years, 2-digit months
+        /// and days), lexicographic descending equals numeric descending.
+        private func sortedNumericChildren(of dir: URL) -> [URL] {
+            let children = (try? fileManager.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            return children
+                .filter { url in
+                    let name = url.lastPathComponent
+                    guard !name.isEmpty, name.allSatisfy(\.isASCII), Int(name) != nil else { return false }
+                    let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+                    return values?.isDirectory == true
+                }
+                .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        }
+
+        /// Lists `.jsonl` files directly inside `day`, newest mtime first.
+        private func jsonlFilesInDay(_ day: URL) -> [RolloutCandidate] {
+            guard
+                let files = try? fileManager.contentsOfDirectory(
+                    at: day,
+                    includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                    options: [.skipsHiddenFiles]
+                ) else {
+                return []
+            }
+            var result: [RolloutCandidate] = []
+            for url in files {
+                guard url.pathExtension == "jsonl" else { continue }
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+                guard values?.isRegularFile == true else { continue }
+                let mtime = values?.contentModificationDate ?? .distantPast
+                result.append(RolloutCandidate(url: url, mtime: mtime))
+            }
+            result.sort { $0.mtime > $1.mtime }
+            return result
+        }
+
+        /// Fallback path used when Codex's YYYY/MM/DD layout isn't present.
+        /// Walks the whole tree, sorts by mtime, and truncates — the slow
+        /// path the bounded walk above is designed to avoid.
+        private func recursiveEnumerateRollouts(under root: URL, limit: Int) -> [RolloutCandidate] {
             guard
                 let enumerator = fileManager.enumerator(
                     at: root,
@@ -163,30 +263,41 @@
                 ) else {
                 return []
             }
-
-            var urls: [(url: URL, mtime: Date)] = []
+            var candidates: [RolloutCandidate] = []
             for case let url as URL in enumerator {
                 guard url.pathExtension == "jsonl" else { continue }
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
                 guard values?.isRegularFile == true else { continue }
                 let mtime = values?.contentModificationDate ?? .distantPast
-                urls.append((url, mtime))
+                candidates.append(RolloutCandidate(url: url, mtime: mtime))
             }
-            urls.sort { $0.mtime > $1.mtime }
-            return urls.map(\.url)
+            candidates.sort { $0.mtime > $1.mtime }
+            return Array(candidates.prefix(limit))
         }
 
         // MARK: - Session Meta
 
-        private struct SessionMeta {
+        fileprivate struct SessionMeta: Sendable {
             let cwd: String?
             let startedAt: Date?
         }
 
-        /// Reads the first non-empty JSON line of a rollout and tries to extract
-        /// `cwd` / `started_at`. Codex's exact schema is evolving; we accept a
-        /// small set of plausible key spellings to stay forward-compatible.
-        private func readSessionMeta(at url: URL) -> SessionMeta? {
+        /// Number of JSON-parseable lines to inspect at the head of a rollout
+        /// while looking for the session-meta record. Bailing after the first
+        /// non-meta JSON line would silently drop every rollout if Codex ever
+        /// inserts a non-meta event ahead of the meta record; scanning a few
+        /// more lines is cheap insurance.
+        private static let metaScanLineLimit = 8
+
+        /// Reads up to the first `metaScanLineLimit` JSON-parseable lines of a
+        /// rollout and tries to extract `cwd` / `started_at`. Codex's exact
+        /// schema is evolving; we accept a small set of plausible key spellings
+        /// to stay forward-compatible.
+        ///
+        /// `static` and `nonisolated`: invoked from detached utility-priority
+        /// tasks so synchronous FileHandle reads don't pin the scanner actor's
+        /// executor.
+        private static func readSessionMeta(at url: URL, logger: Logger) -> SessionMeta? {
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
 
@@ -199,6 +310,7 @@
                 return nil
             }
 
+            var inspected = 0
             for line in text.split(separator: "\n") {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 guard !trimmed.isEmpty else { continue }
@@ -216,18 +328,17 @@
                     ?? (json["startedAt"] as? String)
                     ?? (json["timestamp"] as? String)
 
-                let startedAt = startedAtString.flatMap(Self.parseISO8601)
+                let startedAt = startedAtString.flatMap(parseISO8601)
 
                 if cwd != nil || startedAt != nil {
                     return SessionMeta(cwd: cwd, startedAt: startedAt)
                 }
-                // First parseable line that isn't a session-meta line tells us
-                // this rollout doesn't lead with metadata — bail rather than
-                // scanning the whole file. If Codex ever inserts non-meta
-                // events ahead of the meta line, this would silently drop all
-                // rollouts, so log at debug so the gap is visible.
-                logger.debug("Rollout \(url.lastPathComponent) leads with a non-meta JSON line; skipping")
-                return nil
+
+                inspected += 1
+                if inspected >= metaScanLineLimit {
+                    logger.debug("Rollout \(url.lastPathComponent) has no meta in the first \(metaScanLineLimit) JSON lines; skipping")
+                    return nil
+                }
             }
 
             return nil
