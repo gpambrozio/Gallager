@@ -695,20 +695,18 @@
 		};
 		81B5E4A02F90000100000001 /* Sync Codex Skills */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/plugin/gallager/skills/gallager-cli",
-				"$(SRCROOT)/scripts/sync-codex-skills.sh",
 			);
 			name = "Sync Codex Skills";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Resources/plugin/codex/gallager/skills/gallager-cli",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
