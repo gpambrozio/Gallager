@@ -110,9 +110,22 @@ final public class TmuxService {
     /// would error and would need the `exec -a "-name"` argv[0] convention
     /// instead (works because tmux runs `default-command` via `/bin/sh -c`,
     /// which on macOS is bash and supports `exec -a`).
+    ///
+    /// The leading `printf` emits OSC 10 (default foreground) and OSC 11
+    /// (default background) *setter* sequences before the shell starts.
+    /// tmux's display parser intercepts them and caches the pane's fg/bg —
+    /// so later OSC-10/11 *queries* from inside-pane apps (e.g. Codex CLI's
+    /// startup probe) get answered from tmux's cache rather than timing out
+    /// against tmux 3.6a's broken outer-terminal forwarding (see tmux/tmux
+    /// #4846, openai/codex #22761 / #23489). Without this, Codex falls back
+    /// to hardcoded colors — including bold + RGB(0,0,0) for the "● Working"
+    /// status, invisible on dark mirror themes. Values match the mirror's
+    /// DefaultDark theme; if a user runs a light mirror theme the cached bg
+    /// is wrong but no worse than the pre-fix behavior.
     private static let defaultCommandWrapper: String = {
         let shell = posixSingleQuote(userShellPath)
-        return "TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
+        let oscPreamble = #"printf '\033]10;rgb:e6e6/e6e6/e6e6\007\033]11;rgb:1e1e/1e1e/1e1e\007'"#
+        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
     }()
 
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.
