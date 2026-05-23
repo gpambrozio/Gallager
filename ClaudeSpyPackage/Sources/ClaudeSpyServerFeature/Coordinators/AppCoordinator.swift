@@ -1445,8 +1445,17 @@
             settings: AppSettings
         ) async -> CommandResponseMessage {
             do {
-                let runCommand: String? = if spec.workingDirectory != nil && settings.autoRunClaudeInProjects {
-                    settings.claudeCommandPath
+                // Determine which agent command to launch. Each agent has its
+                // own auto-run toggle so a user can keep "open Codex folders
+                // in a bare shell" as a real choice — matches the local
+                // create-from-project path in MainView.
+                let runCommand: String? = if spec.workingDirectory != nil {
+                    switch spec.agent {
+                    case .claudeCode:
+                        settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
+                    case .codex:
+                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
+                    }
                 } else {
                     nil
                 }
@@ -1461,10 +1470,12 @@
                 }
 
                 // A non-nil `spec.workingDirectory` means this was a
-                // "create from Claude project" request — that's the only flow
-                // today that supplies a directory. Other entry points (empty
-                // session) leave it nil, so we treat presence as the project
-                // marker and name the first window "claude" accordingly.
+                // "create from project" request — that's the only flow today
+                // that supplies a directory. Name the first window after the
+                // agent's CLI command so the tab matches what's running.
+                let firstWindowName = spec.workingDirectory != nil
+                    ? spec.agent.defaultCommand
+                    : "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
@@ -1472,7 +1483,7 @@
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
                     extraEnvironment: extraEnvironment,
-                    isClaudeProject: spec.workingDirectory != nil
+                    firstWindowName: firstWindowName
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))

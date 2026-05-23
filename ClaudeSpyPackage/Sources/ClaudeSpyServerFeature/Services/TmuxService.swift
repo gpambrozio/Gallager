@@ -2305,9 +2305,9 @@ final public class TmuxService {
     ///   - height: Terminal height in rows
     ///   - extraEnvironment: Additional `KEY=VALUE` strings to set on the session
     ///     via `-e`, on top of `terminalEnvironmentVars`.
-    ///   - isClaudeProject: When `true`, the first window is named `"claude"`.
-    ///     Otherwise it's named `"terminal 1"`. The explicit name also disables
-    ///     tmux's automatic-rename so the tab doesn't track the running command.
+    ///   - firstWindowName: Name for the first window. The explicit name also
+    ///     disables tmux's automatic-rename so the tab doesn't track the
+    ///     running command.
     /// - Returns: Tuple containing the actual session name and the pane ID of the first pane
     public func createSession(
         baseName: String,
@@ -2316,7 +2316,7 @@ final public class TmuxService {
         workingDirectory: String? = nil,
         runCommand: String? = nil,
         extraEnvironment: [String] = [],
-        isClaudeProject: Bool = false
+        firstWindowName: String = "terminal 1"
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -2329,7 +2329,6 @@ final public class TmuxService {
         // -e: set environment variables (suppress oh-my-zsh update prompts)
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
-        let firstWindowName = isClaudeProject ? "claude" : "terminal 1"
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
         // Chain `set-option -g default-command … ; new-session …` in one tmux
         // invocation. `set-option` needs a running server, but we need the

@@ -3683,6 +3683,7 @@ public struct MainView: View {
                 let dimensions = calculateOptimalTerminalDimensions()
 
                 // Create the session with calculated dimensions
+                let firstWindowName = project?.agent.defaultCommand ?? "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
                     width: dimensions.columns,
@@ -3690,7 +3691,7 @@ public struct MainView: View {
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
                     extraEnvironment: extraEnvironment,
-                    isClaudeProject: project != nil
+                    firstWindowName: firstWindowName
                 )
 
                 // Find the window containing the new pane and select it.
@@ -3728,7 +3729,8 @@ public struct MainView: View {
             width: dimensions.columns,
             height: dimensions.rows,
             workingDirectory: project?.path,
-            claudeConfigDir: project?.claudeConfigDir
+            claudeConfigDir: project?.claudeConfigDir,
+            agent: project?.agent ?? .claudeCode
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

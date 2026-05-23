@@ -196,7 +196,8 @@
                 width: settings.newSessionWidth,
                 height: settings.newSessionHeight,
                 workingDirectory: project?.path,
-                claudeConfigDir: project?.claudeConfigDir
+                claudeConfigDir: project?.claudeConfigDir,
+                agent: project?.agent ?? .claudeCode
             )
 
             // paneId is not used for session creation, pass empty string
@@ -784,7 +785,7 @@
 
                     // Project list
                     if !filteredProjects.isEmpty {
-                        Section("Claude Projects") {
+                        Section("Projects") {
                             ForEach(filteredProjects) { project in
                                 Button {
                                     onSelect(project)
@@ -795,8 +796,21 @@
                                             .frame(width: 24)
 
                                         VStack(alignment: .leading) {
-                                            Text(project.name)
-                                                .foregroundStyle(.primary)
+                                            HStack(spacing: 6) {
+                                                Text(project.name)
+                                                    .foregroundStyle(.primary)
+
+                                                if project.agent != .claudeCode {
+                                                    Text(project.agent.shortName)
+                                                        .font(.caption2.weight(.semibold))
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(
+                                                            Capsule().fill(Color.accentColor.opacity(0.18))
+                                                        )
+                                                        .foregroundStyle(Color.accentColor)
+                                                }
+                                            }
                                             Text(project.path)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
@@ -821,7 +835,7 @@
                                 .foregroundStyle(.secondary)
                         }
                     } else if !sessionStore.hasReceivedState(for: host.id) {
-                        Section("Claude Projects") {
+                        Section("Projects") {
                             HStack {
                                 ProgressView()
                                     .controlSize(.small)
