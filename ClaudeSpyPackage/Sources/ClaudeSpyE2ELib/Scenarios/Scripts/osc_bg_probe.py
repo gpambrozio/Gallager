@@ -30,6 +30,7 @@ import re
 import select
 import sys
 import termios
+import time
 import tty
 
 # Matches openai/codex `codex-rs/tui/src/terminal_probe.rs::DEFAULT_TIMEOUT`.
@@ -112,8 +113,6 @@ def _drain(fd, duration):
     once a full poll quantum passes with nothing to read AND the total
     elapsed time has reached `duration`.
     """
-    import time
-
     end_at = time.monotonic() + duration
     poll_interval = 0.05  # 50 ms — short enough to catch late replies quickly
     while time.monotonic() < end_at:
