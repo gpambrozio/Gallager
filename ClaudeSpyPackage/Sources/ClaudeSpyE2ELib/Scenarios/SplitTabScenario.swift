@@ -308,6 +308,13 @@ public enum SplitTabScenario {
         // The browser tab arrow should read "to left", proving it lives on
         // the right pane.
         TestStep.macWaitForElementQuery(.labelContains("Move browser tab to left:"), timeout: 5)
+        // Wait for the WKWebView to actually load the URL before screenshotting
+        // — the tab UI appears before the URL field is populated, which left the
+        // browser pane blank in flaky CI captures.
+        TestStep.macWaitForElementQuery(
+            .allOf([.label("URL"), .valueContains("127.0.0.1")]),
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "mac-split-browser-tab-opens-on-right")
 
         // ── Phase 7: Close the last right-side tab → split collapses ─
