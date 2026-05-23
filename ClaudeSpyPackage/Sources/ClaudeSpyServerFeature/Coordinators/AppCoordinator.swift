@@ -1471,9 +1471,11 @@
 
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from project" request — that's the only flow today
-                // that supplies a directory. Other entry points (empty session)
-                // leave it nil, so we treat presence as the project marker and
-                // name the first window after the agent accordingly.
+                // that supplies a directory. Name the first window after the
+                // agent's CLI command so the tab matches what's running.
+                let firstWindowName = spec.workingDirectory != nil
+                    ? spec.agent.defaultCommand
+                    : "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
                     width: spec.width,
@@ -1481,7 +1483,7 @@
                     workingDirectory: workingDirectory,
                     runCommand: runCommand,
                     extraEnvironment: extraEnvironment,
-                    isClaudeProject: spec.workingDirectory != nil
+                    firstWindowName: firstWindowName
                 )
 
                 try? await Task.sleep(for: .milliseconds(500))

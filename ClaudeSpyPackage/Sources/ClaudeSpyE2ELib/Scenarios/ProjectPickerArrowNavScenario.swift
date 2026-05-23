@@ -32,7 +32,7 @@ public enum ProjectPickerArrowNavScenario {
         TestStep.macScreenshot(label: "mac-down-selects-new-terminal")
 
         // ── Phase B: ↓ traverses into projects, lands on last ────
-        // 13 mock projects (1 Codex + 12 Claude): AaaCodexApp, Alpha, Beta,
+        // 13 mock projects (1 Codex + 12 Claude): AaaOpenAIApp, Alpha, Beta,
         // Gamma, Delta, Epsilon, Iota, Kappa, Mu, Nu, Sigma, Tau, Zeta.
         // From New Terminal we need 13 more downs to reach ZetaCore (the
         // last project).
@@ -58,7 +58,7 @@ public enum ProjectPickerArrowNavScenario {
         // ── Phase E: typing auto-defaults to first match ─────────
         // ZetaCore is highlighted; "alp" filters to AlphaProject only
         // (none of the other 12 names contain the subsequence a-l-p —
-        // AaaCodexApp has no `l` between the `a`s and the `p`).
+        // AaaOpenAIApp has no `l` between the `a`s and the `p`).
         // Selection should auto-move to AlphaProject.
         //
         // Click the search field first to make the NSTextField the

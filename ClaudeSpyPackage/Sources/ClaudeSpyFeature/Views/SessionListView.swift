@@ -800,10 +800,6 @@
                                                 Text(project.name)
                                                     .foregroundStyle(.primary)
 
-                                                // Tag non-default agents so
-                                                // Codex projects are visually
-                                                // distinct from Claude ones in
-                                                // the same list.
                                                 if project.agent != .claudeCode {
                                                     Text(project.agent.shortName)
                                                         .font(.caption2.weight(.semibold))
