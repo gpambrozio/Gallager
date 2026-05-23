@@ -121,9 +121,7 @@ public actor MacOSDriver {
         end tell
         delay 1
         """
-        // See openPanesWindow — status item ("menu bar 2") can take a moment
-        // to register after app launch on a loaded CI host.
-        try await runAppleScriptWithRetry(script, description: "openSettings")
+        try await runAppleScript(script)
     }
 
     /// Wait for a window to appear via the external Accessibility API.
@@ -385,10 +383,7 @@ public actor MacOSDriver {
         end tell
         delay 1
         """
-        // The status item ("menu bar 2") is not always registered immediately
-        // after app launch, so the click can fail with -1719 "Invalid index"
-        // on a loaded CI host. Retry a few times before giving up.
-        try await runAppleScriptWithRetry(script, description: "openPanesWindow")
+        try await runAppleScript(script)
     }
 
     /// Move the macOS app window to a screen position via AX.
@@ -908,30 +903,6 @@ public actor MacOSDriver {
     @discardableResult
     private func runAppleScript(_ source: String) async throws -> String {
         try await runAppleScriptReturning(source)
-    }
-
-    /// Run an AppleScript with a small retry budget. Useful for scripts that
-    /// reach into the status item ("menu bar 2") or other transiently-missing
-    /// UI elements right after app launch on a loaded CI host.
-    private func runAppleScriptWithRetry(
-        _ source: String,
-        description: String,
-        attempts: Int = 3
-    ) async throws {
-        var lastError: Error?
-        for attempt in 1...attempts {
-            do {
-                _ = try await runAppleScriptReturning(source)
-                return
-            } catch {
-                lastError = error
-                if attempt < attempts {
-                    logger.info("AppleScript \(description) attempt \(attempt)/\(attempts) failed: \(error.localizedDescription) — retrying")
-                    try await Task.sleep(for: .milliseconds(500))
-                }
-            }
-        }
-        throw lastError ?? MacOSDriverError.appleScriptFailed("\(description) failed after \(attempts) attempts")
     }
 
     private func runAppleScriptReturning(_ source: String) async throws -> String {
