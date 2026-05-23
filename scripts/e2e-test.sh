@@ -170,8 +170,14 @@ cleanup() {
 # offenders before launching the test so they don't break scenarios. Only
 # touches known system processes — never user-facing apps.
 dismiss_system_dialogs() {
-    local result
-    result=$(osascript <<'APPLESCRIPT' 2>/dev/null || true
+    # Write the AppleScript to a temp file rather than inlining it as a heredoc
+    # inside $(...). macOS ships bash 3.2, whose parser breaks on `$(... <<EOF ... )`
+    # when the heredoc body contains `)` — and AppleScript is full of them.
+    # The whole script failed to parse, so e2e runs aborted before producing any
+    # JSON output and the report falsely labelled them as build failures.
+    local script_file
+    script_file=$(mktemp -t dismiss-dialogs).scpt
+    cat > "$script_file" <<'APPLESCRIPT'
 on dismissProcessDialogs(procName)
     set dismissed to {}
     tell application "System Events"
@@ -211,7 +217,9 @@ end repeat
 set AppleScript's text item delimiters to linefeed
 return allDismissed as text
 APPLESCRIPT
-)
+    local result
+    result=$(osascript "$script_file" 2>/dev/null || true)
+    rm -f "$script_file"
     if [ -n "$result" ]; then
         warn "Dismissed blocking system dialog(s):"
         while IFS= read -r line; do
