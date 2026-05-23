@@ -147,7 +147,14 @@ struct TmuxPaneMirrorApp: App {
                 // Don't let the live Codex scanner walk `~/.codex/sessions/`
                 // on every session-state request — heavy disk I/O there can
                 // stall the iOS terminal reconnect long enough to time out.
-                $0[CodexProjectScanner.self] = .inMemory(projects: [])
+                //
+                // `AaaCodexApp` sorts alphabetically ahead of every Claude
+                // project so e2e scenarios that exercise the project picker
+                // always see a Codex project near the top of the list and can
+                // assert against the Codex tag rendering.
+                $0[CodexProjectScanner.self] = .inMemory(projects: [
+                    ClaudeProjectInfo(name: "AaaCodexApp", path: "/Users/test/AaaCodexApp", agent: .codex),
+                ])
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle
                 // via --sample-files-dir passed by the test orchestrator.

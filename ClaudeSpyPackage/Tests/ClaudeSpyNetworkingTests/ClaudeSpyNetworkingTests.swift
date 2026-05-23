@@ -639,5 +639,35 @@ struct CreateTmuxSessionTests {
         #expect(decoded.height == 24)
         #expect(decoded.workingDirectory == nil)
         #expect(decoded.claudeConfigDir == nil)
+        #expect(decoded.agent == .claudeCode)
+    }
+
+    @Test("Round-trip preserves Codex agent")
+    func roundTripPreservesCodexAgent() throws {
+        let original = CreateTmuxSession(
+            sessionName: "codex-work",
+            width: 120,
+            height: 40,
+            workingDirectory: "/Users/test/codex-work",
+            agent: .codex
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.agent == .codex)
+    }
+
+    @Test("Defaults agent to Claude Code when omitted on init")
+    func defaultsAgentToClaude() {
+        let session = CreateTmuxSession(
+            sessionName: "work",
+            width: 80,
+            height: 24,
+            workingDirectory: "/Users/test/work"
+        )
+
+        #expect(session.agent == .claudeCode)
     }
 }

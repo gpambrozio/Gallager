@@ -3728,7 +3728,8 @@ public struct MainView: View {
             width: dimensions.columns,
             height: dimensions.rows,
             workingDirectory: project?.path,
-            claudeConfigDir: project?.claudeConfigDir
+            claudeConfigDir: project?.claudeConfigDir,
+            agent: project?.agent ?? .claudeCode
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

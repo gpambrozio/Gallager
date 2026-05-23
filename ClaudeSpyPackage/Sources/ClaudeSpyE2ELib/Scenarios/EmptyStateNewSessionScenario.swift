@@ -23,8 +23,8 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying New Terminal option is shown in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
 
-        TestStep.log("Verifying Claude Projects section is shown")
-        TestStep.macWaitForElement(titled: "Claude Projects", timeout: 5)
+        TestStep.log("Verifying Projects section is shown")
+        TestStep.macWaitForElement(titled: "Projects", timeout: 5)
 
         TestStep.macScreenshot(label: "mac-empty-state")
 

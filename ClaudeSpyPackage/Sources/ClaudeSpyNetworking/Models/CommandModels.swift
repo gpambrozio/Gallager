@@ -483,22 +483,54 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// so that `claude` picks up the right config.
     public let claudeConfigDir: String?
 
+    /// Which coding-agent CLI to launch when `workingDirectory` is supplied
+    /// (and the corresponding auto-run setting is enabled). Defaults to
+    /// `.claudeCode` for backward compatibility with viewers built before the
+    /// Codex integration.
+    public let agent: CodingAgent
+
     public init(
         sessionName: String,
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil
+        claudeConfigDir: String? = nil,
+        agent: CodingAgent = .claudeCode
     ) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
         self.workingDirectory = workingDirectory
         self.claudeConfigDir = claudeConfigDir
+        self.agent = agent
     }
 
     public var commandType: CommandType {
         .createTmuxSession(self)
+    }
+
+    // MARK: - Codable
+
+    /// Custom decoder so this build can talk to an older host that predates the
+    /// `agent` field. Treat absence as Claude Code — the only agent older
+    /// versions know about.
+    private enum CodingKeys: String, CodingKey {
+        case sessionName
+        case width
+        case height
+        case workingDirectory
+        case claudeConfigDir
+        case agent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionName = try container.decode(String.self, forKey: .sessionName)
+        self.width = try container.decode(Int.self, forKey: .width)
+        self.height = try container.decode(Int.self, forKey: .height)
+        self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+        self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
+        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
     }
 }
 
@@ -956,14 +988,16 @@ public enum CommandType: Codable, Sendable, Equatable {
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil
+        claudeConfigDir: String? = nil,
+        agent: CodingAgent = .claudeCode
     ) -> CommandType {
         .createTmuxSession(CreateTmuxSession(
             sessionName: sessionName,
             width: width,
             height: height,
             workingDirectory: workingDirectory,
-            claudeConfigDir: claudeConfigDir
+            claudeConfigDir: claudeConfigDir,
+            agent: agent
         ))
     }
 
