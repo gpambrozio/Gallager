@@ -164,6 +164,64 @@ cleanup() {
     cleanup_simulator_attachments
 }
 
+# CI machines occasionally show system auth or notification dialogs
+# (SecurityAgent admin prompts, software-update nags, "App from the internet"
+# warnings) that float above the test apps and block clicks. Dismiss known
+# offenders before launching the test so they don't break scenarios. Only
+# touches known system processes — never user-facing apps.
+dismiss_system_dialogs() {
+    local result
+    result=$(osascript <<'APPLESCRIPT' 2>/dev/null || true
+on dismissProcessDialogs(procName)
+    set dismissed to {}
+    tell application "System Events"
+        if not (exists process procName) then return dismissed
+        tell process procName
+            repeat with w in windows
+                try
+                    set winName to name of w
+                on error
+                    set winName to "<untitled>"
+                end try
+                set clicked to false
+                repeat with btnLabel in {"Cancel", "Don't Allow", "Not Now", "Later", "Close"}
+                    if not clicked then
+                        try
+                            if exists button btnLabel of w then
+                                click button btnLabel of w
+                                set end of dismissed to (procName & ": " & winName & " [" & btnLabel & "]")
+                                set clicked to true
+                            end if
+                        end try
+                    end if
+                end repeat
+            end repeat
+        end tell
+    end tell
+    return dismissed
+end dismissProcessDialogs
+
+set allDismissed to {}
+repeat with procName in {"SecurityAgent", "UserNotificationCenter", "CoreServicesUIAgent", "loginwindow", "Software Update", "ScreenSaverEngine"}
+    try
+        set allDismissed to allDismissed & dismissProcessDialogs(procName)
+    end try
+end repeat
+
+set AppleScript's text item delimiters to linefeed
+return allDismissed as text
+APPLESCRIPT
+)
+    if [ -n "$result" ]; then
+        warn "Dismissed blocking system dialog(s):"
+        while IFS= read -r line; do
+            [ -n "$line" ] && echo "        - $line"
+        done <<< "$result"
+    else
+        ok "No blocking system dialogs"
+    fi
+}
+
 # Find a booted or available simulator UDID by name
 find_simulator_udid() {
     xcrun simctl list devices available -j \
@@ -472,6 +530,12 @@ if [ -n "$stale_pids" ]; then
     done
     ok "Stale processes cleaned up"
 fi
+
+# =====================================================
+# DISMISS BLOCKING SYSTEM DIALOGS
+# =====================================================
+step "Dismissing blocking system dialogs"
+dismiss_system_dialogs
 
 # =====================================================
 # RUN E2E TEST

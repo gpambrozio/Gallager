@@ -131,7 +131,7 @@ struct NewSessionContent: View {
                                 Divider()
                                     .padding(.vertical, 4)
 
-                                Text("Claude Projects")
+                                Text("Projects")
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)

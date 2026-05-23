@@ -20,11 +20,19 @@ public enum ProjectSearchIOSScenario {
         // Rows further down (e.g. GammaService) sit outside the iOS
         // List's render buffer and aren't in the XCUI hierarchy.
         // (waiting for the project items implies the loading spinner is gone)
+        // `AaaOpenAIApp` is seeded by the Codex scanner so the picker always
+        // has a Codex-tagged row near the top of the list to assert against.
+        // The name avoids the substring "Codex" so the badge assertion below
+        // can't accidentally match this row's project name.
         TestStep.log("Verifying alphabetically-first mock projects are listed")
-        TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("AaaOpenAIApp"), timeout: 15)
+        TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("EpsilonHub"), timeout: 5)
+        // The Codex tag (rendered as a "Codex" badge next to the project name)
+        // is the visible signal that the picker distinguishes Codex projects
+        // from Claude ones.
+        TestStep.iosWaitForElement(.labelContains("Codex"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-all-projects-visible")
 
         // ── Tap search field and type fuzzy search ────────────────
