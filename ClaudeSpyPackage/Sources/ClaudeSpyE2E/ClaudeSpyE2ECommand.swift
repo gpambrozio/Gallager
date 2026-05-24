@@ -315,6 +315,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         NewLocalSessionAfterRemoteScenario.scenario,
         CloseBrowserTabReturnsToParentScenario.scenario,
         TerminalFileLinkStaleCacheScenario.scenario,
+        OSCBackgroundProbeScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

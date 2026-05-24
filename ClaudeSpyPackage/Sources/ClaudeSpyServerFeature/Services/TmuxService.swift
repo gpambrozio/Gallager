@@ -110,10 +110,46 @@ final public class TmuxService {
     /// would error and would need the `exec -a "-name"` argv[0] convention
     /// instead (works because tmux runs `default-command` via `/bin/sh -c`,
     /// which on macOS is bash and supports `exec -a`).
-    private static let defaultCommandWrapper: String = {
-        let shell = posixSingleQuote(userShellPath)
-        return "TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
-    }()
+    ///
+    /// The leading `printf` emits OSC 10 (default foreground) and OSC 11
+    /// (default background) *setter* sequences before the shell starts.
+    /// tmux's display parser intercepts them and caches the pane's fg/bg —
+    /// so later OSC-10/11 *queries* from inside-pane apps (e.g. Codex CLI's
+    /// startup probe) get answered from tmux's cache rather than timing out
+    /// against tmux 3.6a's broken outer-terminal forwarding (see tmux/tmux
+    /// #4846, openai/codex #22761 / #23489). Without this, Codex falls back
+    /// to hardcoded colors — including bold + RGB(0,0,0) for the "● Working"
+    /// status, invisible on dark mirror themes.
+    ///
+    /// The fg/bg values match the actual colors the mirror's renderer
+    /// applies for the user's currently-selected theme (see
+    /// `TerminalContainerView.applyDarkTheme` / `applyLightTheme`), so the
+    /// cached value and the rendered bg can't drift if the user toggles
+    /// between dark and light themes.
+    private var defaultCommandWrapper: String {
+        let shell = Self.posixSingleQuote(Self.userShellPath)
+        let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
+        let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
+        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
+    }
+
+    /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11
+    /// setter for the given mirror theme. Values mirror exactly what
+    /// `TerminalContainerView.applyDarkTheme` and `applyLightTheme` push
+    /// into SwiftTerm so the cached value in tmux matches what the user
+    /// actually sees rendered.
+    private static func oscColors(for theme: TerminalTheme) -> (fg: String, bg: String) {
+        switch theme {
+        case .defaultDark,
+             .solarizedDark:
+            // applyDarkTheme: fg = NSColor(0.9), bg = NSColor(0.1)
+            return ("e6e6/e6e6/e6e6", "1a1a/1a1a/1a1a")
+        case .defaultLight,
+             .solarizedLight:
+            // applyLightTheme: fg = NSColor(0.1), bg = NSColor(0.95)
+            return ("1a1a/1a1a/1a1a", "f2f2/f2f2/f2f2")
+        }
+    }
 
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
@@ -165,9 +201,24 @@ final public class TmuxService {
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
 
+    /// Closure that returns the user's currently-selected mirror theme.
+    /// Read each time `defaultCommandWrapper` is evaluated so the OSC 10/11
+    /// setters baked into newly-spawned shells reflect the live preference.
+    /// Defaults to dark; `AppCoordinator` overrides this with a real
+    /// settings-backed closure during construction.
+    private var themeProvider: @MainActor () -> TerminalTheme = { .defaultDark }
+
     public init(tmuxPath: String = "/opt/homebrew/bin/tmux", socketPath: String? = nil) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath
+    }
+
+    /// Wire up the source of truth for the mirror theme. The closure is
+    /// invoked each time a new tmux session is created, so theme changes
+    /// the user makes in Settings take effect for the next-spawned shell
+    /// without needing to restart the app.
+    public func setThemeProvider(_ provider: @escaping @MainActor () -> TerminalTheme) {
+        themeProvider = provider
     }
 
     /// Updates the tmux configuration
@@ -2338,7 +2389,7 @@ final public class TmuxService {
         // just-set global default-command. Repeating this on every session
         // create is harmless (idempotent) and avoids tracking server lifetime.
         var args = [
-            "set-option", "-g", "default-command", Self.defaultCommandWrapper,
+            "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
             "-d",

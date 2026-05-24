@@ -145,6 +145,11 @@
                 tmuxPath: settings.tmuxPath,
                 socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
             )
+            // Let the tmux service's `default-command` wrapper bake the
+            // user's currently-selected mirror theme into the OSC 10/11
+            // setters it emits. Read live so theme changes take effect for
+            // the next-spawned shell without restarting the app.
+            tmuxService.setThemeProvider { [settings] in settings.theme }
 
             // Create control client manager for tmux control mode
             self.controlClientManager = TmuxControlClientManager(
