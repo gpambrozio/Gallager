@@ -6,6 +6,41 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 1.32</title>
+         <sparkle:version>32</sparkle:version>
+         <sparkle:shortVersionString>1.32</sparkle:shortVersionString>
+         <pubDate>Sat, 23 May 2026 19:05:17 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.32
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Codex CLI support</strong>: Added the OpenAI Codex CLI as a second supported coding agent alongside Claude Code. Codex projects are now detected, tagged on iOS, and launch with the Codex CLI when opened.</li>
+<li><strong>Project scanner</strong>: The project scanner no longer requires a `.claude` directory, allowing more projects to be discovered automatically.</li>
+<li><strong>Emoji lookup</strong>: The `gallager set-emoji` command now supports looking up emojis by name or description.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Sidebar spacing</strong>: Added breathing room between the sidebar status icon and emoji badge for better readability.</li>
+<li><strong>Sparkle updated</strong> to 2.9.2.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Codex "Working" status visible</strong>: Fixed an issue where the Codex "Working" status indicator was invisible due to tmux's pane background cache not being pre-warmed.</li>
+<li><strong>OSC 8 file links</strong>: Clicks outside a hyperlink's text no longer trigger the link to open.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.32.dmg"
+                    sparkle:edSignature="/SsL8B2SPUsHhKIZC9kc9wfiLumHzEd3+7N3FP9HOiqlMOmYhWfRKM8VxyVkztR2ZApcxo7aZA4jVtTIin8yCQ=="
+                    length="31410262"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.31</title>
          <sparkle:version>31</sparkle:version>
          <sparkle:shortVersionString>1.31</sparkle:shortVersionString>
