@@ -1,59 +1,44 @@
 #!/usr/bin/env python3
-import sys
+"""Gallager hook bridge — forwards a Claude Code hook payload to the
+sidecar's Unix socket via the GALLAGER_INGRESS_SOCK env var.
+
+If the socket env is unset or the path doesn't exist, exit silently
+(Gallager isn't running and we shouldn't block the host agent).
+"""
+import json
 import os
-from urllib.request import urlopen, Request
-from urllib.parse import urlencode
+import socket
+import struct
+import sys
 
-def read_port():
-    """Read the hook server port from the per-user port file."""
-    port_file = os.path.expanduser('~/.claudespy-port')
-    try:
-        with open(port_file, 'r') as f:
-            port = int(f.read().strip())
-            if 1 <= port <= 65535:
-                return port
-            return None
-    except (OSError, ValueError):
-        return None
+sock_path = os.environ.get("GALLAGER_INGRESS_SOCK")
+if not sock_path or not os.path.exists(sock_path):
+    sys.exit(0)
 
-def main():
-    tmux_pane = os.environ.get('TMUX_PANE', '')
+try:
+    payload = json.load(sys.stdin)
+except Exception as e:  # noqa: BLE001 — must not propagate, agent shouldn't block
+    sys.stderr.write(f"[gallager-hook] could not parse stdin: {e}\n")
+    sys.exit(0)
 
-    if not tmux_pane:
-        # Exit if not running inside tmux
-        exit(0)
+# Forward the env vars the sidecar needs to correlate pane/project/session.
+ctx_keys = (
+    "TMUX_PANE",
+    "CLAUDE_PROJECT_DIR",
+    "CLAUDE_SESSION_ID",
+    "CODEX_PROJECT_DIR",
+    "CODEX_SESSION_ID",
+)
+context = {k: os.environ[k] for k in ctx_keys if k in os.environ}
 
-    port = read_port()
-    if port is None:
-        # ClaudeSpy is not running or port file missing
-        exit(0)
+frame = json.dumps({"context": context, "payload": payload}).encode("utf-8")
+length = struct.pack(">I", len(frame))
 
-    project_path = os.environ.get('CLAUDE_PROJECT_DIR', '')
-
-    # Read stdin
-    stdin_data = sys.stdin.read()
-
-    # Properly encode query parameters
-    query_params = urlencode({
-        'project_path': project_path,
-        'tmux_pane': tmux_pane
-    })
-
-    # Make POST request
-    url = f"http://localhost:{port}/api/hooks?{query_params}"
-
-    try:
-        req = Request(url,
-                     data=stdin_data.encode('utf-8'),
-                     headers={'Content-Type': 'application/json'},
-                     method='POST')
-        with urlopen(req, timeout=5) as response:
-            # Read response but don't do anything with it
-            response.read().decode('utf-8')
-            exit(0)
-    except Exception:
-        # Fallback response if server is not available
-        exit(0)
-
-if __name__ == '__main__':
-    main()
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(2.0)
+        s.connect(sock_path)
+        s.sendall(length + frame)
+except OSError as e:
+    sys.stderr.write(f"[gallager-hook] socket error: {e}\n")
+    sys.exit(0)
