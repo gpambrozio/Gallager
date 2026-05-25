@@ -2,6 +2,11 @@ import Foundation
 
 // MARK: - Agent Response Request
 
+/// Wire-format requirement: serialization MUST use a `JSONEncoder` with
+/// `keyEncodingStrategy = .convertToSnakeCase` (and decoder with
+/// `keyDecodingStrategy = .convertFromSnakeCase`). Discriminator raw values
+/// are already snake_case; property names rely on the strategy.
+///
 /// Closed-set response vocabulary that iOS understands. Plugin sidecars
 /// translate their agent-specific events into one of these shapes when
 /// forwarding to iOS for user interaction.

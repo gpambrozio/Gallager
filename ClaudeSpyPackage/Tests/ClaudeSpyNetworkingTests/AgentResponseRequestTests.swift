@@ -357,7 +357,7 @@ struct AgentSessionStatusUpdateTests {
     func roundTripPreservesFields() throws {
         let original = AgentSessionStatusUpdate(
             sessionId: "abc-123",
-            pluginID: "claude-code",
+            pluginId: "claude-code",
             working: true,
             attention: false,
             timestamp: Date(timeIntervalSince1970: 1_716_575_531)
@@ -378,7 +378,7 @@ struct AgentSessionStatusUpdateTests {
     func encodesSnakeCaseFields() throws {
         let original = AgentSessionStatusUpdate(
             sessionId: "abc-123",
-            pluginID: "claude-code",
+            pluginId: "claude-code",
             working: true,
             attention: false,
             timestamp: Date(timeIntervalSince1970: 0)

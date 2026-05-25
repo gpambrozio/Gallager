@@ -17,14 +17,19 @@ import Foundation
 /// }
 /// ```
 public struct AgentSessionStatusUpdate: Codable, Sendable, Equatable {
-    /// Discriminator. Always `"agent_session_status"`.
+    /// Discriminator. Always `"agent_session_status"`. Stored so callers can
+    /// switch on it after decoding; validated in `init(from:)` so decode
+    /// rejects mismatched payloads instead of silently accepting them.
     public let type: String
 
     /// The session this status update applies to.
     public let sessionId: String
 
-    /// The plugin that owns this session.
-    public let pluginID: String
+    /// The plugin that owns this session. Property name uses lowercase `Id` so
+    /// `convertToSnakeCase` produces `plugin_id` on the wire automatically (no
+    /// explicit `CodingKeys` needed) — matches the casing in `HookEventMessage`,
+    /// `SessionStateMessage`, `PaneState`, etc.
+    public let pluginId: String
 
     /// Whether the agent is currently working (processing, not waiting for
     /// input).
@@ -38,14 +43,14 @@ public struct AgentSessionStatusUpdate: Codable, Sendable, Equatable {
 
     public init(
         sessionId: String,
-        pluginID: String,
+        pluginId: String,
         working: Bool,
         attention: Bool,
         timestamp: Date
     ) {
         self.type = Self.discriminator
         self.sessionId = sessionId
-        self.pluginID = pluginID
+        self.pluginId = pluginId
         self.working = working
         self.attention = attention
         self.timestamp = timestamp
@@ -56,17 +61,34 @@ public struct AgentSessionStatusUpdate: Codable, Sendable, Equatable {
 
     // MARK: - Codable
 
-    // Swift's `convertFromSnakeCase` strategy collapses `plugin_id` to
-    // `pluginId` (camelCase) on the way in, so the trailing "ID" on the Swift
-    // property doesn't line up. Map explicitly so encoding and decoding
-    // round-trip cleanly: the strategy then snake_cases `pluginId` to
-    // `plugin_id` on the way out.
+    // Discriminator-validation choice: keep `type` as a stored property and
+    // verify it in `init(from:)` rather than dropping it from the encoded
+    // payload. Stored form preserves a stable public API (callers can read
+    // `update.type` after decode) while still rejecting wrong payloads.
     private enum CodingKeys: String, CodingKey {
         case type
         case sessionId
-        case pluginID = "pluginId"
+        case pluginId
         case working
         case attention
         case timestamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        guard type == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected discriminator '\(Self.discriminator)', got '\(type)'"
+            )
+        }
+        self.type = type
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.pluginId = try container.decode(String.self, forKey: .pluginId)
+        self.working = try container.decode(Bool.self, forKey: .working)
+        self.attention = try container.decode(Bool.self, forKey: .attention)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
     }
 }

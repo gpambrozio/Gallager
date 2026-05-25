@@ -2,6 +2,11 @@ import Foundation
 
 // MARK: - App Action
 
+/// Wire-format requirement: serialization MUST use a `JSONEncoder` with
+/// `keyEncodingStrategy = .convertToSnakeCase` (and decoder with
+/// `keyDecodingStrategy = .convertFromSnakeCase`). Discriminator raw values
+/// are already snake_case; property names rely on the strategy.
+///
 /// Discrete Mac-side feature triggers a plugin sidecar wants to fire. Closed
 /// enum of app-known actions; new actions are added as a coordinated app +
 /// plugin change. AppActions are intentionally agent-blind.

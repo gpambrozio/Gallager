@@ -110,7 +110,9 @@ public struct PluginPresentation: Codable, Sendable, Equatable {
 /// }
 /// ```
 public struct PluginPresentationsMessage: Codable, Sendable, Equatable {
-    /// Discriminator. Always `"plugin_presentations"`.
+    /// Discriminator. Always `"plugin_presentations"`. Stored so callers can
+    /// switch on it after decoding; validated in `init(from:)` so decode
+    /// rejects mismatched payloads instead of silently accepting them.
     public let type: String
 
     /// Presentations for every plugin enabled on the host.
@@ -123,4 +125,29 @@ public struct PluginPresentationsMessage: Codable, Sendable, Equatable {
 
     /// The constant wire `type` value for this message.
     public static let discriminator = "plugin_presentations"
+
+    // MARK: - Codable
+
+    // Discriminator-validation choice: keep `type` as a stored property and
+    // verify it in `init(from:)` rather than dropping it from the encoded
+    // payload. Stored form preserves a stable public API (callers can read
+    // `message.type` after decode) while still rejecting wrong payloads.
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case presentations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        guard type == Self.discriminator else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "Expected discriminator '\(Self.discriminator)', got '\(type)'"
+            )
+        }
+        self.type = type
+        self.presentations = try container.decode([PluginPresentation].self, forKey: .presentations)
+    }
 }
