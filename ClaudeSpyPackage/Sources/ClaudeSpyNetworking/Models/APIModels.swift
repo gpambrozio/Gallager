@@ -128,12 +128,16 @@ public struct APIProjectInfo: Codable, Sendable {
         self.agent = agent
     }
 
-    public init(_ info: ClaudeProjectInfo) {
+    public init(_ info: AgentProject) {
         self.id = info.id
         self.name = info.name
         self.path = info.path
         self.lastUsed = info.lastUsed
-        self.agent = info.agent
+        // The CLI's wire shape still uses the legacy `agent` field — map
+        // the plugin id back to a CodingAgent so existing scripts keep
+        // working. Unknown plugin ids fall back to .claudeCode (the CLI
+        // historically only saw `.claudeCode` / `.codex`).
+        self.agent = CodingAgent(rawValue: info.pluginID) ?? .claudeCode
     }
 
     public func toJSONValue() -> [String: JSONValue] {

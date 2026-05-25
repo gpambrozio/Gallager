@@ -182,7 +182,7 @@
 
         // MARK: - New Session Creation
 
-        private func createNewSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+        private func createNewSession(on host: PairedHost, inProject project: AgentProject?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -197,7 +197,8 @@
                 height: settings.newSessionHeight,
                 workingDirectory: project?.path,
                 claudeConfigDir: project?.claudeConfigDir,
-                agent: project?.agent ?? .claudeCode
+                agent: project
+                    .flatMap { CodingAgent(rawValue: $0.pluginID) } ?? .claudeCode
             )
 
             // paneId is not used for session creation, pass empty string
@@ -729,7 +730,7 @@
         let host: PairedHost
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
-        let onSelect: (ClaudeProjectInfo?) -> Void
+        let onSelect: (AgentProject?) -> Void
 
         @Environment(\.dismiss) private var dismiss
         @Environment(SessionStore.self) private var sessionStore
@@ -740,11 +741,11 @@
         }
 
         /// Projects for this host, read from SessionStore to auto-update when state arrives
-        private var projects: [ClaudeProjectInfo] {
+        private var projects: [AgentProject] {
             sessionStore.projects(for: host.id)
         }
 
-        private var filteredProjects: [ClaudeProjectInfo] {
+        private var filteredProjects: [AgentProject] {
             guard !searchText.isEmpty else { return projects }
             return projects.filter { $0.name.fuzzyMatches(searchText) }
         }
@@ -800,15 +801,18 @@
                                                 Text(project.name)
                                                     .foregroundStyle(.primary)
 
-                                                if project.agent != .claudeCode {
-                                                    Text(project.agent.shortName)
-                                                        .font(.caption2.weight(.semibold))
-                                                        .padding(.horizontal, 6)
-                                                        .padding(.vertical, 2)
-                                                        .background(
-                                                            Capsule().fill(Color.accentColor.opacity(0.18))
-                                                        )
-                                                        .foregroundStyle(Color.accentColor)
+                                                if project.pluginID != "claude-code" {
+                                                    Text(
+                                                        CodingAgent(rawValue: project.pluginID)?.shortName
+                                                            ?? project.pluginID
+                                                    )
+                                                    .font(.caption2.weight(.semibold))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(
+                                                        Capsule().fill(Color.accentColor.opacity(0.18))
+                                                    )
+                                                    .foregroundStyle(Color.accentColor)
                                                 }
                                             }
                                             Text(project.path)

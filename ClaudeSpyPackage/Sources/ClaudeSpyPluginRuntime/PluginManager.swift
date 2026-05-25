@@ -1,7 +1,7 @@
+import struct ClaudeSpyNetworking.AgentProject
 import enum ClaudeSpyNetworking.AgentResponse
 import enum ClaudeSpyNetworking.AgentResponseRequest
 import enum ClaudeSpyNetworking.AppAction
-import struct ClaudeSpyNetworking.ClaudeProjectInfo
 import Foundation
 import GallagerPluginProtocol
 import Logging
@@ -974,14 +974,3 @@ final private class AutoApproveBridge: PluginEventDispatcher.AutoApprovalDelegat
         )
     }
 }
-
-// MARK: - AgentProject type alias
-
-// The plan calls the project type `AgentProject`; the canonical name in
-// `ClaudeSpyNetworking` is still `ClaudeProjectInfo` (Task 8 renames it
-// in a coordinated rename pass). We expose the new name as a typealias so
-// downstream code can reference `AgentProject` today and the rename in
-// Task 8 just drops this alias.
-//
-// TODO(Task 8): drop this alias after `ClaudeProjectInfo` is renamed.
-public typealias AgentProject = ClaudeProjectInfo

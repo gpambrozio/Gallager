@@ -478,11 +478,11 @@ struct TerminalStreamMessageTests {
     }
 }
 
-@Suite("ClaudeProjectInfo Tests")
-struct ClaudeProjectInfoTests {
+@Suite("AgentProject Tests")
+struct AgentProjectTests {
     @Test("Round-trip preserves claudeConfigDir")
     func roundTripPreservesConfigDir() throws {
-        let original = ClaudeProjectInfo(
+        let original = AgentProject(
             name: "MyProject",
             path: "/Users/test/MyProject",
             lastUsed: Date(timeIntervalSince1970: 1_704_067_200),
@@ -492,7 +492,7 @@ struct ClaudeProjectInfoTests {
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
         let data = try encoder.encode(original)
-        let decoded = try decoder.decode(ClaudeProjectInfo.self, from: data)
+        let decoded = try decoder.decode(AgentProject.self, from: data)
 
         #expect(decoded == original)
         #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
@@ -505,38 +505,60 @@ struct ClaudeProjectInfoTests {
             "name": "PlainProject",
             "path": "/Users/test/PlainProject",
             "lastUsed": null,
-            "agent": "claude-code"
+            "plugin_id": "claude-code"
         }
         """
 
-        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
 
         #expect(decoded.name == "PlainProject")
         #expect(decoded.path == "/Users/test/PlainProject")
         #expect(decoded.claudeConfigDir == nil)
-        #expect(decoded.agent == .claudeCode)
+        #expect(decoded.pluginID == "claude-code")
     }
 
-    @Test("Decodes Codex project JSON")
+    @Test("Decodes modern Codex project JSON via plugin_id")
     func decodesCodexProject() throws {
         let json = """
         {
             "name": "CodexProject",
             "path": "/Users/test/CodexProject",
             "lastUsed": null,
+            "plugin_id": "codex"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
+
+        #expect(decoded.pluginID == "codex")
+    }
+
+    @Test("Decodes legacy payload that uses the old `agent` raw value")
+    func decodesLegacyAgentField() throws {
+        // Cross-host fallback: a peer on the pre-plugin-system build
+        // emits `agent: "codex"` instead of `plugin_id: "codex"`. The new
+        // build accepts it and lifts the raw value to `pluginID`. Per
+        // `feedback_no-backward-compat`, this fallback is permanent.
+        let json = """
+        {
+            "name": "LegacyCodex",
+            "path": "/Users/test/LegacyCodex",
+            "lastUsed": null,
             "agent": "codex"
         }
         """
 
-        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
 
-        #expect(decoded.agent == .codex)
+        #expect(decoded.pluginID == "codex")
+        #expect(decoded.claudeConfigDir == nil)
     }
 
-    @Test("Decodes legacy payload from a host that predates the agent field")
+    @Test("Decodes payload with neither key as claude-code")
     func decodesLegacyPayloadWithoutAgent() throws {
-        // Mirrors what a `main`-version host emits — no `agent` key. The new
-        // build must tolerate it and default to .claudeCode.
+        // Mirrors what a `main`-version host emits before the agent split —
+        // no `agent`, no `plugin_id`. The new build must tolerate it and
+        // default to Claude Code (the only agent those versions knew about).
         let json = """
         {
             "name": "LegacyProject",
@@ -545,10 +567,26 @@ struct ClaudeProjectInfoTests {
         }
         """
 
-        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
 
-        #expect(decoded.agent == .claudeCode)
+        #expect(decoded.pluginID == "claude-code")
         #expect(decoded.claudeConfigDir == nil)
+    }
+
+    @Test("Encoded payload uses plugin_id, not agent")
+    func encodesModernKey() throws {
+        let project = AgentProject(
+            name: "MyProject",
+            path: "/Users/test/MyProject",
+            pluginID: "codex"
+        )
+        let data = try JSONEncoder().encode(project)
+        let raw = try #require(String(data: data, encoding: .utf8))
+
+        #expect(raw.contains("\"plugin_id\":\"codex\""))
+        // Legacy key must NOT be emitted by the new encoder; cross-host
+        // peers parse the modern shape.
+        #expect(!raw.contains("\"agent\""))
     }
 }
 

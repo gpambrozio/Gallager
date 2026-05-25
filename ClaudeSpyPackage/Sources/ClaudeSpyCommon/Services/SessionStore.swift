@@ -34,7 +34,7 @@ final public class SessionStore {
     public private(set) var paneStates: [PaneKey: PaneState] = [:]
 
     /// Claude projects grouped by source host's pairId
-    public private(set) var claudeProjectsByHost: [String: [ClaudeProjectInfo]] = [:]
+    public private(set) var claudeProjectsByHost: [String: [AgentProject]] = [:]
 
     /// Home directory path for each host, keyed by pairId
     public private(set) var homeDirectoryByHost: [String: String] = [:]
@@ -50,7 +50,7 @@ final public class SessionStore {
     }
 
     /// All Claude projects combined from all hosts
-    public var claudeProjects: [ClaudeProjectInfo] {
+    public var claudeProjects: [AgentProject] {
         claudeProjectsByHost.values.flatMap { $0 }
     }
 
@@ -130,7 +130,7 @@ final public class SessionStore {
     }
 
     /// Get Claude projects for a specific host
-    public func projects(for hostId: String) -> [ClaudeProjectInfo] {
+    public func projects(for hostId: String) -> [AgentProject] {
         claudeProjectsByHost[hostId] ?? []
     }
 

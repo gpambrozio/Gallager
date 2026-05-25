@@ -24,7 +24,7 @@ public struct MainView: View {
     @State private var selectedRemoteWindowId: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var projects: [ClaudeProjectInfo] = []
+    @State private var projects: [AgentProject] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
@@ -3649,7 +3649,7 @@ public struct MainView: View {
         let rightWindowId: String?
     }
 
-    private func createNewSession(project: ClaudeProjectInfo?) {
+    private func createNewSession(project: AgentProject?) {
         guard creatingSelection == nil else { return }
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
@@ -3662,8 +3662,14 @@ public struct MainView: View {
                 // Determine which agent command to launch. Each agent has its
                 // own auto-run toggle so a user can keep "open Codex folders
                 // in a bare shell" as a real choice.
-                let runCommand: String? = if let project {
-                    switch project.agent {
+                //
+                // Map the plugin id back to a CodingAgent — Task 11 wires
+                // per-plugin command_for_launch resolvers and this branch
+                // disappears entirely.
+                let projectAgent: CodingAgent? = project
+                    .flatMap { CodingAgent(rawValue: $0.pluginID) }
+                let runCommand: String? = if let projectAgent {
+                    switch projectAgent {
                     case .claudeCode:
                         settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
                     case .codex:
@@ -3683,7 +3689,7 @@ public struct MainView: View {
                 let dimensions = calculateOptimalTerminalDimensions()
 
                 // Create the session with calculated dimensions
-                let firstWindowName = project?.agent.defaultCommand ?? "terminal 1"
+                let firstWindowName = projectAgent?.defaultCommand ?? "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
                     width: dimensions.columns,
@@ -3716,7 +3722,7 @@ public struct MainView: View {
 
     // MARK: - Remote Session Creation
 
-    private func createRemoteSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+    private func createRemoteSession(on host: PairedHost, inProject project: AgentProject?) async {
         guard creatingSelection == nil else { return }
 
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
@@ -3730,7 +3736,8 @@ public struct MainView: View {
             height: dimensions.rows,
             workingDirectory: project?.path,
             claudeConfigDir: project?.claudeConfigDir,
-            agent: project?.agent ?? .claudeCode
+            agent: project
+                .flatMap { CodingAgent(rawValue: $0.pluginID) } ?? .claudeCode
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

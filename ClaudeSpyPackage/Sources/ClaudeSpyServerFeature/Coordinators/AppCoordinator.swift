@@ -209,7 +209,7 @@
         }
 
         /// Scans for Claude Code and Codex projects, merging results.
-        public func scanProjects() async -> [ClaudeProjectInfo] {
+        public func scanProjects() async -> [AgentProject] {
             async let claude = projectScanner.scanProjects()
             async let codex = codexScanner.scanProjects()
             return (await claude + codex).sortedByLastUsed()

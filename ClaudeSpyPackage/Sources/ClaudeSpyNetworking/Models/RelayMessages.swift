@@ -46,15 +46,15 @@ public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     /// Unified per-pane state keyed by pane ID
     public let paneStates: [String: PaneState]
-    /// Discovered Claude projects on the host
-    public let claudeProjects: [ClaudeProjectInfo]?
+    /// Discovered coding-agent projects on the host
+    public let claudeProjects: [AgentProject]?
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
 
     public init(
         pairId: String,
         paneStates: [String: PaneState],
-        claudeProjects: [ClaudeProjectInfo]? = nil,
+        claudeProjects: [AgentProject]? = nil,
         homeDirectory: String = ""
     ) {
         self.pairId = pairId
@@ -281,16 +281,19 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Claude Projects
+// MARK: - Agent Projects
 
-/// Information about a discovered coding-agent project (Claude Code or Codex).
+/// Information about a discovered coding-agent project (Claude Code, Codex,
+/// or any third-party plugin's project type).
 ///
-/// The type name is retained for source compatibility; the `agent` field
-/// distinguishes Claude Code projects from Codex projects.
-public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
-    /// Unique identifier (agent + path; two agents can share a working directory).
+/// `pluginID` identifies which plugin discovered the project — the Mac app
+/// routes per-project actions (open in editor, start session, etc.) back
+/// to the owning plugin by that id. Values match the plugin manifest's
+/// `id` field: e.g. `"claude-code"`, `"codex"`.
+public struct AgentProject: Codable, Sendable, Identifiable, Hashable {
+    /// Unique identifier (plugin + path; two plugins can share a working directory).
     public var id: String {
-        "\(agent.rawValue):\(path)"
+        "\(pluginID):\(path)"
     }
 
     /// Project name (last component of path)
@@ -304,36 +307,43 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
 
     /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
     /// in a non-default `.claude` folder. `nil` when the project lives in the
-    /// default `~/.claude` location. Always `nil` for Codex projects.
+    /// default `~/.claude` location. Always `nil` for non-Claude plugins.
     public let claudeConfigDir: String?
 
-    /// Which coding-agent CLI this project belongs to.
-    public let agent: CodingAgent
+    /// Which plugin owns this project. Matches the plugin manifest's `id`.
+    public let pluginID: String
 
     public init(
         name: String,
         path: String,
         lastUsed: Date? = nil,
         claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
+        pluginID: String = "claude-code"
     ) {
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
         self.claudeConfigDir = claudeConfigDir
-        self.agent = agent
+        self.pluginID = pluginID
     }
 
     // MARK: - Codable
 
-    // Custom decoder so this build can pair with hosts running an older
-    // version that predates the `agent` field. Treat absence as
-    // Claude Code — the only agent those versions know about.
+    // Custom decoder supports two on-the-wire shapes for cross-host
+    // compatibility (see `feedback_no-backward-compat`):
+    //
+    // - Modern: `plugin_id` is a string matching a plugin manifest id.
+    // - Legacy: `agent` is a `CodingAgent` raw value (`"claude-code"` or
+    //   `"codex"`). Hosts running pre-plugin-system builds emit this shape.
+    //
+    // Encoding always emits the modern `plugin_id` key so newer peers see
+    // the canonical wire format.
     private enum CodingKeys: String, CodingKey {
         case name
         case path
         case lastUsed
         case claudeConfigDir
+        case pluginID = "plugin_id"
         case agent
     }
 
@@ -343,16 +353,37 @@ public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
         self.path = try container.decode(String.self, forKey: .path)
         self.lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
         self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
-        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+        if let id = try container.decodeIfPresent(String.self, forKey: .pluginID) {
+            self.pluginID = id
+        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .agent) {
+            // Cross-host fallback: a peer on the pre-plugin-system build
+            // sent an `agent` raw value (e.g. "claude-code" / "codex").
+            // Use it verbatim — those raw values are already the plugin ids.
+            self.pluginID = legacy
+        } else {
+            // Safest default for a project from an older peer that didn't
+            // emit either key: it's a Claude Code project. Pre-plugin
+            // builds only knew about Claude Code.
+            self.pluginID = "claude-code"
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(path, forKey: .path)
+        try container.encodeIfPresent(lastUsed, forKey: .lastUsed)
+        try container.encodeIfPresent(claudeConfigDir, forKey: .claudeConfigDir)
+        try container.encode(pluginID, forKey: .pluginID)
     }
 }
 
-public extension Sequence where Element == ClaudeProjectInfo {
+public extension Sequence where Element == AgentProject {
     /// Sorts projects newest-first by `lastUsed`. Projects without a
     /// timestamp fall to the bottom in name order. Centralising this so the
     /// scanner, the project-list API, and the relay session-state response
     /// can't drift.
-    func sortedByLastUsed() -> [ClaudeProjectInfo] {
+    func sortedByLastUsed() -> [AgentProject] {
         sorted { lhs, rhs in
             switch (lhs.lastUsed, rhs.lastUsed) {
             case let (lhsDate?, rhsDate?):

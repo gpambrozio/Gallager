@@ -155,7 +155,7 @@ struct TmuxPaneMirrorApp: App {
                 // avoids the substring "Codex" so a scenario looking for the
                 // "Codex" badge can't accidentally match the row's project name.
                 $0[CodexProjectScanner.self] = .inMemory(projects: [
-                    ClaudeProjectInfo(name: "AaaOpenAIApp", path: "/Users/test/AaaOpenAIApp", agent: .codex),
+                    AgentProject(name: "AaaOpenAIApp", path: "/Users/test/AaaOpenAIApp", pluginID: "codex"),
                 ])
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle

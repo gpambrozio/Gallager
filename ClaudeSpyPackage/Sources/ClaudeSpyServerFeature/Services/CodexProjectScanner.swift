@@ -15,15 +15,15 @@
     @DependencyClient
     public struct CodexProjectScanner: Sendable {
         /// Scans for Codex projects and returns a list sorted by most recently used.
-        public var scanProjects: @Sendable () async -> [ClaudeProjectInfo] = { [] }
+        public var scanProjects: @Sendable () async -> [AgentProject] = { [] }
     }
 
     // MARK: - In-Memory
 
     public extension CodexProjectScanner {
-        static func inMemory(projects: [ClaudeProjectInfo] = [
-            ClaudeProjectInfo(name: "AlphaCodex", path: "/Users/test/AlphaCodex", agent: .codex),
-            ClaudeProjectInfo(name: "BetaCodex", path: "/Users/test/BetaCodex", agent: .codex),
+        static func inMemory(projects: [AgentProject] = [
+            AgentProject(name: "AlphaCodex", path: "/Users/test/AlphaCodex", pluginID: "codex"),
+            AgentProject(name: "BetaCodex", path: "/Users/test/BetaCodex", pluginID: "codex"),
         ]) -> CodexProjectScanner {
             CodexProjectScanner(scanProjects: { projects })
         }
@@ -67,11 +67,11 @@
         /// rollouts; we read newest-first so older ones rarely add useful info.
         private static let maxRolloutsToRead = 500
 
-        func scanProjects() async -> [ClaudeProjectInfo] {
+        func scanProjects() async -> [AgentProject] {
             logger.debug("Scanning for Codex projects")
 
             let sessionsRoot = codexHomeURL().appendingPathComponent("sessions")
-            var projectsByPath: [String: ClaudeProjectInfo] = [:]
+            var projectsByPath: [String: AgentProject] = [:]
             let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
 
             let rollouts = enumerateRollouts(under: sessionsRoot, limit: Self.maxRolloutsToRead)
@@ -116,12 +116,12 @@
                     continue
                 }
 
-                let candidate = ClaudeProjectInfo(
+                let candidate = AgentProject(
                     name: projectURL.lastPathComponent,
                     path: projectURL.path,
                     lastUsed: meta.startedAt,
                     claudeConfigDir: nil,
-                    agent: .codex
+                    pluginID: "codex"
                 )
 
                 if let existing = projectsByPath[candidate.path] {
@@ -368,7 +368,7 @@
 
         // MARK: - Merge Helpers
 
-        private func shouldReplace(existing: ClaudeProjectInfo, with candidate: ClaudeProjectInfo) -> Bool {
+        private func shouldReplace(existing: AgentProject, with candidate: AgentProject) -> Bool {
             switch (existing.lastUsed, candidate.lastUsed) {
             case let (existingDate?, candidateDate?):
                 return candidateDate > existingDate

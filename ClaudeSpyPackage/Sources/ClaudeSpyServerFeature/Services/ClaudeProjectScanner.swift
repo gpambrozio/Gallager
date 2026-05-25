@@ -13,25 +13,25 @@
     @DependencyClient
     public struct ClaudeProjectScanner: Sendable {
         /// Scans for Claude projects and returns a list sorted by most recently used.
-        public var scanProjects: @Sendable () async -> [ClaudeProjectInfo] = { [] }
+        public var scanProjects: @Sendable () async -> [AgentProject] = { [] }
     }
 
     // MARK: - In-Memory
 
     public extension ClaudeProjectScanner {
-        static func inMemory(projects: [ClaudeProjectInfo] = [
-            ClaudeProjectInfo(name: "AlphaProject", path: "/Users/test/AlphaProject"),
-            ClaudeProjectInfo(name: "BetaProject", path: "/Users/test/BetaProject"),
-            ClaudeProjectInfo(name: "GammaService", path: "/Users/test/GammaService"),
-            ClaudeProjectInfo(name: "DeltaApp", path: "/Users/test/DeltaApp"),
-            ClaudeProjectInfo(name: "EpsilonHub", path: "/Users/test/EpsilonHub"),
-            ClaudeProjectInfo(name: "IotaWeb", path: "/Users/test/IotaWeb"),
-            ClaudeProjectInfo(name: "KappaCli", path: "/Users/test/KappaCli"),
-            ClaudeProjectInfo(name: "MuShell", path: "/Users/test/MuShell"),
-            ClaudeProjectInfo(name: "NuRunner", path: "/Users/test/NuRunner"),
-            ClaudeProjectInfo(name: "SigmaLib", path: "/Users/test/SigmaLib"),
-            ClaudeProjectInfo(name: "TauNode", path: "/Users/test/TauNode"),
-            ClaudeProjectInfo(name: "ZetaCore", path: "/Users/test/ZetaCore"),
+        static func inMemory(projects: [AgentProject] = [
+            AgentProject(name: "AlphaProject", path: "/Users/test/AlphaProject"),
+            AgentProject(name: "BetaProject", path: "/Users/test/BetaProject"),
+            AgentProject(name: "GammaService", path: "/Users/test/GammaService"),
+            AgentProject(name: "DeltaApp", path: "/Users/test/DeltaApp"),
+            AgentProject(name: "EpsilonHub", path: "/Users/test/EpsilonHub"),
+            AgentProject(name: "IotaWeb", path: "/Users/test/IotaWeb"),
+            AgentProject(name: "KappaCli", path: "/Users/test/KappaCli"),
+            AgentProject(name: "MuShell", path: "/Users/test/MuShell"),
+            AgentProject(name: "NuRunner", path: "/Users/test/NuRunner"),
+            AgentProject(name: "SigmaLib", path: "/Users/test/SigmaLib"),
+            AgentProject(name: "TauNode", path: "/Users/test/TauNode"),
+            AgentProject(name: "ZetaCore", path: "/Users/test/ZetaCore"),
         ]) -> ClaudeProjectScanner {
             ClaudeProjectScanner(scanProjects: { projects })
         }
@@ -71,11 +71,11 @@
             self.preferences = preferences
         }
 
-        func scanProjects() async -> [ClaudeProjectInfo] {
+        func scanProjects() async -> [AgentProject] {
             logger.debug("Scanning for Claude projects")
 
             let scanRoots = allScanRoots()
-            var projectsByPath: [String: ClaudeProjectInfo] = [:]
+            var projectsByPath: [String: AgentProject] = [:]
             let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
 
             for scanRoot in scanRoots {
@@ -177,7 +177,7 @@
         }
 
         /// Whether a candidate project should replace an existing one (newer lastUsed wins).
-        private func shouldReplace(existing: ClaudeProjectInfo, with candidate: ClaudeProjectInfo) -> Bool {
+        private func shouldReplace(existing: AgentProject, with candidate: AgentProject) -> Bool {
             switch (existing.lastUsed, candidate.lastUsed) {
             case let (existingDate?, candidateDate?):
                 return candidateDate > existingDate
@@ -218,7 +218,7 @@
             data: [String: Any],
             sessionBasePath: URL,
             claudeConfigDir: String?
-        ) -> ClaudeProjectInfo? {
+        ) -> AgentProject? {
             var isDirectory: ObjCBool = false
             guard
                 fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
@@ -231,7 +231,7 @@
             let name = url.lastPathComponent
             let lastUsed = getLastUsedTimestamp(projectPath: url.path, sessionBasePath: sessionBasePath)
 
-            return ClaudeProjectInfo(
+            return AgentProject(
                 name: name,
                 path: url.path,
                 lastUsed: lastUsed,

@@ -10,7 +10,7 @@ struct RemoteHostSidebarSection: View {
     let creatingSelection: NewSessionCreatingState?
     @Binding var selectedRemoteSession: RemoteSessionSelection?
     let onSelect: (RemoteSessionSelection) -> Void
-    let onCreate: (ClaudeProjectInfo?) -> Void
+    let onCreate: (AgentProject?) -> Void
     let onSetDescription: (String, String?) -> Void
     let onSetColor: (String, SessionColor?) -> Void
     let onSetEmoji: (String, String?) -> Void
