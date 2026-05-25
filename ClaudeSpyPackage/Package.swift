@@ -379,6 +379,7 @@ let targets: [Target] = [
         name: "GallagerPluginProtocol",
         dependencies: [
             .claudeSpyNetworking,
+            .logging,
         ]
     ),
     // Mac-side plugin runtime: registry, supervisor, dispatcher.
@@ -579,6 +580,22 @@ let targets: [Target] = [
         dependencies: [
             "ClaudeCodePluginSidecar",
             "ClaudeCodePluginCore",
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .dependenciesTestSupport,
+            .clocks,
+        ]
+    ),
+    // Integration tests for the Codex sidecar executable. Symmetric to
+    // `ClaudeCodePluginSidecarTests`: the test bundle spawns the
+    // SPM-built binary as a child process and drives it via JSON-RPC
+    // over Pipes, so the executable target is declared as an explicit
+    // dependency to force SPM to build it before the test bundle runs.
+    .testTarget(
+        name: "CodexPluginSidecarTests",
+        dependencies: [
+            "CodexPluginSidecar",
+            "CodexPluginCore",
             .gallagerPluginProtocol,
             .claudeSpyNetworking,
             .dependenciesTestSupport,
