@@ -172,6 +172,10 @@ extension Target.Dependency {
     static var gallagerPluginProtocol: Self {
         "GallagerPluginProtocol"
     }
+
+    static var claudeSpyPluginRuntime: Self {
+        "ClaudeSpyPluginRuntime"
+    }
 }
 
 /// Products, dependencies, and targets are extracted into typed top-level `let`s
@@ -220,6 +224,10 @@ let products: [Product] = [
     .library(
         name: "GallagerPluginProtocol",
         targets: ["GallagerPluginProtocol"]
+    ),
+    .library(
+        name: "ClaudeSpyPluginRuntime",
+        targets: ["ClaudeSpyPluginRuntime"]
     ),
 ]
 
@@ -347,6 +355,20 @@ let targets: [Target] = [
             .claudeSpyNetworking,
         ]
     ),
+    // Mac-side plugin runtime: registry, supervisor, dispatcher.
+    // Compiles on all platforms (no Apple-only deps yet) but only the Mac
+    // app wires it in — `ClaudeSpyServerFeature` will depend on it later.
+    .target(
+        name: "ClaudeSpyPluginRuntime",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .claudeSpyCommon,
+            .dependencies,
+            .dependenciesMacros,
+            .logging,
+        ]
+    ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
@@ -401,6 +423,14 @@ let targets: [Target] = [
     .testTarget(
         name: "GallagerPluginProtocolTests",
         dependencies: [
+            .gallagerPluginProtocol,
+            .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeSpyPluginRuntimeTests",
+        dependencies: [
+            .claudeSpyPluginRuntime,
             .gallagerPluginProtocol,
             .dependenciesTestSupport,
         ]
