@@ -157,4 +157,77 @@ struct PluginManifestTests {
         let manifest = try Self.snakeCaseDecoder().decode(PluginManifest.self, from: data)
         try manifest.validate() // does not throw
     }
+
+    // MARK: - On-disk bundled manifests
+
+    /// Belt-and-braces: the bundled `PluginBundles/<id>/plugin.json` files
+    /// the Xcode "Copy Plugin Bundles" build phase ships into the .app
+    /// must decode against the canonical `PluginManifest` decoder. Catches
+    /// the case where someone hand-edits one of the JSON files in a way
+    /// that breaks the schema before the runtime mounts it.
+    @Test("On-disk PluginBundles/claude-code/plugin.json decodes to PluginManifest")
+    func diskClaudeCodeManifestDecodes() throws {
+        let url = Self.packageRoot()
+            .appendingPathComponent("PluginBundles")
+            .appendingPathComponent("claude-code")
+            .appendingPathComponent("plugin.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            Issue.record("Missing bundled file at \(url.path)")
+            return
+        }
+        let manifest = try Self.snakeCaseDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: url)
+        )
+        try manifest.validate()
+        #expect(manifest.id == "claude-code")
+        #expect(manifest.displayName == "Claude Code")
+        #expect(manifest.processNames == ["claude"])
+        #expect(manifest.runtime == .sidecar)
+        #expect(manifest.sidecar.executable == "bin/sidecar")
+        #expect(manifest.capabilities.settingsSchema == "ui/settings.json")
+    }
+
+    @Test("On-disk PluginBundles/codex/plugin.json decodes to PluginManifest")
+    func diskCodexManifestDecodes() throws {
+        let url = Self.packageRoot()
+            .appendingPathComponent("PluginBundles")
+            .appendingPathComponent("codex")
+            .appendingPathComponent("plugin.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            Issue.record("Missing bundled file at \(url.path)")
+            return
+        }
+        let manifest = try Self.snakeCaseDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: url)
+        )
+        try manifest.validate()
+        #expect(manifest.id == "codex")
+        #expect(manifest.displayName == "Codex")
+        #expect(manifest.publisher == "OpenAI")
+        #expect(manifest.processNames == ["codex"])
+        #expect(manifest.runtime == .sidecar)
+        #expect(manifest.sidecar.executable == "bin/sidecar")
+        #expect(manifest.capabilities.settingsSchema == "ui/settings.json")
+    }
+
+    // MARK: - Helpers
+
+    /// Walks up from this file's location to the package root (the
+    /// directory containing `Package.swift`). Lets the on-disk tests find
+    /// the bundled `PluginBundles/<id>/plugin.json` without any test
+    /// resources configuration.
+    private static func packageRoot() -> URL {
+        var current = URL(fileURLWithPath: #filePath, isDirectory: false)
+            .deletingLastPathComponent()
+        while current.path != "/" {
+            let candidate = current.appendingPathComponent("Package.swift")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return current
+            }
+            current = current.deletingLastPathComponent()
+        }
+        fatalError("Could not locate ClaudeSpyPackage root")
+    }
 }

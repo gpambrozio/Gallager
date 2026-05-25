@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "claude-code",
+  "display_name": "Claude Code",
+  "short_name": "Claude",
+  "version": "1.0.0",
+  "publisher": "Anthropic",
+  "manifest_url": "bundle://claude-code/plugin.json",
+  "bundle_sha256": null,
+  "runtime": "sidecar",
+  "sidecar": { "executable": "bin/sidecar", "args": [] },
+  "capabilities": {
+    "pushes_projects": true,
+    "translate_event": true,
+    "install": true,
+    "detect_pane": false,
+    "settings_schema": "ui/settings.json",
+    "requires_rich_detection": false
+  },
+  "process_names": ["claude"],
+  "ui": {
+    "icon": "assets/icon.png",
+    "icon_ios": "assets/icon.png"
+  }
+}
