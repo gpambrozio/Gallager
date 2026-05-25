@@ -248,7 +248,7 @@
         }
 
         /// Sessions that contain at least one Claude session
-        private var claudeSessions: [TmuxSession] {
+        private var agentSessions: [TmuxSession] {
             sessions.filter(\.hasClaude)
         }
 
@@ -266,7 +266,7 @@
                     .accessibilityIdentifier("host-version-mismatch-row")
                 } else if hasContent {
                     // Claude sessions
-                    ForEach(claudeSessions) { session in
+                    ForEach(agentSessions) { session in
                         sessionRow(session)
                     }
 
@@ -299,7 +299,7 @@
             let activeWindow = session.activeWindow
             let activePaneInSession = activeWindow?.activePane ?? activeWindow?.panes.first
             // Find the first pane with a Claude session (may differ from the active pane)
-            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
+            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
             // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
@@ -307,10 +307,10 @@
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
                 VStack(spacing: 0) {
-                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                    if let claudePane = claudePaneInSession, let agentSession = claudePane.agentSession {
                         SessionRowView(
                             paneId: claudePane.paneId,
-                            session: claudeSession,
+                            session: agentSession,
                             cliSessionState: cliSessionState,
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                             customDescription: session.customDescription,
@@ -353,7 +353,7 @@
                         .padding(.leading, 16)
                 }
             }
-            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
+            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.agentSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
@@ -915,7 +915,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .blue,
-                        claudeSession: AgentSession(
+                        agentSession: AgentSession(
                             paneId: "%1",
                             detectedProjectPath: "/Users/preview/AlphaProject"
                         )
@@ -928,7 +928,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .red,
-                        claudeSession: AgentSession(
+                        agentSession: AgentSession(
                             paneId: "%2",
                             detectedProjectPath: "/Users/preview/BravoProject"
                         ),

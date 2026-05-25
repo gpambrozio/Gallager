@@ -368,7 +368,7 @@ gallager list-panes --window main:0
         "id": "%3", "index": 0, "isActive": true,
         "command": "claude", "cwd": "/Users/me/project",
         "width": 220, "height": 50,
-        "windowId": "main:0", "hasClaudeSession": true
+        "windowId": "main:0", "hasAgentSession": true
       }
     ]
   }
@@ -401,7 +401,7 @@ gallager split-pane right --shell /opt/homebrew/bin/fish
     "id": "%6", "index": 1, "isActive": false,
     "command": "bash", "cwd": "/Users/me/project",
     "width": 220, "height": 24,
-    "windowId": "main:0", "hasClaudeSession": false
+    "windowId": "main:0", "hasAgentSession": false
   }
 }
 ```
@@ -697,7 +697,7 @@ gallager identify
   "result": {
     "session": { "id": "main", "name": "main", "windowCount": 2, "isAttached": true },
     "window":  { "id": "main:0", "index": 0, "name": "editor", "paneCount": 2, "isActive": true, "sessionId": "main" },
-    "pane":    { "id": "%3", "index": 0, "isActive": true, "command": "claude", "cwd": "/Users/me/project", "width": 220, "height": 50, "windowId": "main:0", "hasClaudeSession": true }
+    "pane":    { "id": "%3", "index": 0, "isActive": true, "command": "claude", "cwd": "/Users/me/project", "width": 220, "height": 50, "windowId": "main:0", "hasAgentSession": true }
   }
 }
 ```

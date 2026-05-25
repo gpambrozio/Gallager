@@ -393,7 +393,7 @@ struct WindowTabBar: View {
             ? selectedRight == payload
             : window.id == selectedWindow.id && !isAnyFileViewActive
         let isHovered = hoveredWindowId == window.id
-        let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+        let hasClaude = window.panes.contains { windowManager.paneStates[$0.paneId]?.agentSession != nil }
         let windowName = windowTabLabel(windowName: window.windowName, windowIndex: window.windowIndex)
 
         return HStack(spacing: 0) {

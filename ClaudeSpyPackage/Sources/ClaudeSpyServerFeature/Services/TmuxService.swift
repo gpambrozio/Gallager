@@ -433,7 +433,7 @@ final public class TmuxService {
     ///
     /// Returns a mapping of pane ID (e.g., `%0`) to the detected agent and the pane's
     /// current working directory.
-    public func detectClaudePanes() async -> [String: DetectedAgentPane] {
+    public func detectAgentPanes() async -> [String: DetectedAgentPane] {
         do {
             // Get pane IDs, shell PIDs, and current paths in one tmux call.
             // Joined with U+001F so a `|` in a working-directory path can't
@@ -482,7 +482,7 @@ final public class TmuxService {
 
             return detected
         } catch {
-            logger.warning("detectClaudePanes failed: \(error)")
+            logger.warning("detectAgentPanes failed: \(error)")
             return [:]
         }
     }
@@ -2165,7 +2165,7 @@ final public class TmuxService {
     ]
 
     /// Snapshot of the system process tree, built from `ps` output.
-    /// Shared by `detectClaudePanes` and `runningProcesses`.
+    /// Shared by `detectAgentPanes` and `runningProcesses`.
     private struct ProcessTree {
         private let childrenOf: [String: [String]]
         private let names: [String: String]

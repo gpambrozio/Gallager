@@ -65,7 +65,7 @@ final public class MirrorWindowManager {
         if panes.isEmpty && !paneStates.isEmpty {
             logger.warning("updatePaneStates clearing non-empty state from empty panes", metadata: [
                 "existingPaneCount": "\(paneStates.count)",
-                "existingClaudeSessionCount": "\(paneStates.values.filter { $0.claudeSession != nil }.count)",
+                "existingClaudeSessionCount": "\(paneStates.values.filter { $0.agentSession != nil }.count)",
             ])
         }
 
@@ -82,7 +82,7 @@ final public class MirrorWindowManager {
         }
 
         // Remove stale entries — but skip hook-only minimal states. `handleHookEvent`
-        // creates a `PaneState(paneId:claudeSession:)` with default-empty `sessionName`
+        // creates a `PaneState(paneId:agentSession:)` with default-empty `sessionName`
         // when a hook arrives for a pane the windowManager hasn't yet observed; the
         // first refresh that sees the pane fills in metadata. A refresh whose
         // `list-panes` snapshot was taken BEFORE the hook arrived (the subprocess
@@ -150,17 +150,17 @@ final public class MirrorWindowManager {
         pluginID: String = "claude-code",
         _ update: (inout AgentSession) -> Void
     ) {
-        var session = paneStates[paneId]?.claudeSession ?? AgentSession(
+        var session = paneStates[paneId]?.agentSession ?? AgentSession(
             id: sessionId ?? paneId,
             pluginID: pluginID,
             tmuxPane: paneId
         )
         update(&session)
         if paneStates[paneId] != nil {
-            paneStates[paneId]?.claudeSession = session
+            paneStates[paneId]?.agentSession = session
         } else {
             // Pane not yet known from tmux refresh — create minimal state
-            paneStates[paneId] = PaneState(paneId: paneId, claudeSession: session)
+            paneStates[paneId] = PaneState(paneId: paneId, agentSession: session)
         }
     }
 
@@ -168,8 +168,8 @@ final public class MirrorWindowManager {
     /// Only creates sessions for panes that don't already have one (hook-based
     /// detection takes precedence).
     /// - Parameter panes: Mapping of pane ID to the detected agent and cwd.
-    public func markDetectedClaudeSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
-        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.claudeSession == nil {
+    public func markDetectedAgentSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
+        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.agentSession == nil {
             updateSession(paneId: paneId, pluginID: info.agent.rawValue) { session in
                 session.projectPath = info.path
             }
@@ -209,7 +209,7 @@ final public class MirrorWindowManager {
         case let .sessionEnd(body):
             // Record the final event before removing the session
             applyEvent(event, paneId: paneId)
-            paneStates[paneId]?.claudeSession = nil
+            paneStates[paneId]?.agentSession = nil
             paneStates[paneId]?.yoloMode = false
             // Drop the CLI override too — the session it was decorating is gone.
             // Mirror the working/notification path above and clear every sibling
@@ -243,7 +243,7 @@ final public class MirrorWindowManager {
             // The new model doesn't track per-event handled state, so the bridge
             // resets `attention` immediately after recording the prompt.
             applyEvent(event, paneId: paneId)
-            paneStates[paneId]?.claudeSession?.attention = false
+            paneStates[paneId]?.agentSession?.attention = false
             do {
                 try await Task.sleep(for: .milliseconds(500))
                 try await tmuxService.sendKeys(paneId, keys: "Enter")
@@ -331,18 +331,18 @@ final public class MirrorWindowManager {
 
     /// Set of pane IDs that have active Claude sessions
     public var activeSessionPaneIds: Set<String> {
-        Set(paneStates.filter { $0.value.claudeSession != nil }.keys)
+        Set(paneStates.filter { $0.value.agentSession != nil }.keys)
     }
 
     /// Number of sessions that need user attention
     public var pendingSessionCount: Int {
-        paneStates.values.filter { $0.claudeSession?.attention == true }.count
+        paneStates.values.filter { $0.agentSession?.attention == true }.count
     }
 
     /// All sessions sorted with attention-needing sessions first
     public var sortedSessions: [AgentSession] {
         paneStates.values
-            .compactMap(\.claudeSession)
+            .compactMap(\.agentSession)
             .sorted {
                 if $0.attention != $1.attention {
                     return $0.attention
@@ -356,8 +356,8 @@ final public class MirrorWindowManager {
     /// Marks a session as handled (user has seen it), clearing the `attention` flag.
     /// - Parameter paneId: The pane ID whose session should be marked handled
     public func markSessionHandled(paneId: String) {
-        guard paneStates[paneId]?.claudeSession?.attention == true else { return }
-        paneStates[paneId]?.claudeSession?.markHandled()
+        guard paneStates[paneId]?.agentSession?.attention == true else { return }
+        paneStates[paneId]?.agentSession?.markHandled()
     }
 
     // MARK: - CLI Session State Override
@@ -405,8 +405,8 @@ final public class MirrorWindowManager {
         // When enabling, clear any outstanding attention flag so the sidebar
         // stops nagging. The plugin sidecar will resend a fresh request if a
         // permission prompt is still genuinely pending.
-        if enabled, paneStates[paneId]?.claudeSession != nil {
-            paneStates[paneId]?.claudeSession?.attention = false
+        if enabled, paneStates[paneId]?.agentSession != nil {
+            paneStates[paneId]?.agentSession?.attention = false
         }
     }
 
@@ -497,8 +497,8 @@ final public class MirrorWindowManager {
             // Poll until Claude is no longer running in this pane (up to 30 seconds)
             for _ in 0..<30 {
                 try? await Task.sleep(for: .seconds(1))
-                let claudePanes = await tmuxService.detectClaudePanes()
-                if claudePanes[paneId] == nil {
+                let agentPanes = await tmuxService.detectAgentPanes()
+                if agentPanes[paneId] == nil {
                     // Claude process has exited — wait 1 second then close the pane
                     try? await Task.sleep(for: .seconds(1))
                     try? await tmuxService.killPane(paneId)

@@ -130,7 +130,7 @@ final public class ConnectedViewer: Identifiable {
     /// callers can interleave and reorder messages on the wire. Chaining each
     /// send on the previous one guarantees viewers receive messages in the same
     /// order the host enqueued them — critical for hook events vs. session state
-    /// pushes, which would otherwise race and leave `claudeSession` wiped on the
+    /// pushes, which would otherwise race and leave `agentSession` wiped on the
     /// viewer.
     private var pendingSend: Task<Void, Never>?
 

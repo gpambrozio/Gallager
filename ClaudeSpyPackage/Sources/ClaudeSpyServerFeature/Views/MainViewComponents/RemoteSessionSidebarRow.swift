@@ -7,7 +7,7 @@ struct RemoteSessionSidebarRow: View {
     @Environment(AppSettings.self) private var settings
 
     let session: TmuxSession
-    let claudeSession: AgentSession?
+    let agentSession: AgentSession?
     var homeDirectory: String?
 
     /// The latest event subtitle from the Claude session's pane.
@@ -56,14 +56,14 @@ struct RemoteSessionSidebarRow: View {
         HStack(alignment: .top, spacing: 8) {
             SessionStatusBadge(
                 cliSessionState: cliSessionState,
-                claudeSession: claudeSession,
+                agentSession: agentSession,
                 customEmoji: session.customEmoji
             )
 
             SessionFieldsView(
-                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                fields: agentSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
                 customDescription: session.customDescription,
-                projectName: claudeSession?.displayName,
+                projectName: agentSession?.displayName,
                 sessionName: session.sessionName,
                 terminalTitle: session.activeWindow?.activePane?.terminalTitle,
                 command: session.activeWindow?.activePane?.command,
@@ -83,8 +83,8 @@ struct RemoteSessionSidebarRow: View {
         // single label, dropping leaf Texts — these hidden labels give tests stable targets.
         .overlay {
             SessionAccessibilityOverlay(
-                status: cliSessionState?.statusLabel ?? claudeSession?.statusLabel,
-                projectName: claudeSession?.displayName
+                status: cliSessionState?.statusLabel ?? agentSession?.statusLabel,
+                projectName: agentSession?.displayName
             )
         }
         .padding(.vertical, 4)

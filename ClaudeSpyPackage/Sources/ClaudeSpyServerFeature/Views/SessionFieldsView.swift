@@ -91,16 +91,16 @@ struct SessionSortData {
     let latestEventTimestamp: Date?
 
     /// Status priority: lower = higher priority (attention > working > idle)
-    static func statusPriority(for claudeSession: AgentSession?) -> Int {
-        guard let session = claudeSession else { return 3 }
+    static func statusPriority(for agentSession: AgentSession?) -> Int {
+        guard let session = agentSession else { return 3 }
         if session.attention { return 0 }
         if session.working { return 1 }
         return 2
     }
 
     /// Status priority with idle before working (attention > idle > working)
-    static func statusPriorityIdleFirst(for claudeSession: AgentSession?) -> Int {
-        guard let session = claudeSession else { return 3 }
+    static func statusPriorityIdleFirst(for agentSession: AgentSession?) -> Int {
+        guard let session = agentSession else { return 3 }
         if session.attention { return 0 }
         if !session.working { return 1 }
         return 2
@@ -144,14 +144,14 @@ struct SessionSortData {
         sidebarTerminalFields: [SidebarField],
         homeDirectory: String?
     ) -> SessionSortData {
-        let claudeSession = session.windows.flatMap(\.panes).compactMap(\.claudeSession).first
+        let agentSession = session.windows.flatMap(\.panes).compactMap(\.agentSession).first
         let activePane = session.activeWindow?.activePane
         let terminalTitle = session.windows.flatMap(\.panes).compactMap(\.terminalTitle).first { !$0.isEmpty }
-        let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
+        let fields = agentSession != nil ? sidebarFields : sidebarTerminalFields
         let label = primaryLabel(
             fields: fields,
             customDescription: session.customDescription,
-            projectName: claudeSession?.displayName,
+            projectName: agentSession?.displayName,
             sessionName: session.sessionName,
             terminalTitle: terminalTitle,
             command: activePane?.command,
@@ -162,10 +162,10 @@ struct SessionSortData {
         return SessionSortData(
             sessionName: session.sessionName,
             primaryLabel: label,
-            hasClaude: claudeSession != nil,
-            statusPriority: statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: claudeSession?.lastEventTimestamp
+            hasClaude: agentSession != nil,
+            statusPriority: statusPriority(for: agentSession),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(for: agentSession),
+            latestEventTimestamp: agentSession?.lastEventTimestamp
         )
     }
 }

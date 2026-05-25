@@ -401,9 +401,9 @@ public struct MainView: View {
 
     /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
-        let claudeSession: AgentSession? = session.windows.lazy
+        let agentSession: AgentSession? = session.windows.lazy
             .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.claudeSession }
+            .compactMap { windowManager.paneStates[$0.paneId]?.agentSession }
             .first
 
         let primaryPane = session.activeWindow?.activePane
@@ -415,12 +415,12 @@ public struct MainView: View {
             .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
             .first { !$0.isEmpty }
 
-        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
+        let fields = agentSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
 
         let primaryLabel = SessionSortData.primaryLabel(
             fields: fields,
             customDescription: paneState?.customDescription,
-            projectName: claudeSession?.displayName,
+            projectName: agentSession?.displayName,
             sessionName: session.sessionName,
             terminalTitle: terminalTitle,
             command: primaryPane?.command,
@@ -431,10 +431,10 @@ public struct MainView: View {
         return SessionSortData(
             sessionName: session.sessionName,
             primaryLabel: primaryLabel,
-            hasClaude: claudeSession != nil,
-            statusPriority: SessionSortData.statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: claudeSession?.lastEventTimestamp
+            hasClaude: agentSession != nil,
+            statusPriority: SessionSortData.statusPriority(for: agentSession),
+            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: agentSession),
+            latestEventTimestamp: agentSession?.lastEventTimestamp
         )
     }
 
@@ -502,7 +502,7 @@ public struct MainView: View {
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
         let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let emoji = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customEmoji }
-        let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+        let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
@@ -1416,7 +1416,7 @@ public struct MainView: View {
         // Actions for selected window
         ToolbarItemGroup(placement: .primaryAction) {
             if let window = selectedWindow, selectedRemoteSession == nil {
-                let claudePane = window.panes.first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+                let claudePane = window.panes.first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
                 let activePane = window.activePane
 
                 // Yolo mode toggle (only for windows with active Claude sessions)
@@ -1458,7 +1458,7 @@ public struct MainView: View {
                 .help("Close session")
             } else if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
                 // Yolo mode toggle for remote windows with active Claude sessions
-                let claudePaneId = remoteWindow.panes.first(where: { $0.claudeSession != nil })?.paneId
+                let claudePaneId = remoteWindow.panes.first(where: { $0.agentSession != nil })?.paneId
                 if
                     let claudePaneId,
                     let sessionStore = coordinator.remoteSessionStore,
@@ -1918,7 +1918,7 @@ public struct MainView: View {
         if let window = selectedWindow {
             var stateChanged = false
             for pane in window.panes
-                where windowManager.paneStates[pane.paneId]?.claudeSession?.attention == true {
+                where windowManager.paneStates[pane.paneId]?.agentSession?.attention == true {
                 windowManager.markSessionHandled(paneId: pane.paneId)
                 stateChanged = true
             }
@@ -1932,7 +1932,7 @@ public struct MainView: View {
         }
 
         if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
-            for pane in remoteWindow.panes where pane.claudeSession?.attention == true {
+            for pane in remoteWindow.panes where pane.agentSession?.attention == true {
                 coordinator.remoteSessionStore?.markSessionHandled(paneId: pane.paneId, hostId: remote.hostId)
                 Task {
                     _ = await coordinator.viewerConnectionManager?.sendCommand(

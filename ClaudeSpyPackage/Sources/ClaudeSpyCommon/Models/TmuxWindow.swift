@@ -33,7 +33,7 @@ public struct TmuxWindow: Identifiable, Sendable {
 
     /// Whether any pane in this window has a Claude session
     public var hasClaude: Bool {
-        panes.contains { $0.claudeSession != nil }
+        panes.contains { $0.agentSession != nil }
     }
 
     /// The custom description for this window.

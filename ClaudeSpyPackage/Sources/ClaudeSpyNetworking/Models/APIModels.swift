@@ -65,7 +65,7 @@ public struct APIPaneInfo: Codable, Sendable {
     public let width: Int
     public let height: Int
     public let windowId: String
-    public let hasClaudeSession: Bool
+    public let hasAgentSession: Bool
 
     public init(
         id: String,
@@ -76,7 +76,7 @@ public struct APIPaneInfo: Codable, Sendable {
         width: Int,
         height: Int,
         windowId: String,
-        hasClaudeSession: Bool
+        hasAgentSession: Bool
     ) {
         self.id = id
         self.index = index
@@ -86,7 +86,7 @@ public struct APIPaneInfo: Codable, Sendable {
         self.width = width
         self.height = height
         self.windowId = windowId
-        self.hasClaudeSession = hasClaudeSession
+        self.hasAgentSession = hasAgentSession
     }
 
     public func toJSONValue() -> [String: JSONValue] {
@@ -99,7 +99,7 @@ public struct APIPaneInfo: Codable, Sendable {
             "width": .int(width),
             "height": .int(height),
             "window_id": .string(windowId),
-            "has_claude_session": .bool(hasClaudeSession),
+            "has_agent_session": .bool(hasAgentSession),
         ]
     }
 }

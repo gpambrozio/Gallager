@@ -19,7 +19,7 @@ public struct MenuBarExtraView: View {
     private var remoteSessionsByHost: [(host: PairedHost, sessions: [AgentSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
-            let sessions = sessionStore.claudeSessions(for: host.id).map(\.session)
+            let sessions = sessionStore.agentSessions(for: host.id).map(\.session)
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
         }

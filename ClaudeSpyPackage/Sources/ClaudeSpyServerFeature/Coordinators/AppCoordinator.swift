@@ -635,7 +635,7 @@
                             panes
                         }
                         return filtered.map { pane in
-                            let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                            let hasSession = winManager.paneStates[pane.paneId]?.agentSession != nil
                             return APIPaneInfo(
                                 id: pane.paneId,
                                 index: pane.paneIndex,
@@ -645,7 +645,7 @@
                                 width: pane.width,
                                 height: pane.height,
                                 windowId: pane.windowId,
-                                hasClaudeSession: hasSession
+                                hasAgentSession: hasSession
                             ).toJSONValue()
                         }
                     }
@@ -676,7 +676,7 @@
                         width: newPane.width,
                         height: newPane.height,
                         windowId: newPane.windowId,
-                        hasClaudeSession: false
+                        hasAgentSession: false
                     ).toJSONValue()
                 },
                 onPaneSelect: { [tmux] paneId in
@@ -773,7 +773,7 @@
                             ?? panes.first(where: { $0.isActive && $0.isWindowActive })
                         else { return nil }
 
-                        let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                        let hasSession = winManager.paneStates[pane.paneId]?.agentSession != nil
                         let attached = tmux.attachedSessionNames
                         return APIIdentifyInfo(
                             session: APISessionInfo(
@@ -800,7 +800,7 @@
                                 width: pane.width,
                                 height: pane.height,
                                 windowId: pane.windowId,
-                                hasClaudeSession: hasSession
+                                hasAgentSession: hasSession
                             )
                         ).toJSONValue()
                     }
@@ -1040,10 +1040,10 @@
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect Claude Code instances already running in tmux panes
-            let claudePanes = await tmuxService.detectClaudePanes()
-            if !claudePanes.isEmpty {
-                windowManager.markDetectedClaudeSessions(claudePanes)
-                logger.info("Detected running Claude Code in panes: \(claudePanes.keys.sorted())")
+            let agentPanes = await tmuxService.detectAgentPanes()
+            if !agentPanes.isEmpty {
+                windowManager.markDetectedAgentSessions(agentPanes)
+                logger.info("Detected running Claude Code in panes: \(agentPanes.keys.sorted())")
             }
 
             // Connect pane stream manager to window manager for view injection
@@ -1105,7 +1105,7 @@
 
                 // Handle mark session as handled
                 if case .markHandled = command.command {
-                    let wasNeeding = winManager.paneStates[command.paneId]?.claudeSession?.attention == true
+                    let wasNeeding = winManager.paneStates[command.paneId]?.agentSession?.attention == true
                     winManager.markSessionHandled(paneId: command.paneId)
                     if wasNeeding {
                         await connectionManager?.pushSessionStateToAll()

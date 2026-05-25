@@ -66,7 +66,7 @@ final public class SessionStore {
 
     /// Panes without Claude sessions (plain terminals)
     public var plainTerminalPanes: [PaneState] {
-        paneStates.values.filter { $0.claudeSession == nil }
+        paneStates.values.filter { $0.agentSession == nil }
     }
 
     /// Whether there are any sessions or panes to display
@@ -76,7 +76,7 @@ final public class SessionStore {
 
     /// Total number of Claude sessions
     public var sessionCount: Int {
-        paneStates.values.filter { $0.claudeSession != nil }.count
+        paneStates.values.filter { $0.agentSession != nil }.count
     }
 
     /// Total number of items to display (Claude sessions + plain terminals)
@@ -87,11 +87,11 @@ final public class SessionStore {
     // MARK: - Per-Host Computed Properties
 
     /// Get Claude sessions for a specific host, sorted by most recent event
-    public func claudeSessions(for hostId: String) -> [(paneId: String, session: AgentSession)] {
+    public func agentSessions(for hostId: String) -> [(paneId: String, session: AgentSession)] {
         paneStates
             .filter { $0.key.pairId == hostId }
             .compactMap { key, state -> (paneId: String, session: AgentSession)? in
-                guard let session = state.claudeSession else { return nil }
+                guard let session = state.agentSession else { return nil }
                 return (paneId: key.paneId, session: session)
             }
             .sorted { lhs, rhs in
@@ -104,7 +104,7 @@ final public class SessionStore {
     /// Get plain terminal panes (no Claude session) for a specific host
     public func panes(for hostId: String) -> [PaneState] {
         paneStates
-            .filter { $0.key.pairId == hostId && $0.value.claudeSession == nil }
+            .filter { $0.key.pairId == hostId && $0.value.agentSession == nil }
             .map(\.value)
     }
 
@@ -176,7 +176,7 @@ final public class SessionStore {
         logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from host: \(hostId)")
 
         // Get or create session within pane state.
-        var session = paneStates[key]?.claudeSession ?? AgentSession(
+        var session = paneStates[key]?.agentSession ?? AgentSession(
             id: event.action.sessionId,
             pluginID: event.agent.rawValue,
             tmuxPane: paneId
@@ -184,9 +184,9 @@ final public class SessionStore {
         applyEvent(event, to: &session)
 
         if paneStates[key] != nil {
-            paneStates[key]?.claudeSession = session
+            paneStates[key]?.agentSession = session
         } else {
-            paneStates[key] = PaneState(paneId: paneId, claudeSession: session)
+            paneStates[key] = PaneState(paneId: paneId, agentSession: session)
         }
 
         // Transitional bridge — see `latestEventByPane`. Only events that carry
@@ -202,7 +202,7 @@ final public class SessionStore {
             logger.info("Session started for pane: \(paneId)")
 
         case .sessionEnd:
-            paneStates[key]?.claudeSession = nil
+            paneStates[key]?.agentSession = nil
             paneStates[key]?.yoloMode = false
             latestEventByPane.removeValue(forKey: key)
             // Remove pane state entirely if it has no meaningful data
@@ -305,7 +305,7 @@ final public class SessionStore {
 
     /// Get a session by host and pane ID
     public func session(for paneId: String, hostId: String) -> AgentSession? {
-        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.agentSession
     }
 
     /// Get the pane state by host and pane ID
@@ -315,7 +315,7 @@ final public class SessionStore {
 
     /// Check if a pane is currently active (has a Claude session)
     public func isPaneActive(paneId: String, hostId: String) -> Bool {
-        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession != nil
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.agentSession != nil
     }
 
     /// Check if yolo mode is enabled for a pane (as reported by the host)
@@ -326,8 +326,8 @@ final public class SessionStore {
     /// Marks a session as handled (user has seen it), clearing the `attention` flag locally.
     public func markSessionHandled(paneId: String, hostId: String) {
         let key = PaneKey(pairId: hostId, paneId: paneId)
-        guard paneStates[key]?.claudeSession?.attention == true else { return }
-        paneStates[key]?.claudeSession?.markHandled()
+        guard paneStates[key]?.agentSession?.attention == true else { return }
+        paneStates[key]?.agentSession?.markHandled()
     }
 
     // MARK: - Event Response Storage (iOS only)

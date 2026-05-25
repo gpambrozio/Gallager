@@ -38,10 +38,10 @@ struct SessionSidebarRow: View {
     }
 
     /// The first Claude session found in any pane of any window, if any
-    private var claudeSession: AgentSession? {
+    private var agentSession: AgentSession? {
         for window in session.windows {
             for pane in window.panes {
-                if let session = windowManager.paneStates[pane.paneId]?.claudeSession {
+                if let session = windowManager.paneStates[pane.paneId]?.agentSession {
                     return session
                 }
             }
@@ -86,14 +86,14 @@ struct SessionSidebarRow: View {
         HStack(alignment: .top, spacing: 8) {
             SessionStatusBadge(
                 cliSessionState: cliSessionState,
-                claudeSession: claudeSession,
+                agentSession: agentSession,
                 customEmoji: primaryPaneState?.customEmoji
             )
 
             SessionFieldsView(
-                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                fields: agentSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
                 customDescription: primaryPaneState?.customDescription,
-                projectName: claudeSession?.displayName,
+                projectName: agentSession?.displayName,
                 sessionName: session.sessionName,
                 terminalTitle: terminalTitle,
                 command: primaryPane?.command,
@@ -111,8 +111,8 @@ struct SessionSidebarRow: View {
         .accessibilityValue(session.sessionName)
         .overlay {
             SessionAccessibilityOverlay(
-                status: cliSessionState?.statusLabel ?? claudeSession?.statusLabel,
-                projectName: claudeSession?.displayName
+                status: cliSessionState?.statusLabel ?? agentSession?.statusLabel,
+                projectName: agentSession?.displayName
             )
         }
         .padding(.vertical, 4)
