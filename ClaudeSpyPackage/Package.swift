@@ -233,6 +233,10 @@ let products: [Product] = [
         name: "ClaudeCodePluginSidecar",
         targets: ["ClaudeCodePluginSidecar"]
     ),
+    .executable(
+        name: "CodexPluginSidecar",
+        targets: ["CodexPluginSidecar"]
+    ),
     .library(
         name: "GallagerPluginProtocol",
         targets: ["GallagerPluginProtocol"]
@@ -423,6 +427,25 @@ let targets: [Target] = [
         dependencies: [
             .gallagerPluginProtocol,
             .claudeCodePluginCore,
+            .claudeSpyNetworking,
+            .logging,
+            .dependencies,
+        ]
+    ),
+    // Codex sidecar executable spawned by the Mac app's
+    // SidecarSupervisor. Mirror of `ClaudeCodePluginSidecar`: reads
+    // JSON-RPC from stdin, writes responses to stdout, owns a Unix-socket
+    // ingress for hook bridge scripts, and pushes `set_projects`
+    // notifications when its FSEvents watcher fires for
+    // `~/.codex/sessions/`. Cross-platform-ish (the executable only ever
+    // runs on macOS today) but `CodexPluginCore` already gates its
+    // macOS-only entry points behind `#if os(macOS)`, so the SPM graph
+    // still builds on Linux.
+    .executableTarget(
+        name: "CodexPluginSidecar",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .codexPluginCore,
             .claudeSpyNetworking,
             .logging,
             .dependencies,
