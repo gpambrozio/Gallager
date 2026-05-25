@@ -407,12 +407,16 @@ let targets: [Target] = [
         ]
     ),
     // Codex-specific plugin core: scanner, installer, event translator,
-    // keystroke builder. Symmetric to `ClaudeCodePluginCore`.
+    // keystroke builder. Symmetric to `ClaudeCodePluginCore`. Depends on
+    // `ClaudeCodePluginCore` for the shared permission-rendering helpers
+    // (Claude and Codex share their tool vocabulary today — see Task 10's
+    // "Before You Begin" guidance).
     .target(
         name: "CodexPluginCore",
         dependencies: [
             .gallagerPluginProtocol,
             .claudeSpyNetworking,
+            .claudeCodePluginCore,
             .dependencies,
             .dependenciesMacros,
             .logging,

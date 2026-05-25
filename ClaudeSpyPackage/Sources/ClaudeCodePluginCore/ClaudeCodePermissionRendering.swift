@@ -14,12 +14,16 @@ import Foundation
 /// strings produced here mirror the pieces of that UI's `ToolInputView`
 /// detail rows so the plain-text description shown by iOS in v1.33+ stays
 /// recognisable to users.
-enum ClaudeCodePermissionRendering {
+public enum ClaudeCodePermissionRendering {
     // MARK: - Description rendering
 
     /// Plain-text description shown by the iOS permission card. Lines are
     /// joined with `\n`; consumers display verbatim.
-    static func description(toolInput: ClaudeCodeTool?, toolName: String?) -> String {
+    ///
+    /// `public` so `CodexPluginCore`'s translator can share the same
+    /// rendering for the tool subset Codex inherits from Claude (per the
+    /// "Before You Begin" note in Task 10's plan).
+    public static func description(toolInput: ClaudeCodeTool?, toolName: String?) -> String {
         guard let toolInput else {
             return toolName ?? "Permission request"
         }
@@ -180,7 +184,7 @@ enum ClaudeCodePermissionRendering {
 
     /// Map legacy `PermissionSuggestion`s into the new closed-set
     /// `PermissionRequest.Suggestion`. Empty input → empty output.
-    static func mappedSuggestions(
+    public static func mappedSuggestions(
         legacy: [PermissionSuggestion]
     ) -> [PermissionRequest.Suggestion] {
         var result: [PermissionRequest.Suggestion] = []
@@ -195,7 +199,7 @@ enum ClaudeCodePermissionRendering {
     }
 
     /// Ask-user-question request mapper.
-    static func askUserQuestionRequest(
+    public static func askUserQuestionRequest(
         from params: AskUserQuestionParameters
     ) -> AskUserQuestionRequest {
         AskUserQuestionRequest(questions: params.questions.map { q in
