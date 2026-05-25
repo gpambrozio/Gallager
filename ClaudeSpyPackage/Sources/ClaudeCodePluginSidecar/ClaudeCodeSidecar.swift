@@ -510,7 +510,11 @@
 
         private func startProjectWatcher() async {
             let watchPaths = projectWatchPaths()
-            let watcher = FSEventsProjectWatcher(paths: watchPaths, logger: logger)
+            let watcher = FSEventsProjectWatcher(
+                paths: watchPaths,
+                dispatchQueueLabel: "gallager.plugin.claude.fsevents",
+                logger: logger
+            )
             projectWatcher = watcher
             do {
                 try await watcher.start { [weak self] in

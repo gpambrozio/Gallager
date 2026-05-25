@@ -5,10 +5,14 @@
 
     // MARK: - FSEventsProjectWatcher
 
-    /// Watches one or more directories (typically `~/.claude/projects/`) for
-    /// any change, debounces by `debounce` (default 250 ms), then fires
-    /// `onChange()` so the sidecar can re-scan + push a fresh
-    /// `set_projects`.
+    /// Watches one or more directories (typically `~/.claude/projects/` or
+    /// `~/.codex/sessions/`) for any change, debounces by `debounce`
+    /// (default 250 ms), then fires `onChange()` so the sidecar can re-scan
+    /// + push a fresh `set_projects`.
+    ///
+    /// Agent-blind: lives in `GallagerPluginProtocol` so both the Claude and
+    /// Codex sidecars (and any future plugin) can consume the same type
+    /// without copy-paste.
     ///
     /// The FSEvents C API hands us a C callback on a dispatch queue. We
     /// route the change notification onto the actor and start a debounce
@@ -19,12 +23,13 @@
     /// macOS-only — FSEvents is part of CoreServices and unavailable on
     /// Linux. The Linux SPM graph still compiles because the type is
     /// gated by `#if os(macOS)`.
-    actor FSEventsProjectWatcher {
+    public actor FSEventsProjectWatcher {
         // MARK: - State
 
         private let paths: [URL]
         private let debounce: Duration
         private let logger: Logger
+        private let dispatchQueueLabel: String
         private var stream: FSEventStreamRef?
         private var pendingTask: Task<Void, Never>?
         private var onChange: (@Sendable () async -> Void)?
@@ -32,9 +37,15 @@
 
         // MARK: - Init
 
-        init(paths: [URL], debounce: Duration = .milliseconds(250), logger: Logger) {
+        public init(
+            paths: [URL],
+            debounce: Duration = .milliseconds(250),
+            dispatchQueueLabel: String = "gallager.plugin.fsevents",
+            logger: Logger
+        ) {
             self.paths = paths
             self.debounce = debounce
+            self.dispatchQueueLabel = dispatchQueueLabel
             self.logger = logger
         }
 
@@ -44,7 +55,7 @@
         /// after the debounce window elapses with no further events. Throws
         /// when the stream can't be created (typically a permissions issue
         /// on the watched path).
-        func start(onChange: @escaping @Sendable () async -> Void) async throws {
+        public func start(onChange: @escaping @Sendable () async -> Void) async throws {
             guard stream == nil else { return }
             self.onChange = onChange
 
@@ -90,7 +101,7 @@
 
             FSEventStreamSetDispatchQueue(
                 createdStream,
-                DispatchQueue(label: "gallager.plugin.claude.fsevents")
+                DispatchQueue(label: dispatchQueueLabel)
             )
             guard FSEventStreamStart(createdStream) else {
                 FSEventStreamInvalidate(createdStream)
@@ -103,7 +114,7 @@
         }
 
         /// Stop the FSEvents stream and cancel any pending debounce.
-        func stop() async {
+        public func stop() async {
             pendingTask?.cancel()
             pendingTask = nil
             if let stream {
@@ -177,7 +188,7 @@
 
     // MARK: - FSEventsWatcherError
 
-    enum FSEventsWatcherError: Error, Sendable {
+    public enum FSEventsWatcherError: Error, Sendable {
         case streamCreationFailed
         case streamStartFailed
     }
