@@ -47,7 +47,7 @@ struct SessionDetailServiceTests {
         )
 
         #expect(service.session != nil)
-        #expect(service.session?.paneId == "%1")
+        #expect(service.session?.tmuxPane == "%1")
     }
 
     // MARK: - Response State Tests
@@ -166,9 +166,17 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        #expect(serviceA.session?.latestEvent?.id == eventA.id)
-        #expect(serviceB.session?.latestEvent?.id == eventB.id)
-        #expect(serviceA.session?.latestEvent?.id != serviceB.session?.latestEvent?.id)
+        // Transitional bridge (see `SessionStore.latestEventByPane`): until
+        // Task 19 reroutes onto AgentResponseRequest, iOS reads the latest
+        // HookEvent per `(host, pane)` here. The bridge keeps the same
+        // cross-host isolation guarantee as the legacy ClaudeSession.latestEvent.
+        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-a")?.id == eventA.id)
+        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-b")?.id == eventB.id)
+        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-a")?.id
+            != sessionStore.latestEvent(for: "%0", hostId: "host-b")?.id)
+        // Sanity check: both SessionDetailServices saw their own session.
+        #expect(serviceA.session != nil)
+        #expect(serviceB.session != nil)
     }
 
     // MARK: - Mac Connection Status Tests

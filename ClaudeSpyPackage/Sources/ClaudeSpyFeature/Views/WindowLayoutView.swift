@@ -719,28 +719,21 @@
     // MARK: - Session Info
 
     struct SessionInfoView: View {
-        let session: ClaudeSession?
+        let session: AgentSession?
         let paneId: String
         let isPaneActive: Bool
 
         var body: some View {
             if let session {
                 List {
-                    Section("Recent Events") {
-                        if session.events.isEmpty {
-                            Text("No events yet")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(session.events) { event in
-                                EventRowView(event: event)
-                            }
-                        }
-                    }
-
+                    // TODO(plugin-system): The Recent Events section was
+                    // driven by `ClaudeSession.events`, which is gone in the
+                    // AgentSession migration. Task 19+ will restore a richer
+                    // status view powered by plugin sidecar events.
                     Section("Session Info") {
                         LabeledContent("Pane ID", value: paneId)
 
-                        if let projectPath = session.events.first?.projectPath {
+                        if let projectPath = session.projectPath {
                             LabeledContent("Project") {
                                 Text(projectPath)
                                     .font(.caption)

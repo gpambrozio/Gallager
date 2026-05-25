@@ -42,6 +42,16 @@ final public class SessionStore {
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
+    /// Transitional bridge: the latest status-bearing `HookEvent` per pane.
+    ///
+    /// The wire `AgentSession` no longer carries a `latestEvent` field — plugin
+    /// sidecars push responses via `present_response_request` in Task 19. Until
+    /// that lands, iOS still consumes `HookEvent`s straight from the relay, so
+    /// we cache the latest per pane here and let `SessionDetailService` drive
+    /// `ResponseState` from it. Deleted alongside the rest of the
+    /// HookEvent-on-iOS surface in Task 20.
+    public private(set) var latestEventByPane: [PaneKey: HookEvent] = [:]
+
     // MARK: - Computed Properties (All Hosts Combined)
 
     /// All panes combined from all hosts
@@ -77,16 +87,16 @@ final public class SessionStore {
     // MARK: - Per-Host Computed Properties
 
     /// Get Claude sessions for a specific host, sorted by most recent event
-    public func claudeSessions(for hostId: String) -> [(paneId: String, session: ClaudeSession)] {
+    public func claudeSessions(for hostId: String) -> [(paneId: String, session: AgentSession)] {
         paneStates
             .filter { $0.key.pairId == hostId }
-            .compactMap { key, state -> (paneId: String, session: ClaudeSession)? in
+            .compactMap { key, state -> (paneId: String, session: AgentSession)? in
                 guard let session = state.claudeSession else { return nil }
                 return (paneId: key.paneId, session: session)
             }
             .sorted { lhs, rhs in
-                let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
-                let rhsTime = rhs.session.latestEvent?.timestamp ?? .distantPast
+                let lhsTime = lhs.session.lastEventTimestamp ?? .distantPast
+                let rhsTime = rhs.session.lastEventTimestamp ?? .distantPast
                 return lhsTime > rhsTime
             }
     }
@@ -151,6 +161,12 @@ final public class SessionStore {
     // MARK: - State Management
 
     /// Handle a hook event from a host
+    ///
+    /// TODO(plugin-system): Once iOS subscribes to `update_session_status` /
+    /// `present_response_request` callbacks (Tasks 18–20), this hook-driven
+    /// session synthesis goes away. For now we translate the incoming
+    /// `HookEvent` directly into `AgentSession` working/attention/timestamp
+    /// fields so the existing UI keeps working.
     public func handleEvent(_ eventMessage: HookEventMessage) {
         let event = eventMessage.event
         let hostId = eventMessage.pairId
@@ -159,14 +175,25 @@ final public class SessionStore {
 
         logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from host: \(hostId)")
 
-        // Get or create session within pane state
-        var session = paneStates[key]?.claudeSession ?? ClaudeSession(paneId: paneId)
-        session.addEvent(event)
+        // Get or create session within pane state.
+        var session = paneStates[key]?.claudeSession ?? AgentSession(
+            id: event.action.sessionId,
+            pluginID: event.agent.rawValue,
+            tmuxPane: paneId
+        )
+        applyEvent(event, to: &session)
 
         if paneStates[key] != nil {
             paneStates[key]?.claudeSession = session
         } else {
             paneStates[key] = PaneState(paneId: paneId, claudeSession: session)
+        }
+
+        // Transitional bridge — see `latestEventByPane`. Only events that carry
+        // meaningful state (a working transition or a user-visible
+        // notification) win the slot, mirroring the legacy `addEvent` filter.
+        if event.isWorking != nil || event.wouldTriggerNotification {
+            latestEventByPane[key] = event
         }
 
         // Handle session lifecycle
@@ -177,6 +204,7 @@ final public class SessionStore {
         case .sessionEnd:
             paneStates[key]?.claudeSession = nil
             paneStates[key]?.yoloMode = false
+            latestEventByPane.removeValue(forKey: key)
             // Remove pane state entirely if it has no meaningful data
             if paneStates[key]?.target.isEmpty == true {
                 paneStates.removeValue(forKey: key)
@@ -215,6 +243,31 @@ final public class SessionStore {
         }
     }
 
+    /// Bridge: derive `AgentSession` state from a `HookEvent` until plugin
+    /// sidecars push status updates directly. Drops the legacy trailing-5
+    /// `events` buffer — only working/attention/lastEventTimestamp remain.
+    private func applyEvent(_ event: HookEvent, to session: inout AgentSession) {
+        if let working = event.isWorking {
+            session.working = working
+        }
+        if event.wouldTriggerNotification {
+            session.attention = true
+        }
+        if event.isWorking != nil || event.wouldTriggerNotification {
+            session.lastEventTimestamp = event.timestamp
+        }
+        if let projectPath = event.projectPath, !projectPath.isEmpty {
+            session.projectPath = projectPath
+        }
+    }
+
+    /// Returns the latest status-bearing hook event seen for `paneId` on `hostId`,
+    /// if any. Transitional helper for iOS response views (see
+    /// `latestEventByPane`); removed in Task 20.
+    public func latestEvent(for paneId: String, hostId: String) -> HookEvent? {
+        latestEventByPane[PaneKey(pairId: hostId, paneId: paneId)]
+    }
+
     /// Handle a full session state update from a host
     public func handleStateUpdate(_ state: SessionStateMessage) {
         let hostId = state.pairId
@@ -240,6 +293,7 @@ final public class SessionStore {
     /// Clear all sessions and panes for a specific host
     public func clearSessions(for hostId: String) {
         paneStates = paneStates.filter { $0.key.pairId != hostId }
+        latestEventByPane = latestEventByPane.filter { $0.key.pairId != hostId }
 
         // Clear stored projects
         claudeProjectsByHost.removeValue(forKey: hostId)
@@ -250,7 +304,7 @@ final public class SessionStore {
     }
 
     /// Get a session by host and pane ID
-    public func session(for paneId: String, hostId: String) -> ClaudeSession? {
+    public func session(for paneId: String, hostId: String) -> AgentSession? {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession
     }
 
@@ -269,10 +323,10 @@ final public class SessionStore {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.yoloMode ?? false
     }
 
-    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag locally.
+    /// Marks a session as handled (user has seen it), clearing the `attention` flag locally.
     public func markSessionHandled(paneId: String, hostId: String) {
         let key = PaneKey(pairId: hostId, paneId: paneId)
-        guard paneStates[key]?.claudeSession?.needsAttention == true else { return }
+        guard paneStates[key]?.claudeSession?.attention == true else { return }
         paneStates[key]?.claudeSession?.markHandled()
     }
 

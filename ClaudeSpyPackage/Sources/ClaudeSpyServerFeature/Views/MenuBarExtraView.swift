@@ -12,11 +12,11 @@ public struct MenuBarExtraView: View {
 
     public init() { }
 
-    private var localSessions: [ClaudeSession] {
+    private var localSessions: [AgentSession] {
         windowManager.sortedSessions
     }
 
-    private var remoteSessionsByHost: [(host: PairedHost, sessions: [ClaudeSession])] {
+    private var remoteSessionsByHost: [(host: PairedHost, sessions: [AgentSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
             let sessions = sessionStore.claudeSessions(for: host.id).map(\.session)
@@ -36,7 +36,7 @@ public struct MenuBarExtraView: View {
                     .foregroundStyle(.secondary)
             } else {
                 if !local.isEmpty {
-                    ForEach(local, id: \.paneId) { session in
+                    ForEach(local, id: \.id) { session in
                         localSessionButton(for: session)
                     }
                 }
@@ -46,7 +46,7 @@ public struct MenuBarExtraView: View {
                     Text(entry.host.displayName(showUsername: settings.hasDuplicateHostName(for: entry.host)))
                         .foregroundStyle(.secondary)
 
-                    ForEach(entry.sessions, id: \.paneId) { session in
+                    ForEach(entry.sessions, id: \.id) { session in
                         remoteSessionButton(for: session, host: entry.host)
                     }
                 }
@@ -115,9 +115,11 @@ public struct MenuBarExtraView: View {
 
     // MARK: - Session Buttons
 
-    private func localSessionButton(for session: ClaudeSession) -> some View {
+    private func localSessionButton(for session: AgentSession) -> some View {
         Button {
-            coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
+            if let paneId = session.tmuxPane {
+                coordinator.pendingMenuBarSelection = .local(paneId: paneId)
+            }
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "panes")
             Self.bringAppToFront()
@@ -126,13 +128,15 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    private func remoteSessionButton(for session: ClaudeSession, host: PairedHost) -> some View {
+    private func remoteSessionButton(for session: AgentSession, host: PairedHost) -> some View {
         Button {
-            coordinator.pendingMenuBarSelection = .remote(
-                hostId: host.id,
-                hostName: host.displayName,
-                paneId: session.paneId
-            )
+            if let paneId = session.tmuxPane {
+                coordinator.pendingMenuBarSelection = .remote(
+                    hostId: host.id,
+                    hostName: host.displayName,
+                    paneId: paneId
+                )
+            }
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "panes")
             Self.bringAppToFront()
@@ -142,15 +146,14 @@ public struct MenuBarExtraView: View {
     }
 
     @ViewBuilder
-    private func sessionLabel(for session: ClaudeSession) -> some View {
-        let title = if let latestEvent = session.latestEvent {
-            "\(session.displayName) • \(latestEvent.action.title)"
-        } else {
-            session.displayName
-        }
+    private func sessionLabel(for session: AgentSession) -> some View {
+        // TODO(plugin-system): The latest hook-event title is gone with the
+        // ClaudeSession→AgentSession migration (Task 14). When Tasks 18–19
+        // push richer status from plugin sidecars, we can show it here again.
+        let title = session.displayName
 
         // Menu items can't render ProgressView, so use SF Symbols for all states
-        if session.needsAttention {
+        if session.attention {
             Label {
                 Text(title)
             } icon: {
@@ -163,7 +166,7 @@ public struct MenuBarExtraView: View {
                     Symbols.handsAndSparklesFill.image
                 }
             }
-        } else if session.isWorking {
+        } else if session.working {
             Label(title, symbol: .figureRun)
         } else {
             Label(title, symbol: .moonFill)

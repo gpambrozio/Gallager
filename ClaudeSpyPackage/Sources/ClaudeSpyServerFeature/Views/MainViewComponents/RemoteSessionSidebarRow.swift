@@ -7,15 +7,15 @@ struct RemoteSessionSidebarRow: View {
     @Environment(AppSettings.self) private var settings
 
     let session: TmuxSession
-    let claudeSession: ClaudeSession?
+    let claudeSession: AgentSession?
     var homeDirectory: String?
 
-    /// The latest event subtitle from the Claude session's pane
+    /// The latest event subtitle from the Claude session's pane.
+    ///
+    /// TODO(plugin-system): `AgentSession` no longer caches hook events.
+    /// Returns nil until Tasks 18+ surface plugin-sidecar status text.
     private var latestEventSubtitle: String? {
-        session.windows
-            .flatMap(\.panes)
-            .compactMap(\.claudeSession?.latestEvent?.action.subtitle)
-            .first
+        nil
     }
 
     /// CLI-driven state override propagated from the host, if any.

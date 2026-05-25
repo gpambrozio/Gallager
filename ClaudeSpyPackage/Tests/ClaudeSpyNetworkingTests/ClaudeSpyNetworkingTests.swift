@@ -590,24 +590,75 @@ struct AgentProjectTests {
     }
 }
 
-@Suite("ClaudeSession Cross-Version Decoding")
-struct ClaudeSessionCrossVersionTests {
-    @Test("Decodes legacy ClaudeSession without agent field")
-    func decodesLegacyClaudeSession() throws {
+@Suite("AgentSession Cross-Version Decoding")
+struct AgentSessionCrossVersionTests {
+    @Test("Decodes legacy payload that used the `agent` raw value as plugin id")
+    func decodesLegacyAgentField() throws {
+        // Cross-host fallback: a pre-plugin-system peer emits `agent: "codex"`
+        // instead of `plugin_id: "codex"`. The new build accepts it verbatim
+        // and lifts the raw value onto `pluginID`. Per
+        // `feedback_no-backward-compat`, this fallback is permanent.
         let json = """
         {
-            "paneId": "%0",
-            "events": [],
-            "detectedProjectPath": "/Users/test/Proj",
-            "isWorking": false
+            "id": "session-1",
+            "agent": "codex"
         }
         """
 
-        let decoded = try JSONDecoder().decode(ClaudeSession.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: Data(json.utf8))
 
-        #expect(decoded.paneId == "%0")
-        #expect(decoded.agent == .claudeCode)
-        #expect(decoded.detectedProjectPath == "/Users/test/Proj")
+        #expect(decoded.id == "session-1")
+        #expect(decoded.pluginID == "codex")
+        #expect(decoded.working == false)
+        #expect(decoded.attention == false)
+    }
+
+    @Test("Decodes payload with neither key as claude-code")
+    func decodesPayloadWithoutAgent() throws {
+        // Mirrors what a `main`-version host emits before the agent split —
+        // no `agent`, no `plugin_id`. The new build must default to Claude
+        // Code, the only agent older builds knew about.
+        let json = """
+        {
+            "id": "abc"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: Data(json.utf8))
+
+        #expect(decoded.pluginID == "claude-code")
+    }
+
+    @Test("Round-trips the modern plugin_id payload through snake_case JSON")
+    func roundTripsModernPayload() throws {
+        let original = AgentSession(
+            id: "session-42",
+            pluginID: "claude-code",
+            tmuxPane: "%2",
+            projectPath: "/Users/test/Proj",
+            working: true,
+            attention: false,
+            lastEventTimestamp: Date(timeIntervalSince1970: 1_716_575_531)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(original)
+
+        let raw = try #require(String(data: data, encoding: .utf8))
+        // Modern encoder must emit snake_case keys per the wire convention.
+        // JSONEncoder escapes forward slashes by default, so match the escaped form.
+        #expect(raw.contains("\"plugin_id\":\"claude-code\""))
+        #expect(raw.contains("\"tmux_pane\":\"%2\""))
+        #expect(raw.contains("\"project_path\":"))
+        #expect(raw.contains("\"last_event_timestamp\""))
+        // Legacy `agent` key must NOT appear in the new wire format.
+        #expect(!raw.contains("\"agent\""))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(AgentSession.self, from: data)
+        #expect(decoded == original)
     }
 }
 

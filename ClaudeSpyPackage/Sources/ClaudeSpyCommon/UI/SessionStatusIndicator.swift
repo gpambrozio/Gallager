@@ -15,10 +15,10 @@ public struct SessionStatusIndicator: View {
     private let displayState: DisplayState
     private let label: String
 
-    public init(session: ClaudeSession) {
-        if session.needsAttention {
+    public init(session: AgentSession) {
+        if session.attention {
             self.displayState = .attention
-        } else if session.isWorking {
+        } else if session.working {
             self.displayState = .working
         } else {
             self.displayState = .idle

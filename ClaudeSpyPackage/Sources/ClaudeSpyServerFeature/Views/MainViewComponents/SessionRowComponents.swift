@@ -8,7 +8,7 @@ import SwiftUI
 /// panes. The emoji badge appears underneath whenever the user has set one.
 struct SessionStatusBadge: View {
     let cliSessionState: CLISessionState?
-    let claudeSession: ClaudeSession?
+    let claudeSession: AgentSession?
     let customEmoji: String?
 
     var body: some View {

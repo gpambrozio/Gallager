@@ -38,7 +38,7 @@ struct SessionSidebarRow: View {
     }
 
     /// The first Claude session found in any pane of any window, if any
-    private var claudeSession: ClaudeSession? {
+    private var claudeSession: AgentSession? {
         for window in session.windows {
             for pane in window.panes {
                 if let session = windowManager.paneStates[pane.paneId]?.claudeSession {
@@ -73,16 +73,13 @@ struct SessionSidebarRow: View {
         return nil
     }
 
-    /// The latest event subtitle from the first pane with a Claude session
+    /// The latest event subtitle from the first pane with a Claude session.
+    ///
+    /// TODO(plugin-system): `AgentSession` no longer caches hook events. The
+    /// per-event subtitle string is gone until Tasks 18+ replace it with
+    /// status text pushed by the plugin sidecar.
     private var sessionSubtitle: String? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let subtitle = windowManager.paneStates[pane.paneId]?.claudeSession?.latestEvent?.action.subtitle {
-                    return subtitle
-                }
-            }
-        }
-        return nil
+        nil
     }
 
     var body: some View {

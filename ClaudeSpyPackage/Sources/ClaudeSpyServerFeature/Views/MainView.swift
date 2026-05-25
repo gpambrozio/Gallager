@@ -401,7 +401,7 @@ public struct MainView: View {
 
     /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
-        let claudeSession: ClaudeSession? = session.windows.lazy
+        let claudeSession: AgentSession? = session.windows.lazy
             .flatMap(\.panes)
             .compactMap { windowManager.paneStates[$0.paneId]?.claudeSession }
             .first
@@ -434,7 +434,7 @@ public struct MainView: View {
             hasClaude: claudeSession != nil,
             statusPriority: SessionSortData.statusPriority(for: claudeSession),
             statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+            latestEventTimestamp: claudeSession?.lastEventTimestamp
         )
     }
 
@@ -1918,7 +1918,7 @@ public struct MainView: View {
         if let window = selectedWindow {
             var stateChanged = false
             for pane in window.panes
-                where windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
+                where windowManager.paneStates[pane.paneId]?.claudeSession?.attention == true {
                 windowManager.markSessionHandled(paneId: pane.paneId)
                 stateChanged = true
             }
@@ -1932,7 +1932,7 @@ public struct MainView: View {
         }
 
         if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
-            for pane in remoteWindow.panes where pane.claudeSession?.needsAttention == true {
+            for pane in remoteWindow.panes where pane.claudeSession?.attention == true {
                 coordinator.remoteSessionStore?.markSessionHandled(paneId: pane.paneId, hostId: remote.hostId)
                 Task {
                     _ = await coordinator.viewerConnectionManager?.sendCommand(

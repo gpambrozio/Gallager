@@ -154,7 +154,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
     // MARK: - Claude Session
 
     /// The Claude Code session running in this pane, if any
-    public var claudeSession: ClaudeSession?
+    public var claudeSession: AgentSession?
 
     // MARK: - Behavior Flags
 
@@ -210,7 +210,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         customEmoji: String? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
-        claudeSession: ClaudeSession? = nil,
+        claudeSession: AgentSession? = nil,
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
         editorSession: EditorSessionInfo? = nil,

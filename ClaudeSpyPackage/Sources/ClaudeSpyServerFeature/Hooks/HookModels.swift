@@ -6,7 +6,7 @@ import Vapor
 // Re-export common types for convenience
 public typealias HookEvent = ClaudeSpyCommon.HookEvent
 public typealias HookAction = ClaudeSpyCommon.HookAction
-public typealias ClaudeSession = ClaudeSpyCommon.ClaudeSession
+public typealias AgentSession = ClaudeSpyCommon.AgentSession
 
 // MARK: - Hook Request Query Parameters
 

@@ -1105,7 +1105,7 @@
 
                 // Handle mark session as handled
                 if case .markHandled = command.command {
-                    let wasNeeding = winManager.paneStates[command.paneId]?.claudeSession?.needsAttention == true
+                    let wasNeeding = winManager.paneStates[command.paneId]?.claudeSession?.attention == true
                     winManager.markSessionHandled(paneId: command.paneId)
                     if wasNeeding {
                         await connectionManager?.pushSessionStateToAll()

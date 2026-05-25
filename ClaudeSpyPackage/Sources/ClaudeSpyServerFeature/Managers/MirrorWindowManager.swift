@@ -135,13 +135,26 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Management
 
-    /// Updates the Claude session for the given pane ID, creating pane state if needed.
+    /// Updates the agent session for the given pane ID, creating pane state if needed.
     /// Encapsulates the copy-mutate-reassign pattern for struct values in dictionaries.
     /// - Parameters:
     ///   - paneId: The tmux pane ID
+    ///   - sessionId: Session identifier to assign when no session exists yet
+    ///     (defaults to the pane id, matching the legacy behaviour).
+    ///   - pluginID: Plugin id to record when creating a fresh session
+    ///     (defaults to `"claude-code"`).
     ///   - update: A closure that mutates the session
-    private func updateSession(paneId: String, _ update: (inout ClaudeSession) -> Void) {
-        var session = paneStates[paneId]?.claudeSession ?? ClaudeSession(paneId: paneId)
+    private func updateSession(
+        paneId: String,
+        sessionId: String? = nil,
+        pluginID: String = "claude-code",
+        _ update: (inout AgentSession) -> Void
+    ) {
+        var session = paneStates[paneId]?.claudeSession ?? AgentSession(
+            id: sessionId ?? paneId,
+            pluginID: pluginID,
+            tmuxPane: paneId
+        )
         update(&session)
         if paneStates[paneId] != nil {
             paneStates[paneId]?.claudeSession = session
@@ -157,9 +170,8 @@ final public class MirrorWindowManager {
     /// - Parameter panes: Mapping of pane ID to the detected agent and cwd.
     public func markDetectedClaudeSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
         for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.claudeSession == nil {
-            updateSession(paneId: paneId) { session in
-                session.detectedProjectPath = info.path
-                session.agent = info.agent
+            updateSession(paneId: paneId, pluginID: info.agent.rawValue) { session in
+                session.projectPath = info.path
             }
         }
     }
@@ -168,6 +180,11 @@ final public class MirrorWindowManager {
 
     /// Handles incoming hook events - tracks active sessions
     /// - Parameter event: The hook event to process
+    ///
+    /// TODO(plugin-system): Hook ingestion moves to plugin sidecars in Task 15+.
+    /// Until then we bridge `HookEvent`s into the new `AgentSession` shape
+    /// (working/attention/lastEventTimestamp) directly — the legacy trailing-5
+    /// `events` buffer is gone.
     public func handleHookEvent(_ event: HookEvent) async {
         guard let paneId = event.tmuxPane else { return }
 
@@ -190,8 +207,8 @@ final public class MirrorWindowManager {
         // Track active session based on event type
         switch event.action {
         case let .sessionEnd(body):
-            // Add the final event before removing the session
-            updateSession(paneId: paneId) { $0.addEvent(event) }
+            // Record the final event before removing the session
+            applyEvent(event, paneId: paneId)
             paneStates[paneId]?.claudeSession = nil
             paneStates[paneId]?.yoloMode = false
             // Drop the CLI override too — the session it was decorating is gone.
@@ -219,14 +236,14 @@ final public class MirrorWindowManager {
             // send sessionStart without a preceding sessionEnd, so yolo
             // must carry over. Normal session endings already clear yolo
             // via the sessionEnd handler above.
-            updateSession(paneId: paneId) { $0.addEvent(event) }
+            applyEvent(event, paneId: paneId)
 
         case let .permissionRequest(body) where isYoloModeEnabled(for: paneId) && body.isYoloAutoApprovable:
-            // Yolo mode: auto-approve by sending Enter after a short delay
-            updateSession(paneId: paneId) {
-                $0.addEvent(event)
-                $0.markAutoApproved()
-            }
+            // Yolo mode: auto-approve by sending Enter after a short delay.
+            // The new model doesn't track per-event handled state, so the bridge
+            // resets `attention` immediately after recording the prompt.
+            applyEvent(event, paneId: paneId)
+            paneStates[paneId]?.claudeSession?.attention = false
             do {
                 try await Task.sleep(for: .milliseconds(500))
                 try await tmuxService.sendKeys(paneId, keys: "Enter")
@@ -262,7 +279,31 @@ final public class MirrorWindowManager {
              .worktreeCreate,
              .worktreeRemove,
              .unknown:
-            updateSession(paneId: paneId) { $0.addEvent(event) }
+            applyEvent(event, paneId: paneId)
+        }
+    }
+
+    /// Bridge: derive `AgentSession` state from a `HookEvent`. Replaces the
+    /// legacy `ClaudeSession.addEvent` path. Task 15+ replaces this with
+    /// `update_session_status` callbacks routed through `PluginEventDispatcher`.
+    private func applyEvent(_ event: HookEvent, paneId: String) {
+        updateSession(
+            paneId: paneId,
+            sessionId: event.action.sessionId,
+            pluginID: event.agent.rawValue
+        ) { session in
+            if let working = event.isWorking {
+                session.working = working
+            }
+            if event.wouldTriggerNotification {
+                session.attention = true
+            }
+            if event.isWorking != nil || event.wouldTriggerNotification {
+                session.lastEventTimestamp = event.timestamp
+            }
+            if let projectPath = event.projectPath, !projectPath.isEmpty {
+                session.projectPath = projectPath
+            }
         }
     }
 
@@ -295,27 +336,27 @@ final public class MirrorWindowManager {
 
     /// Number of sessions that need user attention
     public var pendingSessionCount: Int {
-        paneStates.values.filter { $0.claudeSession?.needsAttention == true }.count
+        paneStates.values.filter { $0.claudeSession?.attention == true }.count
     }
 
     /// All sessions sorted with attention-needing sessions first
-    public var sortedSessions: [ClaudeSession] {
+    public var sortedSessions: [AgentSession] {
         paneStates.values
             .compactMap(\.claudeSession)
             .sorted {
-                if $0.needsAttention != $1.needsAttention {
-                    return $0.needsAttention
+                if $0.attention != $1.attention {
+                    return $0.attention
                 }
-                return $0.paneId < $1.paneId
+                return $0.id < $1.id
             }
     }
 
     // MARK: - Mark Handled
 
-    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag.
+    /// Marks a session as handled (user has seen it), clearing the `attention` flag.
     /// - Parameter paneId: The pane ID whose session should be marked handled
     public func markSessionHandled(paneId: String) {
-        guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
+        guard paneStates[paneId]?.claudeSession?.attention == true else { return }
         paneStates[paneId]?.claudeSession?.markHandled()
     }
 
@@ -342,7 +383,14 @@ final public class MirrorWindowManager {
 
     /// Sets yolo mode for a pane's Claude session.
     /// When enabled, permission requests are auto-approved by sending Enter keystroke.
-    /// If there's already a pending auto-approvable permission request, it is approved immediately.
+    ///
+    /// TODO(plugin-system): The "approve a pending permission request when
+    /// yolo is flipped on" branch relied on `ClaudeSession.latestEvent` (a
+    /// trailing-event cache). The new `AgentSession` no longer carries hook
+    /// payloads; pending requests are routed via `present_response_request`
+    /// (Task 19). For this transitional commit we just toggle the flag — any
+    /// active request continues to be addressable through the normal flow
+    /// once the plugin sidecar wiring lands.
     /// - Parameters:
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for
@@ -354,24 +402,11 @@ final public class MirrorWindowManager {
             paneStates[paneId] = PaneState(paneId: paneId, yoloMode: enabled)
         }
 
-        // When enabling, auto-approve any pending permission request
-        if
-            enabled,
-            let latestEvent = paneStates[paneId]?.claudeSession?.latestEvent,
-            case let .permissionRequest(body) = latestEvent.action,
-            body.isYoloAutoApprovable {
-            paneStates[paneId]?.claudeSession?.markAutoApproved()
-            let eventId = latestEvent.id
-            Task { [tmuxService] in
-                do {
-                    try await Task.sleep(for: .milliseconds(500))
-                    // Verify the event hasn't been superseded to avoid a double-Enter
-                    guard self.paneStates[paneId]?.claudeSession?.latestEvent?.id == eventId else { return }
-                    try await tmuxService.sendKeys(paneId, keys: "Enter")
-                } catch {
-                    // If auto-approve fails, the user can still approve manually
-                }
-            }
+        // When enabling, clear any outstanding attention flag so the sidebar
+        // stops nagging. The plugin sidecar will resend a fresh request if a
+        // permission prompt is still genuinely pending.
+        if enabled, paneStates[paneId]?.claudeSession != nil {
+            paneStates[paneId]?.claudeSession?.attention = false
         }
     }
 

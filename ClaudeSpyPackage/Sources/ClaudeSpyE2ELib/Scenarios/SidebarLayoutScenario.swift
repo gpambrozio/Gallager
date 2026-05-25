@@ -119,7 +119,7 @@ public enum SidebarLayoutScenario {
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
         TestStep.macWaitForElement(titled: "Idle", timeout: 5)
 
-        // Project names should be visible (from ClaudeSession.displayName)
+        // Project names should be visible (from AgentSession.displayName)
         TestStep.macWaitForElement(titled: "AlphaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "BetaProject", timeout: 5)
         TestStep.macWaitForElement(titled: "GammaProject", timeout: 5)

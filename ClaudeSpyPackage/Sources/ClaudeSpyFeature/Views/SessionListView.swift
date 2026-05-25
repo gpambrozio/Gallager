@@ -523,7 +523,7 @@
 
     struct SessionRowView: View {
         let paneId: String
-        let session: ClaudeSession
+        let session: AgentSession
         var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
@@ -584,26 +584,25 @@
                         }
                     }
 
-                    // Latest event summary
-                    if let latestEvent = session.latestEvent {
+                    // TODO(plugin-system): The latest event title/timestamp
+                    // and the trailing-5 event count came from
+                    // `ClaudeSession.events` and `latestEvent`, both of which
+                    // are gone in the AgentSession migration. Task 18+ will
+                    // surface a status string pushed by the plugin sidecar.
+                    if let timestamp = session.lastEventTimestamp {
                         HStack {
-                            Text(latestEvent.action.title)
+                            Text(session.statusLabel)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
 
                             Spacer()
 
-                            Text(DateFormatters.relativeTime(for: latestEvent.timestamp))
+                            Text(DateFormatters.relativeTime(for: timestamp))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
                     }
-
-                    // Event count
-                    Text("\(session.events.count) recent events")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
                 }
 
                 Spacer()
@@ -916,7 +915,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .blue,
-                        claudeSession: ClaudeSession(
+                        claudeSession: AgentSession(
                             paneId: "%1",
                             detectedProjectPath: "/Users/preview/AlphaProject"
                         )
@@ -929,7 +928,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .red,
-                        claudeSession: ClaudeSession(
+                        claudeSession: AgentSession(
                             paneId: "%2",
                             detectedProjectPath: "/Users/preview/BravoProject"
                         ),

@@ -40,7 +40,7 @@ final public class SessionDetailService {
     // MARK: - Computed Properties
 
     /// Live session from store (always up-to-date via observation tracking)
-    public var session: ClaudeSession? {
+    public var session: AgentSession? {
         sessionStore.session(for: paneId, hostId: hostId)
     }
 
@@ -93,8 +93,11 @@ final public class SessionDetailService {
             guard let self else { return }
 
             withObservationTracking {
-                // Access the properties we want to observe
+                // Access the properties we want to observe — both the session
+                // and the latest-event bridge so we re-fire when a fresh
+                // HookEvent lands even without a session-shape change.
                 _ = self.sessionStore.session(for: self.paneId, hostId: self.hostId)
+                _ = self.sessionStore.latestEvent(for: self.paneId, hostId: self.hostId)
             } onChange: {
                 // Schedule update on main actor when store changes
                 Task { @MainActor [weak self] in
@@ -107,11 +110,15 @@ final public class SessionDetailService {
         }
     }
 
-    /// Updates response state based on current session's latest event
+    /// Updates response state based on the latest hook event for this pane.
+    ///
+    /// TODO(plugin-system): Reads the transitional `latestEventByPane` cache
+    /// on `SessionStore`. Task 19 reroutes this onto `AgentResponseRequest`
+    /// push messages emitted by plugin sidecars; Task 20 then deletes the
+    /// `HookEvent` decode path on iOS entirely.
     private func updateResponseState() {
-        let currentSession = sessionStore.session(for: paneId, hostId: hostId)
-
-        if let latestEvent = currentSession?.latestEvent {
+        let latestEvent = sessionStore.latestEvent(for: paneId, hostId: hostId)
+        if let latestEvent {
             if latestEvent.id != lastProcessedEventId {
                 lastProcessedEventId = latestEvent.id
                 // Pass sessionStore so ResponseState can persist/restore responses
@@ -128,7 +135,7 @@ final public class SessionDetailService {
 
     /// Marks the session as handled locally and notifies the host
     public func markHandledIfNeeded() async {
-        guard session?.needsAttention == true else { return }
+        guard session?.attention == true else { return }
         sessionStore.markSessionHandled(paneId: paneId, hostId: hostId)
         _ = await relayClient.sendCommand(MarkHandled(), paneId: paneId)
     }
