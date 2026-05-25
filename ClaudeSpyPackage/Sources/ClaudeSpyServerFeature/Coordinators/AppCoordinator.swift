@@ -4,6 +4,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import CodexPluginCore
     import Dependencies
     import Foundation
     import Logging

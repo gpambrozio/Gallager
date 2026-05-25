@@ -2,6 +2,7 @@ import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import ClaudeSpyServerFeature
+import CodexPluginCore
 import Dependencies
 import SwiftUI
 

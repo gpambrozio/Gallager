@@ -17,8 +17,13 @@
     /// The first time Codex runs after install it will still surface its own
     /// trust prompt for the hook commands — we register the plugin, the user
     /// trusts the hooks. There is no documented way to bypass that prompt.
+    ///
+    /// Renamed from `CodexPluginInstaller` (Task 10) to mirror
+    /// `ClaudeCodeInstaller`. The internal `Process` helper avoids depending
+    /// on `ProcessRunner` (which lives in `ClaudeSpyServerFeature`) so this
+    /// type can be linked into the Codex sidecar executable in Task 13.
     @DependencyClient
-    public struct CodexPluginInstaller: Sendable {
+    public struct CodexInstaller: Sendable {
         /// Installs (or refreshes) the gallager plugin. Pass the path to
         /// the user's `codex` binary so we can invoke `codex plugin add`.
         public var install: @Sendable (_ codexCommand: String) async throws -> Void = { _ in }
@@ -34,15 +39,14 @@
 
     // MARK: - DependencyKey
 
-    extension CodexPluginInstaller: DependencyKey {
-        public static var previewValue: CodexPluginInstaller {
-            CodexPluginInstaller(install: { _ in }, uninstall: { _ in }, isInstalled: { _ in false })
+    extension CodexInstaller: DependencyKey {
+        public static var previewValue: CodexInstaller {
+            CodexInstaller(install: { _ in }, uninstall: { _ in }, isInstalled: { _ in false })
         }
 
-        public static var liveValue: CodexPluginInstaller {
-            @Dependency(ProcessRunner.self) var processRunner
-            let installer = LiveCodexPluginInstaller(processRunner: processRunner)
-            return CodexPluginInstaller(
+        public static var liveValue: CodexInstaller {
+            let installer = LiveCodexInstaller()
+            return CodexInstaller(
                 install: { codexCommand in
                     try await installer.install(codexCommand: codexCommand)
                 },
@@ -58,10 +62,9 @@
 
     // MARK: - Live Implementation
 
-    private actor LiveCodexPluginInstaller {
-        private let logger = Logger(label: "com.claudespy.codexplugininstaller")
+    private actor LiveCodexInstaller {
+        private let logger = Logger(label: "com.claudespy.codexinstaller")
         private let fileManager = FileManager.default
-        private let processRunner: ProcessRunner
 
         /// Plugin folder name on disk and in the manifest.
         private static let pluginName = "gallager"
@@ -73,10 +76,6 @@
 
         private static var pluginSelector: String {
             "\(pluginName)@\(marketplaceName)"
-        }
-
-        init(processRunner: ProcessRunner) {
-            self.processRunner = processRunner
         }
 
         // MARK: - Install
@@ -93,20 +92,19 @@
             // stable across updates.
             try await registerMarketplace(codexPath: codexPath, source: bundleMarketplaceRoot.path)
 
-            let addResult = try await processRunner.run(
-                codexPath,
-                ["plugin", "add", Self.pluginSelector],
-                nil,
-                30
+            let addResult = try await Self.runCodex(
+                binary: codexPath,
+                arguments: ["plugin", "add", Self.pluginSelector],
+                timeout: 30
             )
             if !addResult.isSuccess {
-                let stderr = addResult.stderrString.lowercased()
+                let stderr = addResult.stderr.lowercased()
                 let benign = stderr.contains("already") && stderr.contains("install")
                 guard benign else {
                     throw CodexPluginInstallError.codexInvocationFailed(
                         command: "plugin add",
                         exitCode: addResult.exitCode,
-                        stderr: addResult.stderrString
+                        stderr: addResult.stderr
                     )
                 }
                 logger.info("Codex reports the plugin is already installed; treating as success.")
@@ -121,15 +119,14 @@
         /// path), removes that registration and retries the add so the new
         /// source wins.
         private func registerMarketplace(codexPath: String, source: String) async throws {
-            let result = try await processRunner.run(
-                codexPath,
-                ["plugin", "marketplace", "add", source],
-                nil,
-                30
+            let result = try await Self.runCodex(
+                binary: codexPath,
+                arguments: ["plugin", "marketplace", "add", source],
+                timeout: 30
             )
             if result.isSuccess { return }
 
-            let stderr = result.stderrString.lowercased()
+            let stderr = result.stderr.lowercased()
             if stderr.contains("already added from a different source") {
                 logger.info("Codex's existing '\(Self.marketplaceName)' marketplace points elsewhere; replacing it.")
                 // Surface — don't swallow — failure of the remove. If remove
@@ -138,32 +135,30 @@
                 // hit the same "already added from a different source" error
                 // and the user gets the same opaque message; logging the
                 // stderr here keeps a stuck install diagnosable.
-                let removeResult = try await processRunner.run(
-                    codexPath,
-                    ["plugin", "marketplace", "remove", Self.marketplaceName],
-                    nil,
-                    30
+                let removeResult = try await Self.runCodex(
+                    binary: codexPath,
+                    arguments: ["plugin", "marketplace", "remove", Self.marketplaceName],
+                    timeout: 30
                 )
                 if !removeResult.isSuccess {
-                    let removeStderr = removeResult.stderrString.lowercased()
+                    let removeStderr = removeResult.stderr.lowercased()
                     let benign = removeStderr.contains("not found") || removeStderr.contains("not present")
                     if !benign {
                         logger.warning(
-                            "`codex plugin marketplace remove \(Self.marketplaceName)` failed (exit \(removeResult.exitCode)): \(removeResult.stderrString.trimmingCharacters(in: .whitespacesAndNewlines))"
+                            "`codex plugin marketplace remove \(Self.marketplaceName)` failed (exit \(removeResult.exitCode)): \(removeResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
                         )
                     }
                 }
-                let retry = try await processRunner.run(
-                    codexPath,
-                    ["plugin", "marketplace", "add", source],
-                    nil,
-                    30
+                let retry = try await Self.runCodex(
+                    binary: codexPath,
+                    arguments: ["plugin", "marketplace", "add", source],
+                    timeout: 30
                 )
                 guard retry.isSuccess else {
                     throw CodexPluginInstallError.codexInvocationFailed(
                         command: "plugin marketplace add",
                         exitCode: retry.exitCode,
-                        stderr: retry.stderrString
+                        stderr: retry.stderr
                     )
                 }
                 return
@@ -173,7 +168,7 @@
             throw CodexPluginInstallError.codexInvocationFailed(
                 command: "plugin marketplace add",
                 exitCode: result.exitCode,
-                stderr: result.stderrString
+                stderr: result.stderr
             )
         }
 
@@ -181,20 +176,19 @@
 
         func uninstall(codexCommand: String) async throws {
             let codexPath = try await resolveCodexExecutable(codexCommand)
-            let result = try await processRunner.run(
-                codexPath,
-                ["plugin", "remove", Self.pluginSelector],
-                nil,
-                30
+            let result = try await Self.runCodex(
+                binary: codexPath,
+                arguments: ["plugin", "remove", Self.pluginSelector],
+                timeout: 30
             )
             if !result.isSuccess {
-                let stderr = result.stderrString.lowercased()
+                let stderr = result.stderr.lowercased()
                 let benign = stderr.contains("not installed") || stderr.contains("not found")
                 guard benign else {
                     throw CodexPluginInstallError.codexInvocationFailed(
                         command: "plugin remove",
                         exitCode: result.exitCode,
-                        stderr: result.stderrString
+                        stderr: result.stderr
                     )
                 }
             }
@@ -213,14 +207,13 @@
             guard let codexPath = try? await resolveCodexExecutable(codexCommand) else {
                 return false
             }
-            let result = try? await processRunner.run(
-                codexPath,
-                ["plugin", "list", "--marketplace", Self.marketplaceName],
-                nil,
-                10
+            let result = try? await Self.runCodex(
+                binary: codexPath,
+                arguments: ["plugin", "list", "--marketplace", Self.marketplaceName],
+                timeout: 10
             )
             guard let result, result.isSuccess else { return false }
-            return parsePluginRow(result.stdoutString)
+            return parsePluginRow(result.stdout)
         }
 
         /// Returns `true` if the `codex plugin list` table contains a row
@@ -352,14 +345,57 @@
         private func loginShellLookup(_ command: String) async throws -> String {
             let zsh = "/bin/zsh"
             guard fileManager.isExecutableFile(atPath: zsh) else { return "" }
-            let result = try await processRunner.run(
-                zsh,
-                ["-ilc", "command -v \(command) 2>/dev/null"],
-                nil,
-                5
+            let result = try await Self.runCodex(
+                binary: zsh,
+                arguments: ["-ilc", "command -v \(command) 2>/dev/null"],
+                timeout: 5
             )
             guard result.isSuccess else { return "" }
-            return result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // MARK: - Process helper
+
+        /// Lightweight `Process` runner used in place of the
+        /// `ProcessRunner` dependency (which lives in
+        /// `ClaudeSpyServerFeature` and would create a circular
+        /// dependency). Mirrors the helper inside `ClaudeCodeInstaller`.
+        fileprivate struct RunResult: Sendable {
+            let exitCode: Int32
+            let stdout: String
+            let stderr: String
+
+            var isSuccess: Bool { exitCode == 0 }
+        }
+
+        fileprivate static func runCodex(
+            binary: String,
+            arguments: [String],
+            timeout _: TimeInterval
+        ) async throws -> RunResult {
+            try await Task.detached(priority: .userInitiated) { () -> RunResult in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: binary)
+                process.arguments = arguments
+                process.environment = ProcessInfo.processInfo.environment
+
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                try process.run()
+                process.waitUntilExit()
+
+                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+                return RunResult(
+                    exitCode: process.terminationStatus,
+                    stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+                    stderr: String(data: stderrData, encoding: .utf8) ?? ""
+                )
+            }.value
         }
     }
 

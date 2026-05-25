@@ -1,5 +1,6 @@
 #if os(macOS)
     import ClaudeSpyCommon
+    import CodexPluginCore
     import Dependencies
     import SwiftUI
 
@@ -13,7 +14,7 @@
         @State private var showingError = false
         @State private var errorMessage = ""
 
-        @Dependency(CodexPluginInstaller.self) private var installer
+        @Dependency(CodexInstaller.self) private var installer
 
         enum Status {
             case checking

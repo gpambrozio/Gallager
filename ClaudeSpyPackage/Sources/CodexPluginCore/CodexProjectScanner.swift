@@ -1,5 +1,4 @@
 #if os(macOS)
-    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import Dependencies
     import DependenciesMacros

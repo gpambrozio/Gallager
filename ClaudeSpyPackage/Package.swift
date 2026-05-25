@@ -303,6 +303,7 @@ let targets: [Target] = [
             .claudeSpyCommon,
             .claudeSpyEncryption,
             .claudeCodePluginCore,
+            .codexPluginCore,
             .vapor,
             .dependencies,
             .dependenciesMacros,
