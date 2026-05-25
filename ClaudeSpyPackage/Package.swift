@@ -312,6 +312,8 @@ let targets: [Target] = [
             .claudeSpyEncryption,
             .claudeCodePluginCore,
             .codexPluginCore,
+            .gallagerPluginProtocol,
+            .claudeSpyPluginRuntime,
             .vapor,
             .dependencies,
             .dependenciesMacros,
