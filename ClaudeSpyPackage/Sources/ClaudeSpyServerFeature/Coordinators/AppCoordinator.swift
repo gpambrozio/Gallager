@@ -850,9 +850,16 @@
                     else {
                         throw APIError.notFound("Path does not exist or is not a directory: \(path)")
                     }
-                    let commandPath: String = switch agent {
-                    case .claudeCode: claudeCommandPath
-                    case .codex: codexCommandPath
+                    // Map plugin id → captured path. `CodingAgent.rawValue`
+                    // matches the bundled plugin ids ("claude-code", "codex"),
+                    // so a future plugin-id-native entry point can call this
+                    // closure with `agent.rawValue` already in hand.
+                    // Third-party plugins resolve their launch command via
+                    // `PluginManager.commandForLaunch`; Task 16 wires that.
+                    let commandPath: String = switch agent.rawValue {
+                    case CodingAgent.claudeCode.rawValue: claudeCommandPath
+                    case CodingAgent.codex.rawValue: codexCommandPath
+                    default: ""
                     }
                     let runCommand: String
                     if args.isEmpty {
@@ -1607,13 +1614,15 @@
                 // own auto-run toggle so a user can keep "open Codex folders
                 // in a bare shell" as a real choice — matches the local
                 // create-from-project path in MainView.
-                let runCommand: String? = if spec.workingDirectory != nil {
-                    switch spec.agent {
-                    case .claudeCode:
-                        settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
-                    case .codex:
-                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
-                    }
+                //
+                // Looking up by plugin id (via `rawValue`) keeps the path
+                // unbranched on `CodingAgent`; Task 21 deletes the enum
+                // entirely once every caller is plugin-id-native.
+                let runCommand: String? = if
+                    spec.workingDirectory != nil,
+                    settings.autoRunInProjects(forPluginID: spec.agent.rawValue),
+                    let commandPath = settings.commandPath(forPluginID: spec.agent.rawValue) {
+                    commandPath
                 } else {
                     nil
                 }

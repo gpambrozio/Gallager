@@ -346,9 +346,35 @@ final public class AppSettings {
 
     /// Resolves the command path for a given coding agent.
     public func commandPath(for agent: CodingAgent) -> String {
-        switch agent {
-        case .claudeCode: claudeCommandPath
-        case .codex: codexCommandPath
+        commandPath(forPluginID: agent.rawValue) ?? ""
+    }
+
+    /// Resolves the command path for a plugin id (Spec §11). Returns `nil`
+    /// when the plugin id isn't recognised — the caller decides whether to
+    /// fall back to a bare-shell spawn or surface an error.
+    ///
+    /// `CodingAgent.rawValue` ("claude-code", "codex") matches the plugin
+    /// ids bundled with the app, so this method works for both the legacy
+    /// `CodingAgent` callers and any new plugin-id-driven path. Plugins
+    /// installed via a third-party manifest fall through to `nil`; the new
+    /// `PluginManager.commandForLaunch` RPC is the proper resolver for
+    /// those.
+    public func commandPath(forPluginID pluginID: String) -> String? {
+        switch pluginID {
+        case CodingAgent.claudeCode.rawValue: claudeCommandPath
+        case CodingAgent.codex.rawValue: codexCommandPath
+        default: nil
+        }
+    }
+
+    /// Whether the user wants `start a session in a project folder` to
+    /// auto-run the agent's CLI. Sourced from the legacy per-agent toggles;
+    /// Task 16 replaces this with per-plugin settings.
+    public func autoRunInProjects(forPluginID pluginID: String) -> Bool {
+        switch pluginID {
+        case CodingAgent.claudeCode.rawValue: autoRunClaudeInProjects
+        case CodingAgent.codex.rawValue: autoRunCodexInProjects
+        default: false
         }
     }
 

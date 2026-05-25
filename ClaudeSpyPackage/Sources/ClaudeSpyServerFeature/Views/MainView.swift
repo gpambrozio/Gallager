@@ -3661,20 +3661,17 @@ public struct MainView: View {
 
                 // Determine which agent command to launch. Each agent has its
                 // own auto-run toggle so a user can keep "open Codex folders
-                // in a bare shell" as a real choice.
-                //
-                // Map the plugin id back to a CodingAgent — Task 11 wires
-                // per-plugin command_for_launch resolvers and this branch
-                // disappears entirely.
-                let projectAgent: CodingAgent? = project
-                    .flatMap { CodingAgent(rawValue: $0.pluginID) }
-                let runCommand: String? = if let projectAgent {
-                    switch projectAgent {
-                    case .claudeCode:
-                        settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
-                    case .codex:
-                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
-                    }
+                // in a bare shell" as a real choice. Routed through the
+                // plugin-id-native settings helpers so this branch no longer
+                // hard-codes the legacy two-agent enum — Task 16 swaps the
+                // helpers for per-plugin settings + `command_for_launch`.
+                let projectPluginID = project?.pluginID
+                let projectAgent: CodingAgent? = projectPluginID.flatMap { CodingAgent(rawValue: $0) }
+                let runCommand: String? = if
+                    let pluginID = projectPluginID,
+                    settings.autoRunInProjects(forPluginID: pluginID),
+                    let commandPath = settings.commandPath(forPluginID: pluginID) {
+                    commandPath
                 } else {
                     nil
                 }
