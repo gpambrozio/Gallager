@@ -180,6 +180,10 @@ extension Target.Dependency {
     static var claudeCodePluginCore: Self {
         "ClaudeCodePluginCore"
     }
+
+    static var codexPluginCore: Self {
+        "CodexPluginCore"
+    }
 }
 
 /// Products, dependencies, and targets are extracted into typed top-level `let`s
@@ -236,6 +240,10 @@ let products: [Product] = [
     .library(
         name: "ClaudeCodePluginCore",
         targets: ["ClaudeCodePluginCore"]
+    ),
+    .library(
+        name: "CodexPluginCore",
+        targets: ["CodexPluginCore"]
     ),
 ]
 
@@ -397,6 +405,18 @@ let targets: [Target] = [
             .logging,
         ]
     ),
+    // Codex-specific plugin core: scanner, installer, event translator,
+    // keystroke builder. Symmetric to `ClaudeCodePluginCore`.
+    .target(
+        name: "CodexPluginCore",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .dependencies,
+            .dependenciesMacros,
+            .logging,
+        ]
+    ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
@@ -489,6 +509,13 @@ let targets: [Target] = [
         name: "ClaudeCodePluginCoreTests",
         dependencies: [
             .claudeCodePluginCore,
+            .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "CodexPluginCoreTests",
+        dependencies: [
+            .codexPluginCore,
             .dependenciesTestSupport,
         ]
     ),
