@@ -427,12 +427,34 @@ let targets: [Target] = [
             .dependenciesTestSupport,
         ]
     ),
+    // Test-only echo sidecar used by `SidecarSupervisorTests`. SPM builds
+    // it like any other executable target; the tests resolve its built
+    // path under `.build/<config>/EchoSidecar` and spawn it as a child
+    // process. Kept as a sibling target (not nested inside the test
+    // target) so we can declare it as an explicit dependency below — that
+    // forces SPM to build it before the test bundle runs.
+    .executableTarget(
+        name: "EchoSidecar",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+        ],
+        path: "Tests/ClaudeSpyPluginRuntimeTests/Fixtures/EchoSidecar"
+    ),
     .testTarget(
         name: "ClaudeSpyPluginRuntimeTests",
         dependencies: [
             .claudeSpyPluginRuntime,
             .gallagerPluginProtocol,
             .dependenciesTestSupport,
+            .clocks,
+            .concurrencyExtras,
+            "EchoSidecar",
+        ],
+        exclude: [
+            // The fixture executable is built via its own target; exclude
+            // its source from the test bundle to avoid double-compilation.
+            "Fixtures/EchoSidecar",
         ]
     ),
 ]
