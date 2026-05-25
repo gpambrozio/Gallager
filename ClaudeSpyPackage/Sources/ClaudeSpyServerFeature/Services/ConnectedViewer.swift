@@ -385,6 +385,27 @@ final public class ConnectedViewer: Identifiable {
         await sendEncrypted(message)
     }
 
+    /// Send a plugin-driven `AgentResponseRequestMessage` to viewer (encrypted).
+    /// `request == nil` means "dismiss the open form whose request_id matches".
+    public func sendAgentResponseRequest(_ message: AgentResponseRequestMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send agent response request")
+            return
+        }
+        await sendEncrypted(.agentResponseRequest(message))
+    }
+
+    /// Send a plugin-driven per-session `AgentSessionStatusUpdate` to viewer
+    /// (encrypted). Replaces the rebroadcast-full-session-state pattern for
+    /// high-frequency working/attention transitions.
+    public func sendAgentSessionStatus(_ update: AgentSessionStatusUpdate) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send agent session status")
+            return
+        }
+        await sendEncrypted(.agentSessionStatus(update))
+    }
+
     /// Send this host's peerHello to the viewer once the E2EE session is up.
     /// Called right after establishing E2EE on `.viewerConnected`.
     private func sendPeerHello() async {

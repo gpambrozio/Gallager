@@ -268,6 +268,28 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Broadcast a plugin-driven `AgentResponseRequestMessage` to every
+    /// connected viewer. Used by `PluginResponseRequestRouter` to fan
+    /// sidecar-emitted prompts (and dismissals) out to all paired iOS devices.
+    public func sendAgentResponseRequestToAll(_ message: AgentResponseRequestMessage) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendAgentResponseRequest(message) }
+            }
+        }
+    }
+
+    /// Broadcast a plugin-driven `AgentSessionStatusUpdate` to every connected
+    /// viewer. Reserved for the high-frequency per-session push path; the
+    /// status sink calls this in addition to mutating local pane state.
+    public func sendAgentSessionStatusToAll(_ update: AgentSessionStatusUpdate) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendAgentSessionStatus(update) }
+            }
+        }
+    }
+
     /// Push session state to all connected viewers.
     public func pushSessionStateToAll() async {
         await withTaskGroup(of: Void.self) { group in

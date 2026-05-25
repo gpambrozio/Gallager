@@ -10,7 +10,11 @@ import Logging
 final public class MirrorWindowManager {
     /// Unified per-pane state keyed by pane ID.
     /// Contains tmux metadata, Claude session, terminal title, and yolo mode.
-    public private(set) var paneStates: [String: PaneState] = [:]
+    ///
+    /// `internal(set)` rather than `private(set)` so that in-module extensions
+    /// (e.g. `MirrorWindowManager+PluginSinks`) can mutate pane state without
+    /// the class file having to absorb every new plugin-driven mutation.
+    public internal(set) var paneStates: [String: PaneState] = [:]
 
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
