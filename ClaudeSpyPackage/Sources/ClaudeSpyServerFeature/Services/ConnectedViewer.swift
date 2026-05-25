@@ -167,6 +167,13 @@ final public class ConnectedViewer: Identifiable {
     /// sync with the host's needs-attention count.
     public var onPendingSessionCount: (@MainActor @Sendable () async -> Int)?
 
+    /// Called when an iOS viewer submits an `AgentResponseSubmission` (the
+    /// user's answer to a plugin-driven `AgentResponseRequest`). Routed to
+    /// `PluginManager.deliverResponse` so the originating sidecar can
+    /// translate the structured response into whatever its host agent
+    /// expects (keystrokes, JSON-RPC, HTTP, etc.).
+    public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmission) async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -695,6 +702,23 @@ final public class ConnectedViewer: Identifiable {
         case .requestSessionState:
             logger.info("Viewer requested session state")
             await pushSessionState()
+
+        case let .agentResponseSubmission(submission):
+            logger.info(
+                "Received agent response submission",
+                metadata: [
+                    "pluginId": "\(submission.pluginId)",
+                    "sessionId": "\(submission.sessionId)",
+                    "requestId": "\(submission.requestId)",
+                ]
+            )
+            if let handler = onAgentResponseSubmission {
+                await handler(submission)
+            } else {
+                logger.warning(
+                    "Dropped agent_response_submission: no handler wired up"
+                )
+            }
 
         case .ping:
             await send(.pong)

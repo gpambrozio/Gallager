@@ -52,6 +52,12 @@ final public class ConnectedViewerManager {
     /// APNs badge value.
     public var pendingSessionCountProvider: (@MainActor @Sendable () async -> Int)?
 
+    /// Called when an iOS viewer submits an `AgentResponseSubmission`. The
+    /// coordinator wires this to `PluginManager.deliverResponse` so the
+    /// originating sidecar receives the user's answer over its JSON-RPC
+    /// stdin.
+    public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmission) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -367,6 +373,10 @@ final public class ConnectedViewerManager {
 
         connection.onPendingSessionCount = { [weak self] in
             await self?.pendingSessionCountProvider?() ?? 0
+        }
+
+        connection.onAgentResponseSubmission = { [weak self] submission in
+            await self?.onAgentResponseSubmission?(submission)
         }
     }
 }

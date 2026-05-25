@@ -1439,6 +1439,19 @@
                 logger.error("PluginManager.start failed: \(error)")
             }
 
+            // Forward iOS-driven response submissions into the manager so
+            // the originating sidecar gets the user's answer over its
+            // JSON-RPC stdin. Hooked after the manager exists so we
+            // don't race a viewer submitting before `start()` returns.
+            connectedViewerManager?.onAgentResponseSubmission = { [weak manager] submission in
+                await manager?.deliverResponse(
+                    pluginID: submission.pluginId,
+                    sessionID: submission.sessionId,
+                    requestID: submission.requestId,
+                    response: submission.response
+                )
+            }
+
             // Now that the manager is up, re-run pane detection so already-
             // running agents get tagged with their owning plugin. The
             // earlier call in `setupConnectedViewerManager` was a no-op
