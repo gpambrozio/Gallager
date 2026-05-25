@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "title": "Command",
+      "fields": [
+        {
+          "id": "command_path",
+          "type": "string",
+          "label": "Claude CLI command",
+          "default": "claude",
+          "placeholder": "claude",
+          "help": "Absolute path or $PATH-discoverable name."
+        }
+      ]
+    },
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "id": "auto_run",
+          "type": "boolean",
+          "label": "Auto-launch Claude when opening a project",
+          "default": true
+        },
+        {
+          "id": "log_level",
+          "type": "picker",
+          "label": "Sidecar log level",
+          "default": "info",
+          "options": [
+            { "value": "debug", "label": "Debug" },
+            { "value": "info",  "label": "Info" },
+            { "value": "warn",  "label": "Warning" },
+            { "value": "error", "label": "Error" }
+          ]
+        }
+      ]
+    }
+  ]
+}

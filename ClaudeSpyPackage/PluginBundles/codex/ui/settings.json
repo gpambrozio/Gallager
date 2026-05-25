@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "title": "Command",
+      "fields": [
+        {
+          "id": "command_path",
+          "type": "string",
+          "label": "Codex CLI command",
+          "default": "codex",
+          "placeholder": "codex",
+          "help": "Absolute path or $PATH-discoverable name."
+        }
+      ]
+    },
+    {
+      "title": "Behavior",
+      "fields": [
+        {
+          "id": "auto_run",
+          "type": "boolean",
+          "label": "Auto-launch Codex when opening a project",
+          "default": true
+        },
+        {
+          "id": "log_level",
+          "type": "picker",
+          "label": "Sidecar log level",
+          "default": "info",
+          "options": [
+            { "value": "debug", "label": "Debug" },
+            { "value": "info",  "label": "Info" },
+            { "value": "warn",  "label": "Warning" },
+            { "value": "error", "label": "Error" }
+          ]
+        }
+      ]
+    }
+  ]
+}
