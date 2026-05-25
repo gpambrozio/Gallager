@@ -1487,10 +1487,9 @@
             let pluginIDs = Array(processNames.keys)
             let fallback: @Sendable ([String: String]) async -> (pluginID: String, owns: Bool)? = {
                 paneInfo in
-                for pluginID in pluginIDs {
-                    if await manager.detectPane(pluginID: pluginID, paneInfo: paneInfo) {
-                        return (pluginID, true)
-                    }
+                for pluginID in pluginIDs
+                    where await manager.detectPane(pluginID: pluginID, paneInfo: paneInfo) {
+                    return (pluginID, true)
                 }
                 return nil
             }

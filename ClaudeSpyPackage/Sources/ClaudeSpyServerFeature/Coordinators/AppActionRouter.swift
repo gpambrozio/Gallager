@@ -113,10 +113,9 @@
         /// Locate the pane id hosting `agentSessionId` by scanning
         /// `MirrorWindowManager.paneStates`.
         private func resolvePaneId(forAgentSessionId agentSessionId: String) -> String? {
-            for (paneId, state) in mirrorManager.paneStates {
-                if state.agentSession?.id == agentSessionId {
-                    return paneId
-                }
+            for (paneId, state) in mirrorManager.paneStates
+                where state.agentSession?.id == agentSessionId {
+                return paneId
             }
             return nil
         }

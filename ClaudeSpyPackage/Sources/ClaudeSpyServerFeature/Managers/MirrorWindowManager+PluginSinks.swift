@@ -59,10 +59,9 @@
         /// `paneStates`. Returns `nil` when no pane has been tagged with
         /// that session yet.
         private func resolvePaneID(forSessionID sessionID: String) -> String? {
-            for (paneId, state) in paneStates {
-                if state.agentSession?.id == sessionID {
-                    return paneId
-                }
+            for (paneId, state) in paneStates
+                where state.agentSession?.id == sessionID {
+                return paneId
             }
             return nil
         }
@@ -115,10 +114,9 @@
     /// via the same pane lookup the status sink uses.
     extension MirrorWindowManager: YoloModeProvider {
         public func isYolo(forSessionID sessionID: String) async -> Bool {
-            for (paneId, state) in paneStates {
-                if state.agentSession?.id == sessionID {
-                    return state.yoloMode || isYoloModeEnabled(for: paneId)
-                }
+            for (paneId, state) in paneStates
+                where state.agentSession?.id == sessionID {
+                return state.yoloMode || isYoloModeEnabled(for: paneId)
             }
             return false
         }

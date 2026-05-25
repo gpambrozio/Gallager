@@ -65,10 +65,9 @@
         // MARK: - Lookup
 
         private func findPane(forSessionID sessionID: String) -> String? {
-            for (paneId, state) in mirrorManager.paneStates {
-                if state.agentSession?.id == sessionID {
-                    return paneId
-                }
+            for (paneId, state) in mirrorManager.paneStates
+                where state.agentSession?.id == sessionID {
+                return paneId
             }
             return nil
         }

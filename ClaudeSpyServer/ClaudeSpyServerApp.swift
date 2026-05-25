@@ -504,7 +504,7 @@ struct TmuxPaneMirrorApp: App {
     private var totalPendingSessionCount: Int {
         let localCount = coordinator.windowManager.pendingSessionCount
         let remoteCount = coordinator.remoteSessionStore?.paneStates.values
-            .filter { $0.claudeSession?.needsAttention == true }.count ?? 0
+            .filter { $0.agentSession?.attention == true }.count ?? 0
         return localCount + remoteCount
     }
 

@@ -487,13 +487,11 @@ final public class TmuxService {
             // resolve the owning plugin in O(1) per descendant.
             var pluginByProcess: [String: String] = [:]
             for (pluginID, names) in processNamesByPlugin {
-                for name in names {
-                    // First plugin to claim a process name wins — the map
-                    // is built deterministically per call, so callers can
-                    // control priority via insertion order if they care.
-                    if pluginByProcess[name] == nil {
-                        pluginByProcess[name] = pluginID
-                    }
+                // First plugin to claim a process name wins — the map is
+                // built deterministically per call, so callers can control
+                // priority via insertion order if they care.
+                for name in names where pluginByProcess[name] == nil {
+                    pluginByProcess[name] = pluginID
                 }
             }
 
