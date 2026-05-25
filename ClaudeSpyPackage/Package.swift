@@ -176,6 +176,10 @@ extension Target.Dependency {
     static var claudeSpyPluginRuntime: Self {
         "ClaudeSpyPluginRuntime"
     }
+
+    static var claudeCodePluginCore: Self {
+        "ClaudeCodePluginCore"
+    }
 }
 
 /// Products, dependencies, and targets are extracted into typed top-level `let`s
@@ -228,6 +232,10 @@ let products: [Product] = [
     .library(
         name: "ClaudeSpyPluginRuntime",
         targets: ["ClaudeSpyPluginRuntime"]
+    ),
+    .library(
+        name: "ClaudeCodePluginCore",
+        targets: ["ClaudeCodePluginCore"]
     ),
 ]
 
@@ -369,6 +377,20 @@ let targets: [Target] = [
             .logging,
         ]
     ),
+    // Claude Code-specific plugin core: scanner, binary locator, installer,
+    // notification copy. Shared between the Mac app and the
+    // `ClaudeCodePluginSidecar` executable (Task 12). Cross-platform so the
+    // sidecar's executable target can link it on Linux if we ever cross-compile.
+    .target(
+        name: "ClaudeCodePluginCore",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .dependencies,
+            .dependenciesMacros,
+            .logging,
+        ]
+    ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
@@ -455,6 +477,13 @@ let targets: [Target] = [
             // The fixture executable is built via its own target; exclude
             // its source from the test bundle to avoid double-compilation.
             "Fixtures/EchoSidecar",
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeCodePluginCoreTests",
+        dependencies: [
+            .claudeCodePluginCore,
+            .dependenciesTestSupport,
         ]
     ),
 ]
