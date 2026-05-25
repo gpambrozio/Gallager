@@ -10,13 +10,19 @@ public enum VersionCompatibility {
     ///
     /// Bump this when the host introduces a protocol change that older viewers
     /// cannot handle.
-    public static let defaultMinRequiredViewerVersion = "1.23"
+    ///
+    /// Bumped 2026-05-24 (1.23 → 1.33) for the plugin-system flag-day release;
+    /// v1.33+ peers refuse to pair with v1.32 or older.
+    public static let defaultMinRequiredViewerVersion = "1.33"
 
     /// Default minimum host version accepted by a viewer running this build.
     ///
     /// Bump this when the viewer introduces a protocol change that older hosts
     /// cannot handle.
-    public static let defaultMinRequiredHostVersion = "1.23"
+    ///
+    /// Bumped 2026-05-24 (1.23 → 1.33) for the plugin-system flag-day release;
+    /// v1.33+ peers refuse to pair with v1.32 or older.
+    public static let defaultMinRequiredHostVersion = "1.33"
 
     /// Test-only overrides set from launch arguments during E2E scenarios.
     /// Regular production code should never set these.
