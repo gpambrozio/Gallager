@@ -79,8 +79,8 @@ struct ClaudeCodeEventTranslatorTests {
         sessionId: String = "S1",
         tmuxPane: String = "%0",
         projectPath: String = "/proj/MyApp"
-    ) async throws -> (PluginEvent?, ClaudeCodeRequestStore) {
-        let store = ClaudeCodeRequestStore()
+    ) async throws -> (PluginEvent?, PluginRequestStore) {
+        let store = PluginRequestStore()
         let (p, ctx) = payload(
             action: action,
             body: body,

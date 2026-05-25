@@ -2,24 +2,6 @@ import ClaudeSpyNetworking
 import Foundation
 import GallagerPluginProtocol
 
-// MARK: - KeystrokeStep
-
-/// One step in the keystroke sequence the sidecar runs against the Claude
-/// TUI to deliver an `AgentResponse`. The sidecar consumes these
-/// sequentially, mapping `.keys` to `send_keys`, `.text` to `send_text`,
-/// and `.wait` to a real-time delay between RPC calls.
-public enum KeystrokeStep: Sendable, Equatable {
-    /// A run of special keys (arrow nav, enter, escape, space).
-    case keys([PluginTmuxKey])
-
-    /// Literal text to type into the TUI.
-    case text(String)
-
-    /// Delay before the next step. Used when Claude's TUI needs a beat to
-    /// re-render between key events.
-    case wait(Duration)
-}
-
 // MARK: - ClaudeCodeKeystrokeBuilder
 
 /// Builds the `[KeystrokeStep]` sequence that drives Claude Code's TUI in
