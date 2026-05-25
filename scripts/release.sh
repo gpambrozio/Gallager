@@ -189,20 +189,33 @@ check_prerequisites() {
 # =====================================================
 verify_bundled_plugin() {
     local app_path="$EXPORT_PATH/$APP_NAME.app"
-    local plugin_path="$app_path/Contents/Resources/plugin/gallager/.claude-plugin"
+    local plugin_root="$app_path/Contents/Resources/plugins"
+    local claude_plugin_marker="$plugin_root/claude-code/agent-bundle/gallager/.claude-plugin/plugin.json"
+    local codex_plugin_marker="$plugin_root/codex/agent-bundle/gallager/.codex-plugin/plugin.json"
 
-    log_info "Verifying bundled plugin..."
+    log_info "Verifying bundled plugins..."
 
-    if [ ! -d "$plugin_path" ]; then
-        log_error "Bundled plugin not found at $plugin_path. The app cannot be released without the plugin."
+    if [ ! -d "$plugin_root" ]; then
+        log_error "Bundled plugins root not found at $plugin_root. The app cannot be released without bundled plugins."
     fi
 
-    # Check for required plugin files
-    if [ ! -f "$plugin_path/plugin.json" ]; then
-        log_error "plugin.json not found in bundled plugin directory."
+    if [ ! -f "$claude_plugin_marker" ]; then
+        log_error "Claude Code agent-bundle plugin.json not found at $claude_plugin_marker."
     fi
 
-    log_success "Bundled plugin verified"
+    if [ ! -f "$codex_plugin_marker" ]; then
+        log_error "Codex agent-bundle plugin.json not found at $codex_plugin_marker."
+    fi
+
+    # Sidecar binaries are copied alongside the bundle under bin/sidecar.
+    for plugin_id in claude-code codex; do
+        local sidecar="$plugin_root/$plugin_id/bin/sidecar"
+        if [ ! -x "$sidecar" ]; then
+            log_error "Sidecar executable missing for plugin '$plugin_id' at $sidecar."
+        fi
+    done
+
+    log_success "Bundled plugins verified"
 }
 
 # =====================================================
