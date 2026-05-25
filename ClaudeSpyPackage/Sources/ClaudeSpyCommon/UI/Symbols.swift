@@ -11,6 +11,7 @@ public enum Symbols: String {
     case antenna2Bars = "antenna.radiowaves.left.and.right"
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
+    case arrowDownCircle = "arrow.down.circle"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
     case arrowLeft = "arrow.left"
     case arrowRight = "arrow.right"
@@ -88,10 +89,12 @@ public enum Symbols: String {
     case square
     case squareAndArrowUp = "square.and.arrow.up"
     case squareFill = "square.fill"
+    case stopCircle = "stop.circle"
     case stopCircleFill = "stop.circle.fill"
     case stopFill = "stop.fill"
     case terminal
     case textBubbleFill = "text.bubble.fill"
+    case trash
     case wifi
     case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
