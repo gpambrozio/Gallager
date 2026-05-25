@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeCodePluginCore
     import ClaudeSpyCommon
     import Dependencies
     import SwiftUI

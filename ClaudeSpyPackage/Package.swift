@@ -294,6 +294,7 @@ let targets: [Target] = [
         dependencies: [
             .claudeSpyCommon,
             .claudeSpyEncryption,
+            .claudeCodePluginCore,
             .vapor,
             .dependencies,
             .dependenciesMacros,
@@ -381,11 +382,16 @@ let targets: [Target] = [
     // notification copy. Shared between the Mac app and the
     // `ClaudeCodePluginSidecar` executable (Task 12). Cross-platform so the
     // sidecar's executable target can link it on Linux if we ever cross-compile.
+    //
+    // Depends on `ClaudeSpyCommon` for `PreferencesService` (so the scanner
+    // can read the user's additional Claude folders without pulling in the
+    // whole server feature module).
     .target(
         name: "ClaudeCodePluginCore",
         dependencies: [
             .gallagerPluginProtocol,
             .claudeSpyNetworking,
+            .claudeSpyCommon,
             .dependencies,
             .dependenciesMacros,
             .logging,

@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeCodePluginCore
     import ClaudeSpyCommon
     import Dependencies
     import Foundation

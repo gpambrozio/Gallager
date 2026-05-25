@@ -157,8 +157,15 @@
                 ),
             ]
 
+            // Mirrors `AppSettings.Keys.additionalClaudeFolders.rawValue` —
+            // hardcoded here because `AppSettings` lives in
+            // `ClaudeSpyServerFeature` and `ClaudeCodePluginCore` can't
+            // depend on it (the dependency would invert the layering).
+            // Task 16's per-plugin settings flow replaces this with a
+            // structured settings schema and the key goes away entirely.
+            let additionalFoldersKey = "additionalClaudeFolders"
             if
-                let data = preferences.data(AppSettings.Keys.additionalClaudeFolders.rawValue),
+                let data = preferences.data(additionalFoldersKey),
                 let additional = try? JSONDecoder().decode([String].self, from: data) {
                 for path in additional {
                     let url = URL(fileURLWithPath: path).standardizedFileURL
