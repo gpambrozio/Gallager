@@ -4,9 +4,11 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import ClaudeSpyPluginRuntime
     import CodexPluginCore
     import Dependencies
     import Foundation
+    import GallagerPluginProtocol
     import Logging
 
     /// A pending selection set by the menu bar to be consumed by MainView.
@@ -76,6 +78,32 @@
 
         /// Plugin service for Claude Code plugin management
         public let pluginService: PluginService
+
+        /// Coding-agent plugin runtime — owns sidecar supervisors, registry,
+        /// presentation bundles. Created during `setupAllServices` once the
+        /// connection manager (which the response-request sink forwards to)
+        /// is up; nil before that point.
+        public private(set) var pluginManager: PluginManager?
+
+        /// Routes plugin-emitted `AppAction`s onto existing app-side handlers
+        /// (markdown suggestion store, close-pane-on-end preference).
+        @ObservationIgnored
+        private var appActionRouter: AppActionRouter?
+
+        /// Translates plugin-emitted `send_text` / `send_keys` into `TmuxService`
+        /// writes.
+        @ObservationIgnored
+        private var tmuxAgentDriver: TmuxAgentDriver?
+
+        /// Forwards plugin-emitted `request_notification` to the local banner
+        /// service and paired iOS viewers.
+        @ObservationIgnored
+        private var pluginNotificationBridge: PluginNotificationBridge?
+
+        /// Broadcasts plugin-emitted `present_response_request` /
+        /// `dismiss_response_request` to paired iOS viewers.
+        @ObservationIgnored
+        private var pluginResponseRequestRouter: PluginResponseRequestRouter?
 
         /// Editor session manager for Ctrl-G prompt editing
         public let editorSessionManager: EditorSessionManager
@@ -281,6 +309,7 @@
             await hookServer.startServer()
             await setupAPIServer()
             await setupConnectedViewerManager()
+            await setupPluginManager()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
@@ -315,6 +344,7 @@
             logger.info("App shutdown: disconnecting pane streams and control clients")
             await paneStreamManager.disconnectAll()
             await controlClientManager.disconnectAll()
+            await pluginManager?.stop()
         }
 
         /// Resolves the tmux session name for a pane. Tries `paneStates` first
@@ -1339,6 +1369,64 @@
             // emoji) changes locally.
             windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
+            }
+        }
+
+        /// Stands up the coding-agent `PluginManager` and starts every
+        /// bundled sidecar. Called after `setupConnectedViewerManager` so the
+        /// response/notification routers can forward to paired viewers — the
+        /// manager builds presentation bundles + supervisor child processes
+        /// during `start()`, which is awaited here so the first iOS connection
+        /// already sees the plugin list.
+        private func setupPluginManager() async {
+            // Compose the sinks the runtime needs. Each one is a strong
+            // reference held by the coordinator so they outlive the manager
+            // call site without participating in retain cycles (the manager
+            // holds them as `any` existentials).
+            let actionRouter = AppActionRouter(
+                mirrorManager: windowManager,
+                suggestionStore: markdownOpenSuggestionStore,
+                settings: settings,
+                tmuxService: tmuxService
+            )
+            let driver = TmuxAgentDriver(
+                tmuxService: tmuxService,
+                mirrorManager: windowManager
+            )
+            let notifBridge = PluginNotificationBridge(
+                notificationService: terminalNotificationService,
+                viewerManager: connectedViewerManager,
+                mirrorManager: windowManager
+            )
+            let responseRouter = PluginResponseRequestRouter(
+                viewerManager: connectedViewerManager
+            )
+            appActionRouter = actionRouter
+            tmuxAgentDriver = driver
+            pluginNotificationBridge = notifBridge
+            pluginResponseRequestRouter = responseRouter
+
+            let layout = PluginRootLayout.live(rootOverride: nil, bundledOverride: nil)
+            let appVersion = Bundle.main
+                .infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
+
+            let manager = PluginManager(
+                layout: layout,
+                statusSink: windowManager,
+                notificationSink: notifBridge,
+                responseRequestSink: responseRouter,
+                appActionSink: actionRouter,
+                agentDriverSink: driver,
+                yoloProvider: windowManager,
+                appVersion: appVersion
+            )
+            pluginManager = manager
+
+            do {
+                try await manager.start()
+                logger.info("PluginManager started: \(manager.presentations.map(\.id))")
+            } catch {
+                logger.error("PluginManager.start failed: \(error)")
             }
         }
 
