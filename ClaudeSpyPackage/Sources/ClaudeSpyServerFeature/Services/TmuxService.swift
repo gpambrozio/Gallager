@@ -418,22 +418,51 @@ final public class TmuxService {
         )
     }
 
-    /// Detects tmux panes that have a running Claude Code process as a descendant.
+    /// Detection result for a single tmux pane that hosts an agent process.
     ///
-    /// Metadata for an agent process detected in a pane.
-    public struct DetectedAgentPane: Sendable {
-        public let path: String
-        public let agent: CodingAgent
+    /// Renamed fields (Spec Task 15 Step 5): `path`/`agent` → `paneID` +
+    /// `pluginID` + `projectPath` + `sessionID` so the result speaks the
+    /// plugin protocol's vocabulary instead of the legacy two-agent enum.
+    /// `sessionID` is reserved for plugins that can identify a running
+    /// session at scan time (e.g. by reading their on-disk state); the
+    /// process-name path always emits `nil` here.
+    public struct DetectedAgentPane: Sendable, Equatable {
+        public let paneID: String
+        public let pluginID: String
+        public let projectPath: String?
+        public let sessionID: String?
+
+        public init(
+            paneID: String,
+            pluginID: String,
+            projectPath: String?,
+            sessionID: String?
+        ) {
+            self.paneID = paneID
+            self.pluginID = pluginID
+            self.projectPath = projectPath
+            self.sessionID = sessionID
+        }
     }
 
-    /// Gets each pane's shell PID and current path via tmux, then walks the process tree
-    /// from `ps` output to find any descendant process named `claude` or `codex`. This
-    /// handles cases where the agent CLI is launched through shell wrappers or scripts
-    /// (not a direct child of the pane shell).
+    /// Scans every tmux pane and tags it with the owning plugin, using two
+    /// strategies in priority order:
     ///
-    /// Returns a mapping of pane ID (e.g., `%0`) to the detected agent and the pane's
-    /// current working directory.
-    public func detectAgentPanes() async -> [String: DetectedAgentPane] {
+    ///   1. Process-name match: walk each pane's process tree and look for
+    ///      a descendant whose basename appears in any plugin manifest's
+    ///      `process_names`. First match wins (caller controls ordering by
+    ///      iteration of `processNamesByPlugin`).
+    ///   2. Rich detection fallback: for panes still unmatched after (1),
+    ///      hand the pane info to every plugin's `detect_pane` RPC (via the
+    ///      `detectPaneFallback` closure) until one returns `true`. Only the
+    ///      caller knows which plugins declared `requires_rich_detection`
+    ///      — it filters the closure to those plugins before passing it in.
+    ///
+    /// Returns one `DetectedAgentPane` per matched pane.
+    public func detectAgentPanes(
+        processNamesByPlugin: [String: [String]],
+        detectPaneFallback: @Sendable ([String: String]) async -> (pluginID: String, owns: Bool)?
+    ) async -> [DetectedAgentPane] {
         do {
             // Get pane IDs, shell PIDs, and current paths in one tmux call.
             // Joined with U+001F so a `|` in a working-directory path can't
@@ -442,7 +471,7 @@ final public class TmuxService {
             let result = try await runTmuxCommand([
                 "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
             ])
-            guard result.isSuccess else { return [:] }
+            guard result.isSuccess else { return [] }
 
             // Build paneId -> (panePid, currentPath) mapping
             var paneInfo: [String: (pid: String, path: String)] = [:]
@@ -452,38 +481,107 @@ final public class TmuxService {
                 paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
             }
 
-            guard !paneInfo.isEmpty else { return [:] }
+            guard !paneInfo.isEmpty else { return [] }
 
-            let tree = try await processTree()
-            guard let tree else { return [:] }
-
-            // Walk the subtree of each pane shell, looking for a "claude" or "codex" descendant.
-            // Tie-break rule: Claude wins. If a pane has both processes running (including
-            // when one was launched as a child of the other), the pane reports as Claude.
-            // This favors the older / more common integration; a future refinement could
-            // pick the deepest match instead.
-            var detected: [String: DetectedAgentPane] = [:]
-            for (paneId, info) in paneInfo {
-                let descendants = tree.descendants(of: info.pid)
-                var match: CodingAgent?
-                for pid in descendants {
-                    let name = tree.processName(for: pid)
-                    if name == "claude" {
-                        match = .claudeCode
-                        break
-                    } else if name == "codex", match == nil {
-                        match = .codex
+            // Invert the process-names map so a single tree walk can
+            // resolve the owning plugin in O(1) per descendant.
+            var pluginByProcess: [String: String] = [:]
+            for (pluginID, names) in processNamesByPlugin {
+                for name in names {
+                    // First plugin to claim a process name wins — the map
+                    // is built deterministically per call, so callers can
+                    // control priority via insertion order if they care.
+                    if pluginByProcess[name] == nil {
+                        pluginByProcess[name] = pluginID
                     }
                 }
-                if let agent = match {
-                    detected[paneId] = DetectedAgentPane(path: info.path, agent: agent)
+            }
+
+            let tree = try await processTree()
+            guard let tree else { return [] }
+
+            var detected: [DetectedAgentPane] = []
+            for (paneId, info) in paneInfo {
+                let descendants = tree.descendants(of: info.pid)
+                var matchedPlugin: String?
+                for pid in descendants {
+                    if
+                        let name = tree.processName(for: pid),
+                        let pluginID = pluginByProcess[name] {
+                        matchedPlugin = pluginID
+                        break
+                    }
+                }
+
+                if let pluginID = matchedPlugin {
+                    detected.append(DetectedAgentPane(
+                        paneID: paneId,
+                        pluginID: pluginID,
+                        projectPath: info.path,
+                        sessionID: nil
+                    ))
+                    continue
+                }
+
+                // No process-name match — hand the pane to whatever
+                // rich-detection plugins the caller passed in.
+                let paneInfoForRPC: [String: String] = [
+                    "pane_id": paneId,
+                    "pane_pid": info.pid,
+                    "pane_current_path": info.path,
+                ]
+                if let result = await detectPaneFallback(paneInfoForRPC), result.owns {
+                    detected.append(DetectedAgentPane(
+                        paneID: paneId,
+                        pluginID: result.pluginID,
+                        projectPath: info.path,
+                        sessionID: nil
+                    ))
                 }
             }
 
             return detected
         } catch {
             logger.warning("detectAgentPanes failed: \(error)")
-            return [:]
+            return []
+        }
+    }
+
+    /// Lightweight "is any agent process still running in this pane?" check.
+    /// Used by the legacy `closePaneOnSessionEnd` polling loop; the plugin
+    /// system's `closePaneIfPreferenceAllows` AppAction subsumes this for
+    /// new code paths but the existing handler still needs to wait for the
+    /// CLI to actually exit before killing its pane.
+    public func isAgentRunning(inPane paneId: String, processNames: [String]) async -> Bool {
+        guard !processNames.isEmpty else { return false }
+        do {
+            let sep = String(PaneInfo.fieldSeparator)
+            let result = try await runTmuxCommand([
+                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}",
+            ])
+            guard result.isSuccess else { return false }
+
+            var panePid: String?
+            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 1)
+                if parts.count == 2, String(parts[0]) == paneId {
+                    panePid = String(parts[1])
+                    break
+                }
+            }
+            guard let pid = panePid else { return false }
+
+            guard let tree = try await processTree() else { return false }
+            let lookup = Set(processNames)
+            for descendantPid in tree.descendants(of: pid) {
+                if let name = tree.processName(for: descendantPid), lookup.contains(name) {
+                    return true
+                }
+            }
+            return false
+        } catch {
+            logger.debug("isAgentRunning failed for pane \(paneId): \(error)")
+            return false
         }
     }
 

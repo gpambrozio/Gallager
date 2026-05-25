@@ -1069,11 +1069,21 @@
             await paneStreamManager.startMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
-            // Detect Claude Code instances already running in tmux panes
-            let agentPanes = await tmuxService.detectAgentPanes()
+            // Detect agent instances already running in tmux panes via the
+            // process-name buckets each plugin manifest declares. Rich
+            // detection (`requires_rich_detection`) is wired up in
+            // `setupPluginManager` — at this point the manager hasn't
+            // started yet, so we pass empty maps and let the periodic
+            // detection (Task 16+) pick up plugin-bound panes.
+            let agentPanes = await tmuxService.detectAgentPanes(
+                processNamesByPlugin: [:],
+                detectPaneFallback: { _ in nil }
+            )
             if !agentPanes.isEmpty {
                 windowManager.markDetectedAgentSessions(agentPanes)
-                logger.info("Detected running Claude Code in panes: \(agentPanes.keys.sorted())")
+                logger.info(
+                    "Detected running agents in panes: \(agentPanes.map(\.paneID).sorted())"
+                )
             }
 
             // Connect pane stream manager to window manager for view injection
@@ -1428,6 +1438,46 @@
             } catch {
                 logger.error("PluginManager.start failed: \(error)")
             }
+
+            // Now that the manager is up, re-run pane detection so already-
+            // running agents get tagged with their owning plugin. The
+            // earlier call in `setupConnectedViewerManager` was a no-op
+            // because the manager hadn't published its `process_names` yet.
+            let agentPanes = await detectAgentPanesUsingManager()
+            if !agentPanes.isEmpty {
+                windowManager.markDetectedAgentSessions(agentPanes)
+                logger.info(
+                    "Plugin-aware detection: \(agentPanes.map { "\($0.paneID)=\($0.pluginID)" }.sorted())"
+                )
+            }
+        }
+
+        /// Builds the per-plugin process-name map + rich-detection closure
+        /// from the live `PluginManager` and runs `detectAgentPanes`. Used
+        /// at startup and (subsequent tasks) on periodic detection so panes
+        /// pick up plugin tags as soon as the sidecar registry has them.
+        private func detectAgentPanesUsingManager() async -> [TmuxService.DetectedAgentPane] {
+            guard let manager = pluginManager else { return [] }
+            let processNames = manager.processNamesByPlugin
+            // Build a fallback that fans `detect_pane` out across every
+            // plugin id known to the manager. Returns the first plugin
+            // that owns the pane; nil otherwise. The manager's own
+            // `detectPane` already filters to plugins whose manifest
+            // declared `requires_rich_detection`, so this stays cheap.
+            let pluginIDs = Array(processNames.keys)
+            let fallback: @Sendable ([String: String]) async -> (pluginID: String, owns: Bool)? = {
+                paneInfo in
+                for pluginID in pluginIDs {
+                    if await manager.detectPane(pluginID: pluginID, paneInfo: paneInfo) {
+                        return (pluginID, true)
+                    }
+                }
+                return nil
+            }
+            return await tmuxService.detectAgentPanes(
+                processNamesByPlugin: processNames,
+                detectPaneFallback: fallback
+            )
         }
 
         /// Updates sleep prevention based on current session count.

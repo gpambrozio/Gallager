@@ -168,14 +168,27 @@ final public class MirrorWindowManager {
         }
     }
 
-    /// Marks panes as Claude sessions based on process detection at startup.
+    /// Marks panes as agent sessions based on process detection at startup.
     /// Only creates sessions for panes that don't already have one (hook-based
     /// detection takes precedence).
-    /// - Parameter panes: Mapping of pane ID to the detected agent and cwd.
-    public func markDetectedAgentSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
-        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.agentSession == nil {
-            updateSession(paneId: paneId, pluginID: info.agent.rawValue) { session in
-                session.projectPath = info.path
+    /// - Parameter panes: One `DetectedAgentPane` per pane that was
+    ///   tagged by the plugin process-name scanner (or the rich-detection
+    ///   `detect_pane` RPC fallback). The plugin id is already resolved,
+    ///   so this method just stamps the session in pane state.
+    public func markDetectedAgentSessions(_ panes: [TmuxService.DetectedAgentPane]) {
+        for info in panes {
+            let paneId = info.paneID
+            guard paneStates[paneId] != nil, paneStates[paneId]?.agentSession == nil else {
+                continue
+            }
+            // `sessionID` from the scanner is best-effort: most plugins
+            // emit `nil` since the agent's own session id isn't
+            // observable from `ps` alone. We fall back to the pane id so
+            // the row has a stable identity until the sidecar pushes a
+            // real `update_session_status` with the agent's id.
+            let sessionId = info.sessionID ?? paneId
+            updateSession(paneId: paneId, sessionId: sessionId, pluginID: info.pluginID) { session in
+                session.projectPath = info.projectPath
             }
         }
     }
@@ -496,13 +509,23 @@ final public class MirrorWindowManager {
     // MARK: - Auto-Close Pane
 
     /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.
+    ///
+    /// Legacy path used by `handleHookEvent`; the equivalent new flow is
+    /// `AppAction.closePaneIfPreferenceAllows` emitted by a plugin sidecar
+    /// and routed through `AppActionRouter`. Until Task 20 deletes the hook
+    /// decoder this method keeps a hard-coded `claude` process-name match
+    /// (the only agent the old hook path knew about) so user-facing
+    /// behaviour is preserved during the transition.
     private func closePaneWhenClaudeExits(paneId: String) {
         Task { [tmuxService] in
             // Poll until Claude is no longer running in this pane (up to 30 seconds)
             for _ in 0..<30 {
                 try? await Task.sleep(for: .seconds(1))
-                let agentPanes = await tmuxService.detectAgentPanes()
-                if agentPanes[paneId] == nil {
+                let stillRunning = await tmuxService.isAgentRunning(
+                    inPane: paneId,
+                    processNames: ["claude"]
+                )
+                if !stillRunning {
                     // Claude process has exited — wait 1 second then close the pane
                     try? await Task.sleep(for: .seconds(1))
                     try? await tmuxService.killPane(paneId)
