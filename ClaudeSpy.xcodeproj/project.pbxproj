@@ -16,7 +16,6 @@
 		81E2E1D52F8573260057AA49 /* GallagerCLI in Frameworks */ = {isa = PBXBuildFile; productRef = 81E2E1D42F8573260057AA49 /* GallagerCLI */; };
 		8B41F6832DEDD23B001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */; };
 		8B41F6852DEDD25C001A66F9 /* ClaudeSpyFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* ClaudeSpyFeature */; };
-		AABBCC112F2A00000063PLGN /* plugin in Resources */ = {isa = PBXBuildFile; fileRef = AABBCC102F2A00000063PLGN /* plugin */; };
 		DCF13F6A89DA4860A5776FD7 /* FlyingFox in Frameworks */ = {isa = PBXBuildFile; productRef = 0FF9E03F3BF7435B8FDA207D /* FlyingFox */; };
 /* End PBXBuildFile section */
 
@@ -81,7 +80,6 @@
 		8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Gallager.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyE2ERunner.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyE2EHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AABBCC102F2A00000063PLGN /* plugin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = plugin; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -273,7 +271,6 @@
 				81581B4B2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension */,
 				5F8636777B20418884930E87 /* ClaudeSpyE2EHost */,
 				6CAE4E3F41BA40068B04C82E /* ClaudeSpyE2ERunner */,
-				AABBCC102F2A00000063PLGN /* plugin */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -358,6 +355,7 @@
 				81E2E2332F8576310057AA49 /* Copy GallagerCLI to bundle */,
 				815F9E5A2F09BFF8003791F7 /* Frameworks */,
 				815F9E5B2F09BFF8003791F7 /* Resources */,
+				81CB0BA12FA0000100000010 /* Copy Plugin Bundles */,
 				81B5E4A02F90000100000001 /* Sync Codex Skills */,
 				817BF9C02F0ED00000BD1D53 /* SwiftLint */,
 			);
@@ -598,7 +596,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AABBCC112F2A00000063PLGN /* plugin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -711,6 +708,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/sync-codex-skills.sh\"\n";
+		};
+		81CB0BA12FA0000100000010 /* Copy Plugin Bundles */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Plugin Bundles";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/copy-plugin-bundles.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

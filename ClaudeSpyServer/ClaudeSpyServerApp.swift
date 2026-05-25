@@ -1,3 +1,4 @@
+import ClaudeCodePluginCore
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
