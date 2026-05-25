@@ -229,6 +229,10 @@ let products: [Product] = [
         name: "GallagerCLI",
         targets: ["GallagerCLI"]
     ),
+    .executable(
+        name: "ClaudeCodePluginSidecar",
+        targets: ["ClaudeCodePluginSidecar"]
+    ),
     .library(
         name: "GallagerPluginProtocol",
         targets: ["GallagerPluginProtocol"]
@@ -406,6 +410,24 @@ let targets: [Target] = [
             .logging,
         ]
     ),
+    // Claude Code sidecar executable spawned by the Mac app's
+    // SidecarSupervisor. Reads JSON-RPC from stdin, writes responses to
+    // stdout, owns a Unix-socket ingress for hook bridge scripts, and
+    // pushes `set_projects` notifications when its FSEvents watcher fires.
+    // Cross-platform-ish (the executable only ever runs on macOS today)
+    // but `ClaudeCodePluginCore` already gates its macOS-only entry
+    // points behind `#if os(macOS)`, so the SPM graph still builds on
+    // Linux.
+    .executableTarget(
+        name: "ClaudeCodePluginSidecar",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeCodePluginCore,
+            .claudeSpyNetworking,
+            .logging,
+            .dependencies,
+        ]
+    ),
     // Codex-specific plugin core: scanner, installer, event translator,
     // keystroke builder. Symmetric to `ClaudeCodePluginCore`. Depends on
     // `ClaudeCodePluginCore` for the shared permission-rendering helpers
@@ -522,6 +544,22 @@ let targets: [Target] = [
         dependencies: [
             .codexPluginCore,
             .dependenciesTestSupport,
+        ]
+    ),
+    // Integration tests for the Claude Code sidecar executable. The test
+    // bundle spawns the SPM-built binary as a child process and drives
+    // it via JSON-RPC over Pipes + a Unix-socket ingress, so the
+    // executable target is declared as an explicit dependency to force
+    // SPM to build it before the test bundle runs.
+    .testTarget(
+        name: "ClaudeCodePluginSidecarTests",
+        dependencies: [
+            "ClaudeCodePluginSidecar",
+            "ClaudeCodePluginCore",
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .dependenciesTestSupport,
+            .clocks,
         ]
     ),
 ]
