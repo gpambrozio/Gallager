@@ -471,3 +471,260 @@ struct AppActionTests {
         #expect(json.contains("\"type\":\"close_pane_if_preference_allows\""))
     }
 }
+
+// MARK: - AgentResponseRequestMessage round-trip tests
+
+@Suite("AgentResponseRequestMessage Codable round-trip")
+struct AgentResponseRequestMessageTests {
+    @Test("Round-trip preserves a populated request body")
+    func roundTripPreservesRequest() throws {
+        let original = AgentResponseRequestMessage(
+            sessionId: "sess-1",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            request: .prompt(PromptRequest(placeholder: "Send a message..."))
+        )
+
+        let data = try snakeCaseEncoder().encode(original)
+        let decoded = try snakeCaseDecoder().decode(AgentResponseRequestMessage.self, from: data)
+
+        #expect(decoded == original)
+    }
+
+    @Test("nil request encodes as a dismiss envelope and round-trips")
+    func nilRequestRoundTrips() throws {
+        let original = AgentResponseRequestMessage(
+            sessionId: "sess-1",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            request: nil
+        )
+
+        let data = try snakeCaseEncoder().encode(original)
+        let decoded = try snakeCaseDecoder().decode(AgentResponseRequestMessage.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.request == nil)
+    }
+
+    @Test("Encodes snake_case keys and discriminator")
+    func encodesSnakeCaseKeys() throws {
+        let original = AgentResponseRequestMessage(
+            sessionId: "sess-1",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            request: .prompt(PromptRequest(placeholder: "Hi"))
+        )
+
+        let data = try snakeCaseEncoder().encode(original)
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        #expect(json.contains("\"type\":\"agent_response_request\""))
+        #expect(json.contains("\"session_id\":\"sess-1\""))
+        #expect(json.contains("\"plugin_id\":\"claude-code\""))
+        #expect(json.contains("\"request_id\":\"req-1\""))
+    }
+
+    @Test("Rejects payloads with the wrong discriminator")
+    func rejectsWrongDiscriminator() throws {
+        let json = """
+        {"type":"wrong_type","session_id":"s","plugin_id":"p","request_id":"r"}
+        """
+        let decoder = snakeCaseDecoder()
+        #expect(throws: DecodingError.self) {
+            _ = try decoder.decode(AgentResponseRequestMessage.self, from: Data(json.utf8))
+        }
+    }
+}
+
+// MARK: - AgentResponseSubmission round-trip tests
+
+@Suite("AgentResponseSubmission Codable round-trip")
+struct AgentResponseSubmissionTests {
+    @Test("Round-trip preserves the response payload")
+    func roundTripPreservesResponse() throws {
+        let original = AgentResponseSubmission(
+            sessionId: "sess-1",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            response: .permission(
+                PermissionResponse(decision: .allow, appliedSuggestionId: "always_allow")
+            )
+        )
+
+        let data = try snakeCaseEncoder().encode(original)
+        let decoded = try snakeCaseDecoder().decode(AgentResponseSubmission.self, from: data)
+
+        #expect(decoded == original)
+    }
+
+    @Test("Encodes snake_case keys and discriminator")
+    func encodesSnakeCaseKeys() throws {
+        let original = AgentResponseSubmission(
+            sessionId: "sess-1",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            response: .prompt(PromptResponse(text: "hi"))
+        )
+
+        let data = try snakeCaseEncoder().encode(original)
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        #expect(json.contains("\"type\":\"agent_response_submission\""))
+        #expect(json.contains("\"session_id\":\"sess-1\""))
+        #expect(json.contains("\"plugin_id\":\"claude-code\""))
+        #expect(json.contains("\"request_id\":\"req-1\""))
+    }
+
+    @Test("Rejects payloads with the wrong discriminator")
+    func rejectsWrongDiscriminator() throws {
+        let json = """
+        {"type":"wrong_type","session_id":"s","plugin_id":"p","request_id":"r",
+         "response":{"type":"prompt","body":{"text":"x"}}}
+        """
+        let decoder = snakeCaseDecoder()
+        #expect(throws: DecodingError.self) {
+            _ = try decoder.decode(AgentResponseSubmission.self, from: Data(json.utf8))
+        }
+    }
+}
+
+// MARK: - WebSocketMessage envelope round-trip tests
+
+@Suite("WebSocketMessage plugin-system envelope round-trip")
+struct WebSocketMessagePluginEnvelopeTests {
+    private func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+
+    private func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    @Test("agentSessionStatus envelope round-trips")
+    func agentSessionStatusRoundTrips() throws {
+        let payload = AgentSessionStatusUpdate(
+            sessionId: "s1",
+            pluginId: "claude-code",
+            working: true,
+            attention: false,
+            timestamp: Date(timeIntervalSince1970: 1_716_575_531)
+        )
+        let original = WebSocketMessage.agentSessionStatus(payload)
+
+        let data = try encoder().encode(original)
+        let decoded = try decoder().decode(WebSocketMessage.self, from: data)
+
+        guard case let .agentSessionStatus(decodedPayload) = decoded else {
+            Issue.record("Expected agentSessionStatus case")
+            return
+        }
+        #expect(decodedPayload == payload)
+        // Logger-friendly type string uses the snake_case wire value so
+        // log searches match what's actually on the wire.
+        #expect(original.messageType == "agent_session_status")
+    }
+
+    @Test("agentResponseRequest envelope round-trips")
+    func agentResponseRequestRoundTrips() throws {
+        let payload = AgentResponseRequestMessage(
+            sessionId: "s1",
+            pluginId: "claude-code",
+            requestId: "r1",
+            request: .approvePlan(ApprovePlanRequest(plan: "do it", allowEdit: true))
+        )
+        let original = WebSocketMessage.agentResponseRequest(payload)
+
+        let data = try encoder().encode(original)
+        let decoded = try decoder().decode(WebSocketMessage.self, from: data)
+
+        guard case let .agentResponseRequest(decodedPayload) = decoded else {
+            Issue.record("Expected agentResponseRequest case")
+            return
+        }
+        #expect(decodedPayload == payload)
+        #expect(original.messageType == "agent_response_request")
+    }
+
+    @Test("agentResponseSubmission envelope round-trips")
+    func agentResponseSubmissionRoundTrips() throws {
+        let payload = AgentResponseSubmission(
+            sessionId: "s1",
+            pluginId: "claude-code",
+            requestId: "r1",
+            response: .prompt(PromptResponse(text: "hello"))
+        )
+        let original = WebSocketMessage.agentResponseSubmission(payload)
+
+        let data = try encoder().encode(original)
+        let decoded = try decoder().decode(WebSocketMessage.self, from: data)
+
+        guard case let .agentResponseSubmission(decodedPayload) = decoded else {
+            Issue.record("Expected agentResponseSubmission case")
+            return
+        }
+        #expect(decodedPayload == payload)
+        #expect(original.messageType == "agent_response_submission")
+    }
+
+    @Test("pluginPresentations envelope round-trips")
+    func pluginPresentationsRoundTrips() throws {
+        let presentation = PluginPresentation(
+            id: "claude-code",
+            version: "1.0.0",
+            displayName: "Claude Code",
+            shortName: "Claude",
+            color: "#cb6f3a",
+            iconPNGData: Data([0x01, 0x02, 0x03])
+        )
+        let payload = PluginPresentationsMessage(presentations: [presentation])
+        let original = WebSocketMessage.pluginPresentations(payload)
+
+        let data = try encoder().encode(original)
+        let decoded = try decoder().decode(WebSocketMessage.self, from: data)
+
+        guard case let .pluginPresentations(decodedPayload) = decoded else {
+            Issue.record("Expected pluginPresentations case")
+            return
+        }
+        #expect(decodedPayload == payload)
+        #expect(original.messageType == "plugin_presentations")
+    }
+
+    @Test("All new envelopes are gated for E2EE")
+    func envelopesAreEncrypted() {
+        let status = WebSocketMessage.agentSessionStatus(AgentSessionStatusUpdate(
+            sessionId: "s",
+            pluginId: "p",
+            working: false,
+            attention: false,
+            timestamp: Date()
+        ))
+        let request = WebSocketMessage.agentResponseRequest(AgentResponseRequestMessage(
+            sessionId: "s",
+            pluginId: "p",
+            requestId: "r",
+            request: nil
+        ))
+        let submission = WebSocketMessage.agentResponseSubmission(AgentResponseSubmission(
+            sessionId: "s",
+            pluginId: "p",
+            requestId: "r",
+            response: .prompt(PromptResponse(text: "x"))
+        ))
+        let presentations = WebSocketMessage.pluginPresentations(
+            PluginPresentationsMessage(presentations: [])
+        )
+
+        // Each new envelope carries per-session or plugin-private data and
+        // must travel through the E2EE wrapper before hitting the relay.
+        #expect(status.shouldEncrypt)
+        #expect(request.shouldEncrypt)
+        #expect(submission.shouldEncrypt)
+        #expect(presentations.shouldEncrypt)
+    }
+}

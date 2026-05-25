@@ -23,6 +23,23 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Host sends complete session state (on viewer connect or request)
     case sessionState(SessionStateMessage)
 
+    /// Host pushes a high-frequency per-session status update (working /
+    /// attention / lastEventTimestamp). Replaces the previous
+    /// "rebroadcast full session state on every event" pattern with a
+    /// granular, low-overhead update.
+    case agentSessionStatus(AgentSessionStatusUpdate)
+
+    /// Host asks iOS to present (or dismiss) an `AgentResponseRequest`
+    /// for a specific session. Per-session, per-request envelope routed
+    /// by `pluginId`.
+    case agentResponseRequest(AgentResponseRequestMessage)
+
+    /// Host announces the presentation bundle (icon / display name /
+    /// short name / theme color / version) for every enabled plugin.
+    /// iOS caches by `(id, version)` and looks the bundle up when
+    /// rendering sessions and projects.
+    case pluginPresentations(PluginPresentationsMessage)
+
     // MARK: - Server → Host
 
     /// Server confirms host registration
@@ -53,6 +70,12 @@ public enum WebSocketMessage: Codable, Sendable {
 
     /// Viewer sends push notification token to server (iOS only)
     case registerPushToken(RegisterPushTokenMessage)
+
+    /// Viewer (iOS) submits the user's answer to an
+    /// `AgentResponseRequestMessage`. The host hands it to the plugin
+    /// sidecar identified by `pluginId`, which translates it into
+    /// whatever its agent expects.
+    case agentResponseSubmission(AgentResponseSubmission)
 
     // MARK: - Server → Viewer
 
@@ -157,6 +180,10 @@ public extension WebSocketMessage {
         case commandResponse
         case terminalStream
         case sessionState
+        case agentSessionStatus = "agent_session_status"
+        case agentResponseRequest = "agent_response_request"
+        case agentResponseSubmission = "agent_response_submission"
+        case pluginPresentations = "plugin_presentations"
         case hostRegistered
         case command
         case viewerConnected
@@ -197,6 +224,18 @@ public extension WebSocketMessage {
         case .sessionState:
             let payload = try container.decode(SessionStateMessage.self, forKey: .payload)
             self = .sessionState(payload)
+        case .agentSessionStatus:
+            let payload = try container.decode(AgentSessionStatusUpdate.self, forKey: .payload)
+            self = .agentSessionStatus(payload)
+        case .agentResponseRequest:
+            let payload = try container.decode(AgentResponseRequestMessage.self, forKey: .payload)
+            self = .agentResponseRequest(payload)
+        case .agentResponseSubmission:
+            let payload = try container.decode(AgentResponseSubmission.self, forKey: .payload)
+            self = .agentResponseSubmission(payload)
+        case .pluginPresentations:
+            let payload = try container.decode(PluginPresentationsMessage.self, forKey: .payload)
+            self = .pluginPresentations(payload)
         case .hostRegistered:
             let payload = try container.decode(HostRegisteredMessage.self, forKey: .payload)
             self = .hostRegistered(payload)
@@ -267,6 +306,18 @@ public extension WebSocketMessage {
         case let .sessionState(payload):
             try container.encode(MessageType.sessionState, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .agentSessionStatus(payload):
+            try container.encode(MessageType.agentSessionStatus, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .agentResponseRequest(payload):
+            try container.encode(MessageType.agentResponseRequest, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .agentResponseSubmission(payload):
+            try container.encode(MessageType.agentResponseSubmission, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .pluginPresentations(payload):
+            try container.encode(MessageType.pluginPresentations, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         case let .hostRegistered(payload):
             try container.encode(MessageType.hostRegistered, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -326,6 +377,10 @@ public extension WebSocketMessage {
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalStream: MessageType.terminalStream.rawValue
         case .sessionState: MessageType.sessionState.rawValue
+        case .agentSessionStatus: MessageType.agentSessionStatus.rawValue
+        case .agentResponseRequest: MessageType.agentResponseRequest.rawValue
+        case .agentResponseSubmission: MessageType.agentResponseSubmission.rawValue
+        case .pluginPresentations: MessageType.pluginPresentations.rawValue
         case .hostRegistered: MessageType.hostRegistered.rawValue
         case .command: MessageType.command.rawValue
         case .viewerConnected: MessageType.viewerConnected.rawValue
@@ -359,7 +414,11 @@ public extension WebSocketMessage {
              .command,
              .commandResponse,
              .terminalStream,
-             .peerHello:
+             .peerHello,
+             .agentSessionStatus,
+             .agentResponseRequest,
+             .agentResponseSubmission,
+             .pluginPresentations:
             true
         default:
             false
