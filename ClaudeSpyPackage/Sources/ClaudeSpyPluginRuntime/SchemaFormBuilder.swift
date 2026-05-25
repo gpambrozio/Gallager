@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import GallagerPluginProtocol
     import SwiftUI
@@ -57,7 +58,7 @@
 
                 if let displayError = localError ?? validationError {
                     Section {
-                        Label(displayError, systemImage: "exclamationmark.triangle.fill")
+                        Label(displayError, symbol: .exclamationmarkTriangle)
                             .foregroundStyle(.red)
                             .font(.callout)
                     }

@@ -327,12 +327,22 @@ final public class AppSettings {
         didSet { preferences.setBool(closePaneOnSessionEnd, Keys.closePaneOnSessionEnd) }
     }
 
-    /// Path to claude command (for auto-run in project folders)
+    /// Path to claude command (for auto-run in project folders).
+    ///
+    /// Deprecated: per-plugin settings live in
+    /// `~/.gallager/state/plugins/<id>/settings.json` (Task 16). This
+    /// property is kept temporarily so the legacy `commandPath(for:)`
+    /// helpers still work for callers that haven't migrated to
+    /// `PluginManager.commandForLaunch(...)`. Task 21 deletes it.
+    @available(*, deprecated, message: "Use per-plugin settings via PluginManager.commandForLaunch")
     public var claudeCommandPath: String = Defaults.claudeCommandPath {
         didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
     }
 
-    /// Path to codex command (for auto-run in Codex project folders)
+    /// Path to codex command (for auto-run in Codex project folders).
+    ///
+    /// Deprecated: see `claudeCommandPath`'s note. Removed in Task 21.
+    @available(*, deprecated, message: "Use per-plugin settings via PluginManager.commandForLaunch")
     public var codexCommandPath: String = Defaults.codexCommandPath {
         didSet { preferences.setString(codexCommandPath, Keys.codexCommandPath) }
     }

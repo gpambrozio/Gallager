@@ -1,6 +1,8 @@
 import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import ClaudeSpyNetworking
+import ClaudeSpyPluginRuntime
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -56,9 +58,9 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.remoteHosts)
 
-            PluginSettingsView()
+            PluginsTabView()
                 .tabItem {
-                    Label("Plugin", symbol: .puzzlepiece)
+                    Label("Plugins", symbol: .puzzlepiece)
                 }
                 .tag(SettingsTab.plugin)
 
@@ -213,49 +215,13 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Claude Code") {
-                Toggle("Auto-run Claude in project folders", isOn: $settings.autoRunClaudeInProjects)
-                    .help("When creating a session in a Claude project folder, automatically run the claude command")
+            Section("Agents") {
+                Toggle("Close pane when agent exits", isOn: $settings.closePaneOnSessionEnd)
+                    .help("Automatically close the tmux pane after a coding agent (Claude Code, Codex, …) exits normally")
 
-                if settings.autoRunClaudeInProjects {
-                    HStack {
-                        TextField("Command", text: $settings.claudeCommandPath)
-                            .help("Path to the claude command (full path or just 'claude' if in PATH)")
-                            .textFieldStyle(.roundedBorder)
-                        Button("Browse...") {
-                            browseForClaude(settings: settings)
-                        }
-                    }
-                }
-
-                Toggle("Close pane when Claude exits", isOn: $settings.closePaneOnSessionEnd)
-                    .help("Automatically close the tmux pane after Claude Code exits normally")
-            }
-
-            Section("Codex CLI") {
-                Toggle("Auto-run Codex in project folders", isOn: $settings.autoRunCodexInProjects)
-                    .help("When creating a session in a Codex project folder, automatically run the codex command")
-
-                if settings.autoRunCodexInProjects {
-                    HStack {
-                        TextField("Command", text: $settings.codexCommandPath)
-                            .help("Path to the codex command (full path or just 'codex' if in PATH)")
-                            .textFieldStyle(.roundedBorder)
-                        Button("Browse...") {
-                            browseForCodex(settings: settings)
-                        }
-                    }
-                }
-
-                Text(
-                    "Gallager ships as a Codex plugin (codex-gallager). " +
-                        "The first time you start Codex after installing, Codex will ask you " +
-                        "to review and trust the plugin's hook commands — approve them so events flow into Gallager."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                CodexPluginInstallerRow(settings: settings)
+                Text("Per-agent command paths and auto-launch toggles live in the Plugins tab, one tab per installed coding-agent plugin.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Project Folders") {
@@ -490,34 +456,6 @@ private func browseForTerminalApp(settings: AppSettings) {
     }
 }
 
-@MainActor
-private func browseForClaude(settings: AppSettings) {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
-    panel.message = "Select the claude executable"
-
-    if panel.runModal() == .OK, let url = panel.url {
-        settings.claudeCommandPath = url.path
-    }
-}
-
-@MainActor
-private func browseForCodex(settings: AppSettings) {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
-    panel.message = "Select the codex executable"
-
-    if panel.runModal() == .OK, let url = panel.url {
-        settings.codexCommandPath = url.path
-    }
-}
-
 /// Presents a folder picker for a new Claude folder, adds it to settings,
 /// and returns the normalized URL when the folder was newly added so the
 /// caller can follow up (e.g. offer to install the plugin for it). Returns
@@ -550,6 +488,108 @@ private func abbreviatePath(_ path: String) -> String {
         return "~" + path.dropFirst(home.count)
     }
     return path
+}
+
+// MARK: - PluginsTabView
+
+/// Settings → Plugins tab (Task 16).
+///
+/// Lists every plugin known to the runtime as a `NavigationLink`. Tapping
+/// a row drills into ``PluginSettingsView`` with the chosen plugin's
+/// presentation, where the user can flip the enabled bit, install hooks,
+/// edit the schema-driven settings form, and view sidecar logs.
+struct PluginsTabView: View {
+    @Environment(\.pluginManager) private var pluginManager
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let manager = pluginManager {
+                    pluginsList(manager: manager)
+                } else {
+                    emptyState
+                }
+            }
+            .navigationDestination(for: String.self) { pluginID in
+                if
+                    let manager = pluginManager,
+                    let presentation = manager.presentation(for: pluginID) {
+                    PluginSettingsView(presentation: presentation)
+                } else {
+                    Text("Plugin \(pluginID) is unavailable")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pluginsList(manager: PluginManager) -> some View {
+        if manager.presentations.isEmpty {
+            emptyState
+        } else {
+            Form {
+                Section {
+                    ForEach(manager.presentations, id: \.id) { presentation in
+                        NavigationLink(value: presentation.id) {
+                            HStack(spacing: 12) {
+                                pluginIcon(for: presentation)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(presentation.displayName)
+                                        .font(.headline)
+                                    Text("Version \(presentation.version)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                } header: {
+                    Text("Installed plugins")
+                } footer: {
+                    Text("Pick a plugin to manage its settings, install hooks, or view sidecar logs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    @ViewBuilder
+    private func pluginIcon(for presentation: PluginPresentation) -> some View {
+        if let nsImage = NSImage(data: presentation.iconPNGData) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .frame(width: 32, height: 32)
+                .clipShape(.rect(cornerRadius: 6))
+        } else {
+            Symbols.puzzlepiece.image
+                .font(.title2)
+                .frame(width: 32, height: 32)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Symbols.puzzlepiece.image
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("No plugins available")
+                .font(.headline)
+            Text("Plugin runtime hasn't started yet, or no plugins are installed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
 }
 
 #Preview {

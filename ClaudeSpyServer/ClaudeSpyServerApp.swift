@@ -479,6 +479,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
                 .environment(coordinator.pluginService)
+                .environment(\.pluginManager, coordinator.pluginManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
 

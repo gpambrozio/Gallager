@@ -379,6 +379,52 @@ final public class PluginManager {
         presentations.first { $0.id == pluginID }
     }
 
+    // MARK: - Layout accessors
+
+    /// Path to one plugin's log directory (Task 16's log viewer reads
+    /// `sidecar.log` from here). Exposed via the manager so settings UI
+    /// doesn't have to know about `PluginRootLayout` directly.
+    public func logsDir(pluginID: String) -> URL {
+        layout.logsDir(pluginID)
+    }
+
+    /// Path to one plugin's settings.json file. Used by the per-plugin
+    /// Settings page to load saved values before rendering the form.
+    public func settingsURL(pluginID: String) -> URL {
+        layout.settingsURL(pluginID)
+    }
+
+    /// Whether a plugin entry is bundled (shipped inside the app) and
+    /// therefore can't be uninstalled. Used by the Settings UI to gate
+    /// the Uninstall button.
+    public func isBundled(pluginID: String) async throws -> Bool {
+        let entries = try await registry.entries()
+        guard let entry = entries.first(where: { $0.id == pluginID }) else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        return entry.source == .bundled
+    }
+
+    /// Current enabled bit for a plugin (Settings UI uses this to seed
+    /// the Enabled toggle).
+    public func isEnabled(pluginID: String) async throws -> Bool {
+        let entries = try await registry.entries()
+        guard let entry = entries.first(where: { $0.id == pluginID }) else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        return entry.enabled
+    }
+
+    /// `PluginRegistryEntry.Source` for the named plugin (Settings UI
+    /// shows "Bundled" / the manifest URL).
+    public func source(pluginID: String) async throws -> PluginRegistryEntry.Source {
+        let entries = try await registry.entries()
+        guard let entry = entries.first(where: { $0.id == pluginID }) else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        return entry.source
+    }
+
     // MARK: - TmuxService bucketing
 
     /// For TmuxService — list every plugin's declared process names so the

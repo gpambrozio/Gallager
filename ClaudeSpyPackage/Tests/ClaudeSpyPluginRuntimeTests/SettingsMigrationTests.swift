@@ -174,7 +174,7 @@ struct SettingsMigrationTests {
                   "command_path": "/edited/by/user"
                 }
                 """
-                try mutated.data(using: .utf8)!.write(to: claudeURL)
+                try Data(mutated.utf8).write(to: claudeURL)
 
                 // Re-add the legacy key to prove the second pass doesn't
                 // re-consume it (the flag should short-circuit the migration).

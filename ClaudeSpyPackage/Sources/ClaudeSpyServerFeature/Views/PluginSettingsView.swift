@@ -1,340 +1,292 @@
 #if os(macOS)
     import AppKit
-    import ClaudeCodePluginCore
     import ClaudeSpyCommon
+    import ClaudeSpyNetworking
+    import ClaudeSpyPluginRuntime
     import Dependencies
+    import GallagerPluginProtocol
     import SwiftUI
 
-    /// Settings view for managing the Claude Code plugin
+    // MARK: - PluginSettingsView (per-plugin detail page)
+
+    /// Per-plugin Settings detail page (Spec §17.3, §17.5; Task 16).
+    ///
+    /// Reached by drilling into one row of the "Plugin" Settings tab.
+    /// Shows:
+    /// - Plugin metadata (display name, version, source).
+    /// - Enabled toggle (calls `PluginManager.enable` / `disable`).
+    /// - Install hooks button (`PluginManager.installHooks`).
+    /// - The schema-driven settings form (Spec §17.3).
+    /// - View Logs button → ``PluginLogViewerSheet`` (Spec §17.5).
     public struct PluginSettingsView: View {
-        @Environment(PluginService.self) private var pluginService
-        @Environment(AppSettings.self) private var settings
+        public let presentation: PluginPresentation
 
-        @Dependency(ClaudeBinaryLocator.self) private var claudeLocator
+        @Environment(\.pluginManager) private var pluginManager
 
-        @State private var showingInstructions = false
-        @State private var showCopiedFeedback = false
-        @State private var commandCopiedResetTrigger: UUID?
-        @State private var claudeCopied = false
-        @State private var claudeCopiedResetTrigger: UUID?
+        @State private var schema: PluginSettingsSchema?
+        @State private var values: [String: JSONValue] = [:]
+        @State private var schemaError: String?
+        @State private var validationError: String?
 
-        public init() { }
+        @State private var hooksInstalled: Bool?
+        @State private var hookOperationError: String?
+        @State private var isInstallingHooks = false
+
+        @State private var enabled = true
+        @State private var bundled = true
+        @State private var sourceDescription = ""
+
+        @State private var showingLogViewer = false
+
+        public init(presentation: PluginPresentation) {
+            self.presentation = presentation
+        }
+
+        // MARK: - Body
 
         public var body: some View {
             Form {
-                // Plugin Status Section
-                Section {
-                    pluginStatusRow
-                } header: {
-                    Text("Plugin Status")
-                } footer: {
-                    Text("The gallager plugin enables real-time monitoring of Claude Code sessions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                // Claude Code Installation Section (when claude binary is missing)
-                if case .claudeNotInstalled = pluginService.state {
-                    Section {
-                        claudeInstallContent
-                    } header: {
-                        Text("Install Claude Code")
-                    } footer: {
-                        Text("The plugin requires the Claude Code CLI. Install it using the command above — the installation will be detected automatically.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                Section("Plugin") {
+                    LabeledContent("Display name") {
+                        Text(presentation.displayName)
                     }
-                }
-
-                // Installation Section
-                if case .notInstalled = pluginService.state {
-                    Section {
-                        installationContent
-                    } header: {
-                        Text("Installation")
+                    LabeledContent("Short name") {
+                        Text(presentation.shortName)
                     }
-                }
+                    LabeledContent("Version") {
+                        Text(presentation.version)
+                    }
+                    LabeledContent("Source") {
+                        Text(sourceDescription.isEmpty ? "—" : sourceDescription)
+                    }
 
-                // Manual Instructions Section
-                Section {
-                    manualInstructionsContent
-                } header: {
-                    Text("Manual Installation")
-                } footer: {
-                    Text("Use these commands if automatic installation fails.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                // Installation Output (if any)
-                if !pluginService.installationOutput.isEmpty {
-                    Section {
-                        ScrollView {
-                            Text(pluginService.installationOutput)
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                    Toggle("Enabled", isOn: $enabled)
+                        .onChange(of: enabled) { _, newValue in
+                            Task { await applyEnabled(newValue) }
                         }
-                        .frame(maxHeight: 150)
-                    } header: {
-                        Text("Installation Log")
+                }
+
+                Section("Hooks") {
+                    HStack {
+                        statusLabel
+                        Spacer()
+                        Button("Install hooks") {
+                            Task { await installHooks() }
+                        }
+                        .disabled(isInstallingHooks)
+                    }
+                    if let error = hookOperationError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section {
+                    Button {
+                        showingLogViewer = true
+                    } label: {
+                        Label("View logs", symbol: .docPlaintextFill)
+                    }
+                }
+
+                if let schema {
+                    SchemaFormView(
+                        values: $values,
+                        schema: schema,
+                        onSubmit: applySettings,
+                        validationError: validationError
+                    )
+                } else if let schemaError {
+                    Section {
+                        Label(schemaError, symbol: .exclamationmarkTriangle)
+                            .foregroundStyle(.orange)
+                    }
+                } else {
+                    Section {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Loading settings schema…")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
             .formStyle(.grouped)
-            .frame(minWidth: 400, minHeight: 300)
-            .navigationTitle("Plugin")
+            .navigationTitle(presentation.displayName)
+            .sheet(isPresented: $showingLogViewer) {
+                PluginLogViewerSheet(
+                    pluginID: presentation.id,
+                    displayName: presentation.displayName
+                )
+            }
             .task {
-                await runCheckFlow()
-            }
-            .task(id: commandCopiedResetTrigger) {
-                guard commandCopiedResetTrigger != nil else { return }
-                try? await Task.sleep(for: .seconds(2))
-                showCopiedFeedback = false
-            }
-            .task(id: claudeCopiedResetTrigger) {
-                guard claudeCopiedResetTrigger != nil else { return }
-                try? await Task.sleep(for: .seconds(2))
-                claudeCopied = false
+                await loadAll()
             }
         }
 
-        // MARK: - Check Flow
-
-        /// Checks for claude, then the plugin. Polls for claude when it's
-        /// missing so the UI reacts as soon as the user installs it.
-        ///
-        /// Once the user has finished the initial plugin setup the configured
-        /// `claudeCommandPath` is treated as authoritative — they may have
-        /// changed it (or pointed it at a non-default install location), and
-        /// re-running auto-detection here would silently overwrite that
-        /// choice. After setup, only the plugin status is refreshed.
-        private func runCheckFlow() async {
-            if settings.hasCompletedPluginSetup {
-                await pluginService.checkInstallation()
-                return
-            }
-
-            if let path = await pluginService.findClaude() {
-                settings.claudeCommandPath = path
-                await pluginService.checkInstallation()
-                return
-            }
-
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if let path = await claudeLocator.find() {
-                    settings.claudeCommandPath = path
-                    await pluginService.checkInstallation()
-                    return
-                }
-            }
-        }
-
-        // MARK: - Plugin Status Row
-
-        private var pluginStatusRow: some View {
-            HStack(spacing: 12) {
-                statusIcon
-                    .font(.title2)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(statusText)
-                        .font(.headline)
-
-                    if case let .installed(version) = pluginService.state {
-                        Text("Version \(version)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if
-                        case let .installationFailed(summary) = pluginService.state {
-                        Text(summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
-                    }
-                }
-
-                Spacer()
-
-                if
-                    case .installationFailed = pluginService.state,
-                    let failure = pluginService.lastFailure {
-                    PluginFailureDetailsButton(failure: failure)
-                }
-
-                statusActionButton
-            }
-            .padding(.vertical, 4)
-        }
+        // MARK: - Status label
 
         @ViewBuilder
-        private var statusIcon: some View {
-            switch pluginService.state {
-            case .unknown,
-                 .checking,
-                 .checkingClaude:
-                ProgressView()
-                    .controlSize(.small)
-            case .installed:
-                Symbols.checkmarkCircleFill.image
+        private var statusLabel: some View {
+            switch hooksInstalled {
+            case .some(true):
+                Label("Hooks installed", symbol: .checkmarkCircleFill)
                     .foregroundStyle(.green)
-            case .notInstalled,
-                 .claudeNotInstalled:
-                Symbols.exclamationmarkTriangle.image
+            case .some(false):
+                Label("Hooks not installed", symbol: .exclamationmarkTriangle)
                     .foregroundStyle(.orange)
-            case .installing:
-                ProgressView()
-                    .controlSize(.small)
-            case .installationFailed:
-                Symbols.xmarkCircleFill.image
-                    .foregroundStyle(.red)
-            }
-        }
-
-        private var statusText: String {
-            switch pluginService.state {
-            case .unknown,
-                 .checking:
-                "Checking..."
-            case .checkingClaude:
-                "Checking for Claude Code..."
-            case .claudeNotInstalled:
-                "Claude Code Not Installed"
-            case .installed:
-                "Plugin Installed"
-            case .notInstalled:
-                "Plugin Not Installed"
-            case .installing:
-                "Installing..."
-            case .installationFailed:
-                "Installation Failed"
-            }
-        }
-
-        @ViewBuilder
-        private var statusActionButton: some View {
-            switch pluginService.state {
-            case .installed:
-                Button("Check for Updates") {
-                    Task {
-                        await pluginService.checkInstallation()
-                    }
-                }
-            case .notInstalled,
-                 .installationFailed:
-                Button("Install Plugin") {
-                    Task {
-                        await pluginService.installPlugin()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(pluginService.state == .installing)
-            case .unknown,
-                 .checking,
-                 .checkingClaude,
-                 .claudeNotInstalled,
-                 .installing:
-                EmptyView()
-            }
-        }
-
-        // MARK: - Claude Install Content
-
-        private var claudeInstallContent: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Run this command in Terminal to install Claude Code:")
+            case .none:
+                Label("Checking…", symbol: .ellipsisCircle)
                     .foregroundStyle(.secondary)
-
-                HStack(alignment: .top) {
-                    Text(ClaudeBinaryLocator.installCommand)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer()
-
-                    Button {
-                        copyClaudeCommand()
-                    } label: {
-                        Label(
-                            claudeCopied ? "Copied!" : "Copy",
-                            symbol: .docOnClipboard
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                }
-                .padding(10)
-                .background(Color(nsColor: .textBackgroundColor))
-                .clipShape(.rect(cornerRadius: 6))
-
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Waiting for Claude Code to be installed\u{2026}")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
         }
 
-        // MARK: - Installation Content
+        // MARK: - Loaders
 
-        private var installationContent: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("The plugin is required for Gallager to receive events from Claude Code sessions.")
-                    .foregroundStyle(.secondary)
+        private func loadAll() async {
+            await loadMetadata()
+            await loadSchema()
+            await refreshHookStatus()
+        }
 
-                Button {
-                    Task {
-                        await pluginService.installPlugin()
-                    }
-                } label: {
-                    Label("Install Automatically", symbol: .arrowDown)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(pluginService.state == .installing)
+        private func loadMetadata() async {
+            guard let manager = pluginManager else {
+                sourceDescription = "Plugin runtime unavailable"
+                return
+            }
+            do {
+                bundled = try await manager.isBundled(pluginID: presentation.id)
+                enabled = try await manager.isEnabled(pluginID: presentation.id)
+                let source = try await manager.source(pluginID: presentation.id)
+                sourceDescription = (source == .bundled) ? "Bundled" : "Installed from URL"
+            } catch {
+                sourceDescription = "Unknown (\(error.localizedDescription))"
             }
         }
 
-        // MARK: - Manual Instructions
-
-        private var manualInstructionsContent: some View {
-            DisclosureGroup("Show Installation Commands") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(pluginService.manualInstructions)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .clipShape(.rect(cornerRadius: 4))
-
-                    Button {
-                        copyToClipboard(pluginService.manualInstructions)
-                    } label: {
-                        Label(showCopiedFeedback ? "Copied!" : "Copy Commands", symbol: .docOnClipboard)
-                    }
-                    .buttonStyle(.bordered)
-                }
+        private func loadSchema() async {
+            guard let manager = pluginManager else {
+                schemaError = "Plugin runtime unavailable."
+                return
+            }
+            do {
+                let fetched = try await manager.settingsSchema(pluginID: presentation.id)
+                let existing = readExistingSettings(at: manager.settingsURL(pluginID: presentation.id))
+                schema = fetched
+                values = SchemaFormDefaults.merge(schema: fetched, with: existing)
+            } catch {
+                schemaError = "Could not load settings: \(error.localizedDescription)"
             }
         }
 
-        // MARK: - Helpers
-
-        private func copyToClipboard(_ text: String) {
-            @Dependency(ClipboardClient.self) var clipboard
-            clipboard.setString(text)
-
-            showCopiedFeedback = true
-            commandCopiedResetTrigger = UUID()
+        private func refreshHookStatus() async {
+            guard let manager = pluginManager else { return }
+            do {
+                hooksInstalled = try await manager.isHookInstalled(pluginID: presentation.id)
+            } catch {
+                // Surface as unknown so the install button still works
+                // even if the status RPC isn't implemented yet.
+                hooksInstalled = nil
+            }
         }
 
-        private func copyClaudeCommand() {
-            @Dependency(ClipboardClient.self) var clipboard
-            clipboard.setString(ClaudeBinaryLocator.installCommand)
+        /// Read the on-disk settings.json so the form starts from the
+        /// values the user previously saved. Unknown top-level keys are
+        /// preserved by `SchemaFormDefaults.merge`.
+        private func readExistingSettings(at url: URL) -> [String: JSONValue] {
+            guard
+                let data = try? Data(contentsOf: url),
+                let decoded = try? JSONDecoder().decode([String: JSONValue].self, from: data)
+            else {
+                return [:]
+            }
+            return decoded
+        }
 
-            claudeCopied = true
-            claudeCopiedResetTrigger = UUID()
+        // MARK: - Actions
+
+        private func applyEnabled(_ newValue: Bool) async {
+            guard let manager = pluginManager else { return }
+            do {
+                if newValue {
+                    try await manager.enable(pluginID: presentation.id)
+                } else {
+                    try await manager.disable(pluginID: presentation.id)
+                }
+                await refreshHookStatus()
+            } catch {
+                // Roll back the toggle on failure.
+                enabled = !newValue
+                hookOperationError = error.localizedDescription
+            }
+        }
+
+        private func installHooks() async {
+            guard let manager = pluginManager else { return }
+            isInstallingHooks = true
+            defer { isInstallingHooks = false }
+            hookOperationError = nil
+            do {
+                try await manager.installHooks(pluginID: presentation.id)
+                await refreshHookStatus()
+            } catch {
+                hookOperationError = error.localizedDescription
+            }
+        }
+
+        /// Persist the form's snapshot to settings.json AND forward to
+        /// the sidecar via `apply_settings`. The sidecar performs
+        /// semantic validation; rejection surfaces as `validationError`.
+        private func applySettings(_ snapshot: [String: JSONValue]) async throws {
+            guard let manager = pluginManager else {
+                throw PluginSettingsError.pluginRuntimeUnavailable
+            }
+            validationError = nil
+
+            // Persist to disk first so a sidecar that rejects the
+            // RPC still has the user's draft to fall back to on
+            // restart. Atomic write so we never observe a half-formed
+            // file on crash.
+            try writeSettings(snapshot, to: manager.settingsURL(pluginID: presentation.id))
+
+            do {
+                try await manager.applySettings(
+                    pluginID: presentation.id,
+                    settings: .object(snapshot)
+                )
+            } catch {
+                validationError = error.localizedDescription
+                throw error
+            }
+        }
+
+        private func writeSettings(
+            _ snapshot: [String: JSONValue],
+            to url: URL
+        ) throws {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(snapshot)
+            try data.write(to: url, options: .atomic)
+        }
+    }
+
+    // MARK: - PluginSettingsError
+
+    enum PluginSettingsError: Error, LocalizedError {
+        case pluginRuntimeUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .pluginRuntimeUnavailable:
+                return "Plugin runtime is not available yet."
+            }
         }
     }
 #endif

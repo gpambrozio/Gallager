@@ -309,6 +309,7 @@
             await hookServer.startServer()
             await setupAPIServer()
             await setupConnectedViewerManager()
+            await runPluginSettingsMigration()
             await setupPluginManager()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
@@ -1386,6 +1387,23 @@
             // emoji) changes locally.
             windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
+            }
+        }
+
+        /// Run the one-shot plugin-settings migration (Task 16) — moves
+        /// the legacy `claudeCommandPath` / `codexCommandPath` UserDefaults
+        /// values into per-plugin `settings.json` files. Idempotent: a
+        /// `UserDefaults` flag short-circuits subsequent runs.
+        ///
+        /// Runs BEFORE `setupPluginManager()` so the first `apply_settings`
+        /// call to either sidecar already sees the migrated value.
+        private func runPluginSettingsMigration() async {
+            let layout = PluginRootLayout.live(rootOverride: nil, bundledOverride: nil)
+            let migration = PluginSettingsMigration(layout: layout)
+            do {
+                try await migration.runIfNeeded()
+            } catch {
+                logger.error("PluginSettingsMigration failed: \(error)")
             }
         }
 
