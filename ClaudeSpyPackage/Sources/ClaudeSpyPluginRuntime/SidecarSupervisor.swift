@@ -95,6 +95,12 @@ public actor SidecarSupervisor {
     private let clock: any Clock<Duration>
     private let logger: Logger
 
+    /// Params passed to the `initialize` RPC during `start()`. Defaults to
+    /// an empty `{}` object (used by the EchoSidecar tests, which don't
+    /// care about the handshake payload). `PluginManager` overrides this
+    /// with `{plugin_root, state_dir, app_version}` per Spec §6.1.
+    private let initializeParams: JSONValue
+
     // MARK: - Mutable state
 
     public private(set) var state: State = .notStarted
@@ -125,6 +131,7 @@ public actor SidecarSupervisor {
         stateDir: URL,
         logFile: SidecarLogFile,
         delegate: any Delegate,
+        initializeParams: JSONValue = .object([:]),
         clock: any Clock<Duration> = ContinuousClock(),
         logger: Logger? = nil
     ) {
@@ -134,6 +141,7 @@ public actor SidecarSupervisor {
         self.stateDir = stateDir
         self.logFile = logFile
         self.delegate = delegate
+        self.initializeParams = initializeParams
         self.clock = clock
         self.logger = logger ?? Logger(label: "gallager.plugin.supervisor.\(pluginID)")
     }
@@ -258,14 +266,15 @@ public actor SidecarSupervisor {
         self.connection = connection
         self.bridge = bridge
 
-        // Per Spec §12 step 2: `initialize` with 10s timeout. Empty params
-        // dictionary keeps the wire shape stable for the echo sidecar tests;
-        // production plugins replace this with manifest/version handshake
-        // data when `PluginManager` (Task 7) takes over.
+        // Per Spec §12 step 2: `initialize` with 10s timeout. `PluginManager`
+        // passes `{plugin_root, state_dir, app_version}` via `initializeParams`;
+        // the supervisor's own unit tests (with the EchoSidecar fixture) leave
+        // it at the default `{}` since the echo just round-trips whatever it
+        // gets.
         do {
             try await connection.send(
                 method: PluginRPCMethod.AppToSidecar.initialize.rawValue,
-                params: [String: String](),
+                params: initializeParams,
                 timeout: SidecarSupervisor.initializeTimeout
             )
         } catch {
