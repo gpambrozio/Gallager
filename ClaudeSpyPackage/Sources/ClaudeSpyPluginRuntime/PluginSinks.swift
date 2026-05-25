@@ -84,35 +84,9 @@ public protocol YoloModeProvider: AnyObject, Sendable {
 }
 
 // MARK: - PluginTmuxKey
-
-/// A simplified key descriptor the runtime exposes for sidecar-driven sends.
-///
-/// `ClaudeSpyServerFeature.TmuxKey` (the canonical one used by the tmux
-/// driver) lives outside this package's dep graph. We mirror the small closed
-/// set the sidecars actually emit here and let the app adapter (Task 15)
-/// translate to the production key type.
-///
-/// The raw values match what sidecars emit on the wire as `send_keys` params.
-public enum PluginTmuxKey: String, Codable, Sendable, Equatable {
-    case enter
-    case escape
-    case tab
-    case backspace
-    case space
-
-    case up
-    case down
-    case left
-    case right
-
-    case home
-    case end
-    case pageUp = "page_up"
-    case pageDown = "page_down"
-
-    case f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12
-
-    case ctrlC = "ctrl_c"
-    case ctrlD = "ctrl_d"
-    case ctrlZ = "ctrl_z"
-}
+//
+// `PluginTmuxKey` lives in `GallagerPluginProtocol` so plugin-core packages
+// can depend on it without pulling in the Mac runtime. `ClaudeSpyPluginRuntime`
+// re-exports it via its `import GallagerPluginProtocol` at the top of this
+// file; downstream code that already does `import ClaudeSpyPluginRuntime` keeps
+// seeing the type.
