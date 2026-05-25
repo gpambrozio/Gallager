@@ -160,6 +160,7 @@ final public class SessionStore {
 
     // MARK: - State Management
 
+    // swiftlint:disable todo
     /// Handle a hook event from a host
     ///
     /// TODO(plugin-system): Once iOS subscribes to `update_session_status` /
@@ -242,6 +243,8 @@ final public class SessionStore {
             break
         }
     }
+
+    // swiftlint:enable todo
 
     /// Bridge: derive `AgentSession` state from a `HookEvent` until plugin
     /// sidecars push status updates directly. Drops the legacy trailing-5

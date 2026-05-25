@@ -1,6 +1,9 @@
 import ClaudeSpyNetworking
 import Foundation
 
+// swiftlint:disable custom_no_number_decimals
+// References to "JSON-RPC 2.0" below are the official spec name, not numeric literals.
+
 // MARK: - JSONRPCMessage
 
 /// Top-level JSON-RPC 2.0 message. Disambiguates between request, response,
@@ -173,3 +176,5 @@ public enum JSONRPCID: Codable, Sendable, Hashable {
         }
     }
 }
+
+// swiftlint:enable custom_no_number_decimals

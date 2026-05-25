@@ -70,10 +70,7 @@ public actor SidecarLogFile {
     /// if the file would exceed `maxBytesRetained`.
     public func append(_ line: String) async {
         let payload = line.hasSuffix("\n") ? line : line + "\n"
-        guard let data = payload.data(using: .utf8) else {
-            logger.debug("dropping non-utf8 sidecar log line")
-            return
-        }
+        let data = Data(payload.utf8)
         do {
             try writeData(data)
         } catch {

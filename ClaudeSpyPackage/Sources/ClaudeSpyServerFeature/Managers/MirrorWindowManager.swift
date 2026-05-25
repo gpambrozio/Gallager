@@ -195,6 +195,7 @@ final public class MirrorWindowManager {
 
     // MARK: - Hook Event Handling
 
+    // swiftlint:disable todo
     /// Handles incoming hook events - tracks active sessions
     /// - Parameter event: The hook event to process
     ///
@@ -431,6 +432,8 @@ final public class MirrorWindowManager {
     public func isYoloModeEnabled(for paneId: String) -> Bool {
         paneStates[paneId]?.yoloMode ?? false
     }
+
+    // swiftlint:enable todo
 
     // MARK: - Session Descriptions
 

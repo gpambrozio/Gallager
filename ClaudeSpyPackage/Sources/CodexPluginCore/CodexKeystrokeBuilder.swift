@@ -4,6 +4,12 @@ import GallagerPluginProtocol
 
 // MARK: - CodexKeystrokeBuilder
 
+// swiftlint:disable todo
+// Each `TODO: verify against Codex TUI` below is a deliberate breadcrumb tracked
+// against Task 13 — keystroke mappings here are ported verbatim from the Claude
+// builder until the Codex sidecar can exercise them end-to-end against a live
+// session. The swiftlint todo rule is suppressed for this file accordingly.
+
 /// Builds the `[KeystrokeStep]` sequence that drives Codex's TUI in
 /// response to an `AgentResponse`. Mirrors `ClaudeCodeKeystrokeBuilder` —
 /// Codex's TUI shares the same broad navigation idiom (arrow keys / Enter /
@@ -176,6 +182,8 @@ public struct CodexKeystrokeBuilder: Sendable {
         ]
     }
 }
+
+// swiftlint:enable todo
 
 // MARK: - StepAccumulator
 

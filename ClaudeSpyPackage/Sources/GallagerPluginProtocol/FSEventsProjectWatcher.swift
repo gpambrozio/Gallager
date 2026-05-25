@@ -93,7 +93,7 @@
                     &context,
                     cfPaths,
                     FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-                    /* latency */ 0.0,
+                    /* latency */ 0,
                     flags
                 ) else {
                 throw FSEventsWatcherError.streamCreationFailed

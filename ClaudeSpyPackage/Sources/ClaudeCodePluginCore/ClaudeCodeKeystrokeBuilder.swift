@@ -118,6 +118,7 @@ public struct ClaudeCodeKeystrokeBuilder: Sendable {
 
     // MARK: - Permission
 
+    // swiftlint:disable todo
     /// Build the keystrokes for a `PermissionResponse`.
     ///
     /// Claude Code's permission prompt accepts numeric shortcuts mapped to
@@ -175,6 +176,8 @@ public struct ClaudeCodeKeystrokeBuilder: Sendable {
             return [.keys([.escape])]
         }
     }
+
+    // swiftlint:enable todo
 
     // MARK: - Text-only responses
 

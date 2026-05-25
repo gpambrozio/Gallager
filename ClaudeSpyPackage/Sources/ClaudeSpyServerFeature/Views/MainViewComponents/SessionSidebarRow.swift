@@ -73,6 +73,7 @@ struct SessionSidebarRow: View {
         return nil
     }
 
+    // swiftlint:disable todo
     /// The latest event subtitle from the first pane with a Claude session.
     ///
     /// TODO(plugin-system): `AgentSession` no longer caches hook events. The
@@ -81,6 +82,8 @@ struct SessionSidebarRow: View {
     private var sessionSubtitle: String? {
         nil
     }
+
+    // swiftlint:enable todo
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {

@@ -584,6 +584,7 @@
                         }
                     }
 
+                    // swiftlint:disable:next todo
                     // TODO(plugin-system): The latest event title/timestamp
                     // and the trailing-5 event count came from
                     // `ClaudeSession.events` and `latestEvent`, both of which

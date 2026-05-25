@@ -110,6 +110,7 @@ final public class SessionDetailService {
         }
     }
 
+    // swiftlint:disable todo
     /// Updates response state based on the latest hook event for this pane.
     ///
     /// TODO(plugin-system): Reads the transitional `latestEventByPane` cache
@@ -130,6 +131,8 @@ final public class SessionDetailService {
             responseState = nil
         }
     }
+
+    // swiftlint:enable todo
 
     // MARK: - Actions
 

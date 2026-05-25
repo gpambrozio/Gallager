@@ -726,6 +726,7 @@
         var body: some View {
             if let session {
                 List {
+                    // swiftlint:disable:next todo
                     // TODO(plugin-system): The Recent Events section was
                     // driven by `ClaudeSession.events`, which is gone in the
                     // AgentSession migration. Task 19+ will restore a richer

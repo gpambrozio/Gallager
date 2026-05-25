@@ -33,6 +33,7 @@ public enum JSONRPCConnectionError: Error, Equatable, Sendable {
 
 // MARK: - JSONRPCConnection
 
+// swiftlint:disable:next custom_no_number_decimals
 /// Full-duplex JSON-RPC 2.0 transport over a pair of `FileHandle`s.
 ///
 /// Used by `SidecarSupervisor` to talk to a child process via its stdin

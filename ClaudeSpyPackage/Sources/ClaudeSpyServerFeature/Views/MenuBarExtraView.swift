@@ -147,6 +147,7 @@ public struct MenuBarExtraView: View {
 
     @ViewBuilder
     private func sessionLabel(for session: AgentSession) -> some View {
+        // swiftlint:disable:next todo
         // TODO(plugin-system): The latest hook-event title is gone with the
         // ClaudeSession→AgentSession migration (Task 14). When Tasks 18–19
         // push richer status from plugin sidecars, we can show it here again.

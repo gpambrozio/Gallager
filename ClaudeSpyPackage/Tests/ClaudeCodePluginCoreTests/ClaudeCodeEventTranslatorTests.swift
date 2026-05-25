@@ -18,14 +18,14 @@ struct ClaudeCodeEventTranslatorTests {
         sessionId: String = "S1",
         tmuxPane: String = "%0",
         projectPath: String = "/proj/MyApp"
-    ) -> (payload: JSONValue, context: IngressContext) {
+    ) throws -> (payload: JSONValue, context: IngressContext) {
         var body = body
         if body["session_id"] == nil { body["session_id"] = sessionId }
         if body["hook_event_name"] == nil {
             body["hook_event_name"] = Self.hookEventName(forAction: action)
         }
-        let data = try! JSONSerialization.data(withJSONObject: body)
-        let value = try! JSONDecoder().decode(JSONValue.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
         let context = IngressContext(envMap: [
             "TMUX_PANE": tmuxPane,
             "CLAUDE_PROJECT_DIR": projectPath,
@@ -81,7 +81,7 @@ struct ClaudeCodeEventTranslatorTests {
         projectPath: String = "/proj/MyApp"
     ) async throws -> (PluginEvent?, PluginRequestStore) {
         let store = PluginRequestStore()
-        let (p, ctx) = payload(
+        let (p, ctx) = try payload(
             action: action,
             body: body,
             sessionId: sessionId,

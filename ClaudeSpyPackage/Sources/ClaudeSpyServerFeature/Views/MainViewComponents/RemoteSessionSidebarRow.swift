@@ -10,6 +10,7 @@ struct RemoteSessionSidebarRow: View {
     let agentSession: AgentSession?
     var homeDirectory: String?
 
+    // swiftlint:disable todo
     /// The latest event subtitle from the Claude session's pane.
     ///
     /// TODO(plugin-system): `AgentSession` no longer caches hook events.
@@ -17,6 +18,8 @@ struct RemoteSessionSidebarRow: View {
     private var latestEventSubtitle: String? {
         nil
     }
+
+    // swiftlint:enable todo
 
     /// CLI-driven state override propagated from the host, if any.
     private var cliSessionState: CLISessionState? {

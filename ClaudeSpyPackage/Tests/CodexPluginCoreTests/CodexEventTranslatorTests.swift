@@ -18,14 +18,14 @@ struct CodexEventTranslatorTests {
         sessionId: String = "S1",
         tmuxPane: String = "%0",
         projectPath: String = "/proj/MyApp"
-    ) -> (payload: JSONValue, context: IngressContext) {
+    ) throws -> (payload: JSONValue, context: IngressContext) {
         var body = body
         if body["session_id"] == nil { body["session_id"] = sessionId }
         if body["hook_event_name"] == nil {
             body["hook_event_name"] = Self.hookEventName(forAction: action)
         }
-        let data = try! JSONSerialization.data(withJSONObject: body)
-        let value = try! JSONDecoder().decode(JSONValue.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
         let context = IngressContext(envMap: [
             "TMUX_PANE": tmuxPane,
             "CODEX_PROJECT_DIR": projectPath,
@@ -82,7 +82,7 @@ struct CodexEventTranslatorTests {
         projectPath: String = "/proj/MyApp"
     ) async throws -> (PluginEvent?, PluginRequestStore) {
         let store = PluginRequestStore()
-        let (p, ctx) = payload(
+        let (p, ctx) = try payload(
             action: action,
             body: body,
             sessionId: sessionId,
@@ -668,7 +668,7 @@ struct CodexEventTranslatorTests {
         let recorder = CorrelationRecorder()
         let store = PluginRequestStore()
         let translator = CodexEventTranslator(correlationStore: recorder.client)
-        let (raw, ctx) = payload(action: "sessionStart", tmuxPane: "%7")
+        let (raw, ctx) = try payload(action: "sessionStart", tmuxPane: "%7")
         let event = try await translator.translate(
             rawPayload: raw,
             context: ctx,
@@ -686,7 +686,7 @@ struct CodexEventTranslatorTests {
         let store = PluginRequestStore()
         let translator = CodexEventTranslator(correlationStore: recorder.client)
         // Empty TMUX_PANE means the bridge couldn't capture it (rare).
-        let (raw, ctx) = payload(action: "sessionStart", tmuxPane: "")
+        let (raw, ctx) = try payload(action: "sessionStart", tmuxPane: "")
         let event = try await translator.translate(
             rawPayload: raw,
             context: ctx,
