@@ -168,6 +168,10 @@ extension Target.Dependency {
     static var claudeSpyE2ELib: Self {
         "ClaudeSpyE2ELib"
     }
+
+    static var gallagerPluginProtocol: Self {
+        "GallagerPluginProtocol"
+    }
 }
 
 /// Products, dependencies, and targets are extracted into typed top-level `let`s
@@ -212,6 +216,10 @@ let products: [Product] = [
     .executable(
         name: "GallagerCLI",
         targets: ["GallagerCLI"]
+    ),
+    .library(
+        name: "GallagerPluginProtocol",
+        targets: ["GallagerPluginProtocol"]
     ),
 ]
 
@@ -329,6 +337,16 @@ let targets: [Target] = [
         dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
         path: "Sources/Gallager"
     ),
+    // Plugin protocol surface shared between sidecar executables and the Mac
+    // runtime (JSON-RPC envelope/framing, plugin manifest, events, ingress
+    // socket frame). Cross-platform — no Apple-only dependencies — so sidecars
+    // built for Linux can reuse it.
+    .target(
+        name: "GallagerPluginProtocol",
+        dependencies: [
+            .claudeSpyNetworking,
+        ]
+    ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
@@ -378,6 +396,13 @@ let targets: [Target] = [
         name: "ClaudeSpyE2ETests",
         dependencies: [
             .claudeSpyE2ELib,
+        ]
+    ),
+    .testTarget(
+        name: "GallagerPluginProtocolTests",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .dependenciesTestSupport,
         ]
     ),
 ]
