@@ -85,18 +85,21 @@ final public class MirrorWindowManager {
             }
         }
 
-        // Remove stale entries — but skip hook-only minimal states. `handleHookEvent`
-        // creates a `PaneState(paneId:agentSession:)` with default-empty `sessionName`
-        // when a hook arrives for a pane the windowManager hasn't yet observed; the
-        // first refresh that sees the pane fills in metadata. A refresh whose
-        // `list-panes` snapshot was taken BEFORE the hook arrived (the subprocess
-        // ran while MainActor was suspended) won't include that pane, and removing
-        // the entry here would silently drop the SessionStart and lose the project
-        // decoration. Empty `sessionName` is a reliable signal that no refresh has
-        // confirmed the pane yet — refresh-derived entries always carry the tmux
-        // session name. The next refresh that does see the pane confirms it; if the
-        // pane truly never appears in tmux a follow-up hook with the same paneId
-        // updates in place rather than accumulating.
+        // Remove stale entries — but skip plugin-only minimal states. The
+        // `PluginSessionStatusSink` (and the legacy hook handler before
+        // it) creates a `PaneState(paneId:agentSession:)` with default-empty
+        // `sessionName` when an update arrives for a pane the windowManager
+        // hasn't yet observed; the first refresh that sees the pane fills
+        // in metadata. A refresh whose `list-panes` snapshot was taken
+        // BEFORE the update arrived (the subprocess ran while MainActor
+        // was suspended) won't include that pane, and removing the entry
+        // here would silently drop the SessionStart and lose the project
+        // decoration. Empty `sessionName` is a reliable signal that no
+        // refresh has confirmed the pane yet — refresh-derived entries
+        // always carry the tmux session name. The next refresh that does
+        // see the pane confirms it; if the pane truly never appears in
+        // tmux a follow-up update with the same paneId updates in place
+        // rather than accumulating.
         let stalePaneIds = paneStates.keys.filter { paneId in
             guard !currentPaneIds.contains(paneId) else { return false }
             return paneStates[paneId]?.sessionName.isEmpty == false
@@ -252,8 +255,8 @@ final public class MirrorWindowManager {
     /// clear the override and revert to whatever the underlying Claude session
     /// (or absence of one) reports. No-op if the pane isn't tracked yet —
     /// callers should refresh tmux state first so `sessionName` is populated;
-    /// otherwise the session-wide hook clearing in `handleHookEvent` can't
-    /// match siblings.
+    /// otherwise the session-wide override clearing in the plugin status
+    /// sink can't match siblings.
     /// - Parameters:
     ///   - state: The override to apply, or `nil` to clear.
     ///   - paneId: The pane to apply the override to.
@@ -270,13 +273,11 @@ final public class MirrorWindowManager {
     /// Sets yolo mode for a pane's Claude session.
     /// When enabled, permission requests are auto-approved by sending Enter keystroke.
     ///
-    /// TODO(plugin-system): The "approve a pending permission request when
-    /// yolo is flipped on" branch relied on `ClaudeSession.latestEvent` (a
-    /// trailing-event cache). The new `AgentSession` no longer carries hook
-    /// payloads; pending requests are routed via `present_response_request`
-    /// (Task 19). For this transitional commit we just toggle the flag — any
-    /// active request continues to be addressable through the normal flow
-    /// once the plugin sidecar wiring lands.
+    /// Toggling yolo on does not retroactively approve a pending request —
+    /// that fan-out is owned by `PluginEventDispatcher` via the
+    /// auto-approval delegate, and only fires when a sidecar emits an
+    /// `isAutoApprovable` permission request. Flipping the flag here just
+    /// signals future requests should be auto-approved.
     /// - Parameters:
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for

@@ -429,13 +429,6 @@ final public class AppSettings {
         didSet { preferences.setBool(hasSeededEditors, Keys.hasSeededEditors) }
     }
 
-    // MARK: - Plugin Settings
-
-    /// Whether the user has completed the plugin setup (or dismissed it)
-    public var hasCompletedPluginSetup: Bool = Defaults.hasCompletedPluginSetup {
-        didSet { preferences.setBool(hasCompletedPluginSetup, Keys.hasCompletedPluginSetup) }
-    }
-
     // MARK: - Launch at Login Settings
 
     /// Whether the app should launch at login (synced with system login items)
@@ -519,9 +512,6 @@ final public class AppSettings {
         self.editors = Self.loadCodable(from: preferences, key: Keys.editors)
         self.hasSeededEditors = preferences.optionalBool(Keys.hasSeededEditors) ?? Defaults.hasSeededEditors
 
-        // Plugin
-        self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
-
         // Launch at Login
         self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
         self.hasAskedAboutLaunchAtLogin = preferences.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
@@ -569,8 +559,6 @@ final public class AppSettings {
         /// External Editors
         case editors
         case hasSeededEditors
-        /// Plugin
-        case hasCompletedPluginSetup
         // Launch at Login
         case launchAtLogin
         case hasAskedAboutLaunchAtLogin
@@ -608,8 +596,6 @@ final public class AppSettings {
         static let autoConnectToServer = true
         /// External Editors
         static let hasSeededEditors = false
-        /// Plugin
-        static let hasCompletedPluginSetup = false
         // Launch at Login
         static let launchAtLogin = false
         static let hasAskedAboutLaunchAtLogin = false

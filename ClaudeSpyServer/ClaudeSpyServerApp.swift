@@ -2,6 +2,7 @@ import ClaudeCodePluginCore
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import ClaudeSpyPluginRuntime
 import ClaudeSpyServerFeature
 import CodexPluginCore
 import Dependencies
@@ -11,8 +12,6 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingTmuxInstallGuide: Bool
-    @State private var pluginSetupCheckTrigger = 0
-    @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
     @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
@@ -47,8 +46,7 @@ struct TmuxPaneMirrorApp: App {
         if CommandLine.arguments.contains("--e2e-test") {
             let prefs = PreferencesService.inMemory()
 
-            // Suppress first-launch dialogs (plugin setup, launch-at-login prompt)
-            prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
+            // Suppress first-launch dialogs (launch-at-login prompt)
             prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
 
             // E2E tests expect manual resize by default; disable auto-resize so scenarios
@@ -69,15 +67,13 @@ struct TmuxPaneMirrorApp: App {
                 prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.tmuxSocket.rawValue)
             }
 
-            // E2E test support: override hook server port file for isolation
-            let hookPortFile: String?
-            if let idx = CommandLine.arguments.firstIndex(of: "--hook-port-file"),
-               idx + 1 < CommandLine.arguments.count
-            {
-                hookPortFile = CommandLine.arguments[idx + 1]
-            } else {
-                hookPortFile = nil
-            }
+            // E2E test support: --hook-port-file is accepted but no longer
+            // used. The hook server is gone; plugin sidecars listen on a
+            // per-instance Unix socket under `--gallager-state-root`
+            // (Task 22). The argument is consumed here so existing
+            // orchestrator invocations keep working until Task 23 swaps
+            // the DSL over to ingress sockets.
+            _ = CommandLine.arguments.firstIndex(of: "--hook-port-file")
 
             // E2E test support: override notification log path for verification
             let notificationLogPath: String?
@@ -267,9 +263,6 @@ struct TmuxPaneMirrorApp: App {
                     isEnabled: { false },
                     setEnabled: { _ in }
                 )
-                if let hookPortFile {
-                    $0[HookServerService.self] = .live(portFilePath: hookPortFile)
-                }
                 if let notificationLogPath {
                     // Clean up any previous log from earlier runs
                     try? FileManager.default.removeItem(atPath: notificationLogPath)
@@ -330,7 +323,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.windowManager.paneStreamManager)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(coordinator.editorSessionManager)
                 .environment(coordinator.remoteEditorContentStore)
                 .environment(coordinator.markdownOpenSuggestionStore)
@@ -342,29 +334,18 @@ struct TmuxPaneMirrorApp: App {
                     }
                 }
                 .sheet(isPresented: $showingTmuxInstallGuide, onDismiss: {
-                    // After tmux is found, proceed with the plugin setup chain
-                    pluginSetupCheckTrigger += 1
+                    // After tmux is found, ask about launch-at-login. The legacy
+                    // "install gallager plugin" prompt is gone — plugins ship
+                    // bundled with the app and are managed via Settings → Plugins.
+                    Task { await checkForLaunchAtLoginPrompt() }
                 }) {
                     TmuxInstallationGuideView { foundPath in
                         coordinator.settings.tmuxPath = foundPath
                     }
                 }
                 .task {
-                    // Only run first-launch dialogs if tmux is already installed
                     guard !showingTmuxInstallGuide else { return }
-                    pluginSetupCheckTrigger += 1
-                }
-                .task(id: pluginSetupCheckTrigger) {
-                    guard pluginSetupCheckTrigger > 0 else { return }
-                    await checkForPluginSetup()
-                }
-                .sheet(isPresented: $showingPluginSetup, onDismiss: {
-                    // After plugin setup is dismissed, check for launch at login prompt
-                    Task { await checkForLaunchAtLoginPrompt() }
-                }) {
-                    PluginSetupView()
-                        .environment(coordinator.settings)
-                        .environment(coordinator.pluginService)
+                    await checkForLaunchAtLoginPrompt()
                 }
                 .sheet(isPresented: $showingLaunchAtLoginPrompt) {
                     LaunchAtLoginPromptView()
@@ -478,7 +459,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(\.pluginManager, coordinator.pluginManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
@@ -507,31 +487,6 @@ struct TmuxPaneMirrorApp: App {
         let remoteCount = coordinator.remoteSessionStore?.paneStates.values
             .filter { $0.agentSession?.attention == true }.count ?? 0
         return localCount + remoteCount
-    }
-
-    /// Checks if we should show the plugin setup on first launch.
-    /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
-    private func checkForPluginSetup() async {
-        if !coordinator.settings.hasCompletedPluginSetup {
-            // If claude isn't installed, jump straight to the setup sheet so
-            // the user can follow the install flow.
-            if let path = await coordinator.pluginService.findClaude() {
-                coordinator.settings.claudeCommandPath = path
-                await coordinator.pluginService.checkInstallation()
-            } else {
-                showingPluginSetup = true
-                return
-            }
-
-            if case .notInstalled = coordinator.pluginService.state {
-                showingPluginSetup = true
-            } else if case .installed = coordinator.pluginService.state {
-                coordinator.settings.hasCompletedPluginSetup = true
-                await checkForLaunchAtLoginPrompt()
-            }
-        } else {
-            await checkForLaunchAtLoginPrompt()
-        }
     }
 
     /// Checks if we should show the launch at login prompt.
