@@ -2,7 +2,6 @@
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import SwiftUI
-    import UserNotifications
 
     /// Main entry point for the ClaudeSpy iOS app.
     ///
@@ -118,25 +117,11 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
-            connectionManager.onHookEvent = { [sessionStore] event in
-                Task { @MainActor in
-                    sessionStore.handleEvent(event)
-
-                    // If app is backgrounded, show a local notification.
-                    // The server won't send a push since we're "connected" via WebSocket,
-                    // but the user can't see the app, so we need to alert them.
-                    if scenePhase != .active {
-                        if let notification = event.buildNotification() {
-                            PushNotificationService.shared.scheduleLocalNotification(
-                                title: notification.title,
-                                body: notification.body,
-                                paneId: event.event.tmuxPane,
-                                hostId: event.pairId
-                            )
-                        }
-                    }
-                }
-            }
+            // Hook events are no longer routed to iOS — status updates ride
+            // `agent_session_status` (handled below) and response forms ride
+            // `agent_response_request`. Background notifications for
+            // WebSocket-connected viewers are intentionally dropped; APNs push
+            // already covers the disconnected case.
 
             connectionManager.onSessionState = { [sessionStore] state in
                 Task { @MainActor in
