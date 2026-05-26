@@ -136,6 +136,12 @@ final public class ViewerConnection: Identifiable {
         await relayClient.sendPushToken(token)
     }
 
+    /// Forwards an `agent_response_submission` envelope to the host. See
+    /// `ViewerRelayClient.sendAgentResponseSubmission(_:)`.
+    public func sendAgentResponseSubmission(_ submission: AgentResponseSubmission) async {
+        await relayClient.sendAgentResponseSubmission(submission)
+    }
+
     // MARK: - Callbacks Setup
 
     /// Configure callbacks for this connection.

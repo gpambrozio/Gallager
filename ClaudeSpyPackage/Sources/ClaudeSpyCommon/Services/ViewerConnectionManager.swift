@@ -279,6 +279,22 @@ final public class ViewerConnectionManager {
         await connection.requestSessionState()
     }
 
+    /// Send an `agent_response_submission` envelope to a specific host.
+    ///
+    /// iOS calls this from the response views once the user has answered (or
+    /// dismissed) an open `AgentResponseRequest`. The submission is routed to
+    /// the matching `ViewerConnection`, which encrypts and forwards it.
+    public func sendAgentResponseSubmission(
+        _ submission: AgentResponseSubmission,
+        hostId: String
+    ) async {
+        guard let connection = connections[hostId] else {
+            logger.warning("No connection found for host \(hostId); dropping agent_response_submission")
+            return
+        }
+        await connection.sendAgentResponseSubmission(submission)
+    }
+
     // MARK: - Push Notifications
 
     #if os(iOS)

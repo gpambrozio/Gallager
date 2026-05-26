@@ -473,6 +473,32 @@ final public class ViewerRelayClient {
         await send(message)
     }
 
+    /// Sends an `agent_response_submission` envelope to the host. iOS calls this
+    /// when the user fills in (or dismisses) a form raised by a prior
+    /// `agent_response_request`. The host hands the payload off to the plugin
+    /// sidecar identified by `pluginId`, which translates it into the host
+    /// agent's expected response (keystrokes, JSON-RPC, etc.).
+    ///
+    /// Encrypted via the established E2EE session like every other sensitive
+    /// payload; no-op if the session isn't up yet (logged inside
+    /// `sendEncrypted`).
+    public func sendAgentResponseSubmission(_ submission: AgentResponseSubmission) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot send agent response submission")
+            return
+        }
+
+        logger.info(
+            "Sending agent_response_submission to host",
+            metadata: [
+                "pluginId": "\(submission.pluginId)",
+                "sessionId": "\(submission.sessionId)",
+                "requestId": "\(submission.requestId)",
+            ]
+        )
+        await sendEncrypted(.agentResponseSubmission(submission))
+    }
+
     // MARK: - Private Methods
 
     private func performConnect() async {
