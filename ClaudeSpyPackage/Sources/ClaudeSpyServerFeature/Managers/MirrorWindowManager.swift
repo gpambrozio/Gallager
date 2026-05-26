@@ -193,138 +193,6 @@ final public class MirrorWindowManager {
         }
     }
 
-    // MARK: - Hook Event Handling
-
-    // swiftlint:disable todo
-    /// Handles incoming hook events - tracks active sessions
-    /// - Parameter event: The hook event to process
-    ///
-    /// TODO(plugin-system): Hook ingestion moves to plugin sidecars in Task 15+.
-    /// Until then we bridge `HookEvent`s into the new `AgentSession` shape
-    /// (working/attention/lastEventTimestamp) directly — the legacy trailing-5
-    /// `events` buffer is gone.
-    public func handleHookEvent(_ event: HookEvent) async {
-        guard let paneId = event.tmuxPane else { return }
-
-        // A hook event that updates working/notification state wins over any
-        // CLI-driven override so subsequent hook activity is reflected. The
-        // sidebar aggregates state across every pane in the session, so clear
-        // the override on every sibling pane — not just the one this event
-        // targeted — otherwise the row keeps reading from a stale sibling.
-        if event.isWorking != nil || event.wouldTriggerNotification {
-            let sessionName = paneStates[paneId]?.sessionName
-            if let sessionName, !sessionName.isEmpty {
-                for (otherId, state) in paneStates where state.sessionName == sessionName {
-                    paneStates[otherId]?.cliSessionState = nil
-                }
-            } else {
-                paneStates[paneId]?.cliSessionState = nil
-            }
-        }
-
-        // Track active session based on event type
-        switch event.action {
-        case let .sessionEnd(body):
-            // Record the final event before removing the session
-            applyEvent(event, paneId: paneId)
-            paneStates[paneId]?.agentSession = nil
-            paneStates[paneId]?.yoloMode = false
-            // Drop the CLI override too — the session it was decorating is gone.
-            // Mirror the working/notification path above and clear every sibling
-            // pane in the same tmux session, since `session.set_state --session`
-            // can stamp the override across all of them. Otherwise siblings keep
-            // a stale override after Claude exits in one pane and no further
-            // hook events arrive to clear them.
-            let sessionName = paneStates[paneId]?.sessionName
-            if let sessionName, !sessionName.isEmpty {
-                for (otherId, state) in paneStates where state.sessionName == sessionName {
-                    paneStates[otherId]?.cliSessionState = nil
-                }
-            } else {
-                paneStates[paneId]?.cliSessionState = nil
-            }
-
-            // Close the pane when Claude exits normally (user quit at prompt)
-            if settings.closePaneOnSessionEnd && body.reason == .promptInputExit {
-                closePaneWhenClaudeExits(paneId: paneId)
-            }
-
-        case .sessionStart:
-            // Yolo mode is NOT reset here — context compaction restarts
-            // send sessionStart without a preceding sessionEnd, so yolo
-            // must carry over. Normal session endings already clear yolo
-            // via the sessionEnd handler above.
-            applyEvent(event, paneId: paneId)
-
-        case let .permissionRequest(body) where isYoloModeEnabled(for: paneId) && body.isYoloAutoApprovable:
-            // Yolo mode: auto-approve by sending Enter after a short delay.
-            // The new model doesn't track per-event handled state, so the bridge
-            // resets `attention` immediately after recording the prompt.
-            applyEvent(event, paneId: paneId)
-            paneStates[paneId]?.agentSession?.attention = false
-            do {
-                try await Task.sleep(for: .milliseconds(500))
-                try await tmuxService.sendKeys(paneId, keys: "Enter")
-            } catch {
-                // If auto-approve fails, fall through to normal flow
-            }
-
-        case .setup,
-             .permissionRequest,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .postToolBatch,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .userPromptExpansion,
-             .stop,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            applyEvent(event, paneId: paneId)
-        }
-    }
-
-    /// Bridge: derive `AgentSession` state from a `HookEvent`. Replaces the
-    /// legacy `ClaudeSession.addEvent` path. Task 15+ replaces this with
-    /// `update_session_status` callbacks routed through `PluginEventDispatcher`.
-    private func applyEvent(_ event: HookEvent, paneId: String) {
-        updateSession(
-            paneId: paneId,
-            sessionId: event.action.sessionId,
-            pluginID: event.agent.rawValue
-        ) { session in
-            if let working = event.isWorking {
-                session.working = working
-            }
-            if event.wouldTriggerNotification {
-                session.attention = true
-            }
-            if event.isWorking != nil || event.wouldTriggerNotification {
-                session.lastEventTimestamp = event.timestamp
-            }
-            if let projectPath = event.projectPath, !projectPath.isEmpty {
-                session.projectPath = projectPath
-            }
-        }
-    }
-
     /// Updates the terminal title for a pane.
     /// - Parameters:
     ///   - paneId: The tmux pane ID
@@ -433,8 +301,6 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.yoloMode ?? false
     }
 
-    // swiftlint:enable todo
-
     // MARK: - Session Descriptions
 
     /// Sets a custom description for a session, updating every pane in every window
@@ -506,35 +372,6 @@ final public class MirrorWindowManager {
                 ])
             }
             await onSessionMetadataChanged?()
-        }
-    }
-
-    // MARK: - Auto-Close Pane
-
-    /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.
-    ///
-    /// Legacy path used by `handleHookEvent`; the equivalent new flow is
-    /// `AppAction.closePaneIfPreferenceAllows` emitted by a plugin sidecar
-    /// and routed through `AppActionRouter`. Until Task 20 deletes the hook
-    /// decoder this method keeps a hard-coded `claude` process-name match
-    /// (the only agent the old hook path knew about) so user-facing
-    /// behaviour is preserved during the transition.
-    private func closePaneWhenClaudeExits(paneId: String) {
-        Task { [tmuxService] in
-            // Poll until Claude is no longer running in this pane (up to 30 seconds)
-            for _ in 0..<30 {
-                try? await Task.sleep(for: .seconds(1))
-                let stillRunning = await tmuxService.isAgentRunning(
-                    inPane: paneId,
-                    processNames: ["claude"]
-                )
-                if !stillRunning {
-                    // Claude process has exited — wait 1 second then close the pane
-                    try? await Task.sleep(for: .seconds(1))
-                    try? await tmuxService.killPane(paneId)
-                    return
-                }
-            }
         }
     }
 

@@ -151,9 +151,6 @@
         @Dependency(SleepPreventionService.self) private var sleepPreventionService
 
         @ObservationIgnored
-        @Dependency(HookServerService.self) private var hookServer
-
-        @ObservationIgnored
         @Dependency(ClaudeProjectScanner.self) private var projectScanner
 
         @ObservationIgnored
@@ -273,40 +270,16 @@
             // Start dock icon management (hides dock icon initially, shows when windows open)
             await dockIconService.startObserving()
 
-            // Forward hook events to window manager AND all connected iOS devices
-            await hookServer.setEventHandler(handler: { [weak self] event in
-                guard let self else { return }
-                // Handle locally
-                await windowManager.handleHookEvent(event)
-
-                if let paneId = event.tmuxPane {
-                    let sessionName = await resolveSessionName(forPaneId: paneId)
-                    if let sessionName, !sessionName.isEmpty {
-                        await markdownOpenSuggestionStore.handleHookEvent(event, sessionName: sessionName)
-                    }
-                }
-
-                // Update sleep prevention based on new session count
-                await updateSleepPrevention()
-
-                guard event.action.body.shouldSendToServer else { return }
-                // Skip push notifications for auto-approvable events in yolo mode
-                let skipPush: Bool
-                if
-                    let paneId = event.tmuxPane,
-                    case let .permissionRequest(body) = event.action,
-                    body.isYoloAutoApprovable,
-                    await windowManager.isYoloModeEnabled(for: paneId) {
-                    skipPush = true
-                } else {
-                    skipPush = false
-                }
-                // Forward to all connected viewers
-                await connectedViewerManager?.sendHookEventToAll(event, skipPushNotification: skipPush)
-            })
+            // Plugin sidecars own the ingest pipeline now (Task 15+). The
+            // legacy `HookServerService` HTTP shim is gone, along with the
+            // `setEventHandler` bridge that fanned `HookEvent`s into the
+            // window manager, the markdown-suggestion store, and the iOS
+            // push fan-out. Status, notification, and response-request
+            // routing all flow through `PluginEventDispatcher` →
+            // `MirrorWindowManager+PluginSinks`, `PluginNotificationBridge`,
+            // and `PluginResponseRequestRouter`.
 
             await initializeServices()
-            await hookServer.startServer()
             await setupAPIServer()
             await setupConnectedViewerManager()
             await runPluginSettingsMigration()
@@ -346,17 +319,6 @@
             await paneStreamManager.disconnectAll()
             await controlClientManager.disconnectAll()
             await pluginManager?.stop()
-        }
-
-        /// Resolves the tmux session name for a pane. Tries `paneStates` first
-        /// (populated for panes the windowManager has already seen), then falls
-        /// back to the live `tmuxService.panes` snapshot so events that arrive
-        /// before the pane has been mirrored still get matched to a session.
-        private func resolveSessionName(forPaneId paneId: String) -> String? {
-            if let name = windowManager.paneStates[paneId]?.sessionName, !name.isEmpty {
-                return name
-            }
-            return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
         }
 
         // MARK: - Private Setup Methods
@@ -2061,11 +2023,6 @@
                 // Create session store for remote sessions
                 let store = SessionStore()
                 remoteSessionStore = store
-
-                // Wire hook events from remote hosts
-                manager.onHookEvent = { [weak store] event in
-                    store?.handleEvent(event)
-                }
 
                 // Wire session state updates from remote hosts.
                 // After applying the update, prune any remote-editor edits whose
