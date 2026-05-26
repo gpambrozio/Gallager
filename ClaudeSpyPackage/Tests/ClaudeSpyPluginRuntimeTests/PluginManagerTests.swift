@@ -476,6 +476,104 @@ struct PluginManagerTests {
         #expect(entries.contains { $0.id == "echo" && $0.enabled == false })
     }
 
+    // MARK: - CLI façade
+
+    @Test("listEntries returns the registry contents")
+    @MainActor
+    func listEntriesReturnsRegistry() async throws {
+        guard let echoURL = echoSidecarURL() else {
+            Issue.record("EchoSidecar binary missing — run `swift build` first")
+            return
+        }
+
+        let fixture = try makeFixture(echoURL: echoURL)
+        defer { fixture.cleanup() }
+
+        let (manager, _, _, _, _, _) = makeManager(layout: fixture.layout)
+        try await manager.start()
+        defer { Task { await manager.stop() } }
+
+        let entries = try await manager.listEntries()
+        #expect(entries.contains { $0.id == "echo" && $0.enabled })
+    }
+
+    @Test("info returns manifest fields, paths, and the running bit")
+    @MainActor
+    func infoReturnsManifestAndPaths() async throws {
+        guard let echoURL = echoSidecarURL() else {
+            Issue.record("EchoSidecar binary missing — run `swift build` first")
+            return
+        }
+
+        let fixture = try makeFixture(echoURL: echoURL)
+        defer { fixture.cleanup() }
+
+        let (manager, _, _, _, _, _) = makeManager(layout: fixture.layout)
+        try await manager.start()
+        defer { Task { await manager.stop() } }
+
+        let info = try await manager.info(pluginID: "echo")
+        #expect(info.entry.id == "echo")
+        #expect(info.manifest?.displayName == "Echo Plugin")
+        // logFile sits under the per-plugin logs dir.
+        #expect(info.logFile.lastPathComponent == "sidecar.log")
+        #expect(info.running)
+    }
+
+    @Test("checkForUpdates returns an empty list in v1")
+    @MainActor
+    func checkForUpdatesEmptyInV1() async throws {
+        guard let echoURL = echoSidecarURL() else {
+            Issue.record("EchoSidecar binary missing — run `swift build` first")
+            return
+        }
+
+        let fixture = try makeFixture(echoURL: echoURL)
+        defer { fixture.cleanup() }
+
+        let (manager, _, _, _, _, _) = makeManager(layout: fixture.layout)
+        try await manager.start()
+        defer { Task { await manager.stop() } }
+
+        let updates = try await manager.checkForUpdates()
+        #expect(updates.isEmpty)
+    }
+
+    @Test("tailLogs returns the trailing N lines of sidecar.log")
+    @MainActor
+    func tailLogsReturnsTrailingLines() async throws {
+        guard let echoURL = echoSidecarURL() else {
+            Issue.record("EchoSidecar binary missing — run `swift build` first")
+            return
+        }
+
+        let fixture = try makeFixture(echoURL: echoURL)
+        defer { fixture.cleanup() }
+
+        let (manager, _, _, _, _, _) = makeManager(layout: fixture.layout)
+        try await manager.start()
+        defer { Task { await manager.stop() } }
+
+        // Seed the log file with a deterministic sequence so we can assert
+        // a specific tail. SidecarLogFile appends newlines per line.
+        let logFile = SidecarLogFile(
+            logsDir: fixture.layout.logsDir("echo"),
+            pluginID: "echo"
+        )
+        for i in 1...10 {
+            await logFile.append("entry-\(i)")
+        }
+        await logFile.close()
+
+        // Last 3 lines should be entries 8/9/10. The log already contains
+        // sidecar-banner lines from the live supervisor; the test seeds
+        // run AFTER those so the suffix is deterministic regardless.
+        let tail = try await manager.tailLogs(pluginID: "echo", lines: 3)
+        let lines = tail.split(separator: "\n").map(String.init)
+        #expect(lines.count == 3)
+        #expect(lines.contains("entry-10"))
+    }
+
     @Test("yolo + auto-approvable permission auto-approves into deliver_response")
     @MainActor
     func yoloAutoApproveFiresDeliverResponse() async throws {

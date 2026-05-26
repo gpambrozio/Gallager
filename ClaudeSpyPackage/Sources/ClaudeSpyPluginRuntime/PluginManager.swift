@@ -2,6 +2,7 @@ import struct ClaudeSpyNetworking.AgentProject
 import enum ClaudeSpyNetworking.AgentResponse
 import enum ClaudeSpyNetworking.AgentResponseRequest
 import enum ClaudeSpyNetworking.AppAction
+import CryptoKit
 import Foundation
 import GallagerPluginProtocol
 import Logging
@@ -388,6 +389,12 @@ final public class PluginManager {
         layout.logsDir(pluginID)
     }
 
+    /// Path to one plugin's primary sidecar log file. Used by both the
+    /// in-app log viewer and the `plugin.logs` RPC route.
+    public func sidecarLogURL(pluginID: String) -> URL {
+        logsDir(pluginID: pluginID).appendingPathComponent("sidecar.log")
+    }
+
     /// Path to one plugin's settings.json file. Used by the per-plugin
     /// Settings page to load saved values before rendering the form.
     public func settingsURL(pluginID: String) -> URL {
@@ -552,10 +559,139 @@ final public class PluginManager {
 
     // MARK: - Install / uninstall (third-party manifests)
 
-    /// HTTPS-manifest install. v1 stub — Task 17 wires the CLI flow and
-    /// trust UI; this exists so call sites can be wired now.
+    /// HTTPS-manifest install — v1 implementation.
+    ///
+    /// Fetches the manifest at `manifestURL`, downloads the referenced
+    /// `bundle.zip`, verifies its SHA-256 against the manifest, unpacks the
+    /// zip into `~/.gallager/plugins/<id>/`, adds a registry entry, and
+    /// spawns the supervisor.
+    ///
+    /// v2 will add the trust UI / signature verification described in
+    /// Spec §16. Today the contract is: bundled plugins are always allowed;
+    /// URL installs require the caller (CLI `--yes` or in-app prompt) to
+    /// have already confirmed.
     public func install(manifestURL: URL) async throws {
-        throw PluginManagerError.notImplemented(message: "install(manifestURL:) lands in Task 17")
+        // Refuse `bundle://` and other non-https schemes outright. We don't
+        // yet support fetching from arbitrary local paths over this API.
+        guard
+            let scheme = manifestURL.scheme?.lowercased(),
+            scheme == "https" || scheme == "file"
+        else {
+            throw PluginManagerError.installFailed(
+                message: "manifest URL must use https:// (got \(manifestURL.scheme ?? "<none>"))"
+            )
+        }
+
+        // Fetch the manifest JSON.
+        let (manifestData, _) = try await URLSession.shared.data(from: manifestURL)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let manifest: PluginManifest
+        do {
+            manifest = try decoder.decode(PluginManifest.self, from: manifestData)
+        } catch {
+            throw PluginManagerError.installFailed(
+                message: "manifest decode failed: \(error)"
+            )
+        }
+
+        // Reject id collisions with installed plugins. Bundled plugins win.
+        let entries = try await registry.entries()
+        if entries.contains(where: { $0.id == manifest.id }) {
+            throw PluginManagerError.installFailed(
+                message: "plugin '\(manifest.id)' already installed; uninstall first"
+            )
+        }
+
+        // The manifest's `manifestURL` field is descriptive; we trust the
+        // URL we actually fetched from.
+        guard let bundleSHA = manifest.bundleSHA256 else {
+            throw PluginManagerError.installFailed(
+                message: "manifest is missing required bundle_sha256"
+            )
+        }
+
+        // Resolve the bundle URL: alongside the manifest, named
+        // `bundle.zip`. v2 will let the manifest specify its own location.
+        let bundleURL = manifestURL.deletingLastPathComponent().appendingPathComponent("bundle.zip")
+        let (bundleData, _) = try await URLSession.shared.data(from: bundleURL)
+        let actualSHA = sha256Hex(of: bundleData)
+        guard actualSHA.caseInsensitiveCompare(bundleSHA) == .orderedSame else {
+            throw PluginManagerError.installFailed(
+                message: "bundle sha256 mismatch (expected \(bundleSHA), got \(actualSHA))"
+            )
+        }
+
+        // Stage to a temp dir, unzip, then move into place atomically.
+        let fm = FileManager.default
+        let tempRoot = fm.temporaryDirectory.appendingPathComponent("gallager-install-\(UUID().uuidString)")
+        try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        let zipURL = tempRoot.appendingPathComponent("bundle.zip")
+        try bundleData.write(to: zipURL)
+
+        let unzipDir = tempRoot.appendingPathComponent("unzipped", isDirectory: true)
+        try fm.createDirectory(at: unzipDir, withIntermediateDirectories: true)
+
+        // Use `/usr/bin/unzip` — Foundation has no built-in zip support and
+        // every macOS ships unzip in the base system.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-q", zipURL.path, "-d", unzipDir.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw PluginManagerError.installFailed(
+                message: "unzip exited with status \(process.terminationStatus)"
+            )
+        }
+
+        // Resolve the plugin install root: `~/.gallager/plugins/<id>/`.
+        let userPluginsDir = layout.userPluginsDir()
+        try fm.createDirectory(at: userPluginsDir, withIntermediateDirectories: true)
+        let installDir = userPluginsDir.appendingPathComponent(manifest.id, isDirectory: true)
+        if fm.fileExists(atPath: installDir.path) {
+            try fm.removeItem(at: installDir)
+        }
+        try fm.moveItem(at: unzipDir, to: installDir)
+
+        // Append to the registry and spawn a supervisor.
+        let entry = PluginRegistryEntry(
+            id: manifest.id,
+            version: manifest.version,
+            source: .url,
+            manifestURL: manifestURL,
+            bundleSHA256: bundleSHA,
+            enabled: true,
+            installedAt: Date()
+        )
+        try await registry.addUserInstall(entry)
+
+        manifestsByID[manifest.id] = manifest
+        pluginDirsByID[manifest.id] = installDir
+        guard let bridge = supervisorBridge else {
+            throw PluginManagerError.installFailed(
+                message: "PluginManager has not started yet — cannot spawn supervisor"
+            )
+        }
+        try await spawnSupervisor(manifest: manifest, pluginDir: installDir, bridge: bridge)
+        try await loadPresentation(manifest: manifest, pluginDir: installDir)
+
+        // Best-effort cleanup of the staging dir.
+        try? fm.removeItem(at: tempRoot)
+    }
+
+    private func sha256Hex(of data: Data) -> String {
+        // Use CryptoKit so we don't pull a heavier dependency for a single
+        // hash. Available everywhere we ship.
+        #if canImport(CryptoKit)
+            let digest = CryptoKit.SHA256.hash(data: data)
+            return digest.map { String(format: "%02x", $0) }.joined()
+        #else
+            // Build configurations without CryptoKit shouldn't happen on the
+            // Mac target, but keep a defensive fallback so this stays
+            // compilable. The empty string fails the comparison loudly.
+            return ""
+        #endif
     }
 
     /// Uninstall a user-installed plugin. Bundled plugins cannot be
@@ -892,6 +1028,115 @@ final public class PluginManager {
         logger.debug("supervisor \(pluginID) state -> \(String(describing: state))")
     }
 
+    // MARK: - CLI / RPC façade
+    //
+    // The helpers below back the `plugin.*` JSON-RPC routes consumed by
+    // the `gallager plugin` CLI verbs (Spec §17.4). They sit at the
+    // façade level so a single call site (the RPC router) doesn't have
+    // to grow knowledge of the registry, supervisors, or log file layout.
+
+    /// All plugin entries from the registry — used by `plugin.list`.
+    public func listEntries() async throws -> [PluginRegistryEntry] {
+        try await registry.entries()
+    }
+
+    /// Full info for one plugin: registry metadata, manifest, install path,
+    /// state-dir size, and log file path. Used by `plugin.info`.
+    public func info(pluginID: String) async throws -> PluginInfo {
+        let entries = try await registry.entries()
+        guard let entry = entries.first(where: { $0.id == pluginID }) else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        let manifest = manifestsByID[pluginID]
+        let installDir = pluginDirsByID[pluginID]
+        let stateDir = layout.stateDir(pluginID)
+        let logFile = sidecarLogURL(pluginID: pluginID)
+        let stateBytes = directorySize(at: stateDir)
+        return PluginInfo(
+            entry: entry,
+            manifest: manifest,
+            installDir: installDir,
+            stateDir: stateDir,
+            stateDirSizeBytes: stateBytes,
+            logFile: logFile,
+            running: supervisors[pluginID] != nil
+        )
+    }
+
+    /// Returns a list of plugins with newer manifests on disk. v1 has no
+    /// auto-update mechanism — Spec §16 leaves the in-app browser /
+    /// marketplace to v2 — so this always returns an empty list. The
+    /// `plugin.update` CLI verb surfaces "no updates available" today.
+    public func checkForUpdates() async throws -> [PluginUpdateInfo] {
+        []
+    }
+
+    /// Direct sidecar RPC call — bypasses the manager's normal handling
+    /// so the CLI can poke arbitrary methods for debugging. Used by
+    /// `plugin.call`.
+    public func directCall(
+        pluginID: String,
+        method: String,
+        params: JSONValue?
+    ) async throws -> JSONValue {
+        guard let supervisor = supervisors[pluginID] else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        // Always send an object; `nil` becomes `{}` so sidecars that decode
+        // strict types still see a valid JSON-RPC params value.
+        let payload = params ?? .object([:])
+        let result: JSONValue = try await supervisor.send(method: method, params: payload)
+        return result
+    }
+
+    /// Trailing `lines` lines from the plugin's `sidecar.log`. Returns the
+    /// empty string when the log doesn't exist yet (sidecar just spawned,
+    /// hasn't written anything). Used by `plugin.logs`.
+    public func tailLogs(pluginID: String, lines: Int) async throws -> String {
+        // Validate the plugin id so a typo doesn't silently return "".
+        let entries = try await registry.entries()
+        guard entries.contains(where: { $0.id == pluginID }) else {
+            throw PluginManagerError.unknownPlugin(id: pluginID)
+        }
+        let url = sidecarLogURL(pluginID: pluginID)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return ""
+        }
+        let n = max(lines, 0)
+        let data = try Data(contentsOf: url)
+        guard let text = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        var split = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        if split.last == "" { split.removeLast() }
+        if n == 0 || split.count <= n {
+            return split.joined(separator: "\n")
+        }
+        return split.suffix(n).joined(separator: "\n")
+    }
+
+    private func directorySize(at url: URL) -> Int64 {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return 0 }
+        var total: Int64 = 0
+        if
+            let enumerator = fm.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+            ) {
+            for case let fileURL as URL in enumerator {
+                guard
+                    let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                    values.isRegularFile == true,
+                    let size = values.fileSize
+                else { continue }
+                total += Int64(size)
+            }
+        }
+        return total
+    }
+
     // MARK: - Test hooks
     //
     // Internal so `@testable import ClaudeSpyPluginRuntime` from
@@ -930,6 +1175,7 @@ public enum PluginManagerError: Error, Equatable, CustomStringConvertible {
     case unknownPlugin(id: String)
     case cannotUninstallBundled(id: String)
     case notImplemented(message: String)
+    case installFailed(message: String)
 
     public var description: String {
         switch self {
@@ -939,7 +1185,55 @@ public enum PluginManagerError: Error, Equatable, CustomStringConvertible {
             return "Plugin '\(id)' is bundled — disable it instead of uninstalling"
         case let .notImplemented(message):
             return "PluginManager: \(message)"
+        case let .installFailed(message):
+            return "Install failed: \(message)"
         }
+    }
+}
+
+// MARK: - PluginInfo / PluginUpdateInfo
+
+/// Aggregate view of one plugin, returned by `PluginManager.info`.
+public struct PluginInfo: Sendable, Equatable {
+    public let entry: PluginRegistryEntry
+    public let manifest: PluginManifest?
+    public let installDir: URL?
+    public let stateDir: URL
+    public let stateDirSizeBytes: Int64
+    public let logFile: URL
+    public let running: Bool
+
+    public init(
+        entry: PluginRegistryEntry,
+        manifest: PluginManifest?,
+        installDir: URL?,
+        stateDir: URL,
+        stateDirSizeBytes: Int64,
+        logFile: URL,
+        running: Bool
+    ) {
+        self.entry = entry
+        self.manifest = manifest
+        self.installDir = installDir
+        self.stateDir = stateDir
+        self.stateDirSizeBytes = stateDirSizeBytes
+        self.logFile = logFile
+        self.running = running
+    }
+}
+
+/// One row in `PluginManager.checkForUpdates`. v2 will populate this from
+/// a periodic manifest poll; v1 always returns an empty list so the
+/// `gallager plugin update` CLI verb prints "no updates available".
+public struct PluginUpdateInfo: Sendable, Equatable {
+    public let id: String
+    public let currentVersion: String
+    public let latestVersion: String
+
+    public init(id: String, currentVersion: String, latestVersion: String) {
+        self.id = id
+        self.currentVersion = currentVersion
+        self.latestVersion = latestVersion
     }
 }
 
