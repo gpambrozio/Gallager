@@ -14,7 +14,7 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.startServer
         TestStep.verifyServerHealth
 
-        // 2. Launch Mac host at the current default version (requires viewer 1.23)
+        // 2. Launch Mac host at the current default version (requires viewer 1.33)
         TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
@@ -57,7 +57,7 @@ public enum VersionMismatchOldMacViewerScenario {
         // 6. Old viewer should see the "out of date" update prompt.
         //    Text is rendered in-place (no "Error: " prefix) on RemoteHostsSettingsView.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20, instance: 1)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "requires version 1.33", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "old-viewer-sees-update-prompt", tolerance: 5, instance: 1)
 
         // 7. Close the viewer's Settings window and surface its main Panes
@@ -73,7 +73,7 @@ public enum VersionMismatchOldMacViewerScenario {
             .identifier("host-version-mismatch-row"), timeout: 10, instance: 1
         )
         TestStep.macWaitForElement(titled: "Update this app", timeout: 5, instance: 1)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
+        TestStep.macWaitForElement(titled: "requires version 1.33", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-sidebar-mismatch", tolerance: 5, instance: 1)
 
         // 8. Simulate the user "updating" the viewer: clear its version

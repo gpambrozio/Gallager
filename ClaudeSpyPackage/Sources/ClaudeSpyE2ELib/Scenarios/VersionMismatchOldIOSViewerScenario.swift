@@ -19,7 +19,7 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.startServer
         TestStep.verifyServerHealth
 
-        // 3. Launch Mac host with default version (1.23, requires viewer 1.23)
+        // 3. Launch Mac host with default version (1.33, requires viewer 1.33)
         TestStep.launchMacApp()
 
         // 4. Launch iOS viewer pretending to be an old build (version 0.1).
@@ -62,7 +62,7 @@ public enum VersionMismatchOldIOSViewerScenario {
         //    without having to drill into Settings.
         TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("Update this app"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("requires version 1.33"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
 
         // 10. Simulate the user "updating" the iOS viewer: clear its version

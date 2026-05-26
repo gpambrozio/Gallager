@@ -24,7 +24,7 @@ public enum VersionMismatchOldMacHostIOSViewerScenario {
         //    check to trigger).
         TestStep.launchMacApp(appVersion: "0.1", minRequiredPartnerVersion: "0.0")
 
-        // 4. Launch iOS viewer at the current default version (requires host 1.23)
+        // 4. Launch iOS viewer at the current default version (requires host 1.33)
         TestStep.launchIOSApp()
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
 
@@ -55,7 +55,7 @@ public enum VersionMismatchOldMacHostIOSViewerScenario {
         //    these captures are slightly non-deterministic across runs when the iOS
         //    simulator is in play.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
+        TestStep.macWaitForElement(titled: "requires version 1.33", timeout: 5)
         TestStep.macScreenshot(label: "mac-host-sees-update-prompt", tolerance: 5)
 
         // 9. iOS lands on the Sessions tab after pairing. The host section there

@@ -62,6 +62,10 @@ public enum Shortcut {
         "Mac-Only Setup",
         tags: ["shortcut"]
     ) {
+        // Terminate any previously-running test instance first so the new
+        // launch picks up a clean state-root and the bundled plugin
+        // supervisors aren't fighting an old process for the same sockets.
+        TestStep.terminateMacApp()
         TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 

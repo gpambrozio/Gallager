@@ -31,7 +31,7 @@ public enum VersionMismatchOldMacHostScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macReadClipboard(storeAs: "pairingCode")
 
-        // 3. Launch Mac viewer at the current default version (requires host 1.23)
+        // 3. Launch Mac viewer at the current default version (requires host 1.33)
         TestStep.launchMacApp(instance: 1)
         TestStep.wait(seconds: 3)
 
@@ -57,7 +57,7 @@ public enum VersionMismatchOldMacHostScenario {
         // 6. Host sees "This Mac app is out of date" once the viewer's peerHello
         //    arrives peer-to-peer and carries the viewer's minRequiredHostVersion.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5)
+        TestStep.macWaitForElement(titled: "requires version 1.33", timeout: 5)
         TestStep.macScreenshot(label: "old-host-sees-update-prompt", tolerance: 5)
 
         // 7. Close the viewer's Settings window and surface its main Panes
