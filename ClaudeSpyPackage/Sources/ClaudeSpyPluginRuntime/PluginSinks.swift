@@ -20,6 +20,7 @@ public protocol PluginSessionStatusSink: AnyObject, Sendable {
         pluginID: String,
         sessionID: String,
         tmuxPane: String?,
+        projectPath: String?,
         working: Bool?,
         attention: Bool
     ) async
@@ -31,6 +32,7 @@ public protocol PluginNotificationSink: AnyObject, Sendable {
         pluginID: String,
         sessionID: String?,
         tmuxPane: String?,
+        projectPath: String?,
         title: String,
         body: String
     ) async
@@ -42,6 +44,7 @@ public protocol PluginResponseRequestSink: AnyObject, Sendable {
         pluginID: String,
         sessionID: String,
         tmuxPane: String?,
+        projectPath: String?,
         requestID: String,
         request: AgentResponseRequest,
         isAutoApprovable: Bool
@@ -57,7 +60,13 @@ public protocol PluginResponseRequestSink: AnyObject, Sendable {
 /// Receives discrete app-side actions emitted by plugins (open-file
 /// suggestions, dismiss-suggestion, close-pane-on-end, ...).
 public protocol PluginAppActionSink: AnyObject, Sendable {
-    func handle(pluginID: String, sessionID: String?, tmuxPane: String?, action: AppAction) async
+    func handle(
+        pluginID: String,
+        sessionID: String?,
+        tmuxPane: String?,
+        projectPath: String?,
+        action: AppAction
+    ) async
 }
 
 /// Receives sidecar-driven pane writes (text + keys). The downstream sink

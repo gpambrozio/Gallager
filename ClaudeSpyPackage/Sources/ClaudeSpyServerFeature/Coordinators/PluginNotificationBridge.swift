@@ -38,6 +38,7 @@
             pluginID: String,
             sessionID: String?,
             tmuxPane: String?,
+            projectPath: String?,
             title: String,
             body: String
         ) async {
@@ -49,7 +50,8 @@
                 mirrorManager.bootstrapPluginSessionIfNeeded(
                     pluginID: pluginID,
                     sessionID: sessionID,
-                    tmuxPane: tmuxPane
+                    tmuxPane: tmuxPane,
+                    projectPath: projectPath
                 )
             }
             let notification = TerminalStreamMessage.TerminalNotification(

@@ -1203,7 +1203,13 @@ public actor TestOrchestrator {
     /// isolated. `EchoPluginInstaller` reads this path when seeding the
     /// echo plugin for scenarios that need it.
     public func gallagerStateRoot(for instance: Int) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-state-\(instance)"
+        // Use /tmp/ instead of NSTemporaryDirectory() to keep Unix socket
+        // paths under the 104-byte sun_path limit. The plugin ingress socket
+        // at <stateRoot>/state/plugins/<id>/ingress.sock plus a long
+        // /var/folders/.../T/claudespy-e2e-state-N prefix puts paths like
+        // claude-code's ingress.sock over 104 chars, causing NWListener to
+        // silently fail to bind.
+        "/tmp/claudespy-e2e-state-\(instance)"
     }
 
     // MARK: - Script Cleanup

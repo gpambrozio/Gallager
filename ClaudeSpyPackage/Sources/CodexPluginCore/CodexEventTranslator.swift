@@ -59,7 +59,9 @@ public struct CodexEventTranslator: Sendable {
             rawPayload: rawPayload,
             context: context,
             requestStore: requestStore
-        )?.withTmuxPane(context.tmuxPane)
+        )?
+            .withTmuxPane(context.tmuxPane)
+            .withProjectPath(context.projectPath)
     }
 
     // MARK: - Decode helpers

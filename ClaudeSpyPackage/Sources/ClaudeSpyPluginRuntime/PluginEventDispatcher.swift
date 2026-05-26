@@ -95,6 +95,7 @@ public actor PluginEventDispatcher {
                 pluginID: event.pluginID,
                 sessionID: event.sessionID,
                 tmuxPane: event.tmuxPane,
+                projectPath: event.projectPath,
                 working: event.working,
                 attention: event.attention
             )
@@ -106,6 +107,7 @@ public actor PluginEventDispatcher {
                 pluginID: event.pluginID,
                 sessionID: event.sessionID,
                 tmuxPane: event.tmuxPane,
+                projectPath: event.projectPath,
                 title: notification.title,
                 body: notification.body
             )
@@ -117,7 +119,8 @@ public actor PluginEventDispatcher {
                 payload,
                 sessionID: event.sessionID,
                 pluginID: event.pluginID,
-                tmuxPane: event.tmuxPane
+                tmuxPane: event.tmuxPane,
+                projectPath: event.projectPath
             )
         }
 
@@ -127,6 +130,7 @@ public actor PluginEventDispatcher {
                 pluginID: event.pluginID,
                 sessionID: event.sessionID,
                 tmuxPane: event.tmuxPane,
+                projectPath: event.projectPath,
                 action: action
             )
         }
@@ -138,7 +142,8 @@ public actor PluginEventDispatcher {
         _ payload: PluginEvent.ResponseRequestPayload,
         sessionID: String,
         pluginID: String,
-        tmuxPane: String?
+        tmuxPane: String?,
+        projectPath: String?
     ) async {
         // Compute the auto-approvable bit once. Only `permission` requests
         // carry a self-declared safety flag — other request shapes (ask user,
@@ -175,6 +180,7 @@ public actor PluginEventDispatcher {
                         pluginID: pluginID,
                         sessionID: sessionID,
                         tmuxPane: tmuxPane,
+                        projectPath: projectPath,
                         requestID: payload.requestID,
                         request: payload.request,
                         isAutoApprovable: isAutoApprovable
@@ -188,6 +194,7 @@ public actor PluginEventDispatcher {
             pluginID: pluginID,
             sessionID: sessionID,
             tmuxPane: tmuxPane,
+            projectPath: projectPath,
             requestID: payload.requestID,
             request: payload.request,
             isAutoApprovable: isAutoApprovable

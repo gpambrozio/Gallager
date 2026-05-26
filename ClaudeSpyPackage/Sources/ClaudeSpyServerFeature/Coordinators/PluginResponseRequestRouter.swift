@@ -34,6 +34,7 @@
             pluginID: String,
             sessionID: String,
             tmuxPane: String?,
+            projectPath: String?,
             requestID: String,
             request: AgentResponseRequest,
             isAutoApprovable _: Bool
@@ -46,7 +47,8 @@
             mirrorManager?.bootstrapPluginSessionIfNeeded(
                 pluginID: pluginID,
                 sessionID: sessionID,
-                tmuxPane: tmuxPane
+                tmuxPane: tmuxPane,
+                projectPath: projectPath
             )
             let message = AgentResponseRequestMessage(
                 sessionId: sessionID,

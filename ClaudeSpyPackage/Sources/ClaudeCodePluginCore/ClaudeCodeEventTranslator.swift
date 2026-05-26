@@ -42,7 +42,9 @@ public struct ClaudeCodeEventTranslator: Sendable {
             action: action,
             context: context,
             requestStore: requestStore
-        )?.withTmuxPane(context.tmuxPane)
+        )?
+            .withTmuxPane(context.tmuxPane)
+            .withProjectPath(context.projectPath)
     }
 
     // MARK: - Decode helpers

@@ -14,6 +14,7 @@
             pluginID: String,
             sessionID: String,
             tmuxPane: String?,
+            projectPath: String?,
             working: Bool?,
             attention: Bool
         ) async {
@@ -61,6 +62,7 @@
                 paneId: paneId,
                 sessionID: sessionID,
                 pluginID: pluginID,
+                projectPath: projectPath,
                 working: working,
                 attention: attention
             )
@@ -111,14 +113,22 @@
             paneId: String,
             sessionID: String,
             pluginID: String,
+            projectPath: String?,
             working: Bool?,
             attention: Bool
         ) {
             var session = paneStates[paneId]?.agentSession ?? AgentSession(
                 id: sessionID,
                 pluginID: pluginID,
-                tmuxPane: paneId
+                tmuxPane: paneId,
+                projectPath: projectPath
             )
+            // Adopt projectPath from the latest event if the session
+            // didn't have one yet — bundled plugins push the path on
+            // every hook, so the first non-empty value wins.
+            if session.projectPath == nil, let projectPath, !projectPath.isEmpty {
+                session.projectPath = projectPath
+            }
             if let working {
                 session.working = working
             }
@@ -165,7 +175,8 @@
         func bootstrapPluginSessionIfNeeded(
             pluginID: String,
             sessionID: String,
-            tmuxPane: String?
+            tmuxPane: String?,
+            projectPath: String? = nil
         ) {
             // Already mapped — nothing to do.
             for state in paneStates.values where state.agentSession?.id == sessionID {
@@ -175,7 +186,8 @@
             let newSession = AgentSession(
                 id: sessionID,
                 pluginID: pluginID,
-                tmuxPane: tmuxPane
+                tmuxPane: tmuxPane,
+                projectPath: projectPath
             )
             if var existing = paneStates[tmuxPane] {
                 // Only bootstrap when the pane has no session yet; the

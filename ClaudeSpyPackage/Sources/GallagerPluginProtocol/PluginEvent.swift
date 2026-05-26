@@ -49,6 +49,13 @@ public struct PluginEvent: Codable, Sendable, Equatable {
     /// field still parse.
     public let tmuxPane: String?
 
+    /// Project path the originating sidecar observed for this event.
+    /// Sourced from `IngressContext.projectPath` (the agent's project-dir
+    /// env var the bridge forwards). The Mac uses this when bootstrapping
+    /// an `AgentSession` so the sidebar can render the project name even
+    /// before any tmux refresh tick picks up the pane's working dir.
+    public let projectPath: String?
+
     public init(
         pluginID: String,
         sessionID: String,
@@ -57,7 +64,8 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         notification: NotificationSpec?,
         responseRequest: ResponseRequestPayload?,
         appActions: [AppAction] = [],
-        tmuxPane: String? = nil
+        tmuxPane: String? = nil,
+        projectPath: String? = nil
     ) {
         self.pluginID = pluginID
         self.sessionID = sessionID
@@ -67,6 +75,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         self.responseRequest = responseRequest
         self.appActions = appActions
         self.tmuxPane = tmuxPane
+        self.projectPath = projectPath
     }
 
     // Mac/iOS snake-case-strategy emits `plugin_i_d` for `pluginID` and
@@ -81,6 +90,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         case responseRequest
         case appActions
         case tmuxPane
+        case projectPath
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +113,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         // entirely, which `decodeIfPresent` already accepts. No fallback
         // needed since there's no legacy key shape.
         self.tmuxPane = try container.decodeIfPresent(String.self, forKey: .tmuxPane)
+        self.projectPath = try container.decodeIfPresent(String.self, forKey: .projectPath)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -118,6 +129,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         // serialized form across versions.
         try container.encode(appActions, forKey: .appActions)
         try container.encodeIfPresent(tmuxPane, forKey: .tmuxPane)
+        try container.encodeIfPresent(projectPath, forKey: .projectPath)
     }
 
     // MARK: - Convenience
@@ -135,7 +147,25 @@ public struct PluginEvent: Codable, Sendable, Equatable {
             notification: notification,
             responseRequest: responseRequest,
             appActions: appActions,
-            tmuxPane: tmuxPane
+            tmuxPane: tmuxPane,
+            projectPath: projectPath
+        )
+    }
+
+    /// Returns a copy of this event with `projectPath` overwritten. Mirrors
+    /// `withTmuxPane` so translators can stamp both ingress-context fields
+    /// onto every emitted envelope via chained calls.
+    public func withProjectPath(_ projectPath: String?) -> PluginEvent {
+        PluginEvent(
+            pluginID: pluginID,
+            sessionID: sessionID,
+            working: working,
+            attention: attention,
+            notification: notification,
+            responseRequest: responseRequest,
+            appActions: appActions,
+            tmuxPane: tmuxPane,
+            projectPath: projectPath
         )
     }
 
