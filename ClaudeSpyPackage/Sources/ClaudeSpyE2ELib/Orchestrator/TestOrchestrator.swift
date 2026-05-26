@@ -164,6 +164,13 @@ public actor TestOrchestrator {
         context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
+        // Plugin state roots (Spec §15.4) — let `PluginAskUserQuestionRoundTripScenario`
+        // and `PluginResponseRequestScenario` read back the response files that
+        // `EchoSidecar.handleDeliverResponse` writes into the per-plugin state dir
+        // without hard-coding `NSTemporaryDirectory()` paths in every scenario.
+        context.set("gallagerStateRoot", value: gallagerStateRoot(for: 0))
+        context.set("echoStateDir", value: gallagerStateRoot(for: 0) + "/state/plugins/echo")
+        context.set("echoResponsesDir", value: gallagerStateRoot(for: 0) + "/state/plugins/echo/responses")
 
         // Clear any leftover fake-editor log from a previous run so scenario
         // assertions don't see stale entries.
