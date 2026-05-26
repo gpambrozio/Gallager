@@ -138,6 +138,22 @@ struct TmuxPaneMirrorApp: App {
                 defaultBrowserLogPath = nil
             }
 
+            // E2E test support: redirect plugin state root (per Spec §15.4 /
+            // Task 22). Per-scenario temp dir so concurrent test instances
+            // don't share `registry.json`, per-plugin state dirs, ingress
+            // sockets, etc. Bundled plugins still come from the .app's
+            // Resources/plugins/ regardless of this override.
+            let gallagerStateRoot: URL? = {
+                guard
+                    let idx = CommandLine.arguments.firstIndex(of: "--gallager-state-root"),
+                    idx + 1 < CommandLine.arguments.count
+                else { return nil }
+                return URL(
+                    fileURLWithPath: CommandLine.arguments[idx + 1],
+                    isDirectory: true
+                )
+            }()
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -289,6 +305,18 @@ struct TmuxPaneMirrorApp: App {
                 if let defaultBrowserLogPath {
                     try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
                     $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
+                if let gallagerStateRoot {
+                    // Make sure the directory exists before downstream code
+                    // tries to write registry.json / state dirs into it.
+                    try? FileManager.default.createDirectory(
+                        at: gallagerStateRoot,
+                        withIntermediateDirectories: true
+                    )
+                    $0[PluginRootLayout.self] = .live(
+                        rootOverride: gallagerStateRoot,
+                        bundledOverride: nil
+                    )
                 }
             }
 

@@ -1489,7 +1489,11 @@
         /// Runs BEFORE `setupPluginManager()` so the first `apply_settings`
         /// call to either sidecar already sees the migrated value.
         private func runPluginSettingsMigration() async {
-            let layout = PluginRootLayout.live(rootOverride: nil, bundledOverride: nil)
+            // Read the layout via the dependency so the `--gallager-state-root`
+            // override (Task 22) is honored — the migration must scribble
+            // settings under the same per-scenario temp dir the plugin runtime
+            // will read from a moment later in `setupPluginManager`.
+            @Dependency(PluginRootLayout.self) var layout
             let migration = PluginSettingsMigration(layout: layout)
             do {
                 try await migration.runIfNeeded()
@@ -1532,7 +1536,10 @@
             pluginNotificationBridge = notifBridge
             pluginResponseRequestRouter = responseRouter
 
-            let layout = PluginRootLayout.live(rootOverride: nil, bundledOverride: nil)
+            // Read via the dependency so `--gallager-state-root` (Task 22)
+            // redirects the entire per-plugin state tree to a per-scenario
+            // temp dir during E2E.
+            @Dependency(PluginRootLayout.self) var layout
             let appVersion = Bundle.main
                 .infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0"
 
