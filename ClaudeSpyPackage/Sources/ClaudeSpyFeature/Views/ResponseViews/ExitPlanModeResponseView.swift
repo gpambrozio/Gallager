@@ -2,52 +2,44 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-// MARK: - Exit Plan Mode Response View
-
-/// Response view for ExitPlanMode that displays the plan and requested permissions.
+/// Plan approval form. Renders the plan text from the sidecar; if
+/// `request.allowEdit` is `true`, exposes an editable text area so the user
+/// can tweak the plan before approving. On submit, emits
+/// `ApprovePlanResponse` — sidecar applies the agent-specific delivery.
 struct ExitPlanModeResponseView: View {
-    let params: ExitPlanModeParameters
+    let hostID: String
+    let sessionID: String
+    let pluginID: String
+    let requestID: String
+    let request: ApprovePlanRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
-    let state: ResponseState
+    let submitter: AgentResponseSubmitter
 
     @State private var isPlanExpanded = true
+    @State private var editedPlan = ""
+    @State private var isSending = false
+    @State private var feedback: Feedback?
+
+    private enum Feedback: Equatable {
+        case approved
+        case rejected
+    }
+
+    private var canEdit: Bool { request.allowEdit }
 
     var body: some View {
-        if let response = state.response {
-            if case .rejected = response {
-                VStack(spacing: 12) {
-                    responseFeedback(response)
-                    PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
-                }
-            } else {
-                responseFeedback(response)
-            }
+        if let feedback {
+            feedbackRow(feedback)
         } else {
             planContent
+                .task {
+                    if editedPlan.isEmpty { editedPlan = request.plan }
+                }
         }
     }
-
-    // MARK: - Response Feedback
-
-    private func responseFeedback(_ response: ResponseType) -> some View {
-        HStack {
-            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
-                .foregroundStyle(response.feedbackColor)
-            Text(response.feedbackMessage)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .font(.subheadline)
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Plan Content
 
     private var planContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack {
                 Symbols.listBulletClipboard.image
                     .foregroundStyle(.blue)
@@ -56,20 +48,11 @@ struct ExitPlanModeResponseView: View {
                 Spacer()
             }
 
-            // Allowed Prompts section
-            if let prompts = params.allowedPrompts, !prompts.isEmpty {
-                allowedPromptsSection(prompts)
-            }
+            planSection
 
-            // Plan section (collapsible)
-            if let plan = params.plan, !plan.isEmpty {
-                planSection(plan)
-            }
-
-            // Action buttons
             actionButtons
 
-            if state.isSending {
+            if isSending {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -84,42 +67,7 @@ struct ExitPlanModeResponseView: View {
         .padding(.vertical, 4)
     }
 
-    // MARK: - Allowed Prompts
-
-    private func allowedPromptsSection(_ prompts: [ExitPlanModeParameters.AllowedPrompt]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Requested Permissions")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ForEach(Array(prompts.enumerated()), id: \.offset) { _, prompt in
-                promptRow(prompt)
-            }
-        }
-    }
-
-    private func promptRow(_ prompt: ExitPlanModeParameters.AllowedPrompt) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(prompt.tool)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(.orange))
-
-            Text(prompt.prompt)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-
-            Spacer()
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
-    }
-
-    // MARK: - Plan Section
-
-    private func planSection(_ plan: String) -> some View {
+    private var planSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -127,7 +75,7 @@ struct ExitPlanModeResponseView: View {
                 }
             } label: {
                 HStack {
-                    Text("Implementation Plan")
+                    Text(canEdit ? "Implementation Plan (editable)" : "Implementation Plan")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
 
@@ -141,29 +89,32 @@ struct ExitPlanModeResponseView: View {
             .buttonStyle(.plain)
 
             if isPlanExpanded {
-                ScrollView {
-                    Text(plan)
+                if canEdit {
+                    TextEditor(text: $editedPlan)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+                        .frame(minHeight: 200, maxHeight: 400)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
+                } else {
+                    ScrollView {
+                        Text(request.plan)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 300)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
                 }
-                .frame(maxHeight: 300)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
             }
         }
     }
 
-    // MARK: - Action Buttons
-
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            // Reject button
             Button {
-                Task {
-                    await rejectPlan()
-                }
+                submit(decision: .reject)
             } label: {
                 Label("Reject", symbol: .xmarkCircleFill)
                     .frame(maxWidth: .infinity)
@@ -171,13 +122,10 @@ struct ExitPlanModeResponseView: View {
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.red)
-            .disabled(!isConnected || state.isSending)
+            .disabled(!isConnected || isSending)
 
-            // Approve button
             Button {
-                Task {
-                    await approvePlan()
-                }
+                submit(decision: .approve)
             } label: {
                 Label("Approve", symbol: .checkmarkCircleFill)
                     .frame(maxWidth: .infinity)
@@ -185,122 +133,114 @@ struct ExitPlanModeResponseView: View {
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.green)
-            .disabled(!isConnected || state.isSending)
+            .disabled(!isConnected || isSending)
         }
     }
 
-    // MARK: - Actions
-
-    private func approvePlan() async {
-        state.isSending = true
-        // Send "3" to approve the plan
-        await sendCommand(.sendKeystroke([.text("3")]))
-        state.isSending = false
-        state.response = .accepted
+    private func feedbackRow(_ feedback: Feedback) -> some View {
+        HStack {
+            switch feedback {
+            case .approved:
+                Symbols.checkmarkCircleFill.image
+                    .foregroundStyle(.green)
+                Text("Plan approved")
+                    .foregroundStyle(.secondary)
+            case .rejected:
+                Symbols.xmarkCircleFill.image
+                    .foregroundStyle(.red)
+                Text("Plan rejected")
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
     }
 
-    private func rejectPlan() async {
-        state.isSending = true
-        // Send Escape to reject
-        await sendCommand(.sendKeystroke([.escape]))
-        state.isSending = false
-        state.response = .rejected
-    }
-}
+    // MARK: - Submit
 
-// MARK: - Preview Helpers
+    private func submit(decision: ApprovePlanResponse.Decision) {
+        isSending = true
 
-extension ExitPlanModeParameters {
-    static var preview: ExitPlanModeParameters {
-        ExitPlanModeParameters(
-            plan: """
-            # Implementation Plan
+        // Per Spec §7.2.1, `editedPlan` is only present when `allowEdit` is
+        // true AND the user actually changed the plan. On reject, never send
+        // the edited plan — the sidecar would have no use for it.
+        let edited: String?
+        if decision == .approve, canEdit, editedPlan != request.plan {
+            edited = editedPlan
+        } else {
+            edited = nil
+        }
 
-            ## Summary
-            Implement a new feature for user authentication.
-
-            ## Steps
-            1. Add login screen
-            2. Implement OAuth flow
-            3. Store tokens securely
-            4. Add logout functionality
-
-            ## Files to modify
-            - `AuthService.swift`
-            - `LoginView.swift`
-            - `AppCoordinator.swift`
-            """,
-            allowedPrompts: [
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "build iOS target"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "run tests"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "install dependencies"),
-            ]
-        )
-    }
-
-    static var previewPromptsOnly: ExitPlanModeParameters {
-        ExitPlanModeParameters(
-            plan: nil,
-            allowedPrompts: [
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "build the project"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "run unit tests"),
-            ]
-        )
+        Task {
+            await submitter.submit(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: requestID,
+                response: .approvePlan(
+                    ApprovePlanResponse(decision: decision, editedPlan: edited)
+                )
+            )
+            isSending = false
+            feedback = decision == .approve ? .approved : .rejected
+        }
     }
 }
 
 // MARK: - Previews
 
-#Preview("Exit Plan Mode") {
-    let params = ExitPlanModeParameters.preview
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "ExitPlanMode",
-            toolInput: .exitPlanMode(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
+#Preview("Exit Plan Mode - read-only") {
+    NavigationStack {
         List {
             Section("Plan Approval") {
                 ExitPlanModeResponseView(
-                    params: params,
+                    hostID: "host",
+                    sessionID: "session",
+                    pluginID: "claude-code",
+                    requestID: "req-1",
+                    request: ApprovePlanRequest(
+                        plan: """
+                        # Implementation Plan
+
+                        ## Summary
+                        Add a login screen and OAuth flow.
+
+                        ## Steps
+                        1. Add login screen
+                        2. Implement OAuth flow
+                        3. Store tokens in Keychain
+                        4. Add logout functionality
+                        """,
+                        allowEdit: false
+                    ),
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
+                    submitter: PreviewAgentResponseSubmitter()
                 )
             }
         }
     }
 }
 
-#Preview("Exit Plan Mode - Prompts Only") {
-    let params = ExitPlanModeParameters.previewPromptsOnly
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "ExitPlanMode",
-            toolInput: .exitPlanMode(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
+#Preview("Exit Plan Mode - editable") {
+    NavigationStack {
         List {
             Section("Plan Approval") {
                 ExitPlanModeResponseView(
-                    params: params,
+                    hostID: "host",
+                    sessionID: "session",
+                    pluginID: "claude-code",
+                    requestID: "req-1",
+                    request: ApprovePlanRequest(
+                        plan: """
+                        # Implementation Plan
+                        1. Add login screen
+                        2. Implement OAuth flow
+                        """,
+                        allowEdit: true
+                    ),
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
+                    submitter: PreviewAgentResponseSubmitter()
                 )
             }
         }

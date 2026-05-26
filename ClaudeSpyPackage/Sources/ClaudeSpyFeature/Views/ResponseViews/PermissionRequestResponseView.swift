@@ -2,121 +2,56 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-// MARK: - Permission UI Extensions
-
-extension PermissionDestination {
-    /// Badge text for UI display
-    var badgeText: String {
-        switch self {
-        case .session: "THIS SESSION"
-        case .localSettings: "ALWAYS"
-        case let .other(val): val.uppercased()
-        }
-    }
-
-    /// Badge color for UI display
-    var badgeColor: Color {
-        switch self {
-        case .session: .blue
-        case .localSettings: .orange
-        case .other: .gray
-        }
-    }
-}
-
-extension PermissionSuggestion {
-    /// Human-readable description of the suggestion
-    var humanReadableDescription: String {
-        switch (type, destination) {
-        case (.addRules, .session):
-            "Allow for this session"
-        case (.addRules, .localSettings):
-            "Remember and always allow"
-        case (.addDirectories, .session):
-            "Allow directory for this session"
-        case (.addDirectories, .localSettings):
-            "Remember and always allow directory"
-        case (.setMode, .session):
-            "Set mode for this session"
-        case (.setMode, .localSettings):
-            "Save mode to settings"
-        default:
-            [type?.displayName, "for", destination?.stringValue.lowercased()]
-                .compactMap { $0 }
-                .joined(separator: " ")
-        }
-    }
-}
-
-// MARK: - Permission Request Response View
-
-/// Accept/Reject buttons with permission suggestions for permission requests.
+/// Permission approval form. Shows the plain-text description rendered by the
+/// plugin sidecar and renders one button per `PermissionRequest.Suggestion`
+/// plus a hard "Deny" button.
+///
+/// Allow buttons emit `.permission(.allow, appliedSuggestionId: <id>)`. The
+/// "Deny" button emits `.permission(.deny, appliedSuggestionId: nil)`. iOS
+/// never knows what the suggestion means — it round-trips the `id` back to the
+/// sidecar, which applies the agent-specific behavior.
 struct PermissionRequestResponseView: View {
-    let request: PermissionRequestBody
+    let hostID: String
+    let sessionID: String
+    let pluginID: String
+    let requestID: String
+    let request: PermissionRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
-    let state: ResponseState
+    let submitter: AgentResponseSubmitter
 
-    @State private var customInstructions = ""
-    @FocusState private var isTextFieldFocused: Bool
+    @State private var isSending = false
+    @State private var feedback: Feedback?
 
-    private var suggestions: [PermissionSuggestion] {
-        request.permissionSuggestions ?? []
-    }
-
-    private var isInputEmpty: Bool {
-        customInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private enum Feedback: Equatable {
+        case allowed(suggestionID: String?)
+        case denied
     }
 
     var body: some View {
-        if let response = state.response {
-            if case .rejected = response {
-                VStack(spacing: 12) {
-                    responseFeedback(response)
-                    PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
-                }
-            } else {
-                responseFeedback(response)
-            }
+        if let feedback {
+            feedbackRow(feedback)
         } else {
             permissionContent
         }
     }
 
-    private func responseFeedback(_ response: ResponseType) -> some View {
-        HStack {
-            (
-                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
-            )
-            .foregroundStyle(response.feedbackColor)
-            Text(response.feedbackMessage)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .font(.subheadline)
-        .padding(.vertical, 4)
-    }
-
     // MARK: - Permission Content
 
     private var permissionContent: some View {
-        VStack(spacing: 12) {
-            // Tool request card
+        VStack(alignment: .leading, spacing: 12) {
             toolRequestCard
 
-            // Side-by-side action buttons
+            descriptionCard
+
+            // Side-by-side Allow / Deny default actions.
             actionButtonRow
 
-            // Permission suggestions card (if any)
-            if !suggestions.isEmpty {
-                suggestionCard
+            // Per-suggestion buttons (e.g. "Always allow", "Allow once").
+            if !request.suggestions.isEmpty {
+                suggestionStack
             }
 
-            // Custom instructions
-            customInstructionsSection
-
-            if state.isSending {
+            if isSending {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -124,13 +59,9 @@ struct PermissionRequestResponseView: View {
         .padding(.vertical, 4)
     }
 
-    // MARK: - Tool Request Card
-
     private var toolRequestCard: some View {
         Group {
-            if let tool = request.toolInput {
-                ToolInputView(tool: tool)
-            } else if let toolName = request.toolName {
+            if let toolName = request.toolName {
                 HStack {
                     Text("Tool:")
                         .foregroundStyle(.secondary)
@@ -146,47 +77,51 @@ struct PermissionRequestResponseView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.1)))
     }
 
-    // MARK: - Action Buttons
+    private var descriptionCard: some View {
+        Text(request.description)
+            .font(.callout)
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.05)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+            )
+            .textSelection(.enabled)
+    }
 
     private var actionButtonRow: some View {
         HStack(spacing: 12) {
-            // Reject button (left)
+            // Deny (left).
             Button {
-                Task {
-                    await sendCommand(.sendKeystroke([.escape]))
-                    state.response = .rejected
-                }
+                submit(decision: .deny, suggestionID: nil)
             } label: {
-                Label("Reject", symbol: .xmarkCircleFill)
+                Label("Deny", symbol: .xmarkCircleFill)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.red)
-            .disabled(!isConnected || state.isSending)
+            .disabled(!isConnected || isSending)
 
-            // Accept button (right)
+            // Allow (right). Submits with no specific suggestion id; the
+            // sidecar decides the agent-side mapping for "plain allow".
             Button {
-                Task {
-                    await sendCommand(.sendKeystroke([.text("1")]))
-                    state.response = .accepted
-                }
+                submit(decision: .allow, suggestionID: nil)
             } label: {
-                Label("Accept", symbol: .checkmarkCircleFill)
+                Label("Allow", symbol: .checkmarkCircleFill)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .tint(.green)
-            .disabled(!isConnected || state.isSending)
+            .disabled(!isConnected || isSending)
         }
     }
 
-    // MARK: - Suggestion Card
-
-    private var suggestionCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
+    private var suggestionStack: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Symbols.lockFill.image
                     .foregroundStyle(.blue)
@@ -195,27 +130,32 @@ struct PermissionRequestResponseView: View {
                 Spacer()
             }
 
-            // Suggestions list (group by destination - only show header for first in each group)
-            ForEach(Array(suggestions.enumerated()), id: \.offset) { index, suggestion in
-                let previousDestination = index > 0 ? suggestions[index - 1].destination : nil
-                let showHeader = suggestion.destination != previousDestination
-                SuggestionRow(suggestion: suggestion, showHeader: showHeader)
-            }
-
-            // Accept with suggestion button
-            Button {
-                Task {
-                    await sendCommand(.sendKeystroke([.text("2")]))
-                    state.response = .acceptedWithSuggestion
-                }
-            } label: {
-                Text("Accept with Rule")
+            ForEach(request.suggestions, id: \.id) { suggestion in
+                Button {
+                    submit(decision: .allow, suggestionID: suggestion.id)
+                } label: {
+                    HStack(spacing: 8) {
+                        if let badge = suggestion.badge {
+                            Text(badge.uppercased())
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.blue))
+                        }
+                        Text(suggestion.label)
+                            .font(.subheadline)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    .padding(12)
                     .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .tint(.blue)
+                .disabled(!isConnected || isSending)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.roundedRectangle(radius: 12))
-            .tint(.blue)
-            .disabled(!isConnected || state.isSending)
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.05)))
@@ -225,441 +165,102 @@ struct PermissionRequestResponseView: View {
         )
     }
 
-    // MARK: - Custom Instructions
+    // MARK: - Feedback
 
-    private var customInstructionsSection: some View {
-        VStack(spacing: 8) {
-            TextField("Custom instructions...", text: $customInstructions, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(2...4)
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                )
-                .focused($isTextFieldFocused)
-                .disabled(state.isSending || !isConnected)
-
-            if !isInputEmpty {
-                HStack {
-                    Spacer()
-                    Button {
-                        Task {
-                            await sendCustomInstructions()
-                        }
-                    } label: {
-                        Text("Send")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isInputEmpty || state.isSending || !isConnected)
-                }
-            }
-        }
-    }
-
-    private func sendCustomInstructions() async {
-        let trimmed = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let optionNumber = suggestions.isEmpty ? 2 : 3
-        state.isSending = true
-        await sendCommand(.sendKeystroke([.text("\(optionNumber)"), .text(trimmed), .enter]))
-        let sentText = customInstructions
-        customInstructions = ""
-        state.isSending = false
-        state.response = .customInstructions(sentText)
-    }
-}
-
-// MARK: - Suggestion Row
-
-private struct SuggestionRow: View {
-    let suggestion: PermissionSuggestion
-    var showHeader = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Destination badge + description (only shown for first in each destination group)
-            if showHeader {
-                HStack(spacing: 8) {
-                    if let destination = suggestion.destination {
-                        DestinationBadge(destination: destination)
-                    }
-                    Text(suggestion.humanReadableDescription)
-                        .font(.subheadline)
-                    Spacer()
-                }
-            }
-
-            // Rules (always shown)
-            if let rules = suggestion.rules, !rules.isEmpty {
-                ForEach(Array(rules.enumerated()), id: \.offset) { _, rule in
-                    RuleRow(rule: rule)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Destination Badge
-
-private struct DestinationBadge: View {
-    let destination: PermissionDestination
-
-    var body: some View {
-        Text(destination.badgeText)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(destination.badgeColor))
-    }
-}
-
-// MARK: - Rule Row
-
-private struct RuleRow: View {
-    let rule: PermissionRule
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let toolName = rule.toolName {
-                Text(toolName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.blue)
-            }
-            if let content = rule.ruleContent {
-                Text(content)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.primary)
+    private func feedbackRow(_ feedback: Feedback) -> some View {
+        HStack {
+            switch feedback {
+            case .allowed:
+                Symbols.checkmarkCircleFill.image
+                    .foregroundStyle(.green)
+                Text("Allowed")
+                    .foregroundStyle(.secondary)
+            case .denied:
+                Symbols.xmarkCircleFill.image
+                    .foregroundStyle(.red)
+                Text("Denied")
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 8)
+        .font(.subheadline)
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 4).fill(Color.gray.opacity(0.1)))
-    }
-}
-
-// MARK: - Tool Input View
-
-struct ToolInputView: View {
-    let tool: ClaudeCodeTool
-
-    var body: some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 6) {
-            switch tool {
-            case let .read(params):
-                headerRow("Read File")
-                detailRow("File:", params.filePath)
-                if let offset = params.offset {
-                    detailRow("Starting at line:", "\(offset)")
-                }
-                if let limit = params.limit {
-                    detailRow("Reading:", "\(limit) lines")
-                }
-
-            case let .edit(params):
-                headerRow("Edit File")
-                detailRow("File:", params.filePath)
-                detailRow("Replacing:", params.oldString, maxLines: 2)
-                detailRow("With:", params.newString, maxLines: 2)
-                if let replaceAll = params.replaceAll, replaceAll {
-                    detailRow("Mode:", "Replace all occurrences")
-                }
-
-            case let .write(params):
-                headerRow("Write File")
-                detailRow("File:", params.filePath)
-                detailRow("Content length:", "\(params.content.count) characters")
-
-            case let .grep(params):
-                headerRow("Search with Grep")
-                detailRow("Pattern:", params.pattern)
-                if let path = params.path {
-                    detailRow("In:", path)
-                }
-                if let glob = params.glob {
-                    detailRow("Files:", glob)
-                }
-                if let mode = params.outputMode {
-                    detailRow("Mode:", mode.rawValue.replacingOccurrences(of: "_", with: " "))
-                }
-
-            case let .glob(params):
-                headerRow("Find Files")
-                detailRow("Pattern:", params.pattern)
-                if let path = params.path {
-                    detailRow("In:", path)
-                }
-
-            case let .bash(params):
-                headerRow("Run Command")
-                detailRow("Command:", params.command, maxLines: 3)
-                if let desc = params.description {
-                    detailRow("Description:", desc, maxLines: 3)
-                }
-
-            case let .agent(params):
-                headerRow("Run Agent")
-                detailRow("Type:", params.subagentType)
-                detailRow("Task:", params.description)
-                if let model = params.model {
-                    detailRow("Model:", model.displayName)
-                }
-
-            case let .todoWrite(params):
-                headerRow("Manage Todo List")
-                detailRow("Managing:", "\(params.todos.count) todo items")
-
-            case let .exitPlanMode(params):
-                headerRow("Exit Plan Mode")
-                if let prompts = params.allowedPrompts {
-                    detailRow("Permissions:", "\(prompts.count) requested")
-                }
-                if params.plan != nil {
-                    detailRow("Plan:", "Included")
-                }
-
-            case let .webFetch(params):
-                headerRow("Fetch Web Page")
-                detailRow("URL:", params.url)
-                detailRow("Purpose:", params.prompt, maxLines: 2)
-
-            case let .webSearch(params):
-                headerRow("Search the Web")
-                detailRow("Query:", params.query)
-                if let allowed = params.allowedDomains, !allowed.isEmpty {
-                    detailRow("Allowed domains:", allowed.joined(separator: ", "))
-                }
-                if let blocked = params.blockedDomains, !blocked.isEmpty {
-                    detailRow("Blocked domains:", blocked.joined(separator: ", "))
-                }
-
-            case let .notebookEdit(params):
-                headerRow("Edit Jupyter Notebook")
-                detailRow("Notebook:", params.notebookPath)
-                if let cellId = params.cellId {
-                    detailRow("Cell ID:", cellId)
-                }
-                if let cellType = params.cellType {
-                    detailRow("Cell type:", cellType.rawValue)
-                }
-                if let mode = params.editMode {
-                    detailRow("Mode:", mode.rawValue)
-                }
-
-            case let .skill(params):
-                headerRow("Run Skill")
-                detailRow("Skill:", params.skill)
-                if let args = params.args {
-                    detailRow("Arguments:", args)
-                }
-
-            case let .toolSearch(params):
-                headerRow("Search Tools")
-                detailRow("Query:", params.query)
-                if let maxResults = params.maxResults {
-                    detailRow("Max results:", "\(maxResults)")
-                }
-
-            case let .askUserQuestion(params):
-                headerRow("Ask User Questions")
-                detailRow("Questions:", "\(params.questions.count)")
-                ForEach(Array(params.questions.enumerated()), id: \.offset) { index, question in
-                    detailRow("\(index + 1).", question.question, maxLines: 2)
-                }
-
-            case let .monitor(params):
-                headerRow("Monitor Command")
-                detailRow("Command:", params.command, maxLines: 3)
-                detailRow("Description:", params.description, maxLines: 3)
-                if let timeout = params.timeoutMs {
-                    detailRow("Timeout:", "\(timeout) ms")
-                }
-                if let persistent = params.persistent, persistent {
-                    detailRow("Mode:", "Persistent")
-                }
-
-            case let .taskOutput(params):
-                headerRow("Get Task Output")
-                detailRow("Task ID:", params.taskId)
-                detailRow("Block:", params.block ? "Yes" : "No")
-                detailRow("Timeout:", "\(params.timeout)")
-
-            case let .taskStop(params):
-                headerRow("Stop Task")
-                if let taskId = params.taskId {
-                    detailRow("Task ID:", taskId)
-                }
-                if let shellId = params.shellId {
-                    detailRow("Shell ID:", shellId)
-                }
-
-            case let .enterWorktree(params):
-                headerRow("Enter Worktree")
-                if let name = params.name {
-                    detailRow("Name:", name)
-                }
-                if let path = params.path {
-                    detailRow("Path:", path)
-                }
-
-            case let .listMcpResources(params):
-                headerRow("List MCP Resources")
-                if let server = params.server {
-                    detailRow("Server:", server)
-                }
-
-            case let .readMcpResource(params):
-                headerRow("Read MCP Resource")
-                detailRow("Server:", params.server)
-                detailRow("URI:", params.uri)
-
-            case let .mcp(params):
-                headerRow("MCP Tool")
-                detailRow("Server:", params.server)
-                detailRow("Tool:", params.tool)
-
-            case let .other(name, _):
-                headerRow(name)
-            }
-        }
-        .font(.headline)
     }
 
-    private func headerRow(_ text: String) -> some View {
-        GridRow {
-            Text(text)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.blue.opacity(0.15)))
-                .gridCellColumns(2)
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
-    }
+    // MARK: - Actions
 
-    private func detailRow(_ label: String, _ value: String, maxLines: Int = 1) -> some View {
-        GridRow {
-            Text(label)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .gridColumnAlignment(.trailing)
-            Text(value)
-                .font(.callout)
-                .fontWeight(.medium)
-                .multilineTextAlignment(.leading)
-                .lineLimit(maxLines)
-                .truncationMode(.tail)
-                .fixedSize(horizontal: false, vertical: true)
-                .gridColumnAlignment(.leading)
-        }
-    }
-}
+    private func submit(decision: PermissionResponse.Decision, suggestionID: String?) {
+        isSending = true
 
-// MARK: - Preview Helpers
-
-extension PermissionRequestBody {
-    static var preview: PermissionRequestBody {
-        PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "Bash",
-            toolInput: .bash(
-                .init(
-                    command: "swift compile --verbose --enable-testing",
-                    description: "Compile your code"
+        Task {
+            await submitter.submit(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: requestID,
+                response: .permission(
+                    PermissionResponse(decision: decision, appliedSuggestionId: suggestionID)
                 )
             )
-        )
-    }
-
-    static var previewWithSuggestions: PermissionRequestBody {
-        PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "Bash",
-            toolInput: .bash(
-                .init(
-                    command: "git status",
-                    description: "Check git status"
-                )
-            ),
-            permissionSuggestions: [
-                // Two session-scoped suggestions (badge shown only on first)
-                PermissionSuggestion(
-                    type: .addRules,
-                    rules: [
-                        PermissionRule(toolName: "Bash", ruleContent: "git status"),
-                    ],
-                    behavior: .allow,
-                    destination: .session
-                ),
-                PermissionSuggestion(
-                    type: .addRules,
-                    rules: [
-                        PermissionRule(toolName: "Bash", ruleContent: "git diff"),
-                    ],
-                    behavior: .allow,
-                    destination: .session
-                ),
-                // Different destination - badge shown again
-                PermissionSuggestion(
-                    type: .addRules,
-                    rules: [
-                        PermissionRule(toolName: "Bash", ruleContent: "git *"),
-                    ],
-                    behavior: .allow,
-                    destination: .localSettings
-                ),
-            ]
-        )
+            isSending = false
+            feedback = decision == .allow ? .allowed(suggestionID: suggestionID) : .denied
+        }
     }
 }
 
 // MARK: - Previews
 
-#Preview("Permission Request") {
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody.preview),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
+#Preview("Permission Request - no suggestions") {
+    NavigationStack {
         List {
             Section("Response") {
                 PermissionRequestResponseView(
-                    request: PermissionRequestBody.preview,
+                    hostID: "host",
+                    sessionID: "session",
+                    pluginID: "claude-code",
+                    requestID: "req-1",
+                    request: PermissionRequest(
+                        toolName: "Bash",
+                        description: "Run `swift compile --verbose --enable-testing` to compile the project.",
+                        suggestions: [],
+                        isAutoApprovable: false
+                    ),
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
+                    submitter: PreviewAgentResponseSubmitter()
                 )
             }
         }
     }
 }
 
-#Preview("Permission Request with Suggestions") {
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody.previewWithSuggestions),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
+#Preview("Permission Request - with suggestions") {
+    NavigationStack {
         List {
             Section("Response") {
                 PermissionRequestResponseView(
-                    request: PermissionRequestBody.previewWithSuggestions,
+                    hostID: "host",
+                    sessionID: "session",
+                    pluginID: "claude-code",
+                    requestID: "req-1",
+                    request: PermissionRequest(
+                        toolName: "Bash",
+                        description: "Run `git status` to check the current branch state.",
+                        suggestions: [
+                            PermissionRequest.Suggestion(
+                                id: "session-once",
+                                label: "Allow once",
+                                badge: "THIS SESSION"
+                            ),
+                            PermissionRequest.Suggestion(
+                                id: "always",
+                                label: "Always allow `git status`",
+                                badge: "ALWAYS"
+                            ),
+                        ],
+                        isAutoApprovable: false
+                    ),
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
+                    submitter: PreviewAgentResponseSubmitter()
                 )
             }
         }

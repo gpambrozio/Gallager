@@ -15,8 +15,15 @@
     struct LiveTerminalView: View {
         let paneId: String
 
-        /// Binding to the response state for displaying response options above the terminal
-        @Binding var responseState: ResponseState?
+        /// The open response request for this pane's session, if any.
+        /// When set, the matching response form is rendered above the terminal.
+        /// `nil` when the session has no outstanding ask (or this is a plain
+        /// terminal with no agent session at all).
+        let openResponseRequest: OpenResponseRequest?
+
+        /// Submitter that ships the user's answer back to the Mac.
+        /// Required when `openResponseRequest` is non-nil.
+        let responseSubmitter: AgentResponseSubmitter?
 
         /// Binding to the terminal title detected via OSC escape sequences
         @Binding var terminalTitle: String?
@@ -26,9 +33,6 @@
 
         /// Whether the host is connected
         let isConnected: Bool
-
-        /// Whether yolo mode is enabled for this pane
-        let isYoloMode: Bool
 
         /// Whether the navigation bar is hidden (show overlay keyboard button)
         let hideNavigationBar: Bool
@@ -42,9 +46,6 @@
         /// Used in multi-pane layouts where only the selected pane accepts input.
         let isActive: Bool
 
-        /// Command sender for response actions
-        let sendCommand: CommandSender
-
         @Environment(ViewerRelayClient.self) private var relayClient
         @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
@@ -57,27 +58,25 @@
 
         init(
             paneId: String,
-            responseState: Binding<ResponseState?>,
+            openResponseRequest: OpenResponseRequest? = nil,
+            responseSubmitter: AgentResponseSubmitter? = nil,
             terminalTitle: Binding<String?>,
             clipboardContent: Binding<String?> = .constant(nil),
             isConnected: Bool,
-            isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
             showKeyboardButton: Bool = true,
             isActive: Bool = true,
-            settings: IOSSettings,
-            sendCommand: @escaping CommandSender
+            settings: IOSSettings
         ) {
             self.paneId = paneId
-            self._responseState = responseState
+            self.openResponseRequest = openResponseRequest
+            self.responseSubmitter = responseSubmitter
             self._terminalTitle = terminalTitle
             self._clipboardContent = clipboardContent
             self.isConnected = isConnected
-            self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
             self.isActive = isActive
-            self.sendCommand = sendCommand
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
                 fontName: settings.terminalFontName,
@@ -87,25 +86,24 @@
 
         var body: some View {
             VStack(spacing: 0) {
-                // Response view above terminal (hidden when terminal keyboard is active)
-                // We use isInteractive (explicit terminal input mode) rather than keyboardVisible
-                // to avoid hiding when response view's own TextField activates the keyboard
+                // Response form above terminal (hidden when the terminal keyboard
+                // is active). We use isInteractive (explicit terminal input mode)
+                // rather than keyboardVisible so the response view's own
+                // TextField can take focus without collapsing the form.
                 if
                     !isInteractive,
-                    let responseState,
-                    let responseView = responseState.event.responseView(
-                        isYoloMode: isYoloMode,
+                    let openResponseRequest,
+                    let responseSubmitter {
+                    openResponseRequest.responseView(
                         isConnected: isConnected,
-                        sendCommand: sendCommand,
-                        state: responseState
-                    ) {
-                    responseView
-                        .padding()
-                        .background(Color(.systemGroupedBackground))
-                        // Force a fresh view identity per event so per-event
-                        // @State (e.g. AskUserQuestion's collected answers) is
-                        // discarded when a new hook event replaces the prior one.
-                        .id(responseState.event.id)
+                        submitter: responseSubmitter
+                    )
+                    .padding()
+                    .background(Color(.systemGroupedBackground))
+                    // Force a fresh view identity per request so per-form
+                    // @State (e.g. AskUserQuestion's collected answers) is
+                    // discarded when a new request replaces the prior one.
+                    .id(openResponseRequest.id)
 
                     Divider()
                 }
@@ -672,11 +670,9 @@
         NavigationStack {
             LiveTerminalView(
                 paneId: "%1",
-                responseState: .init(get: { nil }, set: { _ in }),
                 terminalTitle: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
-                settings: settings,
-                sendCommand: { _ in }
+                settings: settings
             )
         }
         .environment(ViewerRelayClient())

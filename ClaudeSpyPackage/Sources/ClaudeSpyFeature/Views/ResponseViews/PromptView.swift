@@ -2,28 +2,41 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Text input view for sending messages to Claude.
+/// Free-text prompt input for sending a message to the agent. Renders the
+/// placeholder copy supplied by the plugin sidecar and emits a
+/// `PromptResponse` envelope on submit; the sidecar translates the structured
+/// response into the agent-specific delivery (keystrokes, JSON-RPC, ...).
 struct PromptView: View {
+    let hostID: String
+    let sessionID: String
+    let pluginID: String
+    let requestID: String
+    let request: PromptRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
-    let state: ResponseState
+    let submitter: AgentResponseSubmitter
 
     @State private var inputText = ""
+    @State private var isSending = false
+    @State private var hasSubmitted = false
     @FocusState private var isTextFieldFocused: Bool
+
+    private var placeholder: String {
+        request.placeholder ?? "Send a message..."
+    }
 
     private var isInputEmpty: Bool {
         inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
-        if let response = state.response {
-            responseFeedback(response)
+        if hasSubmitted {
+            submittedFeedback
         } else {
             textField
                 .padding(.vertical, 8)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        if state.isSending {
+                        if isSending {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
@@ -38,33 +51,28 @@ struct PromptView: View {
     }
 
     private var textField: some View {
-        TextField("Send a message to Claude...", text: $inputText, axis: .vertical)
+        TextField(placeholder, text: $inputText, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(3...6)
             .padding(12)
-            .background(textFieldBackground)
-            .overlay(textFieldBorder)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+            )
             .focused($isTextFieldFocused)
-            .disabled(state.isSending || !isConnected)
-            .accessibilityLabel("Send a message to Claude")
+            .disabled(isSending || !isConnected)
+            .accessibilityLabel(placeholder)
     }
 
-    private var textFieldBackground: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.gray.opacity(0.1))
-    }
-
-    private var textFieldBorder: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-    }
-
-    private func responseFeedback(_ response: ResponseType) -> some View {
+    private var submittedFeedback: some View {
         HStack {
-            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
-                .foregroundStyle(response.feedbackColor)
-            Text(response.feedbackMessage)
+            Symbols.arrowUpCircleFill.image
+                .foregroundStyle(.blue)
+            Text("Prompt submitted")
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -76,13 +84,19 @@ struct PromptView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        state.isSending = true
+        isSending = true
 
         Task {
-            await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
+            await submitter.submit(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: requestID,
+                response: .prompt(PromptResponse(text: trimmed))
+            )
             inputText = ""
-            state.isSending = false
-            state.response = .promptSubmitted
+            isSending = false
+            hasSubmitted = true
         }
     }
 }
@@ -90,22 +104,36 @@ struct PromptView: View {
 // MARK: - Preview
 
 #Preview("Prompt View") {
-    let event = HookEvent(
-        action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
+    NavigationStack {
         List {
             Section("Response") {
                 PromptView(
+                    hostID: "host",
+                    sessionID: "session",
+                    pluginID: "claude-code",
+                    requestID: "req-1",
+                    request: PromptRequest(placeholder: "Send a message to Claude..."),
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
+                    submitter: PreviewAgentResponseSubmitter()
                 )
             }
         }
     }
+}
+
+// MARK: - Preview Helper
+
+/// No-op submitter for previews. Lives next to PromptView so every response
+/// view's preview can construct one cheaply.
+@MainActor
+final class PreviewAgentResponseSubmitter: AgentResponseSubmitter {
+    func submit(
+        hostID: String,
+        sessionID: String,
+        pluginID: String,
+        requestID: String,
+        response: AgentResponse
+    ) async { }
+
+    func dismiss(requestID: String) async { }
 }

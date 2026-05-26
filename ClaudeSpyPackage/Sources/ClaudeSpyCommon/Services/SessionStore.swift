@@ -72,23 +72,22 @@ final public class SessionStore {
 
     /// Transitional bridge: the latest status-bearing `HookEvent` per pane.
     ///
-    /// The wire `AgentSession` no longer carries a `latestEvent` field — plugin
-    /// sidecars push responses via `present_response_request` in Task 19. Until
-    /// that lands, iOS still consumes `HookEvent`s straight from the relay, so
-    /// we cache the latest per pane here and let `SessionDetailService` drive
-    /// `ResponseState` from it. Deleted alongside the rest of the
-    /// HookEvent-on-iOS surface in Task 20.
+    /// Task 19 reroutes iOS response forms onto `responseRequests` (below),
+    /// so nothing on iOS reads this anymore. Kept until Task 20 removes the
+    /// entire `HookEvent` surface from iOS, since the bridge still feeds the
+    /// `AgentSession.working`/`attention` derivation in `handleEvent(_:)`
+    /// until plugin sidecars push status updates everywhere.
     public private(set) var latestEventByPane: [PaneKey: HookEvent] = [:]
 
     /// Outstanding plugin-driven response requests, keyed by `requestId`.
     ///
     /// Plugin sidecars push `agent_response_request` messages when a session
     /// needs the user to answer something (permission prompt, free-text reply,
-    /// menu pick, plan approval, ...). iOS stores the latest request here so a
-    /// later view layer (Task 19) can render a sheet for it. A subsequent
-    /// `agent_response_request` carrying `request == nil` for the same
-    /// `requestId` removes the entry — the sidecar's way of saying "the user no
-    /// longer needs to answer this".
+    /// menu pick, plan approval, ...). `SessionDetailService` picks the entry
+    /// matching its `(hostId, sessionId, pluginId)` and the response views
+    /// render it. A subsequent `agent_response_request` carrying
+    /// `request == nil` for the same `requestId` removes the entry — the
+    /// sidecar's way of saying "the user no longer needs to answer this".
     public private(set) var responseRequests: [String: ResponseRequestEntry] = [:]
 
     // MARK: - Computed Properties (All Hosts Combined)
@@ -415,26 +414,4 @@ final public class SessionStore {
         guard paneStates[key]?.agentSession?.attention == true else { return }
         paneStates[key]?.agentSession?.markHandled()
     }
-
-    // MARK: - Event Response Storage (iOS only)
-
-    #if os(iOS)
-        /// Stored responses for interactive events (permission requests, prompts, etc.)
-        /// This is iOS-only because only the iOS app has the interactive response flow.
-        private var eventResponses: [UUID: ResponseType] = [:]
-
-        /// Get the stored response for an event, if any
-        public func response(for eventId: UUID) -> ResponseType? {
-            eventResponses[eventId]
-        }
-
-        /// Store a response for an event
-        public func setResponse(_ response: ResponseType?, for eventId: UUID) {
-            if let response {
-                eventResponses[eventId] = response
-            } else {
-                eventResponses.removeValue(forKey: eventId)
-            }
-        }
-    #endif
 }

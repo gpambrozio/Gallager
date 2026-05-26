@@ -2,92 +2,70 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Closure type for sending commands from response views.
-/// Takes a CommandType directly - the calling view adds the paneId when sending.
-typealias CommandSender = @MainActor (CommandType) async -> Void
+// MARK: - Open Response Request → View
 
-// MARK: - Event Response Extension
-
-extension HookEvent {
-    /// Returns a contextual response view based on the event type, or nil if no response UI is needed.
+extension OpenResponseRequest {
+    /// Returns the appropriate `ResponseViews/` view for the wrapped
+    /// `AgentResponseRequest`. The closed-set vocabulary (Spec §7.2) means we
+    /// always have a concrete UI to show — there's no `nil` return path the
+    /// caller has to handle.
     @MainActor
+    @ViewBuilder
     func responseView(
-        isYoloMode: Bool,
         isConnected: Bool,
-        sendCommand: @escaping CommandSender,
-        state: ResponseState
-    ) -> AnyView? {
-        switch action {
-        case .sessionStart:
-            return AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
-        case let .stop(body):
-            return AnyView(StopResponseView(
-                lastAssistantMessage: body.lastAssistantMessage,
-                isConnected: isConnected,
-                sendCommand: sendCommand,
-                state: state
-            ))
-        case let .permissionRequest(body):
-            // In yolo mode, skip the response UI for auto-approvable events
-            // (the host auto-sends Enter after 500ms)
-            if isYoloMode, body.isYoloAutoApprovable {
-                return nil
-            }
-            // Check for special tool types that need dedicated UIs
-            if let toolInput = body.toolInput {
-                switch toolInput {
-                case let .askUserQuestion(params):
-                    return AnyView(AskUserQuestionResponseView(
-                        params: params,
-                        isConnected: isConnected,
-                        sendCommand: sendCommand,
-                        state: state
-                    ))
-                case let .exitPlanMode(params):
-                    return AnyView(ExitPlanModeResponseView(
-                        params: params,
-                        isConnected: isConnected,
-                        sendCommand: sendCommand,
-                        state: state
-                    ))
-                default:
-                    break
-                }
-            }
-            return AnyView(PermissionRequestResponseView(
+        submitter: AgentResponseSubmitter
+    ) -> some View {
+        switch request {
+        case let .prompt(body):
+            PromptView(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: id,
                 request: body,
                 isConnected: isConnected,
-                sendCommand: sendCommand,
-                state: state
-            ))
-        case .setup,
-             .sessionEnd,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .postToolBatch,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .userPromptExpansion,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            return nil
+                submitter: submitter
+            )
+        case let .replyAfterStop(body):
+            StopResponseView(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: id,
+                request: body,
+                isConnected: isConnected,
+                submitter: submitter
+            )
+        case let .permission(body):
+            PermissionRequestResponseView(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: id,
+                request: body,
+                isConnected: isConnected,
+                submitter: submitter
+            )
+        case let .askUserQuestion(body):
+            AskUserQuestionResponseView(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: id,
+                request: body,
+                isConnected: isConnected,
+                submitter: submitter
+            )
+        case let .approvePlan(body):
+            ExitPlanModeResponseView(
+                hostID: hostID,
+                sessionID: sessionID,
+                pluginID: pluginID,
+                requestID: id,
+                request: body,
+                isConnected: isConnected,
+                submitter: submitter
+            )
         }
     }
 }

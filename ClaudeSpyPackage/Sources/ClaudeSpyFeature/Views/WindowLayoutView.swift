@@ -17,6 +17,7 @@
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(\.dismiss) private var dismiss
+        @Environment(\.agentResponseSubmitter) private var responseSubmitter
 
         /// The currently selected window within the session
         @State private var selectedWindowId: String?
@@ -372,26 +373,22 @@
 
         private func windowContent(_ window: TmuxWindow) -> some View {
             VStack(spacing: 0) {
-                // Response view for active pane's Claude session (full width, above layout)
+                // Response form for active pane's agent session (full width, above layout).
                 if
                     !isKeyboardActive,
                     let activeService,
-                    let responseState = activeService.responseState,
-                    let responseView = responseState.event.responseView(
-                        isYoloMode: activeService.isYoloModeEnabled,
+                    let openResponseRequest = activeService.openResponseRequest,
+                    let responseSubmitter {
+                    openResponseRequest.responseView(
                         isConnected: relayClient.isHostConnected,
-                        sendCommand: { command in
-                            await activeService.sendCommand(command)
-                        },
-                        state: responseState
-                    ) {
-                    responseView
-                        .padding()
-                        .background(Color(.systemGroupedBackground))
-                        // Force a fresh view identity per event so per-event
-                        // @State (e.g. AskUserQuestion's collected answers) is
-                        // discarded when a new hook event replaces the prior one.
-                        .id(responseState.event.id)
+                        submitter: responseSubmitter
+                    )
+                    .padding()
+                    .background(Color(.systemGroupedBackground))
+                    // Force a fresh view identity per request so per-form
+                    // @State (e.g. AskUserQuestion's collected answers) is
+                    // discarded when a new request replaces the prior one.
+                    .id(openResponseRequest.id)
 
                     Divider()
                 }
@@ -503,9 +500,11 @@
         // MARK: - Pane Terminal
 
         private func paneTerminal(pane: PaneState) -> some View {
+            // The per-pane terminal doesn't render the response form inline —
+            // the parent `windowContent` displays the active session's form
+            // above the layout so it's full-width across split panes.
             LiveTerminalView(
                 paneId: pane.paneId,
-                responseState: .constant(nil),
                 terminalTitle: Binding(
                     get: { terminalTitles[pane.paneId] },
                     set: { terminalTitles[pane.paneId] = $0 }
@@ -518,10 +517,7 @@
                 hideNavigationBar: false,
                 showKeyboardButton: false,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
-                settings: settings,
-                sendCommand: { command in
-                    await sendCommand(command, paneId: pane.paneId)
-                }
+                settings: settings
             )
             .environment(relayClient)
         }

@@ -2,46 +2,59 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 
-/// Manages the state of an event response (permission request, prompt, etc.)
-/// This allows response state to be shared between ClaudeSessionTerminalView and LiveTerminalView.
-/// Responses are persisted to SessionStore so they survive navigation.
-@MainActor
-@Observable
-final public class ResponseState {
-    /// The event this response is for
-    public let event: HookEvent
+/// One outstanding plugin-driven response request that the iOS UI is presenting
+/// (or about to present). Wraps the wire `AgentResponseRequest` alongside the
+/// routing fields the views need to ship the user's answer back via the
+/// command channel.
+///
+/// Identified by the `requestId` from the originating
+/// `AgentResponseRequestMessage`, so a `Set`/`Dictionary` keyed by `id`
+/// deduplicates retries and `ForEach`/sheet presentation can use the same id.
+public struct OpenResponseRequest: Sendable, Equatable, Identifiable {
+    /// `requestId` from the originating `AgentResponseRequestMessage`.
+    /// Round-trips back to the sidecar on the matching `AgentResponseSubmission`.
+    public let id: String
 
-    /// Whether a command is currently being sent
-    public var isSending = false
+    /// Pair id of the host that pushed the request. Used to route the
+    /// submission back to the correct WebSocket.
+    public let hostID: String
 
-    /// Whether the stop hook summary section is expanded (used by StopResponseView)
-    public var isSummaryExpanded = false
+    /// Agent session this request belongs to.
+    public let sessionID: String
 
-    /// Reference to the session store for persistence
-    private weak var sessionStore: SessionStore?
+    /// Plugin id that owns the session. Matches `PluginPresentation.id`.
+    public let pluginID: String
 
-    /// Flag to prevent didSet from persisting during initialization
-    private var isInitialized = false
+    /// The structured request to render.
+    public let request: AgentResponseRequest
 
-    /// The user's response, if they've responded.
-    /// Setting this persists the response to SessionStore (iOS only).
-    public var response: ResponseType? {
-        didSet {
-            guard isInitialized else { return }
-            #if os(iOS)
-                sessionStore?.setResponse(response, for: event.id)
-            #endif
-        }
+    /// When iOS first received this request. Used for sorting if multiple
+    /// requests pile up on the same session.
+    public let receivedAt: Date
+
+    public init(
+        id: String,
+        hostID: String,
+        sessionID: String,
+        pluginID: String,
+        request: AgentResponseRequest,
+        receivedAt: Date = Date()
+    ) {
+        self.id = id
+        self.hostID = hostID
+        self.sessionID = sessionID
+        self.pluginID = pluginID
+        self.request = request
+        self.receivedAt = receivedAt
     }
 
-    public init(event: HookEvent, sessionStore: SessionStore? = nil) {
-        self.event = event
-        self.sessionStore = sessionStore
-        // Restore any existing response from the store.
-        // isInitialized is false, so didSet won't trigger @Observable mutations.
-        #if os(iOS)
-            self.response = sessionStore?.response(for: event.id)
-        #endif
-        self.isInitialized = true
+    /// Bridge initializer from the wire envelope stored on `SessionStore`.
+    public init(entry: ResponseRequestEntry, receivedAt: Date = Date()) {
+        self.id = entry.requestId
+        self.hostID = entry.hostId
+        self.sessionID = entry.sessionId
+        self.pluginID = entry.pluginId
+        self.request = entry.request
+        self.receivedAt = receivedAt
     }
 }

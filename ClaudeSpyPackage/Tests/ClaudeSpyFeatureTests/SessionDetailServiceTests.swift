@@ -31,7 +31,7 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session to the store
+        // Add a session via a hook event (transitional bridge; goes away in Task 20)
         let event = HookEvent(
             action: .sessionStart(SessionStartBody(sessionId: "test-session", hookEventName: "SessionStart")),
             projectPath: "/test/path",
@@ -50,10 +50,10 @@ struct SessionDetailServiceTests {
         #expect(service.session?.tmuxPane == "%1")
     }
 
-    // MARK: - Response State Tests
+    // MARK: - Open Response Request Tests
 
-    @Test("Response state is nil when session has no events")
-    func responseStateNilWhenNoEvents() {
+    @Test("openResponseRequest is nil when no request matches the session")
+    func openResponseRequestNilWhenNone() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
@@ -64,17 +64,17 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        #expect(service.responseState == nil)
+        #expect(service.openResponseRequest == nil)
     }
 
-    @Test("Response state is created for latest event")
-    func responseStateCreatedForLatestEvent() {
+    @Test("openResponseRequest surfaces a matching response request from the store")
+    func openResponseRequestMatchesStore() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session with an event
+        // Stand up a session for the pane.
         let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
+            action: .sessionStart(SessionStartBody(sessionId: "abc-123", hookEventName: "SessionStart")),
             projectPath: nil,
             tmuxPane: "%1"
         )
@@ -87,9 +87,60 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        // Response state is now automatically updated during init via withObservationTracking
-        #expect(service.responseState != nil)
-        #expect(service.responseState?.event.id == event.id)
+        // Push a response request for the same `(host, pluginId, sessionId)`.
+        let entry = ResponseRequestEntry(
+            hostId: "test-pair",
+            sessionId: "abc-123",
+            pluginId: "claude-code",
+            requestId: "req-1",
+            request: .prompt(PromptRequest(placeholder: "say something"))
+        )
+        sessionStore.presentResponseRequest(entry)
+
+        // SessionDetailService observes the store; force a sync update for the
+        // test since `withObservationTracking` fires asynchronously.
+        service.refreshOpenResponseRequestForTesting()
+
+        #expect(service.openResponseRequest?.id == "req-1")
+        if case let .prompt(prompt) = service.openResponseRequest?.request {
+            #expect(prompt.placeholder == "say something")
+        } else {
+            Issue.record("Expected .prompt request")
+        }
+    }
+
+    @Test("openResponseRequest ignores requests for other sessions")
+    func openResponseRequestIgnoresOtherSessions() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        let event = HookEvent(
+            action: .sessionStart(SessionStartBody(sessionId: "abc-123", hookEventName: "SessionStart")),
+            projectPath: nil,
+            tmuxPane: "%1"
+        )
+        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        // Push a request for a different session id.
+        sessionStore.presentResponseRequest(
+            ResponseRequestEntry(
+                hostId: "test-pair",
+                sessionId: "different-session",
+                pluginId: "claude-code",
+                requestId: "req-other",
+                request: .prompt(PromptRequest(placeholder: nil))
+            )
+        )
+        service.refreshOpenResponseRequestForTesting()
+
+        #expect(service.openResponseRequest == nil)
     }
 
     // MARK: - Pane Active Status Tests
@@ -166,17 +217,11 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        // Transitional bridge (see `SessionStore.latestEventByPane`): until
-        // Task 19 reroutes onto AgentResponseRequest, iOS reads the latest
-        // HookEvent per `(host, pane)` here. The bridge keeps the same
-        // cross-host isolation guarantee as the legacy ClaudeSession.latestEvent.
-        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-a")?.id == eventA.id)
-        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-b")?.id == eventB.id)
-        #expect(sessionStore.latestEvent(for: "%0", hostId: "host-a")?.id
-            != sessionStore.latestEvent(for: "%0", hostId: "host-b")?.id)
         // Sanity check: both SessionDetailServices saw their own session.
         #expect(serviceA.session != nil)
         #expect(serviceB.session != nil)
+        #expect(serviceA.session?.id == "session-a")
+        #expect(serviceB.session?.id == "session-b")
     }
 
     // MARK: - Mac Connection Status Tests
@@ -199,106 +244,4 @@ struct SessionDetailServiceTests {
         // dependency injection to set isHostConnected to true.
         // For now, this tests the property delegation works.
     }
-
-    // MARK: - Response Persistence Tests (Issue #31)
-    // These tests use SessionStore.response(for:) / setResponse(_:for:)
-    // which are only available on iOS.
-
-    #if os(iOS)
-        @Test("Response is persisted to SessionStore when set")
-        func responsePersistsToStore() {
-            let sessionStore = SessionStore()
-            let relayClient = ViewerRelayClient()
-
-            // Add a session with a permission request event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
-
-            let service = SessionDetailService(
-                paneId: "%1",
-                hostId: "test-pair",
-                sessionStore: sessionStore,
-                relayClient: relayClient
-            )
-
-            // Set a response
-            service.responseState?.response = .accepted
-
-            // Verify response is persisted in the store
-            #expect(sessionStore.response(for: event.id) == .accepted)
-        }
-
-        @Test("Response is restored when service is recreated")
-        func responseRestoredOnServiceRecreation() {
-            let sessionStore = SessionStore()
-            let relayClient = ViewerRelayClient()
-
-            // Add a session with a permission request event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
-
-            // First service - set a response
-            let service1 = SessionDetailService(
-                paneId: "%1",
-                hostId: "test-pair",
-                sessionStore: sessionStore,
-                relayClient: relayClient
-            )
-            service1.responseState?.response = .accepted
-
-            // Create a new service (simulating navigation away and back)
-            let service2 = SessionDetailService(
-                paneId: "%1",
-                hostId: "test-pair",
-                sessionStore: sessionStore,
-                relayClient: relayClient
-            )
-
-            // Response should be restored from the store
-            #expect(service2.responseState?.response == .accepted)
-        }
-
-        @Test("Different response types are persisted correctly")
-        func differentResponseTypesPersist() {
-            let sessionStore = SessionStore()
-            let relayClient = ViewerRelayClient()
-
-            // Add a session with an event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
-
-            let service = SessionDetailService(
-                paneId: "%1",
-                hostId: "test-pair",
-                sessionStore: sessionStore,
-                relayClient: relayClient
-            )
-
-            // Test different response types
-            service.responseState?.response = .rejected
-            #expect(sessionStore.response(for: event.id) == .rejected)
-
-            service.responseState?.response = .allQuestionsAnswered
-            #expect(sessionStore.response(for: event.id) == .allQuestionsAnswered)
-
-            service.responseState?.response = .customInstructions("test input")
-            if case let .customInstructions(text) = sessionStore.response(for: event.id) {
-                #expect(text == "test input")
-            } else {
-                Issue.record("Expected customInstructions response")
-            }
-        }
-    #endif
 }

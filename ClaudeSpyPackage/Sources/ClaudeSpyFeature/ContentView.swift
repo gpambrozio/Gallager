@@ -18,6 +18,11 @@
         @State private var presentationCache = PluginPresentationCache()
         @State private var initializationError: String?
 
+        /// Built lazily after `connectionManager` initializes; ships
+        /// `AgentResponseSubmission` envelopes back to whichever host pushed
+        /// the matching request.
+        @State private var responseSubmitter: DefaultAgentResponseSubmitter?
+
         @Environment(\.scenePhase) private var scenePhase
         @State private var pushService = PushNotificationService.shared
         @State private var backgroundTaskService = BackgroundTaskService.shared
@@ -34,8 +39,16 @@
                     )
                 } else if let connectionManager {
                     if settings.isPaired {
-                        MainView()
-                            .environment(connectionManager)
+                        Group {
+                            if let responseSubmitter {
+                                MainView()
+                                    .environment(connectionManager)
+                                    .agentResponseSubmitter(responseSubmitter)
+                            } else {
+                                MainView()
+                                    .environment(connectionManager)
+                            }
+                        }
                     } else if let e2ee = connectionManager.pairingService {
                         NavigationStack {
                             PairingView { pairedHost in
@@ -221,7 +234,17 @@
             guard connectionManager == nil else { return }
 
             do {
-                connectionManager = try await ViewerConnectionManager()
+                let manager = try await ViewerConnectionManager()
+                connectionManager = manager
+                // The submitter takes a reference to the connection manager
+                // and the local session store. The session store is the same
+                // instance the rest of the app reads, so optimistic local
+                // dismissal lines up with the inbound dismiss the Mac will
+                // shortly echo.
+                responseSubmitter = DefaultAgentResponseSubmitter(
+                    connectionManager: manager,
+                    sessionStore: sessionStore
+                )
             } catch {
                 initializationError = "Failed to initialize encryption: \(error.localizedDescription)"
             }
