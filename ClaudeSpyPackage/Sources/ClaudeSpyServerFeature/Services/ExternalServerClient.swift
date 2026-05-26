@@ -286,26 +286,6 @@ final public class ExternalServerClient {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to viewer (encrypted)
-    ///
-    /// This also sends an encrypted push notification payload if the event
-    /// would trigger a notification. The server uses the push payload to
-    /// send a notification via APNs when viewer is not connected via WebSocket.
-    public func sendHookEvent(_ event: HookEvent) async {
-        guard state.isConnected, let pairId else {
-            logger.debug("Not connected, cannot send hook event")
-            return
-        }
-
-        let message = WebSocketMessage.hookEvent(
-            HookEventMessage(pairId: pairId, event: event)
-        )
-        await sendEncrypted(message)
-
-        // Also send encrypted push payload for notifications when iOS is offline
-        await sendEncryptedPushNotification(for: event)
-    }
-
     /// Send terminal stream data to viewer (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
         guard state.isConnected else {
@@ -320,61 +300,6 @@ final public class ExternalServerClient {
 
         let message = WebSocketMessage.terminalStream(streamMessage)
         await sendEncrypted(message)
-    }
-
-    /// Send an encrypted push notification payload for a hook event.
-    ///
-    /// This is sent alongside the encrypted hook event. The server will:
-    /// - Forward to APNs if viewer is not connected via WebSocket
-    /// - Discard if viewer is already connected (they get the WebSocket message)
-    ///
-    /// The iOS Notification Service Extension decrypts the payload and displays
-    /// the rich notification content.
-    ///
-    /// - Parameter event: The hook event that triggered the notification
-    public func sendEncryptedPushNotification(for event: HookEvent) async {
-        guard state.isConnected, let pairId else {
-            logger.debug("Not connected, cannot send encrypted push")
-            return
-        }
-
-        guard let e2eeService, await e2eeService.isSessionEstablished else {
-            logger.error("E2EE session not established, cannot send encrypted push")
-            return
-        }
-
-        // Build notification content from the event
-        let eventMessage = HookEventMessage(pairId: pairId, event: event)
-        guard let notification = eventMessage.buildNotification() else {
-            logger.debug("Event does not trigger notification, skipping push")
-            return
-        }
-
-        let content = NotificationContent(
-            title: notification.title,
-            body: notification.body,
-            eventType: event.action.eventName,
-            pairId: pairId,
-            paneId: event.tmuxPane,
-            timestamp: event.timestamp
-        )
-
-        do {
-            // Encrypt the notification content
-            let encryptedContent = try await e2eeService.encrypt(content)
-
-            // Send the encrypted push payload
-            let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: pairId)
-            let message = WebSocketMessage.encryptedPush(payload)
-
-            logger.info("Sending encrypted push notification", metadata: [
-                "eventType": "\(event.action.eventName)",
-            ])
-
-            await send(message)
-        } catch {
-            logger.error("Failed to encrypt push notification: \(error)")
-        }
     }
 
     // MARK: - Private Methods

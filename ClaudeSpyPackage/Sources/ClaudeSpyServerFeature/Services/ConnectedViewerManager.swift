@@ -235,15 +235,6 @@ final public class ConnectedViewerManager {
 
     // MARK: - Broadcasting
 
-    /// Send a hook event to all connected viewers.
-    public func sendHookEventToAll(_ event: HookEvent, skipPushNotification: Bool = false) async {
-        await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected {
-                group.addTask { await connection.sendHookEvent(event, skipPushNotification: skipPushNotification) }
-            }
-        }
-    }
-
     /// Send an encrypted push notification with arbitrary title/body to every
     /// connected viewer. Used by `notification.create --push` so a single CLI
     /// call reaches all paired iOS devices.

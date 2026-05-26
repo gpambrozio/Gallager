@@ -279,23 +279,6 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to viewer (encrypted)
-    public func sendHookEvent(_ event: HookEvent, skipPushNotification: Bool = false) async {
-        guard state.isConnected else {
-            logger.debug("Not connected to \(viewerName), cannot send hook event")
-            return
-        }
-
-        let message = WebSocketMessage.hookEvent(
-            HookEventMessage(pairId: id, event: event)
-        )
-        await sendEncrypted(message)
-
-        // Also send encrypted push payload for notifications when iOS is offline
-        guard !skipPushNotification else { return }
-        await sendEncryptedPushNotification(for: event)
-    }
-
     /// Send an encrypted push notification with arbitrary title/body to this
     /// viewer. Used by `notification.create --push` so CLI-triggered alerts
     /// follow the same APNs path as Claude hook events.
@@ -840,47 +823,6 @@ final public class ConnectedViewer: Identifiable {
             await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
-        }
-    }
-
-    private func sendEncryptedPushNotification(for event: HookEvent) async {
-        guard state.isConnected else {
-            return
-        }
-
-        guard await e2eeService.isSessionEstablished else {
-            logger.error("E2EE session not established, cannot send encrypted push")
-            return
-        }
-
-        let eventMessage = HookEventMessage(pairId: id, event: event)
-        guard let notification = eventMessage.buildNotification() else {
-            return
-        }
-
-        let content = NotificationContent(
-            title: notification.title,
-            body: notification.body,
-            eventType: event.action.eventName,
-            pairId: id,
-            paneId: event.tmuxPane,
-            timestamp: event.timestamp
-        )
-
-        do {
-            let encryptedContent = try await e2eeService.encrypt(content)
-            let badge = await onPendingSessionCount?()
-            let payload = EncryptedPushPayload(
-                encryptedContent: encryptedContent,
-                pairId: id,
-                badge: badge,
-                silent: false
-            )
-            let message = WebSocketMessage.encryptedPush(payload)
-            await send(message)
-            pushNotificationLog.logPushSent(event.action.eventName, event.tmuxPane)
-        } catch {
-            logger.error("Failed to encrypt push notification: \(error)")
         }
     }
 

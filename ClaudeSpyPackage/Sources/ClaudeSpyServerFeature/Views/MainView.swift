@@ -3659,19 +3659,23 @@ public struct MainView: View {
                 let sessionName = project?.name ?? "terminal"
                 let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine which agent command to launch. Each agent has its
-                // own auto-run toggle so a user can keep "open Codex folders
-                // in a bare shell" as a real choice. Routed through the
-                // plugin-id-native settings helpers so this branch no longer
-                // hard-codes the legacy two-agent enum — Task 16 swaps the
-                // helpers for per-plugin settings + `command_for_launch`.
+                // Resolve the per-project launch command via the owning
+                // plugin sidecar. The plugin reads its own per-plugin
+                // `settings.json` (Spec §11), so this branch is fully
+                // plugin-id-native — no `CodingAgent` switch.
                 let projectPluginID = project?.pluginID
                 let projectAgent: CodingAgent? = projectPluginID.flatMap { CodingAgent(rawValue: $0) }
                 let runCommand: String? = if
                     let pluginID = projectPluginID,
                     settings.autoRunInProjects(forPluginID: pluginID),
-                    let commandPath = settings.commandPath(forPluginID: pluginID) {
-                    commandPath
+                    let manager = coordinator.pluginManager,
+                    let launchSpec = try? await manager.commandForLaunch(
+                        pluginID: pluginID,
+                        projectPath: workingDirectory
+                    ) {
+                    launchSpec.args.isEmpty
+                        ? launchSpec.command
+                        : ([launchSpec.command] + launchSpec.args).joined(separator: " ")
                 } else {
                     nil
                 }

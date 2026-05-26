@@ -76,9 +76,6 @@
         /// Stored key pair for E2EE
         public private(set) var keyPair: StoredKeyPair?
 
-        /// Plugin service for Claude Code plugin management
-        public let pluginService: PluginService
-
         /// Coding-agent plugin runtime — owns sidecar supervisors, registry,
         /// presentation bundles. Created during `setupAllServices` once the
         /// connection manager (which the response-request sink forwards to)
@@ -192,9 +189,6 @@
 
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
-
-            // Create plugin service
-            self.pluginService = PluginService()
 
             // Create editor session manager (API server is started later in setupAllServices)
             let editorManager = EditorSessionManager()
@@ -383,8 +377,6 @@
             let notificationService = terminalNotificationService
             let scanner = projectScanner
             let codexScanner = codexScanner
-            let claudeCommandPath = settings.claudeCommandPath
-            let codexCommandPath = settings.codexCommandPath
 
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
@@ -804,7 +796,7 @@
                     let projects = (await claude + codex).sortedByLastUsed()
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
-                onProjectStart: { [tmux, claudeCommandPath, codexCommandPath] path, args, agent in
+                onProjectStart: { [tmux, weak self] path, args, agent in
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     var isDirectory: ObjCBool = false
                     guard
@@ -813,24 +805,26 @@
                     else {
                         throw APIError.notFound("Path does not exist or is not a directory: \(path)")
                     }
-                    // Map plugin id → captured path. `CodingAgent.rawValue`
-                    // matches the bundled plugin ids ("claude-code", "codex"),
-                    // so a future plugin-id-native entry point can call this
-                    // closure with `agent.rawValue` already in hand.
-                    // Third-party plugins resolve their launch command via
-                    // `PluginManager.commandForLaunch`; Task 16 wires that.
-                    let commandPath: String = switch agent.rawValue {
-                    case CodingAgent.claudeCode.rawValue: claudeCommandPath
-                    case CodingAgent.codex.rawValue: codexCommandPath
-                    default: ""
-                    }
-                    let runCommand: String
-                    if args.isEmpty {
-                        runCommand = shellQuoteSingle(commandPath)
-                    } else {
-                        let quoted = args.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
-                    }
+                    // Resolve via PluginManager.commandForLaunch (Spec §11):
+                    // the plugin sidecar consults its per-plugin
+                    // `settings.json` and returns the launch command + args.
+                    // Falls back to a bare shell when no manager is wired
+                    // up (early-startup races) or the plugin id is unknown.
+                    let runCommand: String? = await { @MainActor in
+                        guard let manager = self?.pluginManager else { return nil }
+                        guard
+                            let spec = try? await manager.commandForLaunch(
+                                pluginID: agent.rawValue,
+                                projectPath: url.path
+                            )
+                        else { return nil }
+                        let allArgs = spec.args + args
+                        if allArgs.isEmpty {
+                            return shellQuoteSingle(spec.command)
+                        }
+                        let quoted = allArgs.map(shellQuoteSingle).joined(separator: " ")
+                        return "\(shellQuoteSingle(spec.command)) \(quoted)"
+                    }()
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
                         width: 200,
@@ -855,7 +849,7 @@
                     }
                 },
                 onLayoutApply: {
-                    [tmux, winManager, claudeCommandPath, weak self] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+                    [tmux, winManager, weak self] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
                     let parser = LayoutConfigParser(
                         lenient: lenient,
                         environment: ProcessInfo.processInfo.environment
@@ -897,8 +891,7 @@
                         detach: detach,
                         dryRun: dryRun,
                         requireCreate: requireCreate,
-                        configDirectory: configDir,
-                        claudeCommandPath: claudeCommandPath
+                        configDirectory: configDir
                     )
                     return [
                         "session_name": .string(result.sessionName),
@@ -1232,10 +1225,12 @@
 
                 // Handle create session command
                 if case let .createTmuxSession(spec) = command.command {
+                    let manager = await MainActor.run { [weak self] in self?.pluginManager }
                     return await Self.handleCreateSession(
                         command: command,
                         spec: spec,
                         tmuxService: tmux,
+                        pluginManager: manager,
                         settings: appSettings
                     )
                 }
@@ -1720,28 +1715,34 @@
             command: CommandMessage,
             spec: CreateTmuxSession,
             tmuxService: TmuxService,
+            pluginManager: PluginManager?,
             settings: AppSettings
         ) async -> CommandResponseMessage {
             do {
-                // Determine which agent command to launch. Each agent has its
-                // own auto-run toggle so a user can keep "open Codex folders
-                // in a bare shell" as a real choice — matches the local
-                // create-from-project path in MainView.
-                //
-                // Looking up by plugin id (via `rawValue`) keeps the path
-                // unbranched on `CodingAgent`; Task 21 deletes the enum
-                // entirely once every caller is plugin-id-native.
+                // Resolve the launch command via the plugin sidecar: it owns
+                // both the per-plugin command path (stored in
+                // `~/.gallager/state/plugins/<id>/settings.json`) and any
+                // sidecar-specific argv augmentation. Falls back to a bare
+                // shell when no working directory was supplied, the
+                // auto-run preference is off, or no manager is wired.
+                let workingDirectory = spec.workingDirectory
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path()
+
+                let pluginID = spec.agent.rawValue
                 let runCommand: String? = if
                     spec.workingDirectory != nil,
-                    settings.autoRunInProjects(forPluginID: spec.agent.rawValue),
-                    let commandPath = settings.commandPath(forPluginID: spec.agent.rawValue) {
-                    commandPath
+                    settings.autoRunInProjects(forPluginID: pluginID),
+                    let manager = pluginManager,
+                    let launchSpec = try? await manager.commandForLaunch(
+                        pluginID: pluginID,
+                        projectPath: workingDirectory
+                    ) {
+                    launchSpec.args.isEmpty
+                        ? launchSpec.command
+                        : ([launchSpec.command] + launchSpec.args).joined(separator: " ")
                 } else {
                     nil
                 }
-
-                let workingDirectory = spec.workingDirectory
-                    ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
                 let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
                     ["CLAUDE_CONFIG_DIR=\(configDir)"]

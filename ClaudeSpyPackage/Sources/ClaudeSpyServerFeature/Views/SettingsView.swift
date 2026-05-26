@@ -83,13 +83,6 @@ struct GeneralSettingsView: View {
     @State private var showingLoginItemError = false
     @State private var loginItemErrorMessage = ""
 
-    /// Folder whose plugin install prompt is currently being shown, if any.
-    @State private var pluginSetupFolder: ClaudeFolderIdentifier?
-
-    /// Bumped after a custom-folder plugin setup sheet is dismissed so each
-    /// folder row re-checks its plugin installation status.
-    @State private var pluginStatusRefreshID = UUID()
-
     var body: some View {
         @Bindable var settings = settings
 
@@ -235,18 +228,11 @@ struct GeneralSettingsView: View {
                 }
 
                 ForEach(settings.additionalClaudeFolders, id: \.self) { folder in
-                    ClaudeFolderRow(
-                        folder: folder,
-                        refreshTrigger: pluginStatusRefreshID
-                    ) { url in
-                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
-                    }
+                    ClaudeFolderRow(folder: folder)
                 }
 
                 Button("Add Folder...") {
-                    if let url = browseForClaudeFolder(settings: settings) {
-                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
-                    }
+                    _ = browseForClaudeFolder(settings: settings)
                 }
                 .help("Add a directory that contains a .claude.json config and .claude/projects/ session data")
             }
@@ -285,55 +271,19 @@ struct GeneralSettingsView: View {
         } message: {
             Text(loginItemErrorMessage)
         }
-        .sheet(
-            item: $pluginSetupFolder,
-            onDismiss: {
-                pluginStatusRefreshID = UUID()
-            }
-        ) { folder in
-            CustomFolderPluginSetupView(configDir: folder.url)
-        }
-    }
-}
-
-/// Identifier wrapper so a selected Claude folder URL can drive a
-/// `sheet(item:)` presentation.
-private struct ClaudeFolderIdentifier: Identifiable {
-    let url: URL
-    var id: String {
-        url.path
     }
 }
 
 /// Row in the custom Claude folders list.
 ///
-/// Owns a ``PluginService`` scoped to ``folder`` so the plugin install
-/// status is checked and displayed inline. When the plugin isn't yet
-/// installed, the Install Plugin button asks the parent view to open the
-/// shared ``CustomFolderPluginSetupView`` — the same sheet used when the
-/// user first adds a folder. `refreshTrigger` is bumped by the parent
-/// after that sheet dismisses so each row re-checks its state.
+/// Renders the folder path and a remove button. The legacy "install
+/// gallager plugin for this folder" workflow was tied to the old hook
+/// server and is gone — every coding-agent plugin now ships as a
+/// bundled sidecar in `~/.gallager/state/plugins/`.
 private struct ClaudeFolderRow: View {
     let folder: String
-    let refreshTrigger: UUID
-    let onInstallRequested: (URL) -> Void
 
     @Environment(AppSettings.self) private var settings
-
-    @State private var pluginService: PluginService
-
-    init(
-        folder: String,
-        refreshTrigger: UUID,
-        onInstallRequested: @escaping (URL) -> Void
-    ) {
-        self.folder = folder
-        self.refreshTrigger = refreshTrigger
-        self.onInstallRequested = onInstallRequested
-        self._pluginService = State(
-            initialValue: PluginService(configDir: URL(fileURLWithPath: folder))
-        )
-    }
 
     var body: some View {
         HStack {
@@ -341,8 +291,6 @@ private struct ClaudeFolderRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(folder)
-
-            pluginStatusView
 
             Spacer()
 
@@ -355,60 +303,6 @@ private struct ClaudeFolderRow: View {
             .buttonStyle(.borderless)
             .help("Remove this folder")
         }
-        .task(id: folder + refreshTrigger.uuidString) {
-            await checkPlugin()
-        }
-    }
-
-    @ViewBuilder
-    private var pluginStatusView: some View {
-        switch pluginService.state {
-        case .unknown,
-             .checking,
-             .checkingClaude:
-            ProgressView()
-                .controlSize(.small)
-        case let .installed(version):
-            Label("Plugin installed", symbol: .checkmarkCircleFill)
-                .font(.caption)
-                .foregroundStyle(.green)
-                .help("Gallager plugin v\(version) is installed for this folder")
-        case .notInstalled:
-            Button {
-                onInstallRequested(URL(fileURLWithPath: folder))
-            } label: {
-                Label("Install Plugin", symbol: .arrowDown)
-            }
-            .controlSize(.small)
-        case let .installationFailed(reason):
-            Button {
-                onInstallRequested(URL(fileURLWithPath: folder))
-            } label: {
-                Label("Install Plugin", symbol: .arrowDown)
-            }
-            .controlSize(.small)
-            .help("Previous attempt failed: \(reason)")
-        case .claudeNotInstalled:
-            Label("Claude Code not found", symbol: .exclamationmarkTriangle)
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .help("Install Claude Code to use the plugin in this folder")
-        case .installing:
-            HStack(spacing: 4) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Installing…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func checkPlugin() async {
-        guard await pluginService.findClaude() != nil else {
-            return
-        }
-        await pluginService.checkInstallation()
     }
 }
 
@@ -601,6 +495,5 @@ struct PluginsTabView: View {
         .environment(AppCoordinator(settings: settings))
         .environment(PairingManager(settings: settings, e2eeService: e2eeService))
         .environment(UpdaterController(startUpdater: false))
-        .environment(PluginService())
         .e2eeService(e2eeService)
 }
