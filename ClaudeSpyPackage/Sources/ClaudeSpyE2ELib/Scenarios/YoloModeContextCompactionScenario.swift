@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Yolo mode persists across context compaction (session restart)
@@ -27,16 +28,15 @@ public enum YoloModeContextCompactionScenario {
         // ── Phase 1: Start a Claude session ─────────────────────
 
         TestStep.log("Phase 1: Start initial Claude session")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "yolo-compact-session-1",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("yolo-compact-session-1"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/CompactionProject"
+            projectPath: "/Users/test/CompactionProject",
+            sessionID: "yolo-compact-session-1"
         )
         TestStep.wait(seconds: 3)
 
@@ -63,16 +63,15 @@ public enum YoloModeContextCompactionScenario {
         // ── Phase 3: Simulate context compaction (SessionStart without SessionEnd) ──
 
         TestStep.log("Phase 3: Send SessionStart again (context compaction restart)")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "yolo-compact-session-1-restarted",
-                "timestamp": "2026-02-14T10:01:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("yolo-compact-session-1-restarted"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/CompactionProject"
+            projectPath: "/Users/test/CompactionProject",
+            sessionID: "yolo-compact-session-1-restarted"
         )
 
         // CRITICAL: Yolo mode must still be enabled after the restart
@@ -85,17 +84,16 @@ public enum YoloModeContextCompactionScenario {
         // ── Phase 4: Normal session end clears yolo ─────────────
 
         TestStep.log("Phase 4: SessionEnd should clear yolo mode")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionEnd",
-                "session_id": "yolo-compact-session-1-restarted",
-                "timestamp": "2026-02-14T10:02:00.000000Z",
-                "reason": "user_quit"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionEnd"),
+                "session_id": .string("yolo-compact-session-1-restarted"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+                "reason": .string("user_quit"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/CompactionProject"
+            projectPath: "/Users/test/CompactionProject",
+            sessionID: "yolo-compact-session-1-restarted"
         )
 
         // Session ended — Claude status indicator should disappear
@@ -105,16 +103,15 @@ public enum YoloModeContextCompactionScenario {
         // ── Phase 5: New session starts without yolo leaked ─────
 
         TestStep.log("Phase 5: New session should start without yolo mode")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "yolo-compact-session-2",
-                "timestamp": "2026-02-14T10:03:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("yolo-compact-session-2"),
+                "timestamp": .string("2026-02-14T10:03:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/CompactionProject"
+            projectPath: "/Users/test/CompactionProject",
+            sessionID: "yolo-compact-session-2"
         )
         TestStep.wait(seconds: 3)
 

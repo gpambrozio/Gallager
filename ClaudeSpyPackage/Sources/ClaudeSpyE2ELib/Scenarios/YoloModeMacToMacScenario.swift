@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Yolo mode state synchronization between two Mac apps (host + viewer)
@@ -20,16 +21,15 @@ public enum YoloModeMacToMacScenario {
 
         TestStep.tmuxStorePaneId(target: "e2e-mac-pair:0.0", storeAs: "paneId")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-mac-pair-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-mac-pair-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/MacPairProject"
+            projectPath: "/Users/test/MacPairProject",
+            sessionID: "e2e-mac-pair-session"
         )
 
         // ── Phase 3: Verify both apps see the Claude session ─────────

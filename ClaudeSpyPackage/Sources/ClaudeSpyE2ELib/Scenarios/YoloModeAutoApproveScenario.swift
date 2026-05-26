@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Yolo mode auto-approve hides iOS response UI and skips push
@@ -56,21 +57,20 @@ public enum YoloModeAutoApproveScenario {
         TestStep.wait(seconds: 1)
 
         // Send a Bash PermissionRequest (auto-approvable in yolo mode)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "tool_name": "Bash",
-                "tool_input": {
-                    "command": "npm install",
-                    "description": "Install dependencies"
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "tool_name": .string("Bash"),
+                "tool_input": .object([
+                    "command": .string("npm install"),
+                    "description": .string("Install dependencies"),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // Wait for the auto-approve delay (500ms) plus processing time
@@ -110,30 +110,35 @@ public enum YoloModeAutoApproveScenario {
         //          and DO send a push notification (even with yolo on)
         // ══════════════════════════════════════════════════════════════
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:02:00.000000Z",
-                "tool_name": "AskUserQuestion",
-                "tool_input": {
-                    "questions": [
-                        {
-                            "question": "Which framework should we use?",
-                            "header": "Framework",
-                            "options": [
-                                {"label": "SwiftUI", "description": "Modern declarative UI"},
-                                {"label": "UIKit", "description": "Classic imperative UI"}
-                            ],
-                            "multiSelect": false
-                        }
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+                "tool_name": .string("AskUserQuestion"),
+                "tool_input": .object([
+                    "questions": .array([
+                        .object([
+                            "question": .string("Which framework should we use?"),
+                            "header": .string("Framework"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("SwiftUI"),
+                                    "description": .string("Modern declarative UI"),
+                                ]),
+                                .object([
+                                    "label": .string("UIKit"),
+                                    "description": .string("Classic imperative UI"),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(false),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // AskUserQuestion is NOT yolo-auto-approvable, so UI should appear
@@ -173,21 +178,20 @@ public enum YoloModeAutoApproveScenario {
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogBeforeNonYolo")
 
         // Send the same Bash PermissionRequest — now without yolo mode
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:03:00.000000Z",
-                "tool_name": "Bash",
-                "tool_input": {
-                    "command": "npm test",
-                    "description": "Run tests"
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:03:00.000000Z"),
+                "tool_name": .string("Bash"),
+                "tool_input": .object([
+                    "command": .string("npm test"),
+                    "description": .string("Run tests"),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // Without yolo mode, the response UI SHOULD appear

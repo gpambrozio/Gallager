@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Three AskUserQuestion variations driven through the iOS UI in
@@ -32,31 +33,39 @@ public enum AskUserQuestionScenario {
         // Phase 1: single-select with Other  →  expected: D D D T<Mango> E
         // ──────────────────────────────────────────────────────────
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:00:00.000000Z",
-                "tool_name": "AskUserQuestion",
-                "tool_input": {
-                    "questions": [
-                        {
-                            "question": "What is your favorite fruit?",
-                            "header": "Fruit",
-                            "options": [
-                                {"label": "Apple", "description": "Crisp"},
-                                {"label": "Banana", "description": "Soft"},
-                                {"label": "Cherry", "description": "Tart"}
-                            ],
-                            "multiSelect": false
-                        }
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-04-25T10:00:00.000000Z"),
+                "tool_name": .string("AskUserQuestion"),
+                "tool_input": .object([
+                    "questions": .array([
+                        .object([
+                            "question": .string("What is your favorite fruit?"),
+                            "header": .string("Fruit"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Apple"),
+                                    "description": .string("Crisp"),
+                                ]),
+                                .object([
+                                    "label": .string("Banana"),
+                                    "description": .string("Soft"),
+                                ]),
+                                .object([
+                                    "label": .string("Cherry"),
+                                    "description": .string("Tart"),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(false),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         TestStep.iosWaitForElement(.labelContains("What is your favorite fruit"), timeout: 10)
@@ -103,32 +112,43 @@ public enum AskUserQuestionScenario {
         // expected: E D D E D D T<Onyx> S D E E
         // ──────────────────────────────────────────────────────────
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:01:00.000000Z",
-                "tool_name": "AskUserQuestion",
-                "tool_input": {
-                    "questions": [
-                        {
-                            "question": "Which colors should we use?",
-                            "header": "Colors",
-                            "options": [
-                                {"label": "Crimson", "description": "Warm primary"},
-                                {"label": "Emerald", "description": "Cool primary"},
-                                {"label": "Sapphire", "description": "Cool primary"},
-                                {"label": "Amber", "description": "Warm primary"}
-                            ],
-                            "multiSelect": true
-                        }
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-04-25T10:01:00.000000Z"),
+                "tool_name": .string("AskUserQuestion"),
+                "tool_input": .object([
+                    "questions": .array([
+                        .object([
+                            "question": .string("Which colors should we use?"),
+                            "header": .string("Colors"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Crimson"),
+                                    "description": .string("Warm primary"),
+                                ]),
+                                .object([
+                                    "label": .string("Emerald"),
+                                    "description": .string("Cool primary"),
+                                ]),
+                                .object([
+                                    "label": .string("Sapphire"),
+                                    "description": .string("Cool primary"),
+                                ]),
+                                .object([
+                                    "label": .string("Amber"),
+                                    "description": .string("Warm primary"),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(true),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         TestStep.iosWaitForElement(.labelContains("Which colors should we use"), timeout: 10)
@@ -180,53 +200,85 @@ public enum AskUserQuestionScenario {
         // expected: E D D E R D E E D E R E
         // ──────────────────────────────────────────────────────────
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:02:00.000000Z",
-                "tool_name": "AskUserQuestion",
-                "tool_input": {
-                    "questions": [
-                        {
-                            "question": "Which days should we deploy?",
-                            "header": "Days",
-                            "options": [
-                                {"label": "Monday", "description": "Start of week"},
-                                {"label": "Tuesday", "description": ""},
-                                {"label": "Wednesday", "description": ""},
-                                {"label": "Thursday", "description": ""}
-                            ],
-                            "multiSelect": true
-                        },
-                        {
-                            "question": "Which season fits best?",
-                            "header": "Season",
-                            "options": [
-                                {"label": "Spring", "description": ""},
-                                {"label": "Summer", "description": ""},
-                                {"label": "Autumn", "description": ""},
-                                {"label": "Winter", "description": ""}
-                            ],
-                            "multiSelect": false
-                        },
-                        {
-                            "question": "Which alert channels should we use?",
-                            "header": "Alerts",
-                            "options": [
-                                {"label": "Email", "description": ""},
-                                {"label": "Slack", "description": ""},
-                                {"label": "Pager", "description": ""}
-                            ],
-                            "multiSelect": true
-                        }
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-04-25T10:02:00.000000Z"),
+                "tool_name": .string("AskUserQuestion"),
+                "tool_input": .object([
+                    "questions": .array([
+                        .object([
+                            "question": .string("Which days should we deploy?"),
+                            "header": .string("Days"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Monday"),
+                                    "description": .string("Start of week"),
+                                ]),
+                                .object([
+                                    "label": .string("Tuesday"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Wednesday"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Thursday"),
+                                    "description": .string(""),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(true),
+                        ]),
+                        .object([
+                            "question": .string("Which season fits best?"),
+                            "header": .string("Season"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Spring"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Summer"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Autumn"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Winter"),
+                                    "description": .string(""),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(false),
+                        ]),
+                        .object([
+                            "question": .string("Which alert channels should we use?"),
+                            "header": .string("Alerts"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Email"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Slack"),
+                                    "description": .string(""),
+                                ]),
+                                .object([
+                                    "label": .string("Pager"),
+                                    "description": .string(""),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(true),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         TestStep.iosWaitForElement(.labelContains("Which days should we deploy"), timeout: 10)
