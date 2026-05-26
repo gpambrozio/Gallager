@@ -15,10 +15,12 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     // Execution
     case bash(BashParameters)
     case monitor(MonitorParameters)
+    case powerShell(PowerShellParameters)
 
     // Subagents & Planning
     case agent(AgentParameters)
     case todoWrite(TodoWriteParameters)
+    case enterPlanMode([String: AnyCodable])
     case exitPlanMode(ExitPlanModeParameters)
 
     // Web Operations
@@ -37,12 +39,45 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     /// User Interaction
     case askUserQuestion(AskUserQuestionParameters)
 
+    /// Code Intelligence
+    case lsp([String: AnyCodable])
+
     // Background Tasks
     case taskOutput(TaskOutputParameters)
     case taskStop(TaskStopParameters)
 
+    // Task Management
+    case taskCreate([String: AnyCodable])
+    case taskGet([String: AnyCodable])
+    case taskList([String: AnyCodable])
+    case taskUpdate([String: AnyCodable])
+
     /// Worktrees
     case enterWorktree(EnterWorktreeParameters)
+    case exitWorktree([String: AnyCodable])
+
+    /// Scheduled Tasks
+    case cronCreate([String: AnyCodable])
+    case cronDelete([String: AnyCodable])
+    case cronList([String: AnyCodable])
+    case scheduleWakeup([String: AnyCodable])
+
+    /// Notifications
+    case pushNotification([String: AnyCodable])
+
+    /// Routines
+    case remoteTrigger([String: AnyCodable])
+
+    /// Agent Teams
+    case sendMessage([String: AnyCodable])
+    case teamCreate([String: AnyCodable])
+    case teamDelete([String: AnyCodable])
+
+    /// Onboarding
+    case shareOnboardingGuide([String: AnyCodable])
+
+    /// MCP Servers
+    case waitForMcpServers([String: AnyCodable])
 
     // MCP Resources
     case listMcpResources(ListMcpResourcesParameters)
@@ -63,8 +98,10 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .glob: "Glob"
         case .bash: "Bash"
         case .monitor: "Monitor"
+        case .powerShell: "PowerShell"
         case .agent: "Agent"
         case .todoWrite: "TodoWrite"
+        case .enterPlanMode: "EnterPlanMode"
         case .exitPlanMode: "ExitPlanMode"
         case .webFetch: "WebFetch"
         case .webSearch: "WebSearch"
@@ -72,9 +109,26 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .skill: "Skill"
         case .toolSearch: "ToolSearch"
         case .askUserQuestion: "AskUserQuestion"
+        case .lsp: "LSP"
         case .taskOutput: "TaskOutput"
         case .taskStop: "TaskStop"
+        case .taskCreate: "TaskCreate"
+        case .taskGet: "TaskGet"
+        case .taskList: "TaskList"
+        case .taskUpdate: "TaskUpdate"
         case .enterWorktree: "EnterWorktree"
+        case .exitWorktree: "ExitWorktree"
+        case .cronCreate: "CronCreate"
+        case .cronDelete: "CronDelete"
+        case .cronList: "CronList"
+        case .scheduleWakeup: "ScheduleWakeup"
+        case .pushNotification: "PushNotification"
+        case .remoteTrigger: "RemoteTrigger"
+        case .sendMessage: "SendMessage"
+        case .teamCreate: "TeamCreate"
+        case .teamDelete: "TeamDelete"
+        case .shareOnboardingGuide: "ShareOnboardingGuide"
+        case .waitForMcpServers: "WaitForMcpServers"
         case .listMcpResources: "ListMcpResourcesTool"
         case .readMcpResource: "ReadMcpResourceTool"
         case let .mcp(params): params.fullToolName
@@ -99,12 +153,16 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.command
         case let .monitor(params):
             params.command
+        case let .powerShell(params):
+            params.command
         case let .agent(params):
             params.description
         case .todoWrite:
             nil
-        case .exitPlanMode:
+        case .enterPlanMode:
             nil
+        case let .exitPlanMode(params):
+            params.planFilePath
         case let .webFetch(params):
             params.url
         case let .webSearch(params):
@@ -117,12 +175,38 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.query
         case let .askUserQuestion(params):
             params.questions.first?.question
+        case .lsp:
+            nil
         case let .taskOutput(params):
             params.taskId
         case let .taskStop(params):
             params.taskId ?? params.shellId
+        case .taskCreate,
+             .taskGet,
+             .taskList,
+             .taskUpdate:
+            nil
         case let .enterWorktree(params):
             params.name ?? params.path
+        case .exitWorktree:
+            nil
+        case .cronCreate,
+             .cronDelete,
+             .cronList,
+             .scheduleWakeup:
+            nil
+        case .pushNotification:
+            nil
+        case .remoteTrigger:
+            nil
+        case .sendMessage,
+             .teamCreate,
+             .teamDelete:
+            nil
+        case .shareOnboardingGuide:
+            nil
+        case .waitForMcpServers:
+            nil
         case let .listMcpResources(params):
             params.server
         case let .readMcpResource(params):
@@ -156,10 +240,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .bash(container.decode(BashParameters.self))
         case "Monitor":
             return try .monitor(container.decode(MonitorParameters.self))
+        case "PowerShell":
+            return try .powerShell(container.decode(PowerShellParameters.self))
         case "Agent":
             return try .agent(container.decode(AgentParameters.self))
         case "TodoWrite":
             return try .todoWrite(container.decode(TodoWriteParameters.self))
+        case "EnterPlanMode":
+            return try .enterPlanMode(container.decode([String: AnyCodable].self))
         case "ExitPlanMode":
             return try .exitPlanMode(container.decode(ExitPlanModeParameters.self))
         case "WebFetch":
@@ -174,12 +262,46 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .toolSearch(container.decode(ToolSearchParameters.self))
         case "AskUserQuestion":
             return try .askUserQuestion(container.decode(AskUserQuestionParameters.self))
+        case "LSP":
+            return try .lsp(container.decode([String: AnyCodable].self))
         case "TaskOutput":
             return try .taskOutput(container.decode(TaskOutputParameters.self))
         case "TaskStop":
             return try .taskStop(container.decode(TaskStopParameters.self))
+        case "TaskCreate":
+            return try .taskCreate(container.decode([String: AnyCodable].self))
+        case "TaskGet":
+            return try .taskGet(container.decode([String: AnyCodable].self))
+        case "TaskList":
+            return try .taskList(container.decode([String: AnyCodable].self))
+        case "TaskUpdate":
+            return try .taskUpdate(container.decode([String: AnyCodable].self))
         case "EnterWorktree":
             return try .enterWorktree(container.decode(EnterWorktreeParameters.self))
+        case "ExitWorktree":
+            return try .exitWorktree(container.decode([String: AnyCodable].self))
+        case "CronCreate":
+            return try .cronCreate(container.decode([String: AnyCodable].self))
+        case "CronDelete":
+            return try .cronDelete(container.decode([String: AnyCodable].self))
+        case "CronList":
+            return try .cronList(container.decode([String: AnyCodable].self))
+        case "ScheduleWakeup":
+            return try .scheduleWakeup(container.decode([String: AnyCodable].self))
+        case "PushNotification":
+            return try .pushNotification(container.decode([String: AnyCodable].self))
+        case "RemoteTrigger":
+            return try .remoteTrigger(container.decode([String: AnyCodable].self))
+        case "SendMessage":
+            return try .sendMessage(container.decode([String: AnyCodable].self))
+        case "TeamCreate":
+            return try .teamCreate(container.decode([String: AnyCodable].self))
+        case "TeamDelete":
+            return try .teamDelete(container.decode([String: AnyCodable].self))
+        case "ShareOnboardingGuide":
+            return try .shareOnboardingGuide(container.decode([String: AnyCodable].self))
+        case "WaitForMcpServers":
+            return try .waitForMcpServers(container.decode([String: AnyCodable].self))
         case "ListMcpResourcesTool":
             return try .listMcpResources(container.decode(ListMcpResourcesParameters.self))
         case "ReadMcpResourceTool":
@@ -200,13 +322,11 @@ public struct ReadParameters: Codable, Sendable, Equatable {
     public let filePath: String
     public let offset: Int?
     public let limit: Int?
-    public let pages: String?
 
     enum CodingKeys: String, CodingKey {
         case filePath = "file_path"
         case offset
         case limit
-        case pages
     }
 }
 
@@ -240,15 +360,8 @@ public struct GrepParameters: Codable, Sendable, Equatable {
     public let outputMode: OutputMode?
     public let glob: String?
     public let type: String?
-    public let linesAfter: Int?
-    public let linesBefore: Int?
-    public let linesContext: Int?
-    public let context: Int?
     public let caseInsensitive: Bool?
-    public let showLineNumbers: Bool?
     public let multiline: Bool?
-    public let headLimit: Int?
-    public let offset: Int?
 
     public enum OutputMode: String, Codable, Sendable, Equatable {
         case content
@@ -262,15 +375,8 @@ public struct GrepParameters: Codable, Sendable, Equatable {
         case outputMode = "output_mode"
         case glob
         case type
-        case linesAfter = "-A"
-        case linesBefore = "-B"
-        case linesContext = "-C"
-        case context
         case caseInsensitive = "-i"
-        case showLineNumbers = "-n"
         case multiline
-        case headLimit = "head_limit"
-        case offset
     }
 }
 
@@ -285,28 +391,24 @@ public struct BashParameters: Codable, Sendable, Equatable {
     /// Timeout in milliseconds (default: 120000, max: 600000)
     public let timeout: Int?
     public let runInBackground: Bool?
-    public let dangerouslyDisableSandbox: Bool?
 
     enum CodingKeys: String, CodingKey {
         case command
         case description
         case timeout
         case runInBackground = "run_in_background"
-        case dangerouslyDisableSandbox
     }
 
     public init(
         command: String,
         description: String? = nil,
         timeout: Int? = nil,
-        runInBackground: Bool? = nil,
-        dangerouslyDisableSandbox: Bool? = nil
+        runInBackground: Bool? = nil
     ) {
         self.command = command
         self.description = description
         self.timeout = timeout
         self.runInBackground = runInBackground
-        self.dangerouslyDisableSandbox = dangerouslyDisableSandbox
     }
 }
 
@@ -336,18 +438,37 @@ public struct MonitorParameters: Codable, Sendable, Equatable {
     }
 }
 
+public struct PowerShellParameters: Codable, Sendable, Equatable {
+    public let command: String
+    public let description: String?
+    public let timeout: Int?
+    public let runInBackground: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case command
+        case description
+        case timeout
+        case runInBackground = "run_in_background"
+    }
+
+    public init(
+        command: String,
+        description: String? = nil,
+        timeout: Int? = nil,
+        runInBackground: Bool? = nil
+    ) {
+        self.command = command
+        self.description = description
+        self.timeout = timeout
+        self.runInBackground = runInBackground
+    }
+}
+
 public struct AgentParameters: Codable, Sendable, Equatable {
     public let prompt: String
     public let description: String
     public let subagentType: String
     public let model: Model?
-    public let resume: String?
-    public let runInBackground: Bool?
-    public let maxTurns: Int?
-    public let name: String?
-    public let teamName: String?
-    public let mode: AgentMode?
-    public let isolation: Isolation?
 
     public enum Model: Codable, Sendable, Equatable {
         case sonnet
@@ -386,100 +507,23 @@ public struct AgentParameters: Codable, Sendable, Equatable {
         }
     }
 
-    public enum AgentMode: Codable, Sendable, Equatable {
-        case acceptEdits
-        case bypassPermissions
-        case `default`
-        case dontAsk
-        case plan
-        case unknown(String)
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            let raw = try container.decode(String.self)
-            switch raw {
-            case "acceptEdits": self = .acceptEdits
-            case "bypassPermissions": self = .bypassPermissions
-            case "default": self = .default
-            case "dontAsk": self = .dontAsk
-            case "plan": self = .plan
-            default: self = .unknown(raw)
-            }
-        }
-
-        public func encode(to encoder: Encoder) throws {
-            var container = encoder.singleValueContainer()
-            switch self {
-            case .acceptEdits: try container.encode("acceptEdits")
-            case .bypassPermissions: try container.encode("bypassPermissions")
-            case .default: try container.encode("default")
-            case .dontAsk: try container.encode("dontAsk")
-            case .plan: try container.encode("plan")
-            case let .unknown(raw): try container.encode(raw)
-            }
-        }
-    }
-
-    public enum Isolation: Codable, Sendable, Equatable {
-        case worktree
-        case unknown(String)
-
-        public init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            let raw = try container.decode(String.self)
-            switch raw {
-            case "worktree": self = .worktree
-            default: self = .unknown(raw)
-            }
-        }
-
-        public func encode(to encoder: Encoder) throws {
-            var container = encoder.singleValueContainer()
-            switch self {
-            case .worktree: try container.encode("worktree")
-            case let .unknown(raw): try container.encode(raw)
-            }
-        }
-    }
-
     enum CodingKeys: String, CodingKey {
         case prompt
         case description
         case subagentType = "subagent_type"
         case model
-        case resume
-        case runInBackground = "run_in_background"
-        case maxTurns = "max_turns"
-        case name
-        case teamName = "team_name"
-        case mode
-        case isolation
     }
 
     public init(
         prompt: String,
         description: String,
         subagentType: String,
-        model: Model? = nil,
-        resume: String? = nil,
-        runInBackground: Bool? = nil,
-        maxTurns: Int? = nil,
-        name: String? = nil,
-        teamName: String? = nil,
-        mode: AgentMode? = nil,
-        isolation: Isolation? = nil
+        model: Model? = nil
     ) {
         self.prompt = prompt
         self.description = description
         self.subagentType = subagentType
         self.model = model
-        self.resume = resume
-        self.runInBackground = runInBackground
-        self.maxTurns = maxTurns
-        self.name = name
-        self.teamName = teamName
-        self.mode = mode
-        self.isolation = isolation
     }
 }
 
@@ -508,13 +552,16 @@ public struct TodoWriteParameters: Codable, Sendable, Equatable {
 }
 
 public struct ExitPlanModeParameters: Codable, Sendable, Equatable {
-    /// The markdown plan content (may be nil if not provided)
+    /// The markdown plan content (injected from the plan file on disk)
     public let plan: String?
+    /// Path to the plan file on disk (injected)
+    public let planFilePath: String?
     /// Prompt-based permissions requested for plan implementation
     public let allowedPrompts: [AllowedPrompt]?
 
-    public init(plan: String?, allowedPrompts: [AllowedPrompt]?) {
+    public init(plan: String?, planFilePath: String? = nil, allowedPrompts: [AllowedPrompt]?) {
         self.plan = plan
+        self.planFilePath = planFilePath
         self.allowedPrompts = allowedPrompts
     }
 
@@ -725,9 +772,13 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .monitor(params):
             try container.encode(params)
+        case let .powerShell(params):
+            try container.encode(params)
         case let .agent(params):
             try container.encode(params)
         case let .todoWrite(params):
+            try container.encode(params)
+        case let .enterPlanMode(params):
             try container.encode(params)
         case let .exitPlanMode(params):
             try container.encode(params)
@@ -743,11 +794,45 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .askUserQuestion(params):
             try container.encode(params)
+        case let .lsp(params):
+            try container.encode(params)
         case let .taskOutput(params):
             try container.encode(params)
         case let .taskStop(params):
             try container.encode(params)
+        case let .taskCreate(params):
+            try container.encode(params)
+        case let .taskGet(params):
+            try container.encode(params)
+        case let .taskList(params):
+            try container.encode(params)
+        case let .taskUpdate(params):
+            try container.encode(params)
         case let .enterWorktree(params):
+            try container.encode(params)
+        case let .exitWorktree(params):
+            try container.encode(params)
+        case let .cronCreate(params):
+            try container.encode(params)
+        case let .cronDelete(params):
+            try container.encode(params)
+        case let .cronList(params):
+            try container.encode(params)
+        case let .scheduleWakeup(params):
+            try container.encode(params)
+        case let .pushNotification(params):
+            try container.encode(params)
+        case let .remoteTrigger(params):
+            try container.encode(params)
+        case let .sendMessage(params):
+            try container.encode(params)
+        case let .teamCreate(params):
+            try container.encode(params)
+        case let .teamDelete(params):
+            try container.encode(params)
+        case let .shareOnboardingGuide(params):
+            try container.encode(params)
+        case let .waitForMcpServers(params):
             try container.encode(params)
         case let .listMcpResources(params):
             try container.encode(params)

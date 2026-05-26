@@ -354,10 +354,10 @@ struct ToolInputView: View {
                 headerRow("Read File")
                 detailRow("File:", params.filePath)
                 if let offset = params.offset {
-                    detailRow("Starting at line:", "\(offset)")
+                    detailRow("Offset:", "\(offset)")
                 }
                 if let limit = params.limit {
-                    detailRow("Reading:", "\(limit) lines")
+                    detailRow("Limit:", "\(limit) lines")
                 }
 
             case let .edit(params):
@@ -415,6 +415,9 @@ struct ToolInputView: View {
 
             case let .exitPlanMode(params):
                 headerRow("Exit Plan Mode")
+                if let planFilePath = params.planFilePath {
+                    detailRow("Plan file:", planFilePath)
+                }
                 if let prompts = params.allowedPrompts {
                     detailRow("Permissions:", "\(prompts.count) requested")
                 }
@@ -516,6 +519,70 @@ struct ToolInputView: View {
                 headerRow("Read MCP Resource")
                 detailRow("Server:", params.server)
                 detailRow("URI:", params.uri)
+
+            case let .powerShell(params):
+                headerRow("Run PowerShell")
+                detailRow("Command:", params.command, maxLines: 3)
+                if let desc = params.description {
+                    detailRow("Description:", desc, maxLines: 3)
+                }
+
+            case .enterPlanMode:
+                headerRow("Enter Plan Mode")
+
+            case let .lsp(params):
+                headerRow("Code Intelligence")
+                if case let .string(operation) = params["operation"]?.value {
+                    detailRow("Operation:", operation)
+                }
+
+            case .taskCreate:
+                headerRow("Create Task")
+
+            case .taskGet:
+                headerRow("Get Task")
+
+            case .taskList:
+                headerRow("List Tasks")
+
+            case .taskUpdate:
+                headerRow("Update Task")
+
+            case .exitWorktree:
+                headerRow("Exit Worktree")
+
+            case .cronCreate:
+                headerRow("Create Scheduled Task")
+
+            case .cronDelete:
+                headerRow("Delete Scheduled Task")
+
+            case .cronList:
+                headerRow("List Scheduled Tasks")
+
+            case .scheduleWakeup:
+                headerRow("Schedule Wakeup")
+
+            case .pushNotification:
+                headerRow("Push Notification")
+
+            case .remoteTrigger:
+                headerRow("Remote Trigger")
+
+            case .sendMessage:
+                headerRow("Send Message")
+
+            case .teamCreate:
+                headerRow("Create Team")
+
+            case .teamDelete:
+                headerRow("Delete Team")
+
+            case .shareOnboardingGuide:
+                headerRow("Share Onboarding Guide")
+
+            case .waitForMcpServers:
+                headerRow("Wait for MCP Servers")
 
             case let .mcp(params):
                 headerRow("MCP Tool")
