@@ -112,7 +112,12 @@ public enum PluginAskUserQuestionRoundTripScenario {
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-auq-review")
         TestStep.iosTap(.labelContains("Confirm"))
-        TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 10)
+        // After Confirm the response form is dismissed and the delivery_script
+        // pumps "echo-auq-confirmed\n" into the host pane's terminal. iOS
+        // navigates to the terminal session view; the text appearing in the
+        // mirror is the strongest possible signal that the structured
+        // response round-tripped through iOS→relay→Mac→sidecar→agent pane.
+        TestStep.iosWaitForElement(.labelContains("echo-auq-confirmed"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-auq-done")
 
         // 3. EchoSidecar writes the JSON to disk before running the

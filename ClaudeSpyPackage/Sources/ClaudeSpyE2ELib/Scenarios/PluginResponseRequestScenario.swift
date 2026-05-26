@@ -58,7 +58,10 @@ public enum PluginResponseRequestScenario {
         //    routes it into `PluginManager.deliverResponse(...)`, which
         //    sends `deliver_response` JSON-RPC into the sidecar's stdin.
         TestStep.iosTap(.labelContains("Allow"))
-        TestStep.iosWaitForElement(.labelContains("Allowed"), timeout: 5)
+        // The form dismisses on submit; the response-file check below
+        // proves the round-trip worked. No "Allowed" feedback element
+        // exists in the current UI flow.
+        TestStep.wait(seconds: 1.5)
         TestStep.iosScreenshot(label: "ios-permission-allowed")
 
         // 4. EchoSidecar persists the response to
