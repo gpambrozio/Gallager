@@ -719,5 +719,19 @@ public enum GallagerCLIScenario {
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-apply-progress-75")
+
+        // 21. plugin list — the bundled Claude Code and Codex plugins
+        // should be visible via the new `gallager plugin` namespace.
+        // Task 25 will add deeper plugin-CLI coverage; this asserts the
+        // RPC wiring works end-to-end so the rest of the verb table is
+        // safe to grow against.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager plugin list --json > /tmp/e2e-cli-plugin-list.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-plugin-list.txt", storeAs: "pluginListResult")
+        TestStep.assertStoredContains(key: "pluginListResult", substring: "claude-code")
+        TestStep.assertStoredContains(key: "pluginListResult", substring: "\"source\":\"bundled\"")
     }
 }

@@ -584,6 +584,221 @@ Variable expansion: every string-valued field is run through a `${VAR}` / `$VAR`
 
 ---
 
+### Plugins
+
+The `plugin` namespace manages installed Gallager plugins (Spec §17.4). Bundled plugins (Claude Code, Codex CLI) ship inside the app and cannot be uninstalled — only disabled. User-installed plugins (via `gallager plugin install`) can be removed, but the v1 install flow has no signing/trust UI yet; pass `--yes` to skip the confirmation prompt and accept the v2 follow-up work.
+
+All `plugin.*` RPC methods accept `--json` for structured output and exit non-zero on failure. Network errors talking to the sidecar surface as `internal_error`. Missing plugin ids surface as `internal_error` with the message `"PluginManager has no plugin with id '<id>'"`.
+
+#### `plugin list`
+
+Print every installed plugin: id, version, enabled flag, and source. Default output is tab-separated for easy `cut`/`awk` pipelines.
+
+```bash
+gallager plugin list
+gallager plugin list --json
+```
+
+Sample output (default):
+```
+claude-code	1.0.0	enabled	bundled
+codex-cli	1.0.0	enabled	bundled
+```
+
+**JSON-RPC**
+- Method: `plugin.list`
+- Params: _(none)_
+- Response:
+```json
+{
+  "id": "1",
+  "ok": true,
+  "result": {
+    "plugins": [
+      { "id": "claude-code", "version": "1.0.0", "enabled": true, "source": "bundled" },
+      { "id": "codex-cli", "version": "1.0.0", "enabled": true, "source": "bundled" }
+    ]
+  }
+}
+```
+
+---
+
+#### `plugin info <id>`
+
+Show the full record for a single plugin: manifest fields, install/state paths, log file location, state-dir size, and the running bit.
+
+```bash
+gallager plugin info claude-code
+gallager plugin info claude-code --json
+```
+
+**JSON-RPC**
+- Method: `plugin.info`
+- Params: `{ "id": "claude-code" }`
+- Response:
+```json
+{
+  "id": "2",
+  "ok": true,
+  "result": {
+    "id": "claude-code",
+    "version": "1.0.0",
+    "enabled": true,
+    "source": "bundled",
+    "install_dir": "/Applications/Gallager.app/Contents/Resources/plugins/claude-code",
+    "state_dir": "/Users/me/.gallager/state/plugins/claude-code",
+    "state_dir_size_bytes": 4096,
+    "log_file": "/Users/me/.gallager/state/plugins/claude-code/logs/sidecar.log",
+    "running": true,
+    "display_name": "Claude Code",
+    "publisher": "Anthropic",
+    "process_names": ["claude"],
+    "capabilities": {
+      "pushes_projects": true,
+      "translate_event": true,
+      "install": true,
+      "detect_pane": false,
+      "requires_rich_detection": false,
+      "settings_schema": "sidecar"
+    }
+  }
+}
+```
+
+---
+
+#### `plugin install <url>`
+
+Install a plugin from an https manifest URL. The CLI prompts on stdin for confirmation; pass `--yes` to skip the prompt (e.g. for scripts).
+
+```bash
+gallager plugin install https://example.com/plugins/my-plugin/plugin.json
+gallager plugin install https://example.com/plugins/my-plugin/plugin.json --yes
+```
+
+The app fetches the manifest, downloads `bundle.zip` from the same directory, verifies its SHA-256 against the manifest, unpacks it into `~/.gallager/plugins/<id>/`, adds a registry entry, and spawns the sidecar. Schema mismatches and SHA-256 failures abort the install and return an error.
+
+v1 does **not** implement the trust UI / signature verification described in Spec §16. The CLI's `--yes` flag accepts the v2 follow-up work — once trust is in place the flag will continue to mean "skip the confirmation step", but the underlying flow gains a signing check.
+
+**JSON-RPC**
+- Method: `plugin.install`
+- Params: `{ "manifest_url": "https://…/plugin.json", "yes": true }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `plugin remove <id>`
+
+Uninstall a URL-installed plugin. Bundled plugins refuse and surface an `internal_error` — disable them via [`plugin disable`](#plugin-disable-id) instead.
+
+```bash
+gallager plugin remove my-plugin
+gallager plugin remove my-plugin --keep-state    # leave logs + settings on disk
+gallager plugin remove my-plugin --delete-state  # explicit (v1 default)
+```
+
+v1 always removes the plugin's state dir on uninstall; `--keep-state` is accepted for forward compatibility but ignored by the app today. v2 will honor the flag.
+
+**JSON-RPC**
+- Method: `plugin.remove`
+- Params: `{ "id": "my-plugin", "delete_state": true }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `plugin enable <id>`
+
+Spawn a previously-disabled plugin's sidecar and reload its presentation bundle. Idempotent.
+
+```bash
+gallager plugin enable claude-code
+```
+
+**JSON-RPC**
+- Method: `plugin.enable`
+- Params: `{ "id": "claude-code" }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `plugin disable <id>`
+
+Shut down a plugin's sidecar without uninstalling it. The plugin's files stay on disk; re-running `gallager plugin enable <id>` brings it back.
+
+```bash
+gallager plugin disable claude-code
+```
+
+**JSON-RPC**
+- Method: `plugin.disable`
+- Params: `{ "id": "claude-code" }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `plugin update [<id>]`
+
+Check for plugin updates. With `--apply`, apply available updates immediately.
+
+```bash
+gallager plugin update                  # check every plugin
+gallager plugin update claude-code      # check one
+gallager plugin update --apply          # apply (v2)
+```
+
+**v1 limitation:** no auto-update mechanism exists. The app always returns an empty update list and the CLI prints `No updates available.` regardless of `--apply`. The `--apply` flag is parsed for forward compatibility with v2's installer.
+
+**JSON-RPC**
+- Method: `plugin.update`
+- Params: `{ "id": "claude-code" }` _(both fields optional)_
+- Response:
+```json
+{ "id": "3", "ok": true, "result": { "updates": [] } }
+```
+
+---
+
+#### `plugin call <id> <method> [<json>]`
+
+Send a raw JSON-RPC request directly to a plugin's sidecar — bypasses the manager's translation/routing layer. Intended for plugin authors debugging their own methods.
+
+JSON params come from the trailing argument or stdin:
+
+```bash
+gallager plugin call claude-code _test_push_set_projects
+gallager plugin call claude-code translate_event '{"context":{}}'
+echo '{"context":{}}' | gallager plugin call claude-code translate_event
+```
+
+Default output is just the result payload (unwrapped from the JSON-RPC envelope) so the response can be piped straight into `jq`. With `--json` the full envelope is printed.
+
+**JSON-RPC**
+- Method: `plugin.call`
+- Params: `{ "id": "claude-code", "method": "translate_event", "params": {...} }`
+- Response: `{ "result": <sidecar response> }`
+
+---
+
+#### `plugin logs <id> [-f] [--lines N]`
+
+Print the trailing lines from a plugin's `sidecar.log`. `-f` (alias `--follow`) tails by polling the file once per second and emitting any newly-appended content.
+
+```bash
+gallager plugin logs claude-code              # last 256 lines
+gallager plugin logs claude-code --lines 50
+gallager plugin logs claude-code -f           # follow
+```
+
+The log path matches the in-app log viewer (`~/.gallager/state/plugins/<id>/logs/sidecar.log`). Size rotation is 5 MB; rotated files (`sidecar.log.1`) are not surfaced by this RPC — only the active file.
+
+**JSON-RPC**
+- Method: `plugin.logs`
+- Params: `{ "id": "claude-code", "lines": 256 }`
+- Response: `{ "content": "<line>\n<line>\n…" }` _(empty when the log doesn't exist yet)_
+
+---
+
 ### Editor
 
 #### `edit <file>`
@@ -648,7 +863,9 @@ gallager capabilities --json | jq '.result.methods[]'
       "editor.open",
       "system.ping", "system.capabilities", "system.identify", "system.set_env",
       "project.list", "project.start",
-      "layout.apply"
+      "layout.apply",
+      "plugin.list", "plugin.info", "plugin.install", "plugin.remove",
+      "plugin.enable", "plugin.disable", "plugin.update", "plugin.call", "plugin.logs"
     ]
   }
 }
@@ -761,6 +978,7 @@ Methods follow a `domain.action` convention:
 | `input.*` | Text and key input |
 | `notification.*` | Desktop notifications |
 | `editor.*` | Prompt editor |
+| `plugin.*` | Plugin management |
 | `system.*` | Utility / introspection |
 
 ---

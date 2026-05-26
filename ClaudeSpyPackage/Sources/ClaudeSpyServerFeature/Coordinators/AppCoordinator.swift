@@ -944,6 +944,140 @@
                         "warnings": .array(result.warnings.map { .string($0) }),
                         "planned_actions": .array(result.plannedActions.map { .string($0) }),
                     ]
+                },
+                onPluginList: { [weak self] in
+                    // Hop to MainActor to read `pluginManager` and call its
+                    // (also-isolated) helpers. The coordinator's pluginManager
+                    // is set later by `setupPluginManager()`; the throw makes
+                    // pre-init calls surface as a clean error.
+                    try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }.listEntries().map { entry in
+                        LiveAPIRequestRouter.PluginListEntry(
+                            id: entry.id,
+                            version: entry.version,
+                            enabled: entry.enabled,
+                            source: entry.source.rawValue
+                        )
+                    }
+                },
+                onPluginInfo: { [weak self] pluginId in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    let info = try await manager.info(pluginID: pluginId)
+                    let capabilities: [String: JSONValue]
+                    if let caps = info.manifest?.capabilities {
+                        capabilities = [
+                            "pushes_projects": .bool(caps.pushesProjects),
+                            "translate_event": .bool(caps.translateEvent),
+                            "install": .bool(caps.install),
+                            "detect_pane": .bool(caps.detectPane),
+                            "requires_rich_detection": .bool(caps.requiresRichDetection),
+                            "settings_schema": caps.settingsSchema.map { .string($0) } ?? .null,
+                        ]
+                    } else {
+                        capabilities = [:]
+                    }
+                    return LiveAPIRequestRouter.PluginInfoResult(
+                        id: info.entry.id,
+                        version: info.entry.version,
+                        enabled: info.entry.enabled,
+                        source: info.entry.source.rawValue,
+                        installDir: info.installDir?.path,
+                        stateDir: info.stateDir.path,
+                        stateDirSizeBytes: info.stateDirSizeBytes,
+                        logFile: info.logFile.path,
+                        running: info.running,
+                        displayName: info.manifest?.displayName,
+                        publisher: info.manifest?.publisher,
+                        processNames: info.manifest?.processNames ?? [],
+                        capabilities: capabilities
+                    )
+                },
+                onPluginInstall: { [weak self] url, _ in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    try await manager.install(manifestURL: url)
+                },
+                onPluginRemove: { [weak self] pluginId, _ in
+                    // `deleteState` is parsed but currently unused: the
+                    // manager always tears down the state dir on uninstall
+                    // (Spec §10.3). v2 will honor `--keep-state` by leaving
+                    // the state dir behind.
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    try await manager.uninstall(pluginID: pluginId)
+                },
+                onPluginEnable: { [weak self] pluginId in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    try await manager.enable(pluginID: pluginId)
+                },
+                onPluginDisable: { [weak self] pluginId in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    try await manager.disable(pluginID: pluginId)
+                },
+                onPluginUpdate: { [weak self] _ in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    let updates = try await manager.checkForUpdates()
+                    return updates.map { update in
+                        LiveAPIRequestRouter.PluginUpdateResult(
+                            id: update.id,
+                            currentVersion: update.currentVersion,
+                            latestVersion: update.latestVersion
+                        )
+                    }
+                },
+                onPluginCall: { [weak self] pluginId, method, params in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    return try await manager.directCall(
+                        pluginID: pluginId,
+                        method: method,
+                        params: params
+                    )
+                },
+                onPluginLogs: { [weak self] pluginId, lines in
+                    let manager: PluginManager = try await MainActor.run { [weak self] in
+                        guard let manager = self?.pluginManager else {
+                            throw APIError.notFound("Plugin manager not running")
+                        }
+                        return manager
+                    }
+                    return try await manager.tailLogs(pluginID: pluginId, lines: lines)
                 }
             )
             liveRouter = router

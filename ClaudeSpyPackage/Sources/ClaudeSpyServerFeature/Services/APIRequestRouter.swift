@@ -60,6 +60,15 @@
         "project.list",
         "project.start",
         "layout.apply",
+        "plugin.list",
+        "plugin.info",
+        "plugin.install",
+        "plugin.remove",
+        "plugin.enable",
+        "plugin.disable",
+        "plugin.update",
+        "plugin.call",
+        "plugin.logs",
     ]
 
     /// Live implementation that routes JSON-RPC methods to service calls.
@@ -160,6 +169,35 @@
             @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
         )?
 
+        // MARK: - Plugin callbacks
+        //
+        // Each callback is a thin façade over `PluginManager`. The
+        // coordinator wires them after the manager finishes `start()` so
+        // the router doesn't reach into a half-initialized manager.
+        let onPluginList: (@Sendable () async throws -> [PluginListEntry])?
+        let onPluginInfo: (@Sendable (String) async throws -> PluginInfoResult)?
+        /// Parameters: (manifestURL, yes). `yes` is currently unused on the
+        /// app side — the CLI gates the confirmation, the app trusts the
+        /// caller. Reserved for v2's trust prompt.
+        let onPluginInstall: (@Sendable (URL, Bool) async throws -> Void)?
+        /// Parameters: (id, deleteState). v1 always removes registry + files
+        /// for url plugins; state-dir removal is gated on `deleteState`.
+        let onPluginRemove: (@Sendable (String, Bool) async throws -> Void)?
+        let onPluginEnable: (@Sendable (String) async throws -> Void)?
+        let onPluginDisable: (@Sendable (String) async throws -> Void)?
+        /// Parameters: (id?). v1 always returns an empty list; the closure
+        /// hook exists so v2 can plug in a real updater without changing
+        /// the route table.
+        let onPluginUpdate: (@Sendable (String?) async throws -> [PluginUpdateResult])?
+        /// Parameters: (id, method, params). Routes a raw RPC to the named
+        /// sidecar and returns its result payload verbatim.
+        let onPluginCall: (
+            @Sendable (String, String, JSONValue?) async throws -> JSONValue
+        )?
+        /// Parameters: (id, lines). Returns the trailing N lines of the
+        /// sidecar log (or an empty string when the log doesn't exist yet).
+        let onPluginLogs: (@Sendable (String, Int) async throws -> String)?
+
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
             onSessionCreate: (
@@ -199,7 +237,18 @@
             onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)? = nil,
             onLayoutApply: (
                 @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
-            )? = nil
+            )? = nil,
+            onPluginList: (@Sendable () async throws -> [PluginListEntry])? = nil,
+            onPluginInfo: (@Sendable (String) async throws -> PluginInfoResult)? = nil,
+            onPluginInstall: (@Sendable (URL, Bool) async throws -> Void)? = nil,
+            onPluginRemove: (@Sendable (String, Bool) async throws -> Void)? = nil,
+            onPluginEnable: (@Sendable (String) async throws -> Void)? = nil,
+            onPluginDisable: (@Sendable (String) async throws -> Void)? = nil,
+            onPluginUpdate: (@Sendable (String?) async throws -> [PluginUpdateResult])? = nil,
+            onPluginCall: (
+                @Sendable (String, String, JSONValue?) async throws -> JSONValue
+            )? = nil,
+            onPluginLogs: (@Sendable (String, Int) async throws -> String)? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -230,6 +279,15 @@
             self.onProjectStart = onProjectStart
             self.onSetEnvironment = onSetEnvironment
             self.onLayoutApply = onLayoutApply
+            self.onPluginList = onPluginList
+            self.onPluginInfo = onPluginInfo
+            self.onPluginInstall = onPluginInstall
+            self.onPluginRemove = onPluginRemove
+            self.onPluginEnable = onPluginEnable
+            self.onPluginDisable = onPluginDisable
+            self.onPluginUpdate = onPluginUpdate
+            self.onPluginCall = onPluginCall
+            self.onPluginLogs = onPluginLogs
         }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -604,6 +662,147 @@
                     }
                     return .internalError(id: id, "Project start not available")
 
+                // MARK: - Plugins
+
+                case "plugin.list":
+                    guard let callback = onPluginList else {
+                        return .internalError(id: id, "Plugin list not available")
+                    }
+                    let entries = try await callback()
+                    return JSONRPCResponse(id: id, result: [
+                        "plugins": .array(entries.map { entry in
+                            .object([
+                                "id": .string(entry.id),
+                                "version": .string(entry.version),
+                                "enabled": .bool(entry.enabled),
+                                "source": .string(entry.source),
+                            ])
+                        }),
+                    ])
+
+                case "plugin.info":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginInfo else {
+                        return .internalError(id: id, "Plugin info not available")
+                    }
+                    let info = try await callback(pluginId)
+                    var result: [String: JSONValue] = [
+                        "id": .string(info.id),
+                        "version": .string(info.version),
+                        "enabled": .bool(info.enabled),
+                        "source": .string(info.source),
+                        "state_dir": .string(info.stateDir),
+                        "state_dir_size_bytes": .int(Int(info.stateDirSizeBytes)),
+                        "log_file": .string(info.logFile),
+                        "running": .bool(info.running),
+                        "process_names": .array(info.processNames.map { .string($0) }),
+                        "capabilities": .object(info.capabilities),
+                    ]
+                    if let installDir = info.installDir {
+                        result["install_dir"] = .string(installDir)
+                    }
+                    if let displayName = info.displayName {
+                        result["display_name"] = .string(displayName)
+                    }
+                    if let publisher = info.publisher {
+                        result["publisher"] = .string(publisher)
+                    }
+                    return JSONRPCResponse(id: id, result: result)
+
+                case "plugin.install":
+                    guard
+                        let urlString = params["manifest_url"]?.stringValue,
+                        let url = URL(string: urlString)
+                    else {
+                        return .invalidParams(id: id, "manifest_url required (https URL)")
+                    }
+                    let yes = params["yes"]?.boolValue == true
+                    guard let callback = onPluginInstall else {
+                        return .internalError(id: id, "Plugin install not available")
+                    }
+                    try await callback(url, yes)
+                    return .ok(id: id)
+
+                case "plugin.remove":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    let deleteState = params["delete_state"]?.boolValue == true
+                    guard let callback = onPluginRemove else {
+                        return .internalError(id: id, "Plugin remove not available")
+                    }
+                    try await callback(pluginId, deleteState)
+                    return .ok(id: id)
+
+                case "plugin.enable":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginEnable else {
+                        return .internalError(id: id, "Plugin enable not available")
+                    }
+                    try await callback(pluginId)
+                    return .ok(id: id)
+
+                case "plugin.disable":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginDisable else {
+                        return .internalError(id: id, "Plugin disable not available")
+                    }
+                    try await callback(pluginId)
+                    return .ok(id: id)
+
+                case "plugin.update":
+                    // `id` is optional — `nil` means "check every plugin".
+                    let pluginId = params["id"]?.stringValue
+                    guard let callback = onPluginUpdate else {
+                        return .internalError(id: id, "Plugin update not available")
+                    }
+                    let updates = try await callback(pluginId)
+                    return JSONRPCResponse(id: id, result: [
+                        "updates": .array(updates.map { update in
+                            .object([
+                                "id": .string(update.id),
+                                "current_version": .string(update.currentVersion),
+                                "latest_version": .string(update.latestVersion),
+                            ])
+                        }),
+                    ])
+
+                case "plugin.call":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let method = params["method"]?.stringValue else {
+                        return .invalidParams(id: id, "method required")
+                    }
+                    let inner = params["params"]
+                    guard let callback = onPluginCall else {
+                        return .internalError(id: id, "Plugin call not available")
+                    }
+                    let value = try await callback(pluginId, method, inner)
+                    // The sidecar's result is arbitrary JSON; wrap it so
+                    // the JSONRPCResponse type (which requires an object
+                    // result) can carry it without flattening.
+                    return JSONRPCResponse(id: id, result: ["result": value])
+
+                case "plugin.logs":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    let lines = params["lines"]?.intValue ?? 256
+                    guard let callback = onPluginLogs else {
+                        return .internalError(id: id, "Plugin logs not available")
+                    }
+                    let logs = try await callback(pluginId, lines)
+                    return JSONRPCResponse(id: id, result: [
+                        "content": .string(logs),
+                    ])
+
                 // MARK: - Layout
 
                 case "layout.apply":
@@ -653,6 +852,88 @@
                 return .internalError(id: id, error.localizedDescription)
             } catch {
                 return .internalError(id: id, error.localizedDescription)
+            }
+        }
+
+        // MARK: - Plugin DTOs
+
+        /// One row from `plugin.list` — kept narrow so the route table
+        /// doesn't have to know about `PluginRegistryEntry`'s shape.
+        public struct PluginListEntry: Sendable, Equatable {
+            public let id: String
+            public let version: String
+            public let enabled: Bool
+            public let source: String
+
+            public init(id: String, version: String, enabled: Bool, source: String) {
+                self.id = id
+                self.version = version
+                self.enabled = enabled
+                self.source = source
+            }
+        }
+
+        /// Aggregate response for `plugin.info`. Built by the coordinator
+        /// callback from `PluginManager.info(pluginID:)` so the router
+        /// stays free of `ClaudeSpyPluginRuntime` types.
+        public struct PluginInfoResult: Sendable, Equatable {
+            public let id: String
+            public let version: String
+            public let enabled: Bool
+            public let source: String
+            public let installDir: String?
+            public let stateDir: String
+            public let stateDirSizeBytes: Int64
+            public let logFile: String
+            public let running: Bool
+            public let displayName: String?
+            public let publisher: String?
+            public let processNames: [String]
+            public let capabilities: [String: JSONValue]
+
+            public init(
+                id: String,
+                version: String,
+                enabled: Bool,
+                source: String,
+                installDir: String?,
+                stateDir: String,
+                stateDirSizeBytes: Int64,
+                logFile: String,
+                running: Bool,
+                displayName: String?,
+                publisher: String?,
+                processNames: [String],
+                capabilities: [String: JSONValue]
+            ) {
+                self.id = id
+                self.version = version
+                self.enabled = enabled
+                self.source = source
+                self.installDir = installDir
+                self.stateDir = stateDir
+                self.stateDirSizeBytes = stateDirSizeBytes
+                self.logFile = logFile
+                self.running = running
+                self.displayName = displayName
+                self.publisher = publisher
+                self.processNames = processNames
+                self.capabilities = capabilities
+            }
+        }
+
+        /// One row from `plugin.update`. v1 always returns an empty list;
+        /// the type exists so v2 can populate it without changing the wire
+        /// contract.
+        public struct PluginUpdateResult: Sendable, Equatable {
+            public let id: String
+            public let currentVersion: String
+            public let latestVersion: String
+
+            public init(id: String, currentVersion: String, latestVersion: String) {
+                self.id = id
+                self.currentVersion = currentVersion
+                self.latestVersion = latestVersion
             }
         }
 
