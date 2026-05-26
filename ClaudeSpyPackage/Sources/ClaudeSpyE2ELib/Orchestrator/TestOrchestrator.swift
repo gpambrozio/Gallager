@@ -1000,13 +1000,6 @@ public actor TestOrchestrator {
             // plugin shows up in the live `PluginManager` (Spec §15.1).
             try await macDriver(for: instance).rescanPlugins()
 
-        // Hook Events (deprecated — Task 24 migrates each call site)
-        case .macSendHookEvent:
-            throw OrchestratorError.configurationError(
-                "macSendHookEvent has been removed; migrate this scenario to "
-                    + "macSendRawHookPayload(pluginID:json:env:instance:) (Spec §15.1)"
-            )
-
         // Assertions
         case let .assertStoredEqual(key, otherKey):
             guard let value1 = context.get(key) else {

@@ -373,8 +373,8 @@ public enum TestStep: Sendable {
     /// shape the host agent would have produced — the sidecar's translator
     /// decodes it downstream, exactly the way it would in production.
     ///
-    /// Replaces the legacy `macSendHookEvent` HTTP path now that
-    /// `HookServerService` is gone (per Spec §15.1).
+    /// Per Spec §15.1, this replaced the legacy `HookServerService`
+    /// HTTP path which has been removed.
     case macSendRawHookPayload(
         pluginID: String,
         json: JSONValue,
@@ -402,13 +402,6 @@ public enum TestStep: Sendable {
         fixtureSourcePath: URL,
         instance: Int = 0
     )
-
-    // MARK: - Hook Events (deprecated)
-
-    /// Legacy wrapper kept around so existing scenarios keep compiling.
-    /// Throws at runtime — Task 24 migrates each call site to
-    /// ``macSendRawHookPayload(pluginID:json:env:instance:)``.
-    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil, instance: Int = 0)
 
     // MARK: - Assertions
 

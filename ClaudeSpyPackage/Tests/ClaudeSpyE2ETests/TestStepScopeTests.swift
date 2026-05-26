@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Testing
 @testable import ClaudeSpyE2ELib
 
@@ -27,7 +28,14 @@ struct TestStepScopeTests {
         #expect(TestStep.launchMacApp(instance: 1).failureScope == .macOS(instance: 1))
         #expect(TestStep.macClickButton(titled: "OK", instance: 2).failureScope == .macOS(instance: 2))
         #expect(TestStep.macReadClipboard(storeAs: "k", instance: 3).failureScope == .macOS(instance: 3))
-        #expect(TestStep.macSendHookEvent(json: "{}", tmuxPane: "x", instance: 4).failureScope == .macOS(instance: 4))
+        #expect(
+            TestStep.macSendRawHookPayload(
+                pluginID: "claude-code",
+                json: .object([:]),
+                env: ["TMUX_PANE": "x"],
+                instance: 4
+            ).failureScope == .macOS(instance: 4)
+        )
     }
 
     @Test("Server steps map to .universal scope")
