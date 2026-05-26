@@ -1,23 +1,14 @@
-import ClaudeSpyNetworking
+import ClaudeCodePluginCore
 import Foundation
 
 // MARK: - CodexHookPayloads
 
-/// Re-exports of the legacy `HookEvent`/`HookAction` Codable types from
-/// `ClaudeSpyNetworking/Models/HookModels.swift` under a name that signals
-/// "internal Codex sidecar parsing shape" — the rest of the Mac app is being
-/// migrated off the legacy public types, and once Task 21 deletes them this
-/// file can host private mirrors. For now we just alias.
-///
-/// Codex's hook event set is a subset of Claude's plus `PostCompact` and
-/// `SubagentStart` (per Spec §17.2 footnote). The translator therefore
-/// uses the same `HookAction` discriminator; only the dispatch logic
-/// changes.
-///
-/// Task 21 deletes the legacy types from `ClaudeSpyNetworking`. When that
-/// happens, port the struct definitions verbatim into this file as
-/// `internal` types so the Codex translator keeps decoding the same wire
-/// shape without leaking the legacy public API.
+/// Re-exports of the legacy `HookEvent`/`HookAction` Codable types that
+/// now live (publicly) inside `ClaudeCodePluginCore`. Codex's hook event
+/// set is a subset of Claude's plus `PostCompact` and `SubagentStart`
+/// (per Spec §17.2 footnote), so the translator decodes the same wire
+/// shape — these typealiases keep the local naming consistent with the
+/// Codex-side translator code.
 enum CodexHookPayloads {
     // No nested types yet — the typealiases below are flat so the
     // translator can refer to them without an enum-namespace prefix.
