@@ -7,6 +7,33 @@ import Testing
 @MainActor
 @Suite("SessionDetailService Tests")
 struct SessionDetailServiceTests {
+    // MARK: - Helpers
+
+    /// Seeds a `SessionStore` with one pane carrying an `AgentSession` for the
+    /// given host. Mirrors what the relay's `agent_session_state` push would
+    /// do, just synchronously so tests don't have to spin up the wire.
+    private func seedSession(
+        on store: SessionStore,
+        hostId: String,
+        paneId: String,
+        sessionId: String,
+        pluginID: String = "claude-code",
+        projectPath: String? = nil
+    ) {
+        let session = AgentSession(
+            id: sessionId,
+            pluginID: pluginID,
+            tmuxPane: paneId,
+            projectPath: projectPath
+        )
+        let pane = PaneState(paneId: paneId, agentSession: session)
+        let state = SessionStateMessage(
+            pairId: hostId,
+            paneStates: [paneId: pane]
+        )
+        store.handleStateUpdate(state)
+    }
+
     // MARK: - Initialization Tests
 
     @Test("Service initializes with correct pane ID")
@@ -31,13 +58,13 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session via a hook event (transitional bridge; goes away in Task 20)
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test-session", hookEventName: "SessionStart")),
-            projectPath: "/test/path",
-            tmuxPane: "%1"
+        seedSession(
+            on: sessionStore,
+            hostId: "test-pair",
+            paneId: "%1",
+            sessionId: "test-session",
+            projectPath: "/test/path"
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -73,12 +100,12 @@ struct SessionDetailServiceTests {
         let relayClient = ViewerRelayClient()
 
         // Stand up a session for the pane.
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "abc-123", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
+        seedSession(
+            on: sessionStore,
+            hostId: "test-pair",
+            paneId: "%1",
+            sessionId: "abc-123"
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -114,12 +141,12 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "abc-123", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
+        seedSession(
+            on: sessionStore,
+            hostId: "test-pair",
+            paneId: "%1",
+            sessionId: "abc-123"
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -150,13 +177,13 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session and mark pane as active
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
+        // Seed a pane with an active session.
+        seedSession(
+            on: sessionStore,
+            hostId: "test-pair",
+            paneId: "%1",
+            sessionId: "test"
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -167,16 +194,17 @@ struct SessionDetailServiceTests {
 
         #expect(service.isPaneActive == true)
 
-        // End the session
-        let endEvent = HookEvent(
-            action: .sessionEnd(SessionEndBody(sessionId: "test", hookEventName: "SessionEnd")),
-            projectPath: nil,
-            tmuxPane: "%1"
+        // Mac sends a fresh session state with the pane cleared of its agent
+        // session — the equivalent of the agent ending its session. The store
+        // overwrites the pane via `handleStateUpdate`.
+        let endedState = SessionStateMessage(
+            pairId: "test-pair",
+            paneStates: ["%1": PaneState(paneId: "%1", agentSession: nil)]
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: endEvent))
+        sessionStore.handleStateUpdate(endedState)
 
         #expect(service.isPaneActive == false)
-        #expect(service.session == nil) // Session removed on end
+        #expect(service.session == nil) // Session removed
     }
 
     // MARK: - Cross-Host Pane Isolation Tests
@@ -186,19 +214,21 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Two hosts emit events for the same tmux pane id (`%0`).
-        let eventA = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "session-a", hookEventName: "SessionStart")),
-            projectPath: "/host-a/path",
-            tmuxPane: "%0"
+        // Two hosts emit session state for the same tmux pane id (`%0`).
+        seedSession(
+            on: sessionStore,
+            hostId: "host-a",
+            paneId: "%0",
+            sessionId: "session-a",
+            projectPath: "/host-a/path"
         )
-        let eventB = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "session-b", hookEventName: "SessionStart")),
-            projectPath: "/host-b/path",
-            tmuxPane: "%0"
+        seedSession(
+            on: sessionStore,
+            hostId: "host-b",
+            paneId: "%0",
+            sessionId: "session-b",
+            projectPath: "/host-b/path"
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "host-a", event: eventA))
-        sessionStore.handleEvent(HookEventMessage(pairId: "host-b", event: eventB))
 
         // Store keeps both panes separately rather than collapsing them.
         #expect(sessionStore.paneStates.count == 2)
