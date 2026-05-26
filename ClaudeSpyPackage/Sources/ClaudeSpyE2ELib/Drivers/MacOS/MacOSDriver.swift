@@ -677,22 +677,37 @@ public actor MacOSDriver {
         }
     }
 
-    // MARK: - Hook Events
+    // MARK: - Plugin Runtime
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// The hook server port is read from `hookPortFile` (defaults to `~/.claudespy-port`).
-    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws {
-        logger.info("Sending hook event via test server, pane: \(tmuxPane)")
-        let success = try await MacAppHTTPClient.sendHook(
-            json: json,
-            tmuxPane: tmuxPane,
-            projectPath: projectPath,
-            hookPortFile: hookPortFile
+    /// Trigger `PluginManager.installHooks(pluginID:)` inside the running
+    /// app by hitting the `/plugin/install-hooks` test endpoint. Mirrors
+    /// the Settings → "Install Hooks" path.
+    public func installBundledPlugin(pluginID: String) async throws {
+        logger.info("Installing bundled plugin: \(pluginID)")
+        let success = try await MacAppHTTPClient.installPluginHooks(
+            pluginID: pluginID,
+            port: testAccessibilityPort
         )
         if !success {
-            throw MacOSDriverError.hookEventFailed("Hook event POST failed")
+            throw MacOSDriverError.elementNotFound(
+                "install-hooks endpoint failed for plugin \(pluginID)"
+            )
         }
-        logger.info("Hook event sent successfully")
+    }
+
+    /// Ask the running app to re-scan its plugin registry. Used after
+    /// seeding a non-bundled plugin (e.g. EchoPlugin) into the per-instance
+    /// state-root so the live `PluginManager` picks it up without a relaunch.
+    public func rescanPlugins() async throws {
+        logger.info("Rescanning plugin registry")
+        let success = try await MacAppHTTPClient.rescanPlugins(
+            port: testAccessibilityPort
+        )
+        if !success {
+            throw MacOSDriverError.elementNotFound(
+                "rescan-plugins endpoint failed"
+            )
+        }
     }
 
     // MARK: - Wait for Element

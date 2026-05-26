@@ -1,4 +1,6 @@
+import ClaudeSpyNetworking
 import Foundation
+import GallagerPluginProtocol
 import Logging
 
 /// Coordinates all drivers and runs test scenarios
@@ -931,16 +933,78 @@ public actor TestOrchestrator {
                 return !value.isEmpty && value != resolvedNotEqualTo
             }
 
-        // Hook Events
-        case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
-            let resolvedJson = context.resolve(json)
-            let resolvedPane = context.resolve(tmuxPane)
-            let resolvedPath = projectPath.map { context.resolve($0) }
-            try await macDriver(for: instance).sendHookEvent(
-                json: resolvedJson,
-                tmuxPane: resolvedPane,
-                projectPath: resolvedPath,
-                hookPortFile: hookPortFilePath(for: instance)
+        // Plugin Ingress (Spec §15.1)
+        case let .macSendRawHookPayload(pluginID, json, env, instance):
+            let resolvedPluginID = context.resolve(pluginID)
+            // `${var}` interpolation across the env map so scenarios can
+            // pass pane ids stored earlier with `tmuxStorePaneId`.
+            let resolvedEnv = env.reduce(into: [String: String]()) { acc, pair in
+                acc[pair.key] = context.resolve(pair.value)
+            }
+            let stateRoot = URL(
+                fileURLWithPath: gallagerStateRoot(for: instance),
+                isDirectory: true
+            )
+            let socketURL = stateRoot
+                .appendingPathComponent("state", isDirectory: true)
+                .appendingPathComponent("plugins", isDirectory: true)
+                .appendingPathComponent(resolvedPluginID, isDirectory: true)
+                .appendingPathComponent("ingress.sock")
+
+            // Wait up to 5s for the socket file to exist — the sidecar
+            // may still be initializing when the scenario first sends a
+            // payload (Spec §8: sidecars create the socket inside
+            // `initialize`, not at process start).
+            let deadline = Date().addingTimeInterval(5)
+            while !FileManager.default.fileExists(atPath: socketURL.path) {
+                if Date() > deadline {
+                    throw OrchestratorError.configurationError(
+                        "Plugin ingress socket not ready after 5s: \(socketURL.path)"
+                    )
+                }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+
+            let client = MacAppPluginIngressClient(socketURL: socketURL)
+            try await client.send(payload: json, env: resolvedEnv)
+
+        case let .macInstallBundledPlugin(pluginID, instance):
+            let resolvedPluginID = context.resolve(pluginID)
+            try await macDriver(for: instance).installBundledPlugin(
+                pluginID: resolvedPluginID
+            )
+
+        case let .macSpawnSidecar(pluginID, fixtureSourcePath, instance):
+            let resolvedPluginID = context.resolve(pluginID)
+            // v1 only handles `echo`. The DSL keeps `pluginID` /
+            // `fixtureSourcePath` on the case so Task 25+ scenarios for
+            // additional sidecars don't need a DSL re-shape.
+            guard resolvedPluginID == "echo" else {
+                throw OrchestratorError.configurationError(
+                    "macSpawnSidecar only supports pluginID='echo' in v1; got '\(resolvedPluginID)'"
+                )
+            }
+            // `fixtureSourcePath` is currently advisory — `EchoPluginInstaller`
+            // resolves the bundled fixture itself. Logged so scenarios that
+            // pass a non-default path get an audit trail.
+            logger.info(
+                "  Spawning sidecar '\(resolvedPluginID)' (fixture source: \(fixtureSourcePath.path))"
+            )
+            let stateRoot = URL(
+                fileURLWithPath: gallagerStateRoot(for: instance),
+                isDirectory: true
+            )
+            let installer = EchoPluginInstaller()
+            _ = try installer.install(into: stateRoot)
+            // Ask the running app to re-scan its registry so the new
+            // plugin shows up in the live `PluginManager` (Spec §15.1).
+            try await macDriver(for: instance).rescanPlugins()
+
+        // Hook Events (deprecated — Task 24 migrates each call site)
+        case .macSendHookEvent:
+            throw OrchestratorError.configurationError(
+                "macSendHookEvent has been removed; migrate this scenario to "
+                    + "macSendRawHookPayload(pluginID:json:env:instance:) (Spec §15.1)"
             )
 
         // Assertions

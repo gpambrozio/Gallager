@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import CoreGraphics
 import Foundation
 
@@ -361,12 +362,52 @@ public enum TestStep: Sendable {
         target: String, format: String, notEqualTo: String, timeout: TimeInterval = 20
     )
 
-    // MARK: - Hook Events
+    // MARK: - Plugin Ingress
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`) via HTTP POST.
-    /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
-    /// `tmuxPane` and `projectPath` are sent as query parameters.
-    /// The server port is read from the orchestrator's `hookPortFile`.
+    /// Inject a raw hook payload into the named plugin's ingress socket
+    /// (`<gallager-state-root>/state/plugins/<pluginID>/ingress.sock`).
+    ///
+    /// The frame's `context` map is populated from `env` (e.g.
+    /// `["TMUX_PANE": "%0", "CLAUDE_PROJECT_DIR": "/proj",
+    /// "CLAUDE_SESSION_ID": "S1"]`). The `payload` is whatever raw event
+    /// shape the host agent would have produced — the sidecar's translator
+    /// decodes it downstream, exactly the way it would in production.
+    ///
+    /// Replaces the legacy `macSendHookEvent` HTTP path now that
+    /// `HookServerService` is gone (per Spec §15.1).
+    case macSendRawHookPayload(
+        pluginID: String,
+        json: JSONValue,
+        env: [String: String],
+        instance: Int = 0
+    )
+
+    /// Install the bundled host-agent hooks for a plugin. Drives the same
+    /// `PluginManager.installHooks(pluginID:)` flow Settings → "Install
+    /// Hooks" triggers. The plugin must already be discovered/loaded in
+    /// the app's `PluginManager`.
+    case macInstallBundledPlugin(pluginID: String, instance: Int = 0)
+
+    /// Seed a non-bundled plugin sidecar (e.g. EchoPlugin) for the supplied
+    /// test instance and ask the running app to rescan its registry so the
+    /// new entry comes up in the running `PluginManager`. Copies the
+    /// fixture tree into the per-instance state root via
+    /// `EchoPluginInstaller`.
+    ///
+    /// `fixtureSourcePath` is presently informational — only `pluginID`
+    /// `"echo"` is implemented in v1 — but the parameter is kept on the
+    /// case so v2 can generalize to other sidecars without a DSL change.
+    case macSpawnSidecar(
+        pluginID: String,
+        fixtureSourcePath: URL,
+        instance: Int = 0
+    )
+
+    // MARK: - Hook Events (deprecated)
+
+    /// Legacy wrapper kept around so existing scenarios keep compiling.
+    /// Throws at runtime — Task 24 migrates each call site to
+    /// ``macSendRawHookPayload(pluginID:json:env:instance:)``.
     case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil, instance: Int = 0)
 
     // MARK: - Assertions

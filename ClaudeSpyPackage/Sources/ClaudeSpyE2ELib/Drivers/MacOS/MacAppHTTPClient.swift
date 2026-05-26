@@ -7,7 +7,13 @@ import Logging
 /// This client only handles:
 /// - `/set-sidebar-width` — NSSplitView.setPosition() requires in-process access
 /// - `/unpair` — Posts a NotificationCenter notification inside the app
-/// - Hook server communication (separate port)
+/// - `/reconnect` — Updates `VersionCompatibility` overrides
+/// - `/drop-files` — Simulates a Finder file drop on a terminal pane
+/// - `/plugin/install-hooks` / `/plugin/rescan` — Plugin runtime test hooks (Spec §15.1)
+///
+/// The legacy `/api/hooks` HTTP path was removed when `HookServerService`
+/// went away; the e2e DSL now writes directly to each plugin's
+/// `ingress.sock` via `MacAppPluginIngressClient`.
 enum MacAppHTTPClient {
     private static let logger = Logger(label: "e2e.mac-http")
     static let defaultPort: UInt16 = 18_081
@@ -86,50 +92,35 @@ enum MacAppHTTPClient {
         return responseBody == "ok"
     }
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// Reads the hook server port from the given port file (defaults to `~/.claudespy-port`).
+    /// Trigger `PluginManager.installHooks(pluginID:)` inside the running
+    /// app via the `/plugin/install-hooks` test endpoint. Posts a
+    /// NotificationCenter notification (`com.claudespy.e2e.installHooks`)
+    /// that the AppCoordinator observes and forwards to the live
+    /// `PluginManager`.
     @discardableResult
-    static func sendHook(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws -> Bool {
-        let hookPort = try readHookServerPort(portFilePath: hookPortFile)
-
-        var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
-        var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
-        if let projectPath {
-            queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
-        }
-        components.queryItems = queryItems
-
+    static func installPluginHooks(pluginID: String, port: UInt16 = defaultPort) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/plugin/install-hooks")!
+        components.queryItems = [URLQueryItem(name: "id", value: pluginID)]
         var request = URLRequest(url: components.url!)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(json.utf8)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        logger.info("Hook event sent to server on port \(hookPort), status: \(statusCode)")
-        return statusCode == 200
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP plugin/install-hooks id=\(pluginID): \(body)")
+        return body == "ok"
     }
 
-    /// Read the hook server port from the given file path, falling back to `~/.claudespy-port`.
-    private static func readHookServerPort(portFilePath: String? = nil) throws -> Int {
-        let portFilePath = portFilePath ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claudespy-port").path
-        guard
-            let contents = try? String(contentsOfFile: portFilePath, encoding: .utf8),
-            let port = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
-        else {
-            throw MacAppHTTPError.hookServerPortUnavailable
-        }
-        return port
-    }
-}
-
-enum MacAppHTTPError: Error, LocalizedError {
-    case hookServerPortUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .hookServerPortUnavailable:
-            "Hook server port file not found or unreadable"
-        }
+    /// Ask the running app to rescan its plugin registry + spawn supervisors
+    /// for any newly-installed plugins via the `/plugin/rescan` endpoint.
+    /// Used after seeding a non-bundled plugin (e.g. EchoPlugin) so the live
+    /// `PluginManager` picks it up without a relaunch.
+    @discardableResult
+    static func rescanPlugins(port: UInt16 = defaultPort) async throws -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/plugin/rescan")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP plugin/rescan: \(body)")
+        return body == "ok"
     }
 }

@@ -122,6 +122,12 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macScreenshot(_, _, _, _, instance):
             return .macOS(instance: instance)
+        case let .macSendRawHookPayload(_, _, _, instance):
+            return .macOS(instance: instance)
+        case let .macInstallBundledPlugin(_, instance):
+            return .macOS(instance: instance)
+        case let .macSpawnSidecar(_, _, instance):
+            return .macOS(instance: instance)
         case let .macSendHookEvent(_, _, _, instance):
             return .macOS(instance: instance)
         // Server, tmux, assertions, scripts, general — any running platform
