@@ -245,13 +245,12 @@ final class EchoSidecar {
         // this to pre-seed the projects mirror without going through the
         // _test/translate_event path first.
         if let raw = ProcessInfo.processInfo.environment["ECHO_PROJECTS_JSON"] {
-            if let data = raw.data(using: .utf8) {
-                do {
-                    let projects = try decoder.decode([AgentProject].self, from: data)
-                    self.projects = projects
-                } catch {
-                    logger.warning("ECHO_PROJECTS_JSON decode failed: \(error)")
-                }
+            let data = Data(raw.utf8)
+            do {
+                let projects = try decoder.decode([AgentProject].self, from: data)
+                self.projects = projects
+            } catch {
+                logger.warning("ECHO_PROJECTS_JSON decode failed: \(error)")
             }
         }
 

@@ -326,6 +326,15 @@ public actor TestOrchestrator {
             try? FileManager.default.removeItem(atPath: socket)
         }
 
+        // Remove per-scenario plugin state roots (Task 22). Each scenario
+        // gets a fresh `gallagerStateRoot` next launch; carrying stale
+        // `registry.json` or ingress sockets across runs would defeat the
+        // isolation the flag was meant to provide.
+        for idx in uniqueIndices {
+            let stateRoot = gallagerStateRoot(for: idx)
+            try? FileManager.default.removeItem(atPath: stateRoot)
+        }
+
         logger.info("=== Cleanup complete ===")
     }
 
@@ -561,6 +570,15 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
+            // Per-scenario plugin state root (Spec §15.4, Task 22). Each
+            // instance gets its own temp dir so concurrent test instances
+            // don't share `registry.json`, per-plugin state, ingress
+            // sockets, or settings.
+            let stateRoot = gallagerStateRoot(for: instance)
+            try? FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: stateRoot, isDirectory: true),
+                withIntermediateDirectories: true
+            )
             var arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
@@ -571,6 +589,7 @@ public actor TestOrchestrator {
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
+                "--gallager-state-root", stateRoot,
             ]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
@@ -1109,6 +1128,17 @@ public actor TestOrchestrator {
     /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
     func defaultBrowserLogPath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
+    }
+
+    /// Return the per-instance plugin state root passed to the app via
+    /// `--gallager-state-root` (Spec §15.4, Task 22). The app uses this
+    /// directory as the equivalent of `~/.gallager`: `registry.json`,
+    /// `plugins/<id>/`, `state/plugins/<id>/`, ingress sockets, and
+    /// per-plugin settings all land here so concurrent test instances stay
+    /// isolated. `EchoPluginInstaller` reads this path when seeding the
+    /// echo plugin for scenarios that need it.
+    public func gallagerStateRoot(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-state-\(instance)"
     }
 
     // MARK: - Script Cleanup

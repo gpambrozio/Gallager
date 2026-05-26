@@ -139,10 +139,8 @@ public struct EchoPluginInstaller: Sendable {
                 .appendingPathComponent("EchoPluginSidecar"))
         }
 
-        for candidate in candidates {
-            if fm.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
+        for candidate in candidates where fm.isExecutableFile(atPath: candidate.path) {
+            return candidate
         }
         throw EchoPluginInstallerError.binaryMissing(
             "EchoPluginSidecar binary not found; searched: "

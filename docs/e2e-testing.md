@@ -96,6 +96,12 @@ Both apps accept `--e2e-test` as a launch argument. When present, `prepareDepend
 
 The macOS app accepts `--tmux-socket <path>` (alongside `--e2e-test`) to use a dedicated tmux server socket instead of the system default. This prevents E2E tests from polluting the developer's real tmux sessions. The default socket path is `/tmp/claudespy-e2e.sock`. During cleanup, the orchestrator kills the isolated tmux server and removes the socket file.
 
+### Plugin state isolation
+
+The macOS app accepts `--gallager-state-root <path>` (alongside `--e2e-test`) to redirect the plugin runtime's on-disk state — `registry.json`, per-plugin state dirs, ingress sockets, and `settings.json` — to a per-scenario temp directory. Concurrent test instances therefore never share plugin state. The orchestrator allocates one root per instance (`gallagerStateRoot(for:)` → `${TMPDIR}/claudespy-e2e-state-<N>`), passes the path on launch, and removes the directory during `cleanup()`.
+
+Bundled plugins (claude-code, codex) always come from `Gallager.app/Contents/Resources/plugins/` regardless of the state root — they're read-only inside the .app bundle. The state root only affects per-plugin runtime state and any user-installed plugins. The EchoPlugin fixture used by Task 25's scenarios is seeded via `EchoPluginInstaller.install(into:)`, which copies `ClaudeSpyE2ELib`'s bundled fixture tree plus the built `EchoPluginSidecar` binary into `<state_root>/plugins/echo/` and upserts the matching `registry.json` entry.
+
 ### Variable interpolation
 
 Steps can pass data between each other via `ExecutionContext`. Use `macReadClipboard(storeAs: "key")` or `storeValue(key:value:)` to store, and `"${key}"` in any string argument to reference it. The orchestrator resolves variables before passing to drivers.
