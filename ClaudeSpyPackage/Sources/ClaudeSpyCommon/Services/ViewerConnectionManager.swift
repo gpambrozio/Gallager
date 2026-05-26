@@ -31,9 +31,6 @@ final public class ViewerConnectionManager {
 
     // MARK: - Public Callbacks
 
-    /// Called when a hook event is received from any host
-    public var onHookEvent: ((HookEventMessage) -> Void)?
-
     /// Called when session state is received from any host
     public var onSessionState: ((SessionStateMessage) -> Void)?
 
@@ -344,11 +341,6 @@ final public class ViewerConnectionManager {
         let hostId = connection.id
 
         connection.setupCallbacks(
-            onHookEvent: { [weak self] event in
-                Task { @MainActor [weak self] in
-                    self?.onHookEvent?(event)
-                }
-            },
             onSessionState: { [weak self] state in
                 Task { @MainActor [weak self] in
                     self?.onSessionState?(state)

@@ -147,7 +147,6 @@ final public class ViewerConnection: Identifiable {
     /// Configure callbacks for this connection.
     ///
     /// - Parameters:
-    ///   - onHookEvent: Called when a hook event is received
     ///   - onSessionState: Called when session state is received
     ///   - onAgentSessionStatus: Called when an `agent_session_status` push arrives
     ///   - onAgentResponseRequest: Called when an `agent_response_request` push arrives
@@ -156,7 +155,6 @@ final public class ViewerConnection: Identifiable {
     ///   - onHostDisconnected: Called when the host device disconnects (pairing still active)
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
-        onHookEvent: (@Sendable (HookEventMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
         onAgentSessionStatus: (@Sendable (AgentSessionStatusUpdate) -> Void)? = nil,
         onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)? = nil,
@@ -165,7 +163,6 @@ final public class ViewerConnection: Identifiable {
         onHostDisconnected: (@MainActor @Sendable () async -> Void)? = nil,
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
-        relayClient.onHookEvent = onHookEvent
         relayClient.onSessionState = onSessionState
         relayClient.onAgentSessionStatus = onAgentSessionStatus
         relayClient.onAgentResponseRequest = onAgentResponseRequest

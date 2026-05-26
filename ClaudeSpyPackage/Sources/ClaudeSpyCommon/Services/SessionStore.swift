@@ -70,15 +70,6 @@ final public class SessionStore {
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
-    /// Transitional bridge: the latest status-bearing `HookEvent` per pane.
-    ///
-    /// Task 19 reroutes iOS response forms onto `responseRequests` (below),
-    /// so nothing on iOS reads this anymore. Kept until Task 20 removes the
-    /// entire `HookEvent` surface from iOS, since the bridge still feeds the
-    /// `AgentSession.working`/`attention` derivation in `handleEvent(_:)`
-    /// until plugin sidecars push status updates everywhere.
-    public private(set) var latestEventByPane: [PaneKey: HookEvent] = [:]
-
     /// Outstanding plugin-driven response requests, keyed by `requestId`.
     ///
     /// Plugin sidecars push `agent_response_request` messages when a session
@@ -198,117 +189,6 @@ final public class SessionStore {
 
     // MARK: - State Management
 
-    // swiftlint:disable todo
-    /// Handle a hook event from a host
-    ///
-    /// TODO(plugin-system): Once iOS subscribes to `update_session_status` /
-    /// `present_response_request` callbacks (Tasks 18–20), this hook-driven
-    /// session synthesis goes away. For now we translate the incoming
-    /// `HookEvent` directly into `AgentSession` working/attention/timestamp
-    /// fields so the existing UI keeps working.
-    public func handleEvent(_ eventMessage: HookEventMessage) {
-        let event = eventMessage.event
-        let hostId = eventMessage.pairId
-        let paneId = event.tmuxPane ?? event.action.sessionId
-        let key = PaneKey(pairId: hostId, paneId: paneId)
-
-        logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from host: \(hostId)")
-
-        // Get or create session within pane state.
-        var session = paneStates[key]?.agentSession ?? AgentSession(
-            id: event.action.sessionId,
-            pluginID: event.agent.rawValue,
-            tmuxPane: paneId
-        )
-        applyEvent(event, to: &session)
-
-        if paneStates[key] != nil {
-            paneStates[key]?.agentSession = session
-        } else {
-            paneStates[key] = PaneState(paneId: paneId, agentSession: session)
-        }
-
-        // Transitional bridge — see `latestEventByPane`. Only events that carry
-        // meaningful state (a working transition or a user-visible
-        // notification) win the slot, mirroring the legacy `addEvent` filter.
-        if event.isWorking != nil || event.wouldTriggerNotification {
-            latestEventByPane[key] = event
-        }
-
-        // Handle session lifecycle
-        switch event.action {
-        case .sessionStart:
-            logger.info("Session started for pane: \(paneId)")
-
-        case .sessionEnd:
-            paneStates[key]?.agentSession = nil
-            paneStates[key]?.yoloMode = false
-            latestEventByPane.removeValue(forKey: key)
-            // Remove pane state entirely if it has no meaningful data
-            if paneStates[key]?.target.isEmpty == true {
-                paneStates.removeValue(forKey: key)
-            }
-            logger.info("Session ended for pane: \(paneId)")
-
-        case .setup,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .postToolBatch,
-             .permissionRequest,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .userPromptExpansion,
-             .stop,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            break
-        }
-    }
-
-    // swiftlint:enable todo
-
-    /// Bridge: derive `AgentSession` state from a `HookEvent` until plugin
-    /// sidecars push status updates directly. Drops the legacy trailing-5
-    /// `events` buffer — only working/attention/lastEventTimestamp remain.
-    private func applyEvent(_ event: HookEvent, to session: inout AgentSession) {
-        if let working = event.isWorking {
-            session.working = working
-        }
-        if event.wouldTriggerNotification {
-            session.attention = true
-        }
-        if event.isWorking != nil || event.wouldTriggerNotification {
-            session.lastEventTimestamp = event.timestamp
-        }
-        if let projectPath = event.projectPath, !projectPath.isEmpty {
-            session.projectPath = projectPath
-        }
-    }
-
-    /// Returns the latest status-bearing hook event seen for `paneId` on `hostId`,
-    /// if any. Transitional helper for iOS response views (see
-    /// `latestEventByPane`); removed in Task 20.
-    public func latestEvent(for paneId: String, hostId: String) -> HookEvent? {
-        latestEventByPane[PaneKey(pairId: hostId, paneId: paneId)]
-    }
-
     /// Handle a full session state update from a host
     public func handleStateUpdate(_ state: SessionStateMessage) {
         let hostId = state.pairId
@@ -377,7 +257,6 @@ final public class SessionStore {
     /// Clear all sessions and panes for a specific host
     public func clearSessions(for hostId: String) {
         paneStates = paneStates.filter { $0.key.pairId != hostId }
-        latestEventByPane = latestEventByPane.filter { $0.key.pairId != hostId }
         responseRequests = responseRequests.filter { $0.value.hostId != hostId }
 
         // Clear stored projects

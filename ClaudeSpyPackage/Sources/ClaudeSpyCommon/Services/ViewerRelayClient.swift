@@ -140,9 +140,6 @@ final public class ViewerRelayClient {
 
     // MARK: - Callbacks
 
-    /// Called when a hook event is received from host
-    public var onHookEvent: (@Sendable (HookEventMessage) -> Void)?
-
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
@@ -693,9 +690,12 @@ final public class ViewerRelayClient {
                 await disconnect()
             }
 
-        case let .hookEvent(event):
-            logger.info("Received hook event from host")
-            onHookEvent?(event)
+        case .hookEvent:
+            // Legacy peer still sending hook events; ignore. The plugin
+            // protocol replaced this with `agent_session_status` and
+            // `agent_response_request`; both peers are gated to v1.33 so
+            // a hook event here is from an older snapshot still in flight.
+            logger.debug("Ignoring legacy hookEvent from peer")
 
         case let .sessionState(sessionState):
             logger.info("Received session state from host")
