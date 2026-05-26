@@ -327,26 +327,6 @@ final public class AppSettings {
         didSet { preferences.setBool(closePaneOnSessionEnd, Keys.closePaneOnSessionEnd) }
     }
 
-    /// Path to claude command (for auto-run in project folders).
-    ///
-    /// Deprecated: per-plugin settings live in
-    /// `~/.gallager/state/plugins/<id>/settings.json` (Task 16). This
-    /// property is kept temporarily so the legacy `commandPath(for:)`
-    /// helpers still work for callers that haven't migrated to
-    /// `PluginManager.commandForLaunch(...)`. Task 21 deletes it.
-    @available(*, deprecated, message: "Use per-plugin settings via PluginManager.commandForLaunch")
-    public var claudeCommandPath: String = Defaults.claudeCommandPath {
-        didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
-    }
-
-    /// Path to codex command (for auto-run in Codex project folders).
-    ///
-    /// Deprecated: see `claudeCommandPath`'s note. Removed in Task 21.
-    @available(*, deprecated, message: "Use per-plugin settings via PluginManager.commandForLaunch")
-    public var codexCommandPath: String = Defaults.codexCommandPath {
-        didSet { preferences.setString(codexCommandPath, Keys.codexCommandPath) }
-    }
-
     /// Whether to automatically run `codex` when creating a session in a
     /// Codex project folder. Defaults to true; mirrors
     /// `autoRunClaudeInProjects` so per-session opt-out stays possible.
@@ -354,32 +334,10 @@ final public class AppSettings {
         didSet { preferences.setBool(autoRunCodexInProjects, Keys.autoRunCodexInProjects) }
     }
 
-    /// Resolves the command path for a given coding agent.
-    public func commandPath(for agent: CodingAgent) -> String {
-        commandPath(forPluginID: agent.rawValue) ?? ""
-    }
-
-    /// Resolves the command path for a plugin id (Spec §11). Returns `nil`
-    /// when the plugin id isn't recognised — the caller decides whether to
-    /// fall back to a bare-shell spawn or surface an error.
-    ///
-    /// `CodingAgent.rawValue` ("claude-code", "codex") matches the plugin
-    /// ids bundled with the app, so this method works for both the legacy
-    /// `CodingAgent` callers and any new plugin-id-driven path. Plugins
-    /// installed via a third-party manifest fall through to `nil`; the new
-    /// `PluginManager.commandForLaunch` RPC is the proper resolver for
-    /// those.
-    public func commandPath(forPluginID pluginID: String) -> String? {
-        switch pluginID {
-        case CodingAgent.claudeCode.rawValue: claudeCommandPath
-        case CodingAgent.codex.rawValue: codexCommandPath
-        default: nil
-        }
-    }
-
     /// Whether the user wants `start a session in a project folder` to
-    /// auto-run the agent's CLI. Sourced from the legacy per-agent toggles;
-    /// Task 16 replaces this with per-plugin settings.
+    /// auto-run the agent's CLI. The per-plugin launch command itself is
+    /// resolved via `PluginManager.commandForLaunch`; this toggle is the
+    /// only piece of state that still lives in the global preferences.
     public func autoRunInProjects(forPluginID pluginID: String) -> Bool {
         switch pluginID {
         case CodingAgent.claudeCode.rawValue: autoRunClaudeInProjects
@@ -515,11 +473,11 @@ final public class AppSettings {
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
 
-        // Claude command settings
+        // Per-agent auto-launch toggles. Command paths live in
+        // `~/.gallager/state/plugins/<id>/settings.json` since Task 16
+        // and are resolved via `PluginManager.commandForLaunch`.
         self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
         self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
-        self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
-        self.codexCommandPath = preferences.string(Keys.codexCommandPath) ?? Defaults.codexCommandPath
         self.autoRunCodexInProjects = preferences.optionalBool(Keys.autoRunCodexInProjects) ?? Defaults.autoRunCodexInProjects
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
@@ -592,8 +550,6 @@ final public class AppSettings {
         case tmuxPath
         case tmuxSocket
         case autoRunClaudeInProjects
-        case claudeCommandPath
-        case codexCommandPath
         case autoRunCodexInProjects
         case closePaneOnSessionEnd
         case terminalApp
@@ -643,8 +599,6 @@ final public class AppSettings {
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
         static let autoRunClaudeInProjects = true
-        static let claudeCommandPath = "claude"
-        static let codexCommandPath = "codex"
         static let autoRunCodexInProjects = true
         static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
