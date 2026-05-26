@@ -317,6 +317,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalFileLinkStaleCacheScenario.scenario,
         OSCBackgroundProbeScenario.scenario,
         PluginRuntimeBasicsScenario.scenario,
+        PluginCrashRestartScenario.scenario,
+        PluginCrashLoopDisableScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
