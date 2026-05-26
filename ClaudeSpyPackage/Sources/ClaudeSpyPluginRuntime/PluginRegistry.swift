@@ -39,6 +39,22 @@ public actor PluginRegistry {
         return loaded
     }
 
+    /// Drop the in-memory cache and re-read `registry.json` from disk.
+    ///
+    /// Production paths don't need this: every mutator goes through the
+    /// actor, so the cache stays consistent with disk. The E2E
+    /// orchestrator's `EchoPluginInstaller` (Task 22) writes the
+    /// registry file directly — out of band — and then asks the
+    /// running app to `rescan()`. Without this reload, `mergeBundled`
+    /// would re-persist the stale cache and clobber the fresh
+    /// `echo` entry the installer just wrote.
+    public func reload() throws -> [PluginRegistryEntry] {
+        cache = nil
+        let loaded = try load()
+        cache = loaded
+        return loaded
+    }
+
     /// Merge the bundled-plugin set into the registry.
     ///
     /// Called at app startup with the freshly discovered set of bundled

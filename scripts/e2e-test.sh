@@ -464,6 +464,32 @@ if [ "$SKIP_BUILD" = true ]; then
     fi
     ok "All artifacts found."
 
+    # Ensure the EchoPluginSidecar binary is staged next to the
+    # orchestrator. The plugin E2E scenarios need it; a previous full
+    # build copies it into place but a fresh `--skip-build` invocation
+    # might miss it if the user only ran the SPM-side `swift test`
+    # earlier. SPM is a no-op when sources haven't changed.
+    if [ ! -x "$PRODUCTS_DEBUG/EchoPluginSidecar" ]; then
+        step "Staging EchoPluginSidecar (--skip-build)"
+        swift build \
+            --package-path "$PROJECT_ROOT/ClaudeSpyPackage" \
+            --configuration debug \
+            --product EchoPluginSidecar 2>&1 | tail -10
+        _ECHO_SIDECAR_BIN_DIR=$(swift build \
+            --package-path "$PROJECT_ROOT/ClaudeSpyPackage" \
+            --configuration debug \
+            --show-bin-path)
+        if [ ! -x "$_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar" ]; then
+            fail "EchoPluginSidecar binary missing after swift build at $_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar"
+            exit 1
+        fi
+        cp "$_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar" "$PRODUCTS_DEBUG/EchoPluginSidecar"
+        chmod +x "$PRODUCTS_DEBUG/EchoPluginSidecar"
+        ok "Staged EchoPluginSidecar at $PRODUCTS_DEBUG/EchoPluginSidecar"
+    else
+        ok "EchoPluginSidecar already staged at $PRODUCTS_DEBUG/EchoPluginSidecar"
+    fi
+
     # Find simulator UDID for accessibility check
     SIM_UDID=$(find_simulator_udid)
 else
@@ -493,6 +519,31 @@ else
         -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --executable
+
+    # The plugin E2E scenarios install a test-only EchoPluginSidecar
+    # into a per-scenario state root via `EchoPluginInstaller`. The
+    # sidecar is an SPM executable target that Xcode's package graph
+    # does NOT build alongside ClaudeSpyE2E (it's only a dependency of
+    # the SPM-only `ClaudeSpyE2ETests` test target). Build it via
+    # `swift build` and stage it next to the orchestrator binary so the
+    # installer's `Bundle.main.executableURL` sibling check finds it.
+    step "Building EchoPluginSidecar (SPM)"
+    swift build \
+        --package-path "$PROJECT_ROOT/ClaudeSpyPackage" \
+        --configuration debug \
+        --product EchoPluginSidecar 2>&1 | tail -20
+    _ECHO_SIDECAR_BIN_DIR=$(swift build \
+        --package-path "$PROJECT_ROOT/ClaudeSpyPackage" \
+        --configuration debug \
+        --show-bin-path)
+    if [ ! -x "$_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar" ]; then
+        fail "EchoPluginSidecar binary missing after swift build at $_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar"
+        exit 1
+    fi
+    mkdir -p "$PRODUCTS_DEBUG"
+    cp "$_ECHO_SIDECAR_BIN_DIR/EchoPluginSidecar" "$PRODUCTS_DEBUG/EchoPluginSidecar"
+    chmod +x "$PRODUCTS_DEBUG/EchoPluginSidecar"
+    ok "Staged EchoPluginSidecar at $PRODUCTS_DEBUG/EchoPluginSidecar"
 
     step "Building iOS app (ClaudeSpy)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \

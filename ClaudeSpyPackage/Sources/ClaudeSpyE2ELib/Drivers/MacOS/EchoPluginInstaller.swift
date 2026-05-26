@@ -103,24 +103,41 @@ public struct EchoPluginInstaller: Sendable {
 
     /// Locate the SPM-built `EchoPluginSidecar` binary.
     ///
-    /// SPM places executables in `<package>/.build/<config>/<TargetName>`.
-    /// The orchestrator (and tests) run with the current working
-    /// directory set somewhere inside the package, so we walk a few
-    /// candidate paths rooted from `Bundle.main` and CWD.
+    /// The binary can live in two layouts depending on how the caller
+    /// is run:
+    ///
+    /// * **`swift test` / `swift run`** — SPM places executables in
+    ///   `<package>/.build/<config>/<TargetName>` and tests run with
+    ///   CWD inside the package, so a relative `.build/debug/...`
+    ///   resolves directly. The `ClaudeSpyE2ETests` test target
+    ///   declares `EchoPluginSidecar` as a dependency to force SPM to
+    ///   build it before the test bundle runs.
+    /// * **`xcodebuild -scheme ClaudeSpyE2E`** — Xcode builds the
+    ///   orchestrator executable into `<DerivedData>/Build/Products/Debug/`,
+    ///   but skips executable targets that aren't on the active build
+    ///   graph. The `scripts/e2e-test.sh` script invokes
+    ///   `swift build --product EchoPluginSidecar` separately and
+    ///   copies the binary next to the orchestrator, so the
+    ///   `Bundle.main.executableURL` sibling check picks it up.
+    ///
+    /// We probe both layouts (plus the source-tree walk-up that the
+    /// fixture resolver uses) so the installer keeps working no matter
+    /// which entry point the caller chose.
     private func resolveSidecarBinary() throws -> URL {
         let fm = FileManager.default
         var candidates: [URL] = []
 
-        // The orchestrator binary lives next to the sidecar binary in
-        // `.build/<config>/` — try the same directory first.
+        // 1. Sibling of the orchestrator binary. The `e2e-test.sh`
+        //    build phase copies EchoPluginSidecar here after building
+        //    via SPM. Also covers `swift test` (xctest bundle lives in
+        //    `.build/<config>/` next to the executables).
         if let exec = Bundle.main.executableURL {
             candidates.append(exec.deletingLastPathComponent()
                 .appendingPathComponent("EchoPluginSidecar"))
         }
 
-        // The xctest bundle lives one level deeper
-        // (`.build/<config>/<Pkg>PackageTests.xctest`); the sidecar binary
-        // is its grandparent's sibling. Try both common Xcode test layouts.
+        // 2. xctest bundle layouts (Xcode runs xctest from
+        //    `.../<Pkg>PackageTests.xctest/Contents/MacOS/`).
         if let bundle = Bundle.allBundles.first(where: { $0.bundlePath.hasSuffix(".xctest") }) {
             let bundleURL = URL(fileURLWithPath: bundle.bundlePath)
             candidates.append(
@@ -129,11 +146,35 @@ public struct EchoPluginInstaller: Sendable {
             )
         }
 
-        // Fallback: CWD/.build/debug/EchoPluginSidecar — works when running
-        // `swift test` directly from the package root.
+        // 3. CWD-rooted SPM build paths — `swift test` from the
+        //    package root or repo root.
         let cwd = FileManager.default.currentDirectoryPath
+        let cwdRoots = [
+            URL(fileURLWithPath: cwd),
+            URL(fileURLWithPath: cwd).appendingPathComponent("ClaudeSpyPackage"),
+        ]
+        for root in cwdRoots {
+            for config in ["debug", "release"] {
+                candidates.append(root
+                    .appendingPathComponent(".build")
+                    .appendingPathComponent(config)
+                    .appendingPathComponent("EchoPluginSidecar"))
+            }
+        }
+
+        // 4. Source-tree walk-up from this file. Lets `swift run` from
+        //    arbitrary working directories still find the binary —
+        //    `#filePath` always points inside the package, so we can
+        //    derive the package root and join `.build/<config>/`.
+        let here = URL(fileURLWithPath: #filePath)
+        let packageRoot = here
+            .deletingLastPathComponent() // …/MacOS
+            .deletingLastPathComponent() // …/Drivers
+            .deletingLastPathComponent() // …/ClaudeSpyE2ELib
+            .deletingLastPathComponent() // …/Sources
+            .deletingLastPathComponent() // …/ClaudeSpyPackage
         for config in ["debug", "release"] {
-            candidates.append(URL(fileURLWithPath: cwd)
+            candidates.append(packageRoot
                 .appendingPathComponent(".build")
                 .appendingPathComponent(config)
                 .appendingPathComponent("EchoPluginSidecar"))

@@ -102,6 +102,17 @@ The macOS app accepts `--gallager-state-root <path>` (alongside `--e2e-test`) to
 
 Bundled plugins (claude-code, codex) always come from `Gallager.app/Contents/Resources/plugins/` regardless of the state root — they're read-only inside the .app bundle. The state root only affects per-plugin runtime state and any user-installed plugins. The EchoPlugin fixture used by Task 25's scenarios is seeded via `EchoPluginInstaller.install(into:)`, which copies `ClaudeSpyE2ELib`'s bundled fixture tree plus the built `EchoPluginSidecar` binary into `<state_root>/plugins/echo/` and upserts the matching `registry.json` entry.
 
+#### Plugin DSL steps
+
+Scenarios drive the plugin runtime through three DSL cases that replaced the
+legacy `macSendHookEvent` shim (now removed):
+
+| Case | Behaviour |
+|---|---|
+| `macSendRawHookPayload(pluginID:json:env:instance:)` | Writes a length-prefixed JSON frame to the named plugin's ingress Unix socket. The frame carries the raw payload the host agent would have produced; the sidecar's translator decodes it exactly as in production. |
+| `macInstallBundledPlugin(pluginID:instance:)` | Calls the same `PluginManager.installHooks(pluginID:)` path Settings → "Install Hooks" triggers. The plugin must already be loaded. |
+| `macSpawnSidecar(pluginID:fixtureSourcePath:instance:)` | Seeds a non-bundled fixture (currently EchoPlugin) into the per-instance state root via `EchoPluginInstaller` and asks the running app to rescan its registry. |
+
 ### Variable interpolation
 
 Steps can pass data between each other via `ExecutionContext`. Use `macReadClipboard(storeAs: "key")` or `storeValue(key:value:)` to store, and `"${key}"` in any string argument to reference it. The orchestrator resolves variables before passing to drivers.

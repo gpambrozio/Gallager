@@ -313,6 +313,12 @@ final public class PluginManager {
             return
         }
 
+        // Drop the registry's in-memory cache so out-of-band writes to
+        // `registry.json` (e.g. the E2E orchestrator's
+        // `EchoPluginInstaller`) are picked up before `mergeBundled`
+        // overwrites the file with a stale snapshot.
+        _ = try await registry.reload()
+
         // Re-run bundled discovery so a newly-shipped bundled plugin (or
         // a test fixture parked in the bundled dir) shows up.
         let bundledDir = layout.bundledPluginsDir()

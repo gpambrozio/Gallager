@@ -1,8 +1,8 @@
 # ClaudeSpy Mac App Architecture
 
-ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated windows, integrates with **Claude Code and OpenAI's Codex CLI** via HTTP hooks, and streams terminal data to paired iOS devices over encrypted WebSocket connections.
+ClaudeSpy is a native macOS application that mirrors tmux panes in dedicated windows, integrates with coding agents (Claude Code, OpenAI's Codex CLI) via a **plugin runtime**, and streams terminal data to paired iOS devices over encrypted WebSocket connections.
 
-Coding-agent integration is gated by a `CodingAgent` enum (`.claudeCode` / `.codex`) in `ClaudeSpyNetworking`. Every hook event, session, and project info value carries an `agent` field so the same plumbing serves both backends; the only agent-specific code lives in the project scanners, plugin/hook installers, and command-path resolution.
+Coding-agent integration is implemented as a plugin system: each agent ships as a bundled plugin with its own sidecar process, supervised by the Mac app's `PluginManager`. Sessions and projects carry a `pluginID` so the same plumbing serves every agent. See the [Plugin Runtime](#plugin-runtime) section below, and the full spec at `docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md`.
 
 ## Component Overview
 
@@ -39,22 +39,19 @@ Coding-agent integration is gated by a `CodingAgent` enum (`.claudeCode` / `.cod
 | **TerminalStreamService** | `@Observable @MainActor` | Batches and streams terminal data to iOS devices via DeviceConnectionManager |
 | **TmuxCommandExecutor** | `actor` | Executes commands from iOS (keystrokes, cancel, session creation) |
 
-### Hook Integration
+### Plugin Runtime
 
 | Component | Type | Responsibility |
 |-----------|------|----------------|
-| **HookServerService** | `actor` | HTTP server (dynamic port) receiving hook events from Claude Code and Codex CLI. The `agent` query param (default `.claudeCode`) tags every incoming event |
-
-### Coding-Agent Integration
-
-| Component | Type | Responsibility |
-|-----------|------|----------------|
-| **PluginService** | `@Observable @MainActor` | Manages the Claude Code plugin (detection + bundled install) |
-| **CodexPluginInstaller** | `struct` (Dependency) | Installs/uninstalls the bundled `gallager` Codex plugin via `codex plugin` commands so Codex forwards hooks to the local hook server |
-| **ClaudeProjectScanner** | `actor` | Scans `~/.claude.json` to discover Claude Code projects |
-| **CodexProjectScanner** | `struct` (Dependency) | Walks `~/.codex/sessions/**/rollout-*.jsonl` (honoring `CODEX_HOME`), reads each rollout's session-meta header to recover `cwd`, and groups by working directory |
-| **ClaudePathDetector** | `enum` (static) | Detects the `claude` CLI path for auto-running in new sessions |
-| **TerminalLauncher** | `@MainActor` | Launches tmux sessions in external terminal apps (Terminal, iTerm2, Warp, etc.) |
+| **PluginManager** | `@Observable @MainActor` | Discovers plugin bundles, supervises one `SidecarSupervisor` per enabled plugin, fans out events through the dispatcher, and routes responses back to the right sidecar |
+| **PluginRegistry** | `actor` | Indexes plugins from bundled (`Gallager.app/Contents/Resources/plugins/`) and user (`~/.gallager/plugins/`) roots; loads each `plugin.json` manifest |
+| **SidecarSupervisor** | `actor` | Spawns and respawns the sidecar process for one plugin, with crash-loop backoff (auto-disable after 4 crashes inside the window) |
+| **JSONRPCConnection** | `actor` | Length-prefixed JSON-RPC framing over a sidecar's stdin/stdout; routes typed requests, notifications, and responses |
+| **PluginEventDispatcher** | `@MainActor` | Fans `PluginEvent`s into the pane-state / session-state / notification / response-request sinks |
+| **PluginRouter** | `@MainActor` | Resolves the owning sidecar for a `(session_id, request_id)` pair so iOS-originated `AgentResponse`s reach the right plugin |
+| **AssetCache** | `actor` | Caches per-plugin presentation assets (icon PNGs, display strings) keyed by `(plugin_id, version)` for the `plugin_presentations` push |
+| **IngressSocketServer** | `actor` | Per-plugin Unix-domain socket the sidecar uses to feed framed JSON events into the manager (replaces the legacy `/api/hooks` HTTP shim) |
+| **TerminalLauncher** | `@MainActor` | Launches tmux sessions in external terminal apps (Terminal, iTerm2, Warp, etc.). The launch command for each plugin is resolved by asking the plugin's sidecar via `command_for_launch` |
 
 ### System Integration
 
@@ -86,23 +83,24 @@ The app entry point (`TmuxPaneMirrorApp`) creates the coordinator and defines th
 
 1. **Synchronous (`init`)** — Creates core services that don't need async:
    TmuxService, TmuxControlClientManager, PaneStreamManager, MirrorWindowManager,
-   TerminalStreamService, HookServerService, ClaudeProjectScanner, CodexProjectScanner,
-   DockIconManager, SleepPreventionManager, PluginService, CodexPluginInstaller,
+   TerminalStreamService, DockIconManager, SleepPreventionManager,
    E2EEService (from Keychain if available)
 
 2. **Async (`setupAllServices`)** — Completes initialization requiring async work:
    E2EEService (if not loaded), PairingManager, DeviceConnectionManager,
-   TmuxCommandExecutor, hook server start, auto-connect to paired devices,
-   periodic session validation, system wake observer
+   TmuxCommandExecutor, one-shot plugin settings migration, `PluginManager.start()`
+   (which discovers bundles, spawns sidecars, and starts the per-plugin ingress sockets),
+   auto-connect to paired devices, periodic session validation, system wake observer
 
 ## Service Wiring
 
 AppCoordinator connects services via callbacks:
 
 ```
-HookServerService events → MirrorWindowManager.handleHookEvent()
-                         → DeviceConnectionManager.sendHookEventToAll()
-                         → SleepPreventionManager.updateForSessionCount()
+PluginManager events → MirrorWindowManager (session lifecycle, working/attention)
+                    → DeviceConnectionManager (forward to paired iOS viewers)
+                    → SleepPreventionManager.updateForSessionCount()
+                    → NotificationCenter (per-plugin notification copy)
 
 TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions(paneId:width:height:)
 TmuxControlClientManager pane exits       → MirrorWindowManager.updatePaneStates()
@@ -113,6 +111,8 @@ TmuxService pane changes → DeviceConnectionManager.pushSessionStateToAll()
 
 iOS commands → TmuxCommandExecutor.execute()
              → TerminalStreamService.startStreaming() / stopStreaming()
+
+iOS AgentResponse submissions → PluginRouter → owning sidecar's `deliver_response`
 
 System wake → DeviceConnectionManager.reconnectAllImmediately()
 ```
@@ -148,29 +148,58 @@ PaneStreamManager (delegate + multiplexer)
          Relay Server → iOS devices
 ```
 
-## Hook Event Flow
+## Plugin Runtime
+
+Gallager's agent support is implemented as a plugin system. The Mac
+app supervises one sidecar process per enabled plugin via the
+`ClaudeSpyPluginRuntime.PluginManager`. Plugins implement a JSON-RPC
+protocol (`GallagerPluginProtocol`); see the spec at
+`docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md`
+for full details.
+
+Bundled plugins (Claude Code, Codex) ship under
+`Gallager.app/Contents/Resources/plugins/<id>/`. User-installed plugins
+land in `~/.gallager/plugins/<id>/`. Both have the same on-disk shape.
+
+iOS knows nothing about the plugin system itself: it consumes
+`agent_session_status` and `agent_response_request` wire messages plus
+per-plugin presentation bundles (`plugin_presentations`) and renders
+SwiftUI forms from a closed-set `AgentResponseRequest` enum (Spec §7.2).
+
+### Plugin Event Flow
 
 ```
-Claude Code / Codex CLI → POST localhost:<port>/api/hooks?tmux_pane=main:0.1&agent=claude-code|codex
-    │
+host agent (Claude Code / Codex / …)
+    │ writes a hook payload to the bridge entry point
     ▼
-HookServerService (actor)
-    │ Parses JSON, creates HookEvent (tagged with `agent`, default `.claudeCode`)
-    │
+Plugin sidecar (per-plugin executable, e.g. ClaudeCodePluginSidecar)
+    │ translates the agent-specific payload into a PluginEvent
+    │ (status update, response request, notification, project push, …)
     ▼
-AppCoordinator event handler
+IngressSocketServer (per-plugin Unix socket, replaces the legacy /api/hooks HTTP shim)
+    │ frames the event as length-prefixed JSON-RPC
+    ▼
+PluginManager → PluginEventDispatcher (@MainActor)
     │
-    ├──→ MirrorWindowManager.handleHookEvent()
-    │       SessionStart → add to activeSessions, open mirror window
-    │       SessionEnd   → remove from activeSessions, close window
+    ├──→ MirrorWindowManager + AgentSession store
+    │       session_start → open mirror window
+    │       agent_session_status → update working/attention badges
     │
-    ├──→ DeviceConnectionManager.sendHookEventToAll()
-    │       Forwards to all connected iOS devices (E2EE encrypted)
+    ├──→ DeviceConnectionManager
+    │       agent_session_status / agent_response_request → forwarded
+    │       to paired iOS viewers as wire messages (E2EE encrypted)
+    │
+    ├──→ NotificationCenter
+    │       pre-baked title + body strings from the sidecar
     │
     └──→ SleepPreventionManager.updateForSessionCount()
 ```
 
-The same bridge script (`plugin/gallager/scripts/hook.py`) backs both agents. Claude Code calls it from `~/.claude/plugins/.../hooks.json` (the bundled Claude plugin); Codex calls it from `~/.codex/plugins/.../hooks.json` after `CodexPluginInstaller` registers the bundled `gallager` marketplace and installs the plugin via `codex plugin install`. The script appends `?agent=codex` to the POST when invoked by Codex so the server can tag the event correctly. Notification copy is rendered against `agent.displayName` / `shortName` so toasts read "Claude" or "Codex" as appropriate.
+When iOS replies to an `agent_response_request`, the `PluginRouter`
+matches `(session_id, request_id)` to the owning sidecar and calls
+`deliver_response` on it; the sidecar then converts the structured
+`AgentResponse` into whatever its host agent expects (keystrokes,
+HTTP, MCP, etc.). iOS never builds agent-specific payloads.
 
 ## Multi-Device Terminal Streaming
 
@@ -182,10 +211,11 @@ Multiple iOS devices can watch the same pane simultaneously:
 - Each `stopStreaming` decrements the count; the manager subscription is dropped when count reaches 0, returning the reader to scan-only mode (it stays attached to the FIFO for the pane's full lifetime)
 - System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true` to bypass count
 
-**DeviceConnectionManager** broadcasts to all connected devices:
-- `sendHookEventToAll()` — hook events
+**ConnectedViewerManager** broadcasts to all connected devices:
+- `sendAgentSessionStatusToAll()` — per-session working/attention updates
+- `sendAgentResponseRequestToAll()` — interactive response requests for iOS forms
 - `sendTerminalStreamToAll()` — terminal data
-- `pushSessionStateToAll()` — session state sync
+- `pushSessionStateToAll()` — full session state sync (on connect, session metadata changes)
 
 See `docs/streaming-architecture.md` for the full streaming data flow.
 
@@ -198,17 +228,16 @@ TmuxService                              ProcessRunner
 PaneStreamManager                        TmuxControlClient
 MirrorWindowManager                      PipePaneReader
 TerminalStreamService                    TmuxCommandExecutor
-                                         HookServerService
-                                         ClaudeProjectScanner
-                                         CodexProjectScanner
-DeviceConnectionManager
-DeviceConnection
+PluginManager                            SidecarSupervisor
+PluginEventDispatcher                    JSONRPCConnection
+PluginRouter                             IngressSocketServer
+DeviceConnectionManager                  PluginRegistry
+DeviceConnection                         AssetCache
 PairingManager
 AppCoordinator
 AppSettings
 DockIconManager
 SleepPreventionManager
-PluginService
 All SwiftUI Views
 ```
 
@@ -220,56 +249,28 @@ All SwiftUI Views
 ## File Structure
 
 ```
-ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
-├── Coordinators/
-│   └── AppCoordinator.swift           # Central service coordinator
-├── Hooks/
-│   ├── HookModels.swift               # Event types, ToolInput enum
-│   └── HookServerService.swift        # HTTP server (dynamic port)
-├── Managers/
-│   ├── DockIconManager.swift          # Dock icon visibility
-│   ├── MirrorWindowManager.swift      # Window lifecycle
-│   └── SleepPreventionManager.swift   # IOKit sleep prevention
-├── Models/
-│   ├── PaneInfo.swift                 # Tmux pane representation
-│   └── Settings.swift                 # AppSettings, PairedDevice
-├── Services/
-│   ├── ClaudePathDetector.swift       # Claude CLI path detection
-│   ├── ClaudeProjectScanner.swift     # Project discovery from ~/.claude.json
-│   ├── CodexProjectScanner.swift      # Project discovery from ~/.codex/sessions/**/rollout-*.jsonl
-│   ├── CodexPluginInstaller.swift     # Bundled `gallager` Codex plugin install/uninstall via `codex plugin`
-│   ├── DeviceConnection.swift         # Single iOS device WebSocket
-│   ├── DeviceConnectionManager.swift  # Multi-device coordinator
-│   ├── ExternalServerClient.swift     # Legacy single-device client
-│   ├── LoginItemService.swift         # Launch at login (SMAppService)
-│   ├── PairingManager.swift           # Device pairing flow
-│   ├── PaneStreamManager.swift        # Per-pane reader lifecycle + multi-subscriber multiplexer
-│   ├── PipePaneReader.swift           # Per-pane FIFO reader (one per pane, scanOnly/buffering/live modes)
-│   ├── PluginService.swift            # Claude Code plugin management (bundled plugin install)
-│   ├── StreamState.swift              # View-side connection state enum
-│   ├── TerminalLauncher.swift         # External terminal app integration
-│   ├── TerminalStreamService.swift    # iOS streaming with batching
-│   ├── TmuxCommandExecutor.swift      # Remote command execution
-│   ├── TmuxControlClient.swift        # tmux control mode connection
-│   ├── TmuxControlClientManager.swift # Control client per session
-│   ├── TmuxService.swift              # Tmux CLI abstraction
-│   └── UpdaterController.swift        # Sparkle updater wrapper
-├── Utilities/
-│   ├── NotificationNames.swift        # NotificationCenter names
-│   └── ProcessRunner.swift            # Process execution
-├── Views/
-│   ├── CheckForUpdatesView.swift      # Sparkle update UI
-│   ├── InteractiveTerminalView.swift  # Interactive terminal (SwiftTerm)
-│   ├── LaunchAtLoginPromptView.swift  # Login item prompt
-│   ├── MainView.swift                 # Pane list
-│   ├── MenuBarExtraView.swift         # Menu bar dropdown
-│   ├── MirrorWindowView.swift         # Mirror window display
-│   ├── PaneListView.swift             # Pane list items
-│   ├── PluginSettingsView.swift       # Plugin settings
-│   ├── PluginSetupView.swift          # First-launch plugin setup
-│   ├── CodexPluginInstallerRow.swift  # Codex CLI plugin install/uninstall row (Settings)
-│   ├── RemoteAccessSettingsView.swift # Pairing & connection UI
-│   ├── SettingsView.swift             # Settings tabs
-│   └── TerminalContainerView.swift    # SwiftTerm bridge
-└── ContentView.swift                  # Root view
+ClaudeSpyPackage/Sources/
+├── ClaudeSpyServerFeature/        # Mac app: coordinator + services + views
+│   ├── Coordinators/              # AppCoordinator + plugin-aware routers
+│   ├── Managers/                  # MirrorWindowManager (+PluginSinks), DockIconManager, …
+│   ├── Models/                    # PaneInfo, Settings
+│   ├── Services/                  # tmux, streaming, pairing, layout, file system
+│   └── Views/                     # SwiftUI views (settings, terminal, file browser, …)
+├── GallagerPluginProtocol/        # Plugin manifests, JSON-RPC framing, event/response types
+├── ClaudeSpyPluginRuntime/        # Mac-only: PluginManager, PluginRegistry, SidecarSupervisor,
+│                                  # IngressSocketServer, PluginEventDispatcher, PluginRouter,
+│                                  # AssetCache, PluginSettingsMigration
+├── ClaudeCodePluginCore/          # Claude Code agent: scanner, locator, installer, hook translator
+├── ClaudeCodePluginSidecar/       # Claude Code sidecar executable (target: gallager-plugin-claude-code)
+├── CodexPluginCore/               # Codex agent: scanner, installer, hook translator
+├── CodexPluginSidecar/            # Codex sidecar executable
+└── EchoPluginSidecar/             # Test fixture (E2E only, not shipped)
+
+ClaudeSpyPackage/PluginBundles/
+├── claude-code/                   # Bundled plugin: plugin.json + assets + agent-bundle (hooks.json, scripts)
+└── codex/                         # Bundled plugin
+
+Gallager.app/Contents/Resources/plugins/<id>/   # Build-time copy of PluginBundles entries
+~/.gallager/plugins/<id>/                       # Runtime root for user-installed plugins (same on-disk shape)
+~/.gallager/state/plugins/<id>/                 # Per-plugin settings.json, sidecar.log
 ```

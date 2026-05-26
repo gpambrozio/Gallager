@@ -1,7 +1,7 @@
 # ClaudeSpy
 
-Distributed system for monitoring coding-agent sessions (Anthropic Claude Code and OpenAI Codex CLI, behind a shared `CodingAgent` abstraction in `ClaudeSpyNetworking`). Three components:
-1. **Mac App** - tmux pane mirroring, receives hooks from both agents, forwards to server
+Distributed system for monitoring coding-agent sessions. Coding agents (Anthropic Claude Code, OpenAI Codex CLI) are integrated via a **plugin runtime** on the Mac (Spec: `docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md`); each agent ships as a bundled plugin with its own sidecar process. Three components:
+1. **Mac App** - tmux pane mirroring, supervises per-plugin sidecars, forwards to server
 2. **External Server** - Vapor relay (Docker/Linux), device pairing, WebSocket routing
 3. **iOS App** - Remote monitoring, command dispatch
 
@@ -19,22 +19,36 @@ ClaudeSpy/
 ├── ClaudeSpyNotificationExtension/  # iOS push decryption extension
 ├── ClaudeSpyPackage/              # ALL business logic + server deployment
 │   ├── Sources/
-│   │   ├── ClaudeSpyCommon/       # Shared UI (Symbols, extensions)
-│   │   ├── ClaudeSpyEncryption/   # E2EE (Mac/iOS only)
-│   │   ├── ClaudeSpyNetworking/   # Shared models (Mac/Server/iOS)
-│   │   ├── ClaudeSpyFeature/      # iOS feature module
+│   │   ├── ClaudeSpyCommon/         # Shared UI (Symbols, extensions)
+│   │   ├── ClaudeSpyEncryption/     # E2EE (Mac/iOS only)
+│   │   ├── ClaudeSpyNetworking/     # Shared models (Mac/Server/iOS)
+│   │   ├── ClaudeSpyFeature/        # iOS feature module
 │   │   ├── ClaudeSpyServerFeature/  # macOS feature module
-│   │   └── ClaudeSpyExternalServer/ # Vapor relay server
-│   ├── Dockerfile                 # Server container build
-│   ├── docker-compose.yml         # Server orchestration
-│   └── caddy/                     # Reverse proxy configs
-└── docs/                          # Architecture docs
+│   │   ├── ClaudeSpyExternalServer/ # Vapor relay server
+│   │   ├── GallagerPluginProtocol/  # Plugin JSON-RPC, manifests, framing (Mac+iOS+Linux)
+│   │   ├── ClaudeSpyPluginRuntime/  # Mac-only supervisor/registry/dispatcher
+│   │   ├── ClaudeCodePluginCore/    # Claude Code agent logic (scanner/translator/installer)
+│   │   ├── ClaudeCodePluginSidecar/ # Claude Code sidecar executable
+│   │   ├── CodexPluginCore/         # Codex agent logic
+│   │   ├── CodexPluginSidecar/      # Codex sidecar executable
+│   │   └── EchoPluginSidecar/       # Test fixture (not shipped)
+│   ├── PluginBundles/
+│   │   ├── claude-code/             # Bundled plugin: manifest, assets, agent-bundle
+│   │   └── codex/                   # Bundled plugin
+│   ├── Dockerfile                   # Server container build
+│   ├── docker-compose.yml           # Server orchestration
+│   └── caddy/                       # Reverse proxy configs
+└── docs/                            # Architecture docs
 ```
 
 **Development by platform:**
 - macOS → `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
 - iOS → `ClaudeSpyPackage/Sources/ClaudeSpyFeature/`
 - Shared → `ClaudeSpyPackage/Sources/ClaudeSpyNetworking/`
+- Plugin protocol (Mac/iOS/Linux) → `ClaudeSpyPackage/Sources/GallagerPluginProtocol/`
+- Plugin runtime (Mac-only) → `ClaudeSpyPackage/Sources/ClaudeSpyPluginRuntime/`
+- Per-agent plugin code → `ClaudeSpyPackage/Sources/ClaudeCodePluginCore|Sidecar/`, `CodexPluginCore|Sidecar/`
+- Bundled plugin assets → `ClaudeSpyPackage/PluginBundles/<id>/`
 - Encryption → `ClaudeSpyPackage/Sources/ClaudeSpyEncryption/`
 - Server → `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer/`
 
@@ -125,7 +139,8 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, Dependencies, testing
 - **Services:** `docs/services-reference.md` - TmuxService, PaneStream, CodingAgent, project scanners, etc.
 - **Architecture:** `docs/architecture.md` (Mac app) and `docs/distributed-architecture-plan.md` (Mac/Server/iOS)
-- **Codex CLI integration:** `docs/codex-cli-integration-plan.md` - `CodingAgent` abstraction, hook bridge, project discovery
+- **Plugin system (current architecture):** `docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md` - sidecar processes, JSON-RPC protocol, bundled plugins, iOS surface
+- **Codex CLI integration (historical):** `docs/codex-cli-integration-plan.md` - superseded by the plugin system; kept for archaeology
 - **Encryption:** `docs/e2ee-encryption-plan.md`
 - **E2E testing:** `docs/e2e-testing.md` - Test framework, running tests, writing scenarios
 - **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server

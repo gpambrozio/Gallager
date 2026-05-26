@@ -9,15 +9,16 @@
 | Docker & Deployment | ✅ **COMPLETE** | Deployed to Hetzner with Caddy reverse proxy |
 | Phase 3: Mac App Updates | ✅ **COMPLETE** | ExternalServerClient, PairingManager, TmuxCommandExecutor, UI |
 | Phase 4: iOS App | ✅ **COMPLETE** | RelayClient, SessionStore, PairingView, SessionListView, SessionDetailView |
+| Plugin runtime (2026-05) | ✅ **COMPLETE** | Coding-agent integration replaced by per-plugin sidecars on the Mac. iOS surface narrowed to Spec §7 wire format. |
 
 ---
 
 ## Overview
 
 Transform ClaudeSpy from a standalone Mac app into a distributed system with three components:
-1. **Mac App** - Receives coding-agent hooks (Claude Code and Codex CLI, behind a shared `CodingAgent` abstraction), forwards to external server, receives commands
+1. **Mac App** - Supervises one sidecar process per enabled coding-agent plugin (Claude Code, Codex, …), forwards plugin events to external server, receives commands and structured `AgentResponse` submissions
 2. **External Server** - Vapor-based relay server, handles device pairing, runs in Docker
-3. **iOS App** - Monitors sessions remotely, sends commands back to Mac
+3. **iOS App** - Monitors sessions remotely, sends commands and structured `AgentResponse` submissions back to Mac
 
 ## Architecture Diagram
 
@@ -53,12 +54,18 @@ Transform ClaudeSpy from a standalone Mac app into a distributed system with thr
 
 ### Event Flow (Mac → iOS)
 ```
-1. Claude Code or Codex CLI sends hook event to Mac app
-   (HTTP POST localhost:<dynamic port>/api/hooks?agent=claude-code|codex&tmux_pane=…)
-2. Mac app processes event locally (updates UI, session state); HookEvent carries `agent` field
-3. Mac app forwards event to external server via WebSocket
-4. External server relays to connected iOS client via WebSocket
-5. iOS app displays event in session monitor (with per-agent badges and notification copy)
+1. Host agent (Claude Code, Codex, …) runs its hooks; the per-plugin sidecar
+   translates the agent payload into a PluginEvent and frames it as JSON-RPC
+   over the plugin's Unix-domain ingress socket.
+2. Mac app's PluginManager / PluginEventDispatcher processes the event locally
+   (opens mirror windows, updates AgentSession working/attention flags,
+   surfaces notifications).
+3. Mac app forwards the agent-blind wire shape (agent_session_status,
+   agent_response_request, plugin_presentations, …) to the external server
+   via WebSocket.
+4. External server relays to connected iOS client via WebSocket.
+5. iOS app updates badges and, when applicable, shows a SwiftUI form
+   matching the AgentResponseRequest case.
 ```
 
 ### Command Flow (iOS → Mac)
@@ -96,10 +103,13 @@ The networking module contains all shared message types for Mac ↔ Server ↔ i
 ```
 Sources/ClaudeSpyNetworking/
 ├── Models/
-│   ├── WebSocketMessage.swift   # 16+ message types with JSON serialization
+│   ├── WebSocketMessage.swift   # Agent-blind wire envelope (status, response request,
+│   │                            # presentations, terminal stream, …)
 │   ├── PairingModels.swift      # Pairing flow models
 │   ├── CommandModels.swift      # Remote command protocol
-│   ├── HookModels.swift         # Claude Code hook event types (~530 lines)
+│   ├── AgentSession.swift       # Agent-agnostic session record (pluginID, working/attention)
+│   ├── AgentResponseRequest.swift  # Closed-set response forms (Spec §7.2)
+│   ├── PluginPresentation.swift # Per-plugin icon + display copy bundle
 │   └── RelayMessages.swift      # Session state synchronization
 └── (exports all types publicly)
 ```
@@ -110,9 +120,12 @@ Sources/ClaudeSpyNetworking/
 - `PairingRegistration`, `PairingCompletion`, `PairingResponse` - HTTP pairing flow
 - `RegisterMacMessage`, `RegisterIOSMessage` - WebSocket registration after pairing
 - `CommandMessage`, `CommandResponseMessage` - Remote command protocol
-- `HookEvent`, `ClaudeSession`, `HookAction` - Coding-agent integration (Claude Code + Codex CLI, tagged via the `CodingAgent` enum on every event/session/project)
-- `SessionStateMessage`, `HookEventMessage` - State sync messages
+- `AgentSession`, `AgentSessionStatusUpdate` - Plugin-agnostic session record + sidebar updates (replaces the legacy `ClaudeSession` + `HookEvent` stream)
+- `AgentResponseRequest`, `AgentResponse` - Closed-set iOS forms and their responses (Spec §7.2)
+- `PluginPresentation`, `PluginPresentationsMessage` - Per-plugin icon + display copy bundle
 - `AnyCodable` - Type-erased wrapper for arbitrary JSON payloads
+
+Cross-host decoders accept the legacy `agent: CodingAgent` field for the version-skew window so older paired Macs continue to decode cleanly; the same `decodeIfPresent` pattern is used everywhere in `RelayMessages.swift`.
 
 All types implement `Sendable` for Swift 6 strict concurrency.
 
@@ -120,10 +133,16 @@ All types implement `Sendable` for Swift 6 strict concurrency.
 
 **Current module structure:**
 - `ClaudeSpyCommon` - Shared UI utilities (SF Symbols, extensions)
-- `ClaudeSpyNetworking` - **Platform-agnostic networking models** (NEW)
-- `ClaudeSpyFeature` - iOS feature module (placeholder)
-- `ClaudeSpyServerFeature` - macOS server feature
+- `ClaudeSpyNetworking` - Platform-agnostic networking models (Mac + iOS + Linux)
+- `ClaudeSpyEncryption` - E2EE (Mac + iOS)
+- `ClaudeSpyFeature` - iOS feature module
+- `ClaudeSpyServerFeature` - macOS app feature
 - `ClaudeSpyExternalServer` - Linux-ready relay server executable
+- `GallagerPluginProtocol` - Plugin manifest + JSON-RPC types (Mac + iOS + Linux)
+- `ClaudeSpyPluginRuntime` - Mac-only plugin supervisor, registry, dispatcher, asset cache
+- `ClaudeCodePluginCore` / `ClaudeCodePluginSidecar` - Claude Code agent plugin
+- `CodexPluginCore` / `CodexPluginSidecar` - Codex agent plugin
+- `EchoPluginSidecar` - Test fixture, used only by E2E scenarios
 
 The external server depends on `ClaudeSpyNetworking` (not `ClaudeSpyCommon`) to avoid pulling macOS/iOS dependencies into the Linux build.
 
@@ -324,8 +343,32 @@ var autoConnectToServer: Bool = true
 ## Phase 4: iOS App Implementation ✅ COMPLETE
 
 > **Implementation:** Full iOS app with pairing, session monitoring, and remote command capabilities.
+>
+> **Plugin-system update (2026-05-25):** iOS no longer knows about
+> hooks, the `CodingAgent` enum, or per-`HookAction` event rows. It
+> consumes the agent-blind wire format defined in Spec §7 instead.
+> See `docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md`.
 
-### 4.1 App Structure (Implemented)
+### 4.1 iOS surface (Spec §7)
+
+**iOS knows nothing about plugins, schemas, or the JSON-RPC protocol.**
+The plugin system stops at the Mac. iOS receives a small, app-defined
+wire format that's stable regardless of which plugins the Mac has
+loaded:
+
+| Surface | Source | Plugin-aware? |
+|---|---|---|
+| Terminal mirror | `PaneStream` — already agent-blind. Unchanged. | No |
+| Session list (icon + name + working/attention badge) | `AgentSession` + per-plugin **presentation bundle** | No — iOS just looks up the icon/name by `pluginID` |
+| Interactive response forms (permission approval, ask-user-question, prompt, plan approval, reply-after-stop) | `AgentResponseRequest` closed enum | No — closed shape on the wire |
+| Notifications | Pre-baked `title` + `body` strings forwarded from the Mac | No |
+| Project list | `AgentProject` with `pluginID` for sidebar icon lookup | No |
+
+**Removed from iOS:** the per-`HookAction`-case event rows
+(`EventRowView` and its supporting machinery) — those were a debugging
+aid and were dropped in Task 20.
+
+### 4.2 App Structure (Implemented)
 
 The `ClaudeSpyFeature` module contains all iOS-specific code:
 
@@ -333,20 +376,33 @@ The `ClaudeSpyFeature` module contains all iOS-specific code:
 Sources/ClaudeSpyFeature/
 ├── Services/
 │   ├── RelayClient.swift         # WebSocket client with reconnection, state management
-│   └── SessionStore.swift        # Observable session state, event handling
+│   └── SessionStore.swift        # Observable session state, response-request dispatch
 ├── Views/
 │   ├── ContentView.swift         # Main app entry point with state management
 │   ├── PairingView.swift         # 6-character code input, pairing flow
-│   ├── SessionListView.swift     # List active Claude sessions
-│   ├── SessionDetailView.swift   # Event history, command buttons
-│   └── EventRowView.swift        # Individual hook event display
+│   ├── SessionListView.swift     # List active agent sessions (icon from presentation bundle)
+│   ├── SessionDetailView.swift   # Terminal mirror + active response request
+│   └── ResponseViews/            # SwiftUI forms for each AgentResponseRequest case
 └── Models/
     └── IOSSettings.swift         # UserDefaults-backed settings
 ```
 
 The iOS app entry point lives in `ClaudeSpy/ClaudeSpyApp.swift`, which imports `ClaudeSpyFeature`.
 
-### 4.2 Core Views
+### 4.3 Wire format (Spec §7.4 / 7.5)
+
+iOS receives these new top-level messages from the Mac (relayed via
+the external server):
+
+- `plugin_presentations` — array of `{ id, version, display_name, short_name, color, icon_b64 }`. Sent on connect and on plugin enable/disable/upgrade. iOS caches by `(plugin_id, version)`.
+- `agent_session_status` — `{ session_id, plugin_id, working, attention, timestamp }`. Drives sidebar badges; no event-level detail.
+- `agent_response_request` — `{ session_id, plugin_id, request_id, request: AgentResponseRequest }`. iOS shows the matching `ResponseView` SwiftUI form.
+
+iOS sends back, over the existing command channel:
+
+- `agent_response_submission` — `{ session_id, plugin_id, request_id, response: AgentResponse }`. The Mac's `PluginRouter` resolves the owning sidecar and calls `deliver_response`; the sidecar converts the structured response into whatever its host agent expects.
+
+### 4.4 Core Views
 
 **PairingView.swift**
 - 6-character code input field
@@ -355,16 +411,16 @@ The iOS app entry point lives in `ClaudeSpy/ClaudeSpyApp.swift`, which imports `
 - Navigate to main view on success
 
 **SessionListView.swift**
-- List of active Claude sessions from Mac
-- Each row shows: pane info, latest event, status indicator
+- List of active agent sessions from Mac
+- Each row shows: pane info, plugin icon (from cached presentation bundle), working/attention badge
 - Tap to view session detail
 
 **SessionDetailView.swift**
-- Full event history for selected session
-- Command buttons (send keystroke, etc.)
+- Terminal mirror via `PaneStream`
+- Active `AgentResponseRequest`, if any, rendered by the matching `ResponseView`
 - Connection status indicator
 
-### 4.3 Services
+### 4.5 Services
 
 **RelayClient.swift**
 ```swift
@@ -393,11 +449,14 @@ final class RelayClient {
 @Observable
 @MainActor
 final class SessionStore {
-    private(set) var sessions: [String: ClaudeSession] = [:]
-    private(set) var activePanes: [String] = []
+    private(set) var sessions: [String: AgentSession] = [:]
+    private(set) var activeResponseRequests: [String: AgentResponseRequest] = [:]
+    private(set) var presentations: [String: PluginPresentation] = [:]   // keyed by plugin_id
 
-    func handleEvent(_ event: HookEventMessage)
-    func handleStateUpdate(_ state: SessionStateMessage)
+    func handleSessionStatus(_ status: AgentSessionStatusMessage)
+    func handleResponseRequest(_ request: AgentResponseRequestMessage)
+    func handlePresentations(_ presentations: PluginPresentationsMessage)
+    func submitResponse(_ response: AgentResponse, requestId: String, sessionId: String) async throws
     func clearOnDisconnect()
 }
 ```

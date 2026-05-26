@@ -958,15 +958,16 @@ public actor TestOrchestrator {
                 .appendingPathComponent(resolvedPluginID, isDirectory: true)
                 .appendingPathComponent("ingress.sock")
 
-            // Wait up to 5s for the socket file to exist — the sidecar
+            // Wait up to 30s for the socket file to exist — the sidecar
             // may still be initializing when the scenario first sends a
-            // payload (Spec §8: sidecars create the socket inside
-            // `initialize`, not at process start).
-            let deadline = Date().addingTimeInterval(5)
+            // payload. Under E2E load the bundled sidecars' first scan can
+            // take >5s (FSEvents start + project enumeration). 30s gives
+            // plenty of headroom while still failing fast on a real bug.
+            let deadline = Date().addingTimeInterval(30)
             while !FileManager.default.fileExists(atPath: socketURL.path) {
                 if Date() > deadline {
                     throw OrchestratorError.configurationError(
-                        "Plugin ingress socket not ready after 5s: \(socketURL.path)"
+                        "Plugin ingress socket not ready after 30s: \(socketURL.path)"
                     )
                 }
                 try await Task.sleep(for: .milliseconds(50))

@@ -1,7 +1,18 @@
 # Codex CLI Integration Plan
 
+> **Superseded by the plugin system.** See
+> `docs/superpowers/specs/2026-05-24-coding-agent-plugin-system-design.md`
+> for the current architecture. Codex's per-agent integration is now
+> implemented as the bundled "codex" plugin in
+> `ClaudeSpyPackage/PluginBundles/codex/`, with its agent logic in
+> `ClaudeSpyPackage/Sources/CodexPluginCore/` and the sidecar in
+> `ClaudeSpyPackage/Sources/CodexPluginSidecar/`. The `CodingAgent`
+> enum, `HookServerService` HTTP shim, and `CodexPluginInstaller`
+> referenced below have all been removed. This document is kept
+> as a historical research / planning record.
+
 Status: ✅ **Shipped** — Phases 0–4 landed via [PR #549](https://github.com/gpambrozio/ClaudeSpy/pull/549) on branch `feat/codex-cli-integration`.
-Last updated: 2026-05-22
+Last updated: 2026-05-22 (superseded 2026-05-25)
 
 > **Upstream source:** Codex CLI is open source at <https://github.com/openai/codex> (Rust workspace under `codex-rs/`). When behavior, hook payload shape, theme handling, or terminal-background detection is ambiguous, read the upstream code directly — Codex's release cadence is fast and the published docs lag. Useful entry points:
 > - `codex-rs/tui/` — TUI renderer, status line, "Working" indicator color resolution
