@@ -31,7 +31,7 @@ final public class MirrorWindowManager {
 
     private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
     private let settings: AppSettings
-    private let tmuxService: TmuxService
+    let tmuxService: TmuxService
 
     /// Pane stream manager for sharing streams
     public var paneStreamManager: PaneStreamManager

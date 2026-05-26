@@ -18,6 +18,13 @@
             working: Bool?,
             attention: Bool
         ) async {
+            // Refresh tmux pane metadata so any bootstrap below resolves the
+            // pane's sessionName / target / window indices. Without this an
+            // event arriving before the next periodic refresh leaves the
+            // PaneState with empty sessionName, breaking iOS aggregation
+            // that groups panes by sessionName.
+            let allPanes = await tmuxService.refreshPanes()
+            await updatePaneStates(from: allPanes)
             // Find the pane that hosts this agent session. The plugin
             // protocol identifies sessions by the agent's own session id;
             // the same value lives on `AgentSession.id` (see Task 14).
