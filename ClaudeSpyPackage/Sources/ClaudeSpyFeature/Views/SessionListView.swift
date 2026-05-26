@@ -563,6 +563,7 @@
                                     .padding(.vertical, 2)
                                     .background(.fill.tertiary, in: Capsule())
                             }
+                            PluginBadge(pluginID: session.pluginID)
                         }
 
                         Text(session.displayName)
@@ -581,6 +582,7 @@
                                     .padding(.vertical, 2)
                                     .background(.fill.tertiary, in: Capsule())
                             }
+                            PluginBadge(pluginID: session.pluginID)
                         }
                     }
 
@@ -609,6 +611,57 @@
                 Spacer()
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - Plugin Badge
+
+    /// Compact icon + short-name badge identifying which plugin owns a
+    /// session. Reads the presentation from `PluginPresentationCache` —
+    /// the Mac pushes one `plugin_presentations` payload per connect /
+    /// upgrade so the cache is normally warm before any session row
+    /// renders. When the cache hasn't seen this plugin yet (e.g. the
+    /// session arrived in a `session_state` message before the Mac
+    /// pushed presentations), falls back to the raw plugin id text and
+    /// a neutral gear icon so the row still renders.
+    private struct PluginBadge: View {
+        let pluginID: String
+
+        @Environment(PluginPresentationCache.self) private var cache
+
+        var body: some View {
+            HStack(spacing: 4) {
+                icon
+                    .frame(width: 14, height: 14)
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule().fill(Color.accentColor.opacity(0.18))
+            )
+            .foregroundStyle(Color.accentColor)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(label)
+        }
+
+        private var label: String {
+            cache.presentation(for: pluginID)?.shortName ?? pluginID
+        }
+
+        @ViewBuilder
+        private var icon: some View {
+            if
+                let presentation = cache.presentation(for: pluginID),
+                let uiImage = UIImage(data: presentation.iconPNGData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Symbols.gearshape.image
+                    .font(.caption2)
+            }
         }
     }
 
@@ -734,6 +787,7 @@
 
         @Environment(\.dismiss) private var dismiss
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(PluginPresentationCache.self) private var presentationCache
         @State private var searchText = ""
 
         private var isCreating: Bool {
@@ -803,7 +857,7 @@
 
                                                 if project.pluginID != "claude-code" {
                                                     Text(
-                                                        CodingAgent(rawValue: project.pluginID)?.shortName
+                                                        presentationCache.presentation(for: project.pluginID)?.shortName
                                                             ?? project.pluginID
                                                     )
                                                     .font(.caption2.weight(.semibold))
@@ -882,6 +936,11 @@
         @State private var sessionStore = SessionStore()
         @State private var settings = IOSSettings()
         @State private var connectionManager: ViewerConnectionManager?
+        // Previews persist nothing; route the cache at a throwaway temp file.
+        @State private var presentationCache = PluginPresentationCache(
+            diskURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("SessionListPreview-presentations.json")
+        )
 
         private let host = PairedHost(
             id: "preview-host",
@@ -899,6 +958,7 @@
                             .environment(sessionStore)
                             .environment(connectionManager)
                             .environment(settings)
+                            .environment(presentationCache)
                     }
                 } else {
                     ProgressView()
@@ -917,8 +977,10 @@
                         isWindowActive: true,
                         customColor: .blue,
                         agentSession: AgentSession(
-                            paneId: "%1",
-                            detectedProjectPath: "/Users/preview/AlphaProject"
+                            id: "preview-alpha",
+                            pluginID: "claude-code",
+                            tmuxPane: "%1",
+                            projectPath: "/Users/preview/AlphaProject"
                         )
                     ),
                     "%2": PaneState(
@@ -930,8 +992,10 @@
                         isWindowActive: true,
                         customColor: .red,
                         agentSession: AgentSession(
-                            paneId: "%2",
-                            detectedProjectPath: "/Users/preview/BravoProject"
+                            id: "preview-bravo",
+                            pluginID: "codex",
+                            tmuxPane: "%2",
+                            projectPath: "/Users/preview/BravoProject"
                         ),
                         progress: .normal(50)
                     ),

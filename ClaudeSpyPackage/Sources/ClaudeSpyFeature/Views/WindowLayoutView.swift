@@ -327,8 +327,8 @@
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .onChange(of: activeService?.session?.needsAttention) {
-                if activeService?.session?.needsAttention == true {
+            .onChange(of: activeService?.session?.attention) {
+                if activeService?.session?.attention == true {
                     Task { await activeService?.markHandledIfNeeded() }
                 }
             }
