@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Claude session updates as appropriate
@@ -15,35 +16,36 @@ public enum ClaudeSessionUpdatesScenario {
         ClaudeSessionsShowScenario.scenario
 
         // 2. Send UserPromptSubmit hook — this clears needsAttention (green indicator)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "prompt": "Hello from e2e test"
-            }
-            """,
+        //    and flips the session to "Working" via update_session_status.
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "prompt": .string("Hello from e2e test"),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
-        // 3. Verify iOS still shows the session (MyProject) with updated event
+        // 3. Verify iOS still shows the session (MyProject) and the row now
+        //    reports "Working" via accessibilityValue. EventRowView's
+        //    "Prompt Submitted" string is no longer rendered (Task 20).
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("Prompt Submitted"), timeout: 5)
+        TestStep.iosWaitForElement(.valueContains("Working"), timeout: 5)
 
         // 4. Send SessionEnd hook — session should be removed
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionEnd",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:02:00.000000Z",
-                "reason": "user_quit"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionEnd"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+                "reason": .string("user_quit"),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // 5. Verify the session is gone — pane should now show as a plain terminal

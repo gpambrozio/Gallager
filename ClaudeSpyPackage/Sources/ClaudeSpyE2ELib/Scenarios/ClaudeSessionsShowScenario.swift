@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Claude sessions show as appropriate
@@ -27,24 +28,25 @@ public enum ClaudeSessionsShowScenario {
         TestStep.iosScreenshot(label: "ios-plain-terminals")
 
         // 5. Send a SessionStart hook event for pane 1
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // 6. Verify iOS now shows pane 1 as a Claude Code session
         //    - The session row should display the project folder name "MyProject"
         //    - After SessionStart, the indicator is red (needsAttention = true
-        //      because SessionStart triggers a notification)
+        //      because SessionStart triggers a notification). The legacy
+        //      EventRowView "Session Started" string is gone (Task 20); the
+        //      row now exposes "Attention" via accessibilityValue.
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 5)
+        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 5)
 
         // 7. Verify pane 2 is still shown as a plain terminal
         TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)

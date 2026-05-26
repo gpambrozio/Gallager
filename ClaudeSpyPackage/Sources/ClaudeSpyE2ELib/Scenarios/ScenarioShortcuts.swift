@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// Reusable scenario building blocks that can be composed into full scenarios.
@@ -285,5 +286,50 @@ public enum Shortcut {
         TestStep.macType(text: "${viewerPairingCode}", pressReturn: true, instance: 1)
 
         TestStep.macWaitForElement(titled: "Host connected", timeout: 15, instance: 1)
+    }
+
+    // MARK: - Claude Code Plugin Ingress
+
+    /// Send a bare Claude Code hook payload to the `claude-code` plugin's
+    /// ingress socket. Per Spec §15.1, hooks now flow through each plugin's
+    /// per-instance ingress socket rather than the legacy `HookServerService`
+    /// HTTP path.
+    ///
+    /// - Parameters:
+    ///   - jsonBody: The raw JSON object Claude Code's hook script would
+    ///     have written to stdout (e.g.
+    ///     `["hook_event_name": .string("UserPromptSubmit"),
+    ///       "session_id": .string("..."), ...]`).
+    ///     Internally framed by the sidecar's translator via
+    ///     `HookAction.from(jsonData:)`.
+    ///   - tmuxPane: tmux pane id (`%N`) the agent is bound to. Forwarded
+    ///     as `TMUX_PANE` in the ingress frame's `context` map.
+    ///   - projectPath: Optional project directory. Forwarded as
+    ///     `CLAUDE_PROJECT_DIR`. Pass `nil` to omit.
+    ///   - sessionID: Optional Claude session id. Forwarded as
+    ///     `CLAUDE_SESSION_ID`. Pass `nil` to omit; most hook payloads
+    ///     carry it in the body's `session_id` instead, so this env-side
+    ///     copy is informational.
+    ///   - instance: Mac instance index (default 0).
+    public static func macSendClaudeHook(
+        _ jsonBody: [String: JSONValue],
+        tmuxPane: String,
+        projectPath: String? = nil,
+        sessionID: String? = nil,
+        instance: Int = 0
+    ) -> TestStep {
+        var env: [String: String] = ["TMUX_PANE": tmuxPane]
+        if let projectPath {
+            env["CLAUDE_PROJECT_DIR"] = projectPath
+        }
+        if let sessionID {
+            env["CLAUDE_SESSION_ID"] = sessionID
+        }
+        return TestStep.macSendRawHookPayload(
+            pluginID: "claude-code",
+            json: .object(jsonBody),
+            env: env,
+            instance: instance
+        )
     }
 }

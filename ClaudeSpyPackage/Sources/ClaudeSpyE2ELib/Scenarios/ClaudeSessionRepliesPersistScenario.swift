@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Claude session replies persist between screens
@@ -61,39 +62,50 @@ public enum ClaudeSessionRepliesPersistScenario {
         // ──────────────────────────────────────────────────────────
 
         // Send AskUserQuestion hook (replaces PromptView with question UI)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "tool_name": "AskUserQuestion",
-                "tool_input": {
-                    "questions": [
-                        {
-                            "question": "Which database should we use?",
-                            "header": "Database",
-                            "options": [
-                                {"label": "PostgreSQL", "description": "Relational database"},
-                                {"label": "MongoDB", "description": "Document database"}
-                            ],
-                            "multiSelect": false
-                        },
-                        {
-                            "question": "Which caching strategy?",
-                            "header": "Caching",
-                            "options": [
-                                {"label": "Redis", "description": "In-memory cache"},
-                                {"label": "Memcached", "description": "Distributed cache"}
-                            ],
-                            "multiSelect": false
-                        }
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "tool_name": .string("AskUserQuestion"),
+                "tool_input": .object([
+                    "questions": .array([
+                        .object([
+                            "question": .string("Which database should we use?"),
+                            "header": .string("Database"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("PostgreSQL"),
+                                    "description": .string("Relational database"),
+                                ]),
+                                .object([
+                                    "label": .string("MongoDB"),
+                                    "description": .string("Document database"),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(false),
+                        ]),
+                        .object([
+                            "question": .string("Which caching strategy?"),
+                            "header": .string("Caching"),
+                            "options": .array([
+                                .object([
+                                    "label": .string("Redis"),
+                                    "description": .string("In-memory cache"),
+                                ]),
+                                .object([
+                                    "label": .string("Memcached"),
+                                    "description": .string("Distributed cache"),
+                                ]),
+                            ]),
+                            "multiSelect": .bool(false),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // Verify question 1 shows
@@ -139,21 +151,20 @@ public enum ClaudeSessionRepliesPersistScenario {
         // ──────────────────────────────────────────────────────────
 
         // Send PermissionRequest hook (replaces previous feedback)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:02:00.000000Z",
-                "tool_name": "Bash",
-                "tool_input": {
-                    "command": "npm install",
-                    "description": "Install dependencies"
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+                "tool_name": .string("Bash"),
+                "tool_input": .object([
+                    "command": .string("npm install"),
+                    "description": .string("Install dependencies"),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // Verify permission request UI shows
@@ -186,23 +197,27 @@ public enum ClaudeSessionRepliesPersistScenario {
         // ──────────────────────────────────────────────────────────
 
         // Send ExitPlanMode hook (replaces previous feedback)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:03:00.000000Z",
-                "tool_name": "ExitPlanMode",
-                "tool_input": {
-                    "plan": "# Implementation Plan\\n\\n1. Add authentication\\n2. Add unit tests",
-                    "allowedPrompts": [
-                        {"tool": "Bash", "prompt": "run tests"}
-                    ]
-                }
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:03:00.000000Z"),
+                "tool_name": .string("ExitPlanMode"),
+                "tool_input": .object([
+                    "plan": .string(
+                        "# Implementation Plan\n\n1. Add authentication\n2. Add unit tests"
+                    ),
+                    "allowedPrompts": .array([
+                        .object([
+                            "tool": .string("Bash"),
+                            "prompt": .string("run tests"),
+                        ]),
+                    ]),
+                ]),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
         // Verify plan approval UI shows
