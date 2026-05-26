@@ -146,6 +146,20 @@ final public class ViewerRelayClient {
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
+    /// Called when an `agent_session_status` push arrives from the host.
+    /// Carries per-session working / attention flags from a plugin sidecar.
+    public var onAgentSessionStatus: (@Sendable (AgentSessionStatusUpdate) -> Void)?
+
+    /// Called when an `agent_response_request` push arrives from the host.
+    /// The Mac uses this to ask iOS to present (or dismiss) a response form
+    /// for a specific session.
+    public var onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)?
+
+    /// Called when a `plugin_presentations` push arrives from the host. iOS
+    /// caches the bundle so the sidebar can render icons and short names per
+    /// session.
+    public var onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)?
+
     /// Per-pane terminal stream handlers, keyed by pane ID.
     /// Multiple panes can receive stream data concurrently.
     private var terminalStreamHandlers: [String: @MainActor @Sendable (TerminalStreamMessage) -> Void] = [:]
@@ -660,6 +674,26 @@ final public class ViewerRelayClient {
         case let .sessionState(sessionState):
             logger.info("Received session state from host")
             onSessionState?(sessionState)
+
+        case let .agentSessionStatus(update):
+            logger.debug("Received agent_session_status from host: \(update.pluginId)/\(update.sessionId)")
+            onAgentSessionStatus?(update)
+
+        case let .agentResponseRequest(request):
+            logger.info(
+                "Received agent_response_request from host",
+                metadata: [
+                    "pluginId": "\(request.pluginId)",
+                    "sessionId": "\(request.sessionId)",
+                    "requestId": "\(request.requestId)",
+                    "dismiss": "\(request.request == nil)",
+                ]
+            )
+            onAgentResponseRequest?(request)
+
+        case let .pluginPresentations(presentations):
+            logger.info("Received plugin_presentations from host: \(presentations.presentations.count) plugins")
+            onPluginPresentations?(presentations)
 
         case let .commandResponse(response):
             logger.info("Received command response from host")

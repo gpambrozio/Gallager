@@ -18,6 +18,34 @@ public struct PaneKey: Hashable, Sendable {
     }
 }
 
+/// One outstanding plugin-driven response request, keyed by its `requestId`.
+///
+/// Wraps the wire `AgentResponseRequest` alongside the routing fields the iOS
+/// UI needs to render it (which host pushed it, which session it belongs to,
+/// which plugin owns the session). Used by `SessionStore.responseRequests`;
+/// Task 19 reads this state into a sheet.
+public struct ResponseRequestEntry: Sendable, Equatable {
+    public let hostId: String
+    public let sessionId: String
+    public let pluginId: String
+    public let requestId: String
+    public let request: AgentResponseRequest
+
+    public init(
+        hostId: String,
+        sessionId: String,
+        pluginId: String,
+        requestId: String,
+        request: AgentResponseRequest
+    ) {
+        self.hostId = hostId
+        self.sessionId = sessionId
+        self.pluginId = pluginId
+        self.requestId = requestId
+        self.request = request
+    }
+}
+
 /// Manages local session state received from multiple host servers.
 ///
 /// This store maintains a synchronized view of Claude Code sessions and hook events
@@ -51,6 +79,17 @@ final public class SessionStore {
     /// `ResponseState` from it. Deleted alongside the rest of the
     /// HookEvent-on-iOS surface in Task 20.
     public private(set) var latestEventByPane: [PaneKey: HookEvent] = [:]
+
+    /// Outstanding plugin-driven response requests, keyed by `requestId`.
+    ///
+    /// Plugin sidecars push `agent_response_request` messages when a session
+    /// needs the user to answer something (permission prompt, free-text reply,
+    /// menu pick, plan approval, ...). iOS stores the latest request here so a
+    /// later view layer (Task 19) can render a sheet for it. A subsequent
+    /// `agent_response_request` carrying `request == nil` for the same
+    /// `requestId` removes the entry — the sidecar's way of saying "the user no
+    /// longer needs to answer this".
+    public private(set) var responseRequests: [String: ResponseRequestEntry] = [:]
 
     // MARK: - Computed Properties (All Hosts Combined)
 
@@ -293,10 +332,54 @@ final public class SessionStore {
         hostsWithReceivedState.insert(hostId)
     }
 
+    /// Apply an `agent_session_status` update pushed by a plugin sidecar.
+    ///
+    /// Finds the matching session by `(hostId, pluginId, sessionId)` and
+    /// updates its `working` / `attention` / `lastEventTimestamp`. The wire
+    /// envelope's `sessionId` is the agent's own session id (e.g. a Claude
+    /// UUID), so we walk panes for the host and pick the one whose
+    /// `agentSession` matches both the id and the plugin id.
+    ///
+    /// If no matching session is found the update is dropped — the session
+    /// state push that introduces the session may simply not have arrived
+    /// yet, and the next full state update will overwrite the stale flags.
+    public func applyStatus(_ update: AgentSessionStatusUpdate, hostId: String) {
+        let matchingKey = paneStates.first { key, state in
+            key.pairId == hostId
+                && state.agentSession?.id == update.sessionId
+                && state.agentSession?.pluginID == update.pluginId
+        }?.key
+
+        guard let matchingKey else {
+            logger.debug(
+                "applyStatus: no session matching pluginId=\(update.pluginId) sessionId=\(update.sessionId) on host \(hostId)"
+            )
+            return
+        }
+
+        paneStates[matchingKey]?.agentSession?.working = update.working
+        paneStates[matchingKey]?.agentSession?.attention = update.attention
+        paneStates[matchingKey]?.agentSession?.lastEventTimestamp = update.timestamp
+    }
+
+    /// Present a plugin-driven response request. Stores the request keyed by
+    /// `requestId`; a later `dismissResponseRequest(requestID:)` call (or an
+    /// inbound `agent_response_request` with `request == nil`) removes it.
+    public func presentResponseRequest(_ entry: ResponseRequestEntry) {
+        responseRequests[entry.requestId] = entry
+    }
+
+    /// Dismiss the response request matching `requestID`. No-op if no such
+    /// request is open.
+    public func dismissResponseRequest(requestID: String) {
+        responseRequests.removeValue(forKey: requestID)
+    }
+
     /// Clear all sessions and panes for a specific host
     public func clearSessions(for hostId: String) {
         paneStates = paneStates.filter { $0.key.pairId != hostId }
         latestEventByPane = latestEventByPane.filter { $0.key.pairId != hostId }
+        responseRequests = responseRequests.filter { $0.value.hostId != hostId }
 
         // Clear stored projects
         claudeProjectsByHost.removeValue(forKey: hostId)

@@ -15,6 +15,7 @@
         @State private var settings = IOSSettings()
         @State private var connectionManager: ViewerConnectionManager?
         @State private var sessionStore = SessionStore()
+        @State private var presentationCache = PluginPresentationCache()
         @State private var initializationError: String?
 
         @Environment(\.scenePhase) private var scenePhase
@@ -56,6 +57,7 @@
             }
             .environment(settings)
             .environment(sessionStore)
+            .environment(presentationCache)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
                 await initializeConnectionManager()
@@ -126,6 +128,38 @@
             connectionManager.onSessionState = { [sessionStore] state in
                 Task { @MainActor in
                     sessionStore.handleStateUpdate(state)
+                }
+            }
+
+            connectionManager.onAgentSessionStatus = { [sessionStore] hostId, update in
+                Task { @MainActor in
+                    sessionStore.applyStatus(update, hostId: hostId)
+                }
+            }
+
+            connectionManager.onAgentResponseRequest = { [sessionStore] hostId, message in
+                Task { @MainActor in
+                    if let request = message.request {
+                        sessionStore.presentResponseRequest(
+                            ResponseRequestEntry(
+                                hostId: hostId,
+                                sessionId: message.sessionId,
+                                pluginId: message.pluginId,
+                                requestId: message.requestId,
+                                request: request
+                            )
+                        )
+                    } else {
+                        // Mac signals the form is no longer needed
+                        // (e.g. permission auto-approved by yolo mode).
+                        sessionStore.dismissResponseRequest(requestID: message.requestId)
+                    }
+                }
+            }
+
+            connectionManager.onPluginPresentations = { [presentationCache] _, message in
+                Task { @MainActor in
+                    await presentationCache.apply(message)
                 }
             }
 

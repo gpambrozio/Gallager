@@ -143,18 +143,27 @@ final public class ViewerConnection: Identifiable {
     /// - Parameters:
     ///   - onHookEvent: Called when a hook event is received
     ///   - onSessionState: Called when session state is received
+    ///   - onAgentSessionStatus: Called when an `agent_session_status` push arrives
+    ///   - onAgentResponseRequest: Called when an `agent_response_request` push arrives
+    ///   - onPluginPresentations: Called when a `plugin_presentations` push arrives
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
     ///   - onHostDisconnected: Called when the host device disconnects (pairing still active)
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
         onHookEvent: (@Sendable (HookEventMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
+        onAgentSessionStatus: (@Sendable (AgentSessionStatusUpdate) -> Void)? = nil,
+        onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)? = nil,
+        onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)? = nil,
         onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
         onHostDisconnected: (@MainActor @Sendable () async -> Void)? = nil,
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         relayClient.onHookEvent = onHookEvent
         relayClient.onSessionState = onSessionState
+        relayClient.onAgentSessionStatus = onAgentSessionStatus
+        relayClient.onAgentResponseRequest = onAgentResponseRequest
+        relayClient.onPluginPresentations = onPluginPresentations
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
         relayClient.onHostDisconnected = onHostDisconnected
         relayClient.onUnpaired = onUnpaired

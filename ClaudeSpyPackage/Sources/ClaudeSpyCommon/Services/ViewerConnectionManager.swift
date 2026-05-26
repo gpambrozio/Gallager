@@ -37,6 +37,19 @@ final public class ViewerConnectionManager {
     /// Called when session state is received from any host
     public var onSessionState: ((SessionStateMessage) -> Void)?
 
+    /// Called when an `agent_session_status` push arrives from any host.
+    /// Parameters: hostId (pair id), the status update payload.
+    public var onAgentSessionStatus: ((_ hostId: String, AgentSessionStatusUpdate) -> Void)?
+
+    /// Called when an `agent_response_request` push arrives from any host.
+    /// Parameters: hostId (pair id), the request envelope (which may carry a
+    /// `nil` `request` meaning "dismiss").
+    public var onAgentResponseRequest: ((_ hostId: String, AgentResponseRequestMessage) -> Void)?
+
+    /// Called when a `plugin_presentations` push arrives from any host.
+    /// Parameters: hostId (pair id), the presentations payload.
+    public var onPluginPresentations: ((_ hostId: String, PluginPresentationsMessage) -> Void)?
+
     /// Called when a partner's public key is received or updated.
     ///
     /// Parameters are: hostId, publicKey (base64), keyId
@@ -323,6 +336,21 @@ final public class ViewerConnectionManager {
             onSessionState: { [weak self] state in
                 Task { @MainActor [weak self] in
                     self?.onSessionState?(state)
+                }
+            },
+            onAgentSessionStatus: { [weak self] update in
+                Task { @MainActor [weak self] in
+                    self?.onAgentSessionStatus?(hostId, update)
+                }
+            },
+            onAgentResponseRequest: { [weak self] request in
+                Task { @MainActor [weak self] in
+                    self?.onAgentResponseRequest?(hostId, request)
+                }
+            },
+            onPluginPresentations: { [weak self] presentations in
+                Task { @MainActor [weak self] in
+                    self?.onPluginPresentations?(hostId, presentations)
                 }
             },
             onPartnerKeyReceived: { [weak self] publicKey, keyId in
