@@ -320,6 +320,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PluginCrashRestartScenario.scenario,
         PluginCrashLoopDisableScenario.scenario,
         PluginResponseRequestScenario.scenario,
+        PluginPresentationUpdateScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
