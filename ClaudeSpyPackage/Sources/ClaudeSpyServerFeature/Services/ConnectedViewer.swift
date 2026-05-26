@@ -174,6 +174,11 @@ final public class ConnectedViewer: Identifiable {
     /// expects (keystrokes, JSON-RPC, HTTP, etc.).
     public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmission) async -> Void)?
 
+    /// Fires once a viewer becomes fully connected (E2EE + version handshake
+    /// done). The app uses this to push one-shot bundles like the per-plugin
+    /// presentation list.
+    public var onViewerConnected: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -394,6 +399,17 @@ final public class ConnectedViewer: Identifiable {
             return
         }
         await sendEncrypted(.agentSessionStatus(update))
+    }
+
+    /// Send the per-plugin presentation bundles (icons + display names) to
+    /// the viewer (encrypted). Sent on connect and whenever a plugin manifest
+    /// is (re)loaded — initial start, install, or in-place upgrade.
+    public func sendPluginPresentations(_ message: PluginPresentationsMessage) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send plugin presentations")
+            return
+        }
+        await sendEncrypted(.pluginPresentations(message))
     }
 
     /// Send this host's peerHello to the viewer once the E2EE session is up.
@@ -668,6 +684,9 @@ final public class ConnectedViewer: Identifiable {
                 // Compatible — now safe to surface the viewer as connected; the
                 // session-state push will fire when the viewer requests it.
                 isViewerConnected = true
+                if let handler = onViewerConnected {
+                    Task { await handler() }
+                }
             }
 
         case .viewerDisconnected:

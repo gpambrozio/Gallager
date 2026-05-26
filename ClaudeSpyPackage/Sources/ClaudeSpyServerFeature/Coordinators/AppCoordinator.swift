@@ -1574,6 +1574,22 @@
             manager.onPluginProjectsChanged = { [weak self] in
                 await self?.connectedViewerManager?.pushSessionStateToAll()
             }
+            // Broadcast plugin presentation bundles whenever the loaded set
+            // changes (start, install, upgrade) — Spec §15.3 #5.
+            manager.onPresentationsChanged = { [weak self] presentations in
+                let message = PluginPresentationsMessage(presentations: presentations)
+                await self?.connectedViewerManager?.broadcastPluginPresentations(message)
+            }
+            // Send presentations to viewers as soon as they connect so the
+            // sidebar/picker can render plugin badges without waiting for the
+            // next manifest event.
+            connectedViewerManager?.onViewerConnected = { [weak self] in
+                guard
+                    let presentations = self?.pluginManager?.presentations,
+                    !presentations.isEmpty else { return }
+                let message = PluginPresentationsMessage(presentations: presentations)
+                await self?.connectedViewerManager?.broadcastPluginPresentations(message)
+            }
             pluginManager = manager
 
             do {

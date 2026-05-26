@@ -865,6 +865,13 @@ final public class PluginManager {
             let presentation = try await assetCache.presentation(for: manifest, pluginDir: pluginDir)
             presentations.removeAll { $0.id == manifest.id }
             presentations.append(presentation)
+            // Notify the app so it can broadcast the updated bundle to any
+            // connected viewers — covers both initial start and mid-session
+            // manifest upgrade (Spec §15.3 #5).
+            if let handler = onPresentationsChanged {
+                let snapshot = presentations
+                Task { await handler(snapshot) }
+            }
         } catch {
             // Missing icon shouldn't take the whole start sequence down —
             // log loudly so packaging issues surface, but keep going so
@@ -872,6 +879,11 @@ final public class PluginManager {
             logger.warning("presentation load failed for \(manifest.id): \(error)")
         }
     }
+
+    /// App-installed callback: fires whenever the in-memory presentation
+    /// list changes (initial load, manifest upgrade). The app uses this to
+    /// broadcast `plugin_presentations` to connected iOS viewers.
+    public var onPresentationsChanged: (@Sendable @MainActor ([PluginPresentation]) async -> Void)?
 
     // MARK: - Inbound notification handlers (called by SupervisorBridge)
 
@@ -1133,6 +1145,29 @@ final public class PluginManager {
         // doesn't try to recover; the supervisor's own machinery handles
         // backoff and auto-disable.
         logger.debug("supervisor \(pluginID) state -> \(String(describing: state))")
+
+        // When a supervisor re-enters `.running` (e.g. after a crash-restart),
+        // re-read the manifest from disk and re-push the presentation bundle
+        // so any mid-session manifest changes (Spec §15.3 #5) reach iOS.
+        if case .running = state, let pluginDir = pluginDirsByID[pluginID] {
+            Task { [weak self] in
+                await self?.reloadPresentation(pluginID: pluginID, pluginDir: pluginDir)
+            }
+        }
+    }
+
+    private func reloadPresentation(pluginID: String, pluginDir: URL) async {
+        let manifestURL = pluginDir.appendingPathComponent("plugin.json")
+        do {
+            let data = try Data(contentsOf: manifestURL)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let manifest = try decoder.decode(PluginManifest.self, from: data)
+            manifestsByID[pluginID] = manifest
+            try await loadPresentation(manifest: manifest, pluginDir: pluginDir)
+        } catch {
+            logger.warning("reloadPresentation for \(pluginID): \(error)")
+        }
     }
 
     // MARK: - CLI / RPC façade

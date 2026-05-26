@@ -58,6 +58,11 @@ final public class ConnectedViewerManager {
     /// stdin.
     public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmission) async -> Void)?
 
+    /// Fires whenever a paired viewer completes its connection handshake.
+    /// The app uses this to push one-shot bundles like the per-plugin
+    /// presentation list.
+    public var onViewerConnected: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -296,6 +301,18 @@ final public class ConnectedViewerManager {
         }
     }
 
+    /// Push the per-plugin presentation bundles (icons + display names) to
+    /// every connected viewer. Called when a plugin manifest is (re)loaded —
+    /// initial app start, third-party install, or a mid-session manifest
+    /// upgrade (Spec §15.3 #5).
+    public func broadcastPluginPresentations(_ message: PluginPresentationsMessage) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendPluginPresentations(message) }
+            }
+        }
+    }
+
     /// Send a silent badge-update push to all connected viewers. Used after
     /// `markSessionHandled` to bring the iOS badge in line with the host's new
     /// (lower) pending-attention session count.
@@ -368,6 +385,10 @@ final public class ConnectedViewerManager {
 
         connection.onAgentResponseSubmission = { [weak self] submission in
             await self?.onAgentResponseSubmission?(submission)
+        }
+
+        connection.onViewerConnected = { [weak self] in
+            await self?.onViewerConnected?()
         }
     }
 }
