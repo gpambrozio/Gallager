@@ -1,11 +1,13 @@
-import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 
 /// A pending "open this markdown file?" prompt attached to a tmux session.
 ///
-/// Created when a `Write` PostToolUse hook lands a markdown file. Cleared when
-/// the user accepts/dismisses, or 30 seconds after the user submits a new prompt.
+/// Created when a plugin sidecar emits `AppAction.openFileSuggestion`
+/// for a markdown file (the Claude/Codex translators fire this whenever a
+/// `Write` PostToolUse lands a `.md` / `.markdown` path). Cleared when
+/// the user accepts/dismisses, or 30 seconds after the user submits a new
+/// prompt.
 public struct MarkdownOpenSuggestion: Identifiable, Equatable, Sendable {
     public let id: UUID
     /// Absolute path of the markdown file Claude wrote.
