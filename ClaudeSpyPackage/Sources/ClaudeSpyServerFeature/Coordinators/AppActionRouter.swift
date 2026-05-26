@@ -35,22 +35,48 @@
 
         // MARK: - PluginAppActionSink
 
-        public func handle(pluginID: String, action: AppAction) async {
+        public func handle(
+            pluginID: String,
+            sessionID: String?,
+            tmuxPane: String?,
+            action: AppAction
+        ) async {
+            // Bootstrap the agent session on first contact when the sidecar
+            // fired an AppAction before any status update mapped the
+            // session to a pane. Status sink typically runs first, but
+            // some payloads (e.g. `_test: "open_file_suggestion"`) only
+            // emit an AppAction.
+            if let sessionID {
+                mirrorManager.bootstrapPluginSessionIfNeeded(
+                    pluginID: pluginID,
+                    sessionID: sessionID,
+                    tmuxPane: tmuxPane
+                )
+            }
             switch action {
             case let .openFileSuggestion(sessionId, path, displayName, isPlan):
                 handleOpenFileSuggestion(
                     pluginID: pluginID,
                     sessionId: sessionId,
+                    tmuxPane: tmuxPane,
                     path: path,
                     displayName: displayName,
                     isPlan: isPlan
                 )
 
             case let .dismissFileSuggestions(sessionId):
-                handleDismissFileSuggestions(pluginID: pluginID, sessionId: sessionId)
+                handleDismissFileSuggestions(
+                    pluginID: pluginID,
+                    sessionId: sessionId,
+                    tmuxPane: tmuxPane
+                )
 
             case let .closePaneIfPreferenceAllows(sessionId):
-                await handleClosePaneIfPreferenceAllows(pluginID: pluginID, sessionId: sessionId)
+                await handleClosePaneIfPreferenceAllows(
+                    pluginID: pluginID,
+                    sessionId: sessionId,
+                    tmuxPane: tmuxPane
+                )
             }
         }
 
@@ -59,6 +85,7 @@
         private func handleOpenFileSuggestion(
             pluginID: String,
             sessionId: String,
+            tmuxPane: String?,
             path: String,
             displayName: String,
             isPlan: Bool
@@ -66,7 +93,10 @@
             // The legacy MarkdownOpenSuggestionStore keys by tmux session name,
             // not agent session id. Resolve via the pane that hosts this
             // agent session so suggestions survive switching tmux windows.
-            let sessionName = resolveTmuxSessionName(forAgentSessionId: sessionId)
+            let sessionName = resolveTmuxSessionName(
+                forAgentSessionId: sessionId,
+                fallbackTmuxPane: tmuxPane
+            )
             guard let sessionName, !sessionName.isEmpty else {
                 logger.warning(
                     "openFileSuggestion: no tmux session for agent session \(sessionId) (plugin \(pluginID))"
@@ -86,8 +116,15 @@
             ))
         }
 
-        private func handleDismissFileSuggestions(pluginID: String, sessionId: String) {
-            let sessionName = resolveTmuxSessionName(forAgentSessionId: sessionId)
+        private func handleDismissFileSuggestions(
+            pluginID _: String,
+            sessionId: String,
+            tmuxPane: String?
+        ) {
+            let sessionName = resolveTmuxSessionName(
+                forAgentSessionId: sessionId,
+                fallbackTmuxPane: tmuxPane
+            )
             guard let sessionName, !sessionName.isEmpty else { return }
             // Mirrors the legacy "user submitted a new prompt → start the
             // 30s auto-dismiss countdown" path. The plugin sidecar is the
@@ -95,9 +132,17 @@
             suggestionStore.userSubmittedPrompt(sessionName: sessionName)
         }
 
-        private func handleClosePaneIfPreferenceAllows(pluginID: String, sessionId: String) async {
+        private func handleClosePaneIfPreferenceAllows(
+            pluginID: String,
+            sessionId: String,
+            tmuxPane: String?
+        ) async {
             guard settings.closePaneOnSessionEnd else { return }
-            guard let paneId = resolvePaneId(forAgentSessionId: sessionId) else {
+            guard
+                let paneId = resolvePaneId(
+                    forAgentSessionId: sessionId,
+                    fallbackTmuxPane: tmuxPane
+                ) else {
                 logger.debug(
                     "closePaneIfPreferenceAllows: no pane for agent session \(sessionId) (plugin \(pluginID))"
                 )
@@ -111,21 +156,45 @@
         // MARK: - Lookup helpers
 
         /// Locate the pane id hosting `agentSessionId` by scanning
-        /// `MirrorWindowManager.paneStates`.
-        private func resolvePaneId(forAgentSessionId agentSessionId: String) -> String? {
+        /// `MirrorWindowManager.paneStates`. Falls back to
+        /// `fallbackTmuxPane` (sidecar-reported) when the session row
+        /// hasn't been bootstrapped yet — but only when that pane is
+        /// already tracked.
+        private func resolvePaneId(
+            forAgentSessionId agentSessionId: String,
+            fallbackTmuxPane: String?
+        ) -> String? {
             for (paneId, state) in mirrorManager.paneStates
                 where state.agentSession?.id == agentSessionId {
                 return paneId
+            }
+            if
+                let tmuxPane = fallbackTmuxPane,
+                !tmuxPane.isEmpty,
+                mirrorManager.paneStates[tmuxPane] != nil {
+                return tmuxPane
             }
             return nil
         }
 
         /// Locate the tmux session name hosting `agentSessionId`.
-        private func resolveTmuxSessionName(forAgentSessionId agentSessionId: String) -> String? {
+        /// Falls back to the sidecar-reported `tmuxPane` so AppActions
+        /// fired before any status update still find their target row.
+        private func resolveTmuxSessionName(
+            forAgentSessionId agentSessionId: String,
+            fallbackTmuxPane: String?
+        ) -> String? {
             for state in mirrorManager.paneStates.values {
                 if state.agentSession?.id == agentSessionId, !state.sessionName.isEmpty {
                     return state.sessionName
                 }
+            }
+            if
+                let tmuxPane = fallbackTmuxPane,
+                !tmuxPane.isEmpty,
+                let state = mirrorManager.paneStates[tmuxPane],
+                !state.sessionName.isEmpty {
+                return state.sessionName
             }
             return nil
         }

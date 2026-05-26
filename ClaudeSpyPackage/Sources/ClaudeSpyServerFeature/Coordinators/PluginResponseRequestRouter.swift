@@ -17,10 +17,15 @@
     @MainActor
     final public class PluginResponseRequestRouter: PluginResponseRequestSink {
         private weak var viewerManager: ConnectedViewerManager?
+        private weak var mirrorManager: MirrorWindowManager?
         private let logger = Logger(label: "com.claudespy.pluginresponserouter")
 
-        public init(viewerManager: ConnectedViewerManager?) {
+        public init(
+            viewerManager: ConnectedViewerManager?,
+            mirrorManager: MirrorWindowManager? = nil
+        ) {
             self.viewerManager = viewerManager
+            self.mirrorManager = mirrorManager
         }
 
         // MARK: - PluginResponseRequestSink
@@ -28,10 +33,21 @@
         public func deliverRequest(
             pluginID: String,
             sessionID: String,
+            tmuxPane: String?,
             requestID: String,
             request: AgentResponseRequest,
             isAutoApprovable _: Bool
         ) async {
+            // Defensively bootstrap the agent session before broadcasting
+            // so iOS has a row to attach the request to. The status sink
+            // runs first in the dispatcher when `attention || working`
+            // are set, but a response-request-only event (rare, but
+            // possible) wouldn't trigger the status sink at all.
+            mirrorManager?.bootstrapPluginSessionIfNeeded(
+                pluginID: pluginID,
+                sessionID: sessionID,
+                tmuxPane: tmuxPane
+            )
             let message = AgentResponseRequestMessage(
                 sessionId: sessionID,
                 pluginId: pluginID,

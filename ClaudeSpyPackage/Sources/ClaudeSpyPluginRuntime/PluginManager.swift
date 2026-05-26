@@ -1011,6 +1011,9 @@ final public class PluginManager {
         await notificationSink.deliverNotification(
             pluginID: pluginID,
             sessionID: decoded.sessionId,
+            // Standalone `request_notification` notifications don't carry a
+            // tmux pane on the wire — only `emit_event` PluginEvents do.
+            tmuxPane: nil,
             title: decoded.title,
             body: decoded.body
         )
@@ -1031,6 +1034,9 @@ final public class PluginManager {
         await statusSink.updateStatus(
             pluginID: pluginID,
             sessionID: decoded.sessionId,
+            // Standalone `update_session_status` notifications don't carry
+            // a tmux pane on the wire — only `emit_event` PluginEvents do.
+            tmuxPane: nil,
             working: decoded.working,
             attention: decoded.attention
         )

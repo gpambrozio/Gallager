@@ -135,6 +135,7 @@ struct PluginManagerTests {
         func updateStatus(
             pluginID: String,
             sessionID _: String,
+            tmuxPane _: String?,
             working _: Bool?,
             attention _: Bool
         ) async {
@@ -147,6 +148,7 @@ struct PluginManagerTests {
         func deliverNotification(
             pluginID _: String,
             sessionID _: String?,
+            tmuxPane _: String?,
             title: String,
             body _: String
         ) async {
@@ -160,6 +162,7 @@ struct PluginManagerTests {
         func deliverRequest(
             pluginID _: String,
             sessionID _: String,
+            tmuxPane _: String?,
             requestID: String,
             request _: AgentResponseRequest,
             isAutoApprovable _: Bool
@@ -178,7 +181,12 @@ struct PluginManagerTests {
 
     final class AppActionSinkSpy: PluginAppActionSink, Sendable {
         let actions = LockIsolated<[AppAction]>([])
-        func handle(pluginID _: String, action: AppAction) async {
+        func handle(
+            pluginID _: String,
+            sessionID _: String?,
+            tmuxPane _: String?,
+            action: AppAction
+        ) async {
             actions.withValue { $0.append(action) }
         }
     }

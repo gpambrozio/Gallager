@@ -82,6 +82,10 @@ public actor PluginEventDispatcher {
     ///    auto-approve short-circuits here for `permission` requests flagged
     ///    `isAutoApprovable`.
     /// 4. `appActionSink` — fire-and-forget once per declared `AppAction`.
+    ///
+    /// `event.tmuxPane` is forwarded to every sink so the Mac can bootstrap
+    /// an `AgentSession` from the inbound pane when process-name detection
+    /// didn't already do so.
     public func dispatch(_ event: PluginEvent) async {
         // 1. Status — emit when the sidecar expressed any opinion. `working`
         //    being `nil` AND `attention == false` means "no change", so we
@@ -90,6 +94,7 @@ public actor PluginEventDispatcher {
             await statusSink.updateStatus(
                 pluginID: event.pluginID,
                 sessionID: event.sessionID,
+                tmuxPane: event.tmuxPane,
                 working: event.working,
                 attention: event.attention
             )
@@ -100,6 +105,7 @@ public actor PluginEventDispatcher {
             await notificationSink.deliverNotification(
                 pluginID: event.pluginID,
                 sessionID: event.sessionID,
+                tmuxPane: event.tmuxPane,
                 title: notification.title,
                 body: notification.body
             )
@@ -107,12 +113,22 @@ public actor PluginEventDispatcher {
 
         // 3. Response request — surfaces to iOS unless yolo auto-approves.
         if let payload = event.responseRequest {
-            await dispatchResponseRequest(payload, sessionID: event.sessionID, pluginID: event.pluginID)
+            await dispatchResponseRequest(
+                payload,
+                sessionID: event.sessionID,
+                pluginID: event.pluginID,
+                tmuxPane: event.tmuxPane
+            )
         }
 
         // 4. App actions — fire each in declaration order.
         for action in event.appActions {
-            await appActionSink.handle(pluginID: event.pluginID, action: action)
+            await appActionSink.handle(
+                pluginID: event.pluginID,
+                sessionID: event.sessionID,
+                tmuxPane: event.tmuxPane,
+                action: action
+            )
         }
     }
 
@@ -121,7 +137,8 @@ public actor PluginEventDispatcher {
     private func dispatchResponseRequest(
         _ payload: PluginEvent.ResponseRequestPayload,
         sessionID: String,
-        pluginID: String
+        pluginID: String,
+        tmuxPane: String?
     ) async {
         // Compute the auto-approvable bit once. Only `permission` requests
         // carry a self-declared safety flag — other request shapes (ask user,
@@ -157,6 +174,7 @@ public actor PluginEventDispatcher {
                     await responseRequestSink.deliverRequest(
                         pluginID: pluginID,
                         sessionID: sessionID,
+                        tmuxPane: tmuxPane,
                         requestID: payload.requestID,
                         request: payload.request,
                         isAutoApprovable: isAutoApprovable
@@ -169,6 +187,7 @@ public actor PluginEventDispatcher {
         await responseRequestSink.deliverRequest(
             pluginID: pluginID,
             sessionID: sessionID,
+            tmuxPane: tmuxPane,
             requestID: payload.requestID,
             request: payload.request,
             isAutoApprovable: isAutoApprovable

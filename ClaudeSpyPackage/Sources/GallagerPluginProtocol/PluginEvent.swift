@@ -39,6 +39,16 @@ public struct PluginEvent: Codable, Sendable, Equatable {
     /// see `AppAction` in `ClaudeSpyNetworking`.
     public let appActions: [AppAction]
 
+    /// tmux pane id (e.g. `"%42"`) the originating sidecar observed for
+    /// this event. Sourced from `IngressContext.tmuxPane` (the `TMUX_PANE`
+    /// env var the bridge forwards). The Mac uses this to bootstrap an
+    /// `AgentSession` when the sidecar's session id hasn't been mapped to
+    /// a pane yet — process-name detection covers the common case, but
+    /// non-bundled plugins and stubbed-out E2E scenarios depend on this
+    /// fallback. Optional + `decodeIfPresent` so older peers omitting the
+    /// field still parse.
+    public let tmuxPane: String?
+
     public init(
         pluginID: String,
         sessionID: String,
@@ -46,7 +56,8 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         attention: Bool,
         notification: NotificationSpec?,
         responseRequest: ResponseRequestPayload?,
-        appActions: [AppAction] = []
+        appActions: [AppAction] = [],
+        tmuxPane: String? = nil
     ) {
         self.pluginID = pluginID
         self.sessionID = sessionID
@@ -55,6 +66,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         self.notification = notification
         self.responseRequest = responseRequest
         self.appActions = appActions
+        self.tmuxPane = tmuxPane
     }
 
     // Mac/iOS snake-case-strategy emits `plugin_i_d` for `pluginID` and
@@ -68,6 +80,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         case notification
         case responseRequest
         case appActions
+        case tmuxPane
     }
 
     public init(from decoder: Decoder) throws {
@@ -86,6 +99,44 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         )
         self.appActions =
             try container.decodeIfPresent([AppAction].self, forKey: .appActions) ?? []
+        // `tmuxPane` is new in this build — older peers / sidecars omit it
+        // entirely, which `decodeIfPresent` already accepts. No fallback
+        // needed since there's no legacy key shape.
+        self.tmuxPane = try container.decodeIfPresent(String.self, forKey: .tmuxPane)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(pluginID, forKey: .pluginID)
+        try container.encode(sessionID, forKey: .sessionID)
+        try container.encodeIfPresent(working, forKey: .working)
+        try container.encode(attention, forKey: .attention)
+        try container.encodeIfPresent(notification, forKey: .notification)
+        try container.encodeIfPresent(responseRequest, forKey: .responseRequest)
+        // `appActions` defaults to `[]` on decode so emitting an empty
+        // array keeps the wire shape stable; omitting it would change the
+        // serialized form across versions.
+        try container.encode(appActions, forKey: .appActions)
+        try container.encodeIfPresent(tmuxPane, forKey: .tmuxPane)
+    }
+
+    // MARK: - Convenience
+
+    /// Returns a copy of this event with `tmuxPane` overwritten. Event
+    /// translators use this to stamp the pane id from `IngressContext` onto
+    /// every emitted envelope without threading the value through each
+    /// per-action helper.
+    public func withTmuxPane(_ tmuxPane: String?) -> PluginEvent {
+        PluginEvent(
+            pluginID: pluginID,
+            sessionID: sessionID,
+            working: working,
+            attention: attention,
+            notification: notification,
+            responseRequest: responseRequest,
+            appActions: appActions,
+            tmuxPane: tmuxPane
+        )
     }
 
     // MARK: - NotificationSpec

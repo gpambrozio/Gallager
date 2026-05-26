@@ -353,6 +353,16 @@ final class EchoSidecar {
             }
             return context["TMUX_PANE"] ?? "echo-session"
         }()
+        // Every PluginEvent we emit carries the tmux pane from the bridge
+        // context (when present). The Mac uses this to bootstrap an
+        // `AgentSession` for non-bundled plugins where process-name
+        // detection didn't fire.
+        let tmuxPane: String? = {
+            if let value = context["TMUX_PANE"], !value.isEmpty {
+                return value
+            }
+            return nil
+        }()
 
         switch testKey {
         case "set_status":
@@ -370,7 +380,8 @@ final class EchoSidecar {
                 working: working,
                 attention: attention,
                 notification: nil,
-                responseRequest: nil
+                responseRequest: nil,
+                tmuxPane: tmuxPane
             )
 
         case "notify":
@@ -382,7 +393,8 @@ final class EchoSidecar {
                 working: nil,
                 attention: true,
                 notification: PluginEvent.NotificationSpec(title: title, body: body),
-                responseRequest: nil
+                responseRequest: nil,
+                tmuxPane: tmuxPane
             )
 
         case "request_permission":
@@ -424,7 +436,8 @@ final class EchoSidecar {
                 responseRequest: PluginEvent.ResponseRequestPayload(
                     requestID: requestID,
                     request: req
-                )
+                ),
+                tmuxPane: tmuxPane
             )
 
         case "request_ask_user_question":
@@ -443,7 +456,8 @@ final class EchoSidecar {
                 responseRequest: PluginEvent.ResponseRequestPayload(
                     requestID: requestID,
                     request: req
-                )
+                ),
+                tmuxPane: tmuxPane
             )
 
         case "request_approve_plan":
@@ -463,7 +477,8 @@ final class EchoSidecar {
                 responseRequest: PluginEvent.ResponseRequestPayload(
                     requestID: requestID,
                     request: req
-                )
+                ),
+                tmuxPane: tmuxPane
             )
 
         case "open_file_suggestion":
@@ -485,7 +500,8 @@ final class EchoSidecar {
                         displayName: displayName,
                         isPlan: isPlan
                     ),
-                ]
+                ],
+                tmuxPane: tmuxPane
             )
 
         case "set_projects":

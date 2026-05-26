@@ -10,10 +10,16 @@ import GallagerPluginProtocol
 
 /// Receives session-status updates emitted by plugins. The app sink updates
 /// the per-pane `working`/`needsAttention` indicators.
+///
+/// `tmuxPane` is the tmux pane id the sidecar harvested from `TMUX_PANE`
+/// for this event (when known). The Mac uses it to bootstrap a fresh
+/// `AgentSession` for non-bundled plugins (and bundled plugins running in
+/// stubbed-out E2E panes) whose process-name detection didn't fire.
 public protocol PluginSessionStatusSink: AnyObject, Sendable {
     func updateStatus(
         pluginID: String,
         sessionID: String,
+        tmuxPane: String?,
         working: Bool?,
         attention: Bool
     ) async
@@ -24,6 +30,7 @@ public protocol PluginNotificationSink: AnyObject, Sendable {
     func deliverNotification(
         pluginID: String,
         sessionID: String?,
+        tmuxPane: String?,
         title: String,
         body: String
     ) async
@@ -34,6 +41,7 @@ public protocol PluginResponseRequestSink: AnyObject, Sendable {
     func deliverRequest(
         pluginID: String,
         sessionID: String,
+        tmuxPane: String?,
         requestID: String,
         request: AgentResponseRequest,
         isAutoApprovable: Bool
@@ -49,7 +57,7 @@ public protocol PluginResponseRequestSink: AnyObject, Sendable {
 /// Receives discrete app-side actions emitted by plugins (open-file
 /// suggestions, dismiss-suggestion, close-pane-on-end, ...).
 public protocol PluginAppActionSink: AnyObject, Sendable {
-    func handle(pluginID: String, action: AppAction) async
+    func handle(pluginID: String, sessionID: String?, tmuxPane: String?, action: AppAction) async
 }
 
 /// Receives sidecar-driven pane writes (text + keys). The downstream sink

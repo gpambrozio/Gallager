@@ -15,6 +15,7 @@ struct PluginEventDispatcherTests {
     struct StatusCall: Equatable, Sendable {
         let pluginID: String
         let sessionID: String
+        let tmuxPane: String?
         let working: Bool?
         let attention: Bool
     }
@@ -22,6 +23,7 @@ struct PluginEventDispatcherTests {
     struct NotificationCall: Equatable, Sendable {
         let pluginID: String
         let sessionID: String?
+        let tmuxPane: String?
         let title: String
         let body: String
     }
@@ -29,6 +31,7 @@ struct PluginEventDispatcherTests {
     struct RequestCall: Equatable, Sendable {
         let pluginID: String
         let sessionID: String
+        let tmuxPane: String?
         let requestID: String
         let request: AgentResponseRequest
         let isAutoApprovable: Bool
@@ -42,6 +45,8 @@ struct PluginEventDispatcherTests {
 
     struct AppActionCall: Equatable, Sendable {
         let pluginID: String
+        let sessionID: String?
+        let tmuxPane: String?
         let action: AppAction
     }
 
@@ -61,6 +66,7 @@ struct PluginEventDispatcherTests {
         func updateStatus(
             pluginID: String,
             sessionID: String,
+            tmuxPane: String?,
             working: Bool?,
             attention: Bool
         ) async {
@@ -68,6 +74,7 @@ struct PluginEventDispatcherTests {
                 .init(
                     pluginID: pluginID,
                     sessionID: sessionID,
+                    tmuxPane: tmuxPane,
                     working: working,
                     attention: attention
                 )
@@ -81,11 +88,18 @@ struct PluginEventDispatcherTests {
         func deliverNotification(
             pluginID: String,
             sessionID: String?,
+            tmuxPane: String?,
             title: String,
             body: String
         ) async {
             _calls.withValue { $0.append(
-                .init(pluginID: pluginID, sessionID: sessionID, title: title, body: body)
+                .init(
+                    pluginID: pluginID,
+                    sessionID: sessionID,
+                    tmuxPane: tmuxPane,
+                    title: title,
+                    body: body
+                )
             ) }
         }
     }
@@ -98,6 +112,7 @@ struct PluginEventDispatcherTests {
         func deliverRequest(
             pluginID: String,
             sessionID: String,
+            tmuxPane: String?,
             requestID: String,
             request: AgentResponseRequest,
             isAutoApprovable: Bool
@@ -106,6 +121,7 @@ struct PluginEventDispatcherTests {
                 .init(
                     pluginID: pluginID,
                     sessionID: sessionID,
+                    tmuxPane: tmuxPane,
                     requestID: requestID,
                     request: request,
                     isAutoApprovable: isAutoApprovable
@@ -127,8 +143,20 @@ struct PluginEventDispatcherTests {
     final class AppActionSinkSpy: PluginAppActionSink, Sendable {
         private let _calls = LockIsolated<[AppActionCall]>([])
         var calls: [AppActionCall] { _calls.value }
-        func handle(pluginID: String, action: AppAction) async {
-            _calls.withValue { $0.append(.init(pluginID: pluginID, action: action)) }
+        func handle(
+            pluginID: String,
+            sessionID: String?,
+            tmuxPane: String?,
+            action: AppAction
+        ) async {
+            _calls.withValue { $0.append(
+                .init(
+                    pluginID: pluginID,
+                    sessionID: sessionID,
+                    tmuxPane: tmuxPane,
+                    action: action
+                )
+            ) }
         }
     }
 
@@ -231,7 +259,13 @@ struct PluginEventDispatcherTests {
         ))
 
         #expect(s.calls == [
-            .init(pluginID: "claude-code", sessionID: "S1", working: true, attention: false),
+            .init(
+                pluginID: "claude-code",
+                sessionID: "S1",
+                tmuxPane: nil,
+                working: true,
+                attention: false
+            ),
         ])
         #expect(n.calls.isEmpty)
         #expect(r.deliverCalls.isEmpty)
@@ -274,12 +308,19 @@ struct PluginEventDispatcherTests {
         ))
 
         #expect(s.calls == [
-            .init(pluginID: "claude-code", sessionID: "S1", working: false, attention: true),
+            .init(
+                pluginID: "claude-code",
+                sessionID: "S1",
+                tmuxPane: nil,
+                working: false,
+                attention: true
+            ),
         ])
         #expect(n.calls == [
             .init(
                 pluginID: "claude-code",
                 sessionID: "S1",
+                tmuxPane: nil,
                 title: "Heads up",
                 body: "Need input"
             ),
@@ -288,6 +329,7 @@ struct PluginEventDispatcherTests {
             .init(
                 pluginID: "claude-code",
                 sessionID: "S1",
+                tmuxPane: nil,
                 requestID: "req-1",
                 request: request,
                 isAutoApprovable: false
@@ -316,7 +358,9 @@ struct PluginEventDispatcherTests {
             appActions: [action]
         ))
 
-        #expect(a.calls == [.init(pluginID: "claude-code", action: action)])
+        #expect(a.calls == [
+            .init(pluginID: "claude-code", sessionID: "S1", tmuxPane: nil, action: action),
+        ])
     }
 
     @Test("dismissFileSuggestions AppAction reaches the app-action sink")
@@ -335,7 +379,9 @@ struct PluginEventDispatcherTests {
             appActions: [action]
         ))
 
-        #expect(a.calls == [.init(pluginID: "claude-code", action: action)])
+        #expect(a.calls == [
+            .init(pluginID: "claude-code", sessionID: "S1", tmuxPane: nil, action: action),
+        ])
     }
 
     @Test("yolo + auto-approvable permission short-circuits to the auto-approval delegate")
@@ -385,6 +431,7 @@ struct PluginEventDispatcherTests {
             .init(
                 pluginID: "claude-code",
                 sessionID: "S1",
+                tmuxPane: nil,
                 requestID: "req-2",
                 request: request,
                 isAutoApprovable: false
@@ -414,6 +461,7 @@ struct PluginEventDispatcherTests {
             .init(
                 pluginID: "claude-code",
                 sessionID: "S1",
+                tmuxPane: nil,
                 requestID: "req-3",
                 request: request,
                 isAutoApprovable: true
@@ -441,5 +489,37 @@ struct PluginEventDispatcherTests {
         #expect(autoApproval.calls.isEmpty)
         #expect(r.deliverCalls.count == 1)
         #expect(r.deliverCalls.first?.isAutoApprovable == false)
+    }
+
+    @Test("event's tmuxPane is forwarded to every sink")
+    func tmuxPaneFannedOutToSinks() async throws {
+        let yolo = YoloSpy(yolo: false)
+        let (dispatcher, s, n, r, a) = makeDispatcher(yolo: yolo)
+
+        let action = AppAction.openFileSuggestion(
+            sessionId: "S1",
+            path: "/tmp/note.md",
+            displayName: "note.md",
+            isPlan: false
+        )
+        await dispatcher.dispatch(PluginEvent(
+            pluginID: "echo",
+            sessionID: "S1",
+            working: true,
+            attention: true,
+            notification: .init(title: "T", body: "B"),
+            responseRequest: .init(
+                requestID: "req-1",
+                request: makeAskUserQuestionRequest()
+            ),
+            appActions: [action],
+            tmuxPane: "%42"
+        ))
+
+        #expect(s.calls.map(\.tmuxPane) == ["%42"])
+        #expect(n.calls.map(\.tmuxPane) == ["%42"])
+        #expect(r.deliverCalls.map(\.tmuxPane) == ["%42"])
+        #expect(a.calls.map(\.tmuxPane) == ["%42"])
+        #expect(a.calls.map(\.sessionID) == ["S1"])
     }
 }

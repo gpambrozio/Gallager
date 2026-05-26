@@ -1535,7 +1535,8 @@
                 mirrorManager: windowManager
             )
             let responseRouter = PluginResponseRequestRouter(
-                viewerManager: connectedViewerManager
+                viewerManager: connectedViewerManager,
+                mirrorManager: windowManager
             )
             appActionRouter = actionRouter
             tmuxAgentDriver = driver
