@@ -136,6 +136,7 @@ struct PluginManagerTests {
             pluginID: String,
             sessionID _: String,
             tmuxPane _: String?,
+            projectPath _: String?,
             working _: Bool?,
             attention _: Bool
         ) async {
@@ -149,6 +150,7 @@ struct PluginManagerTests {
             pluginID _: String,
             sessionID _: String?,
             tmuxPane _: String?,
+            projectPath _: String?,
             title: String,
             body _: String
         ) async {
@@ -163,6 +165,7 @@ struct PluginManagerTests {
             pluginID _: String,
             sessionID _: String,
             tmuxPane _: String?,
+            projectPath _: String?,
             requestID: String,
             request _: AgentResponseRequest,
             isAutoApprovable _: Bool
@@ -185,6 +188,7 @@ struct PluginManagerTests {
             pluginID _: String,
             sessionID _: String?,
             tmuxPane _: String?,
+            projectPath _: String?,
             action: AppAction
         ) async {
             actions.withValue { $0.append(action) }

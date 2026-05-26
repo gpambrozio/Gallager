@@ -67,6 +67,7 @@ struct PluginEventDispatcherTests {
             pluginID: String,
             sessionID: String,
             tmuxPane: String?,
+            projectPath _: String?,
             working: Bool?,
             attention: Bool
         ) async {
@@ -89,6 +90,7 @@ struct PluginEventDispatcherTests {
             pluginID: String,
             sessionID: String?,
             tmuxPane: String?,
+            projectPath _: String?,
             title: String,
             body: String
         ) async {
@@ -113,6 +115,7 @@ struct PluginEventDispatcherTests {
             pluginID: String,
             sessionID: String,
             tmuxPane: String?,
+            projectPath _: String?,
             requestID: String,
             request: AgentResponseRequest,
             isAutoApprovable: Bool
@@ -147,6 +150,7 @@ struct PluginEventDispatcherTests {
             pluginID: String,
             sessionID: String?,
             tmuxPane: String?,
+            projectPath _: String?,
             action: AppAction
         ) async {
             _calls.withValue { $0.append(
