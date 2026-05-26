@@ -130,6 +130,10 @@
         private var wakeObserverTask: Task<Void, Never>?
         @ObservationIgnored
         private var e2eReconnectObserverTask: Task<Void, Never>?
+        @ObservationIgnored
+        private var e2ePluginInstallHooksObserverTask: Task<Void, Never>?
+        @ObservationIgnored
+        private var e2ePluginRescanObserverTask: Task<Void, Never>?
 
         /// Trailing-edge throttle for `OSC 9;4` progress pushes to viewers. Each
         /// new progress arrival cancels the pending task and schedules a fresh
@@ -298,6 +302,8 @@
             #if DEBUG
                 if CommandLine.arguments.contains("--e2e-test") {
                     startE2EReconnectObserver()
+                    startE2EPluginInstallHooksObserver()
+                    startE2EPluginRescanObserver()
                 }
             #endif
         }
@@ -1663,6 +1669,56 @@
             }
         }
 
+        /// E2E only: observe `com.claudespy.e2e.installPluginHooks`, posted by
+        /// `TestAccessibilityServer`'s `/plugin/install-hooks` endpoint. Drives
+        /// `PluginManager.installHooks(pluginID:)` for the named plugin so the
+        /// orchestrator's `macInstallBundledPlugin` step can install hooks
+        /// without going through the Settings UI.
+        private func startE2EPluginInstallHooksObserver() {
+            e2ePluginInstallHooksObserverTask = Task { [weak self] in
+                let notifications = NotificationCenter.default.notifications(
+                    named: .init("com.claudespy.e2e.installPluginHooks")
+                )
+                for await note in notifications {
+                    guard !Task.isCancelled else { break }
+                    guard
+                        let pluginID = note.userInfo?["pluginID"] as? String,
+                        let manager = self?.pluginManager else {
+                        continue
+                    }
+                    do {
+                        try await manager.installHooks(pluginID: pluginID)
+                    } catch {
+                        self?.logger.error(
+                            "[e2e] installHooks(\(pluginID)) failed: \(error)"
+                        )
+                    }
+                }
+            }
+        }
+
+        /// E2E only: observe `com.claudespy.e2e.rescanPlugins`, posted by
+        /// `TestAccessibilityServer`'s `/plugin/rescan` endpoint. Drives
+        /// `PluginManager.rescan()` so any plugin freshly seeded into the
+        /// per-instance state-root by the orchestrator's `macSpawnSidecar`
+        /// step shows up in the live runtime without a relaunch.
+        private func startE2EPluginRescanObserver() {
+            e2ePluginRescanObserverTask = Task { [weak self] in
+                let notifications = NotificationCenter.default.notifications(
+                    named: .init("com.claudespy.e2e.rescanPlugins")
+                )
+                for await _ in notifications {
+                    guard !Task.isCancelled else { break }
+                    guard let manager = self?.pluginManager else { continue }
+                    do {
+                        try await manager.rescan()
+                    } catch {
+                        self?.logger.error("[e2e] rescan failed: \(error)")
+                    }
+                }
+            }
+        }
+
         /// Wires the notification tap handler on the delegate directly.
         /// Always opens the panes view with the tapped session selected.
         private func setupNotificationTapHandler() {
@@ -1697,6 +1753,8 @@
         deinit {
             wakeObserverTask?.cancel()
             e2eReconnectObserverTask?.cancel()
+            e2ePluginInstallHooksObserverTask?.cancel()
+            e2ePluginRescanObserverTask?.cancel()
         }
 
         private static func handleStartStream(

@@ -225,6 +225,45 @@
                             connection.cancel()
                         })
                     }
+                } else if request.hasPrefix("POST /plugin/install-hooks") {
+                    // E2E hook for `macInstallBundledPlugin`. The
+                    // AppCoordinator's `startE2EPluginInstallHooksObserver`
+                    // listens for `com.claudespy.e2e.installPluginHooks` and
+                    // dispatches to `PluginManager.installHooks(pluginID:)`.
+                    let pluginID = Self.extractQueryParam(from: request, key: "id") ?? ""
+                    Task { @MainActor in
+                        NotificationCenter.default.post(
+                            name: .init("com.claudespy.e2e.installPluginHooks"),
+                            object: nil,
+                            userInfo: ["pluginID": pluginID]
+                        )
+                        let response = Data(
+                            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                                .utf8
+                        )
+                        connection.send(content: response, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                    }
+                } else if request.hasPrefix("POST /plugin/rescan") {
+                    // E2E hook for `macSpawnSidecar`. The orchestrator
+                    // seeds a non-bundled plugin into the per-instance
+                    // state-root and POSTs here so the running
+                    // `PluginManager` re-discovers and spawns a supervisor
+                    // for the new entry without a relaunch.
+                    Task { @MainActor in
+                        NotificationCenter.default.post(
+                            name: .init("com.claudespy.e2e.rescanPlugins"),
+                            object: nil
+                        )
+                        let response = Data(
+                            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                                .utf8
+                        )
+                        connection.send(content: response, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                    }
                 } else {
                     let response = Data("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".utf8)
                     connection.send(content: response, completion: .contentProcessed { _ in

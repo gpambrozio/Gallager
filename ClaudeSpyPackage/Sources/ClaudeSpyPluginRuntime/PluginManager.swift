@@ -292,6 +292,92 @@ final public class PluginManager {
         }
     }
 
+    /// Re-discover bundled + user-installed plugins and spawn supervisors
+    /// for any newly-discovered registry entries that aren't already running.
+    ///
+    /// Used by the E2E orchestrator's `macSpawnSidecar` step (Spec §15.1):
+    /// the orchestrator seeds a non-bundled plugin (e.g. EchoPlugin) into
+    /// the per-instance state-root and then calls this to make the running
+    /// `PluginManager` pick it up without a relaunch. Production paths
+    /// (`install(manifestURL:)`, `enable(pluginID:)`) spawn supervisors
+    /// directly, so they don't need to invoke `rescan()`.
+    ///
+    /// Idempotent: existing supervisors are left in place; only
+    /// previously-unknown enabled entries get a fresh supervisor.
+    public func rescan() async throws {
+        guard didStart else {
+            // Calling `start()` is the right move when the manager hasn't
+            // started yet — `rescan()` exists for the "running app finds
+            // new plugins" case.
+            try await start()
+            return
+        }
+
+        // Re-run bundled discovery so a newly-shipped bundled plugin (or
+        // a test fixture parked in the bundled dir) shows up.
+        let bundledDir = layout.bundledPluginsDir()
+        let records: [BundledPluginRecord]
+        do {
+            records = try discovery.discover(in: bundledDir)
+        } catch {
+            logger.error("rescan discovery failed in \(bundledDir.path): \(error)")
+            throw error
+        }
+        try await registry.mergeBundled(records.map(\.registryEntry))
+        for record in records {
+            manifestsByID[record.manifest.id] = record.manifest
+            pluginDirsByID[record.manifest.id] = record.pluginDir
+        }
+
+        // Load manifests for user-installed entries that aren't already in
+        // the manifest cache (e.g. a fixture installed since the last
+        // start() / rescan()). User plugins live under
+        // `<state-root>/plugins/<id>/plugin.json` per `PluginRootLayout`.
+        let entries = try await registry.entries()
+        let userPluginsDir = layout.userPluginsDir()
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        for entry in entries where entry.enabled && manifestsByID[entry.id] == nil {
+            let pluginDir = userPluginsDir.appendingPathComponent(entry.id, isDirectory: true)
+            let manifestURL = pluginDir.appendingPathComponent("plugin.json")
+            guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+                logger.warning(
+                    "rescan: registry entry \(entry.id) has no manifest on disk at \(manifestURL.path); skipping"
+                )
+                continue
+            }
+            do {
+                let data = try Data(contentsOf: manifestURL)
+                let manifest = try decoder.decode(PluginManifest.self, from: data)
+                manifestsByID[manifest.id] = manifest
+                pluginDirsByID[manifest.id] = pluginDir
+            } catch {
+                logger.warning(
+                    "rescan: failed to load manifest for \(entry.id) at \(manifestURL.path): \(error)"
+                )
+            }
+        }
+
+        // Spawn supervisors for enabled entries that don't have one yet.
+        guard let bridge = supervisorBridge else {
+            // Should never happen if `start()` completed, but fail loudly
+            // rather than silently no-op.
+            throw PluginManagerError.installFailed(
+                message: "rescan: supervisor bridge missing after start()"
+            )
+        }
+        for entry in entries where entry.enabled && supervisors[entry.id] == nil {
+            guard
+                let manifest = manifestsByID[entry.id],
+                let pluginDir = pluginDirsByID[entry.id]
+            else {
+                continue
+            }
+            try await spawnSupervisor(manifest: manifest, pluginDir: pluginDir, bridge: bridge)
+            try await loadPresentation(manifest: manifest, pluginDir: pluginDir)
+        }
+    }
+
     /// Projects pushed by the named plugin's last `set_projects` callback.
     /// Returns an empty list when the plugin hasn't pushed anything yet.
     public func projects(for pluginID: String) -> [AgentProject] {
