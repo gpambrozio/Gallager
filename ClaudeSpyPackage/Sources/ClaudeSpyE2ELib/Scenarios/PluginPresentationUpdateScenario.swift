@@ -51,6 +51,8 @@ public enum PluginPresentationUpdateScenario {
             env: ["TMUX_PANE": "${paneId}"]
         )
 
+        // Let the push settle through the relay before opening the picker.
+        TestStep.wait(seconds: 1)
         // Open the project picker on iOS to surface the plugin badge.
         // The PluginBadge label reads `presentation.shortName` — Echo's
         // initial fixture pins shortName == "Echo".

@@ -101,6 +101,13 @@ final public class PluginManager {
     /// `start()` via the asset cache.
     public private(set) var presentations: [PluginPresentation] = []
 
+    /// Callback fired whenever a non-bundled plugin's `set_projects`
+    /// notification updates `projectsByPlugin`. The host wires this to its
+    /// session-state broadcast so viewers see the new project list without
+    /// waiting for a tmux refresh tick.
+    @ObservationIgnored
+    public var onPluginProjectsChanged: (@MainActor @Sendable () async -> Void)?
+
     /// Mirror of every in-flight `AgentResponseRequest` keyed by request id.
     /// Used by yolo auto-approve to remember the suggestion shape so the
     /// auto-allow response carries no `appliedSuggestionId` (the user didn't
@@ -923,6 +930,8 @@ final public class PluginManager {
         guard let decoded: SetProjectsParams = decode(params, as: SetProjectsParams.self, decoder: decoder)
         else { return }
         projectsByPlugin[pluginID] = decoded.projects
+        // Notify the host so it can push the updated session state to viewers.
+        await onPluginProjectsChanged?()
     }
 
     private func handleEmitEvent(

@@ -1422,7 +1422,7 @@
             let scanner = projectScanner
             let codexProjectScanner = codexScanner
             connectionManager.onSessionStateRequest = {
-                [weak windowManager, tmuxService, scanner, codexProjectScanner, editorManager] in
+                [weak self, weak windowManager, tmuxService, scanner, codexProjectScanner, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
@@ -1439,7 +1439,15 @@
 
                 async let claudeOnly = scanner.scanProjects()
                 async let codexOnly = codexProjectScanner.scanProjects()
-                let claudeProjects = (await claudeOnly + codexOnly).sortedByLastUsed()
+                // Also include projects pushed by any non-bundled plugin via
+                // `set_projects` (e.g. EchoPlugin). The PluginManager keeps a
+                // per-plugin list updated by the callback; `allProjects` flattens
+                // them deterministically. Bundled plugins (Claude/Codex) are
+                // already covered by their explicit scanners above.
+                let pluginPushed = await MainActor.run { [weak self] in
+                    self?.pluginManager?.allProjects ?? []
+                }
+                let claudeProjects = (await claudeOnly + codexOnly + pluginPushed).sortedByLastUsed()
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
@@ -1560,6 +1568,12 @@
                 yoloProvider: windowManager,
                 appVersion: appVersion
             )
+            // Bridge plugin-pushed project list changes to the viewer
+            // broadcast so iOS sees `set_projects` notifications without a
+            // tmux refresh tick.
+            manager.onPluginProjectsChanged = { [weak self] in
+                await self?.connectedViewerManager?.pushSessionStateToAll()
+            }
             pluginManager = manager
 
             do {
