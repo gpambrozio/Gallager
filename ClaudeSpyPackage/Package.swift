@@ -351,12 +351,19 @@ let targets: [Target] = [
             .claudeSpyNetworking,
             .claudeSpyServerFeature,
             .claudeSpyExternalServerLib,
+            .gallagerPluginProtocol,
             .vapor,
             .logging,
         ],
         resources: [
             .copy("Scenarios/Scripts"),
             .copy("Scenarios/SampleFiles"),
+            // EchoPlugin fixture tree consumed by `EchoPluginInstaller`
+            // (Task 22). At runtime the installer reads `plugin.json`,
+            // `assets/icon.png`, and `ui/settings.json` from
+            // `Bundle.module.resourcePath/EchoPlugin/...` and copies them
+            // into the per-scenario plugin state root.
+            .copy("Fixtures/EchoPlugin"),
         ]
     ),
     // E2E test coordinator executable
@@ -519,6 +526,11 @@ let targets: [Target] = [
         name: "ClaudeSpyE2ETests",
         dependencies: [
             .claudeSpyE2ELib,
+            // Force SPM to build the EchoPluginSidecar binary alongside the
+            // test bundle. Task 25's scenarios use `EchoPluginInstaller` to
+            // copy the resulting binary into a per-scenario plugin state
+            // root, so it must exist on disk before the tests run.
+            "EchoPluginSidecar",
         ]
     ),
     .testTarget(
@@ -541,6 +553,22 @@ let targets: [Target] = [
             .claudeSpyNetworking,
         ],
         path: "Tests/ClaudeSpyPluginRuntimeTests/Fixtures/EchoSidecar"
+    ),
+    // Full-featured echo sidecar used by Task 25's plugin E2E scenarios.
+    // Unlike the minimal `EchoSidecar` (which only round-trips JSON-RPC
+    // requests for `SidecarSupervisorTests`), this binary implements the
+    // entire App→Sidecar surface so it can stand in for a real plugin in
+    // the running app's `PluginManager`. The `_test`-prefixed control
+    // payloads in `translate_event` give E2E scenarios a programmable way
+    // to drive every `PluginEvent` / `AppAction` shape. Built whenever
+    // `ClaudeSpyE2ELib` builds; never shipped inside the .app.
+    .executableTarget(
+        name: "EchoPluginSidecar",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .logging,
+        ]
     ),
     .testTarget(
         name: "ClaudeSpyPluginRuntimeTests",
