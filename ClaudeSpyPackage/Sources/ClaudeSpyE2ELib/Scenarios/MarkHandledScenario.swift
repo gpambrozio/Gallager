@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Session state sync across host and multiple viewers
@@ -31,16 +32,15 @@ public enum MarkHandledScenario {
         TestStep.wait(seconds: 3)
         TestStep.tmuxStorePaneId(target: "e2e-state:0.0", storeAs: "paneId")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-state-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-state-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/StateProject"
+            projectPath: "/Users/test/StateProject",
+            sessionID: "e2e-state-session"
         )
         TestStep.wait(seconds: 3)
 
@@ -94,17 +94,16 @@ public enum MarkHandledScenario {
         // ── Phase 5: UserPromptSubmit transitions to "Working" ─────────────
 
         TestStep.log("Sending UserPromptSubmit event — transitions to Working")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "e2e-state-session",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "prompt": "do something"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("e2e-state-session"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "prompt": .string("do something"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/StateProject"
+            projectPath: "/Users/test/StateProject",
+            sessionID: "e2e-state-session"
         )
 
         // All platforms show "Working" (UserPromptSubmit → isWorking = true)
@@ -120,17 +119,16 @@ public enum MarkHandledScenario {
         // ── Phase 6: Stop event → "Attention" (stop triggers notification) ─
 
         TestStep.log("Sending Stop event — session becomes idle/attention")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "Stop",
-                "session_id": "e2e-state-session",
-                "timestamp": "2026-02-14T10:02:00.000000Z",
-                "stop_hook_active": true
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("Stop"),
+                "session_id": .string("e2e-state-session"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+                "stop_hook_active": .bool(true),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/StateProject"
+            projectPath: "/Users/test/StateProject",
+            sessionID: "e2e-state-session"
         )
 
         // Stop triggers notification → needsAttention = true → "Attention"
@@ -164,17 +162,16 @@ public enum MarkHandledScenario {
         // ── Phase 8: PermissionRequest re-raises "Attention" ──────────────
 
         TestStep.log("Sending PermissionRequest — re-raises attention")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PermissionRequest",
-                "session_id": "e2e-state-session",
-                "timestamp": "2026-02-14T10:03:00.000000Z",
-                "tool_name": "Write"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PermissionRequest"),
+                "session_id": .string("e2e-state-session"),
+                "timestamp": .string("2026-02-14T10:03:00.000000Z"),
+                "tool_name": .string("Write"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/StateProject"
+            projectPath: "/Users/test/StateProject",
+            sessionID: "e2e-state-session"
         )
 
         // All platforms show "Attention" again
@@ -231,17 +228,16 @@ public enum MarkHandledScenario {
         // the session to "Working" — naturally superseding the attention state.
 
         TestStep.log("Sending UserPromptSubmit — naturally moves from Attention to Working")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "e2e-state-session",
-                "timestamp": "2026-02-14T10:04:00.000000Z",
-                "prompt": "continue"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("e2e-state-session"),
+                "timestamp": .string("2026-02-14T10:04:00.000000Z"),
+                "prompt": .string("continue"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/StateProject"
+            projectPath: "/Users/test/StateProject",
+            sessionID: "e2e-state-session"
         )
 
         // All platforms show "Working" — attention is gone

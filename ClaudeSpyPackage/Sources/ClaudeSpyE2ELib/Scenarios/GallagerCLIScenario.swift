@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Gallager CLI API
@@ -219,17 +220,16 @@ public enum GallagerCLIScenario {
         )
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "e2e-api-hook",
-                "timestamp": "2026-04-28T10:00:00.000000Z",
-                "prompt": "kick off a task"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("e2e-api-hook"),
+                "timestamp": .string("2026-04-28T10:00:00.000000Z"),
+                "prompt": .string("kick off a task"),
+            ],
             tmuxPane: "${apiPaneId}",
-            projectPath: "/tmp/e2e-api"
+            projectPath: "/tmp/e2e-api",
+            sessionID: "e2e-api-hook"
         )
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macScreenshot(label: "mac-hook-overrides-cli")

@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: When a host disconnects, both iOS and Mac viewers clear sessions
@@ -21,16 +22,15 @@ public enum HostDisconnectClearsSessionsScenario {
 
         // 4. Store the pane ID and send a SessionStart hook event
         TestStep.tmuxStorePaneId(target: "work-session:0.0", storeAs: "paneId")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-disconnect-test",
-                "timestamp": "2026-04-06T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-disconnect-test"),
+                "timestamp": .string("2026-04-06T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/DisconnectTest"
+            projectPath: "/Users/test/DisconnectTest",
+            sessionID: "e2e-disconnect-test"
         )
 
         // 5. Verify iOS shows the Claude session

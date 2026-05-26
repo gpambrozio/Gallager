@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: APNs badge aggregation across two pairs sharing an iOS device.
@@ -82,17 +83,16 @@ public enum BadgeAggregationScenario {
         // intentionally still closed: with no `selectedWindow`, SwiftUI's
         // auto-handle in MainView won't race the broadcast and pin the count
         // back to zero.
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "Stop",
-                "session_id": "e2e-badge-session",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "stop_hook_active": true
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("Stop"),
+                "session_id": .string("e2e-badge-session"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "stop_hook_active": .bool(true),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/BadgeProject"
+            projectPath: "/Users/test/BadgeProject",
+            sessionID: "e2e-badge-session"
         )
 
         TestStep.waitForAPNSPushCount(1, timeout: 15)

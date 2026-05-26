@@ -1,9 +1,12 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Stop hook with last assistant message summary
 ///
 /// Builds on the Claude Sessions Show scenario. Verifies that:
-/// 1. After a Stop hook with `last_assistant_message`, the iOS session list shows "Session Idle"
+/// 1. After a Stop hook with `last_assistant_message`, the iOS session row
+///    transitions to the "Attention" status (the translator flags Stop with
+///    `attention: true`).
 /// 2. The iOS terminal view shows the StopResponseView with a collapsible summary
 /// 3. The macOS Panes window shows the session in the sidebar
 public enum StopHookSummaryScenario {
@@ -16,21 +19,24 @@ public enum StopHookSummaryScenario {
         ClaudeSessionsShowScenario.scenario
 
         // 2. Send a Stop hook with last_assistant_message
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "Stop",
-                "session_id": "e2e-test-session-1",
-                "timestamp": "2026-02-14T10:01:00.000000Z",
-                "last_assistant_message": "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully."
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("Stop"),
+                "session_id": .string("e2e-test-session-1"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+                "last_assistant_message": .string(
+                    "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully."
+                ),
+            ],
             tmuxPane: "${pane1Id}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "e2e-test-session-1"
         )
 
-        // 3. Verify iOS session list shows "Session Idle" for the stop event
-        TestStep.iosWaitForElement(.labelContains("Session Idle"), timeout: 10)
+        // 3. Verify the iOS session row reports "Attention" — the legacy
+        //    EventRowView "Session Idle" string is gone (Task 20); the
+        //    translator flags Stop with `attention: true`.
+        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-session-idle")
 
         // 4. Tap the session to open the terminal view
