@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: `OSC 9;4` per-pane terminal progress bar across all platforms.
@@ -39,16 +40,15 @@ public enum TerminalProgressBarScenario {
         TestStep.wait(seconds: 2)
         TestStep.tmuxStorePaneId(target: "e2e-progress:0.0", storeAs: "paneId")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-progress-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-progress-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/ProgressTest"
+            projectPath: "/Users/test/ProgressTest",
+            sessionID: "e2e-progress-session"
         )
         TestStep.wait(seconds: 3)
 

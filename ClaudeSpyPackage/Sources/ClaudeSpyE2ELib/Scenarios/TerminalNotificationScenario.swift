@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Terminal notification (OSC 9) detection lifecycle
@@ -59,16 +60,15 @@ public enum TerminalNotificationScenario {
 
         // 6. Send a SessionStart hook so the session appears as a Claude session on iOS
         TestStep.log("Phase 2: Testing notification during active streaming")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-notif-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-notif-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/NotifTest"
+            projectPath: "/Users/test/NotifTest",
+            sessionID: "e2e-notif-session"
         )
         TestStep.wait(seconds: 3)
 

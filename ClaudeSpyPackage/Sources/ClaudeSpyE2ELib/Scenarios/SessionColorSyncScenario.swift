@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Session color synchronization across all three platforms.
@@ -60,38 +61,35 @@ public enum SessionColorSyncScenario {
         TestStep.tmuxStorePaneId(target: "e2e-color-b:0.0", storeAs: "paneIdB")
         TestStep.tmuxStorePaneId(target: "e2e-color-c:0.0", storeAs: "paneIdC")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-color-a-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-color-a-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneIdA}",
-            projectPath: "/Users/test/AlphaProject"
+            projectPath: "/Users/test/AlphaProject",
+            sessionID: "e2e-color-a-session"
         )
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-color-b-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-color-b-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneIdB}",
-            projectPath: "/Users/test/BravoProject"
+            projectPath: "/Users/test/BravoProject",
+            sessionID: "e2e-color-b-session"
         )
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-color-c-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-color-c-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneIdC}",
-            projectPath: "/Users/test/CharlieProject"
+            projectPath: "/Users/test/CharlieProject",
+            sessionID: "e2e-color-c-session"
         )
         TestStep.wait(seconds: 3)
 

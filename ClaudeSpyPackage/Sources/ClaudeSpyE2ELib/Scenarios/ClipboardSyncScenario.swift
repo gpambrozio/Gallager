@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Remote clipboard sync via OSC 52
@@ -26,16 +27,15 @@ public enum ClipboardSyncScenario {
         TestStep.iosWaitForElement(.labelContains("clip-test"), timeout: 15)
 
         // Send a SessionStart hook so the session appears as a Claude session on iOS
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-clip-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-clip-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/ClipTest"
+            projectPath: "/Users/test/ClipTest",
+            sessionID: "e2e-clip-session"
         )
         TestStep.wait(seconds: 3)
 

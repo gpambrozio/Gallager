@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Markdown write open suggestion (#396)
@@ -36,22 +37,21 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // ── Phase 1: Write hook for a markdown file shows the bar ─
         TestStep.log("Phase 1: PostToolUse:Write for README.md surfaces the suggestion bar")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PostToolUse",
-                "session_id": "writehook-session",
-                "timestamp": "2026-04-25T10:00:00.000000Z",
-                "tool_name": "Write",
-                "tool_input": {
-                    "file_path": "/Users/test/MyProject/README.md",
-                    "content": "# Fake README"
-                },
-                "tool_response": {}
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PostToolUse"),
+                "session_id": .string("writehook-session"),
+                "timestamp": .string("2026-04-25T10:00:00.000000Z"),
+                "tool_name": .string("Write"),
+                "tool_input": .object([
+                    "file_path": .string("/Users/test/MyProject/README.md"),
+                    "content": .string("# Fake README"),
+                ]),
+                "tool_response": .object([:]),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "writehook-session"
         )
 
         // Bar appears with the filename.
@@ -72,22 +72,21 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // ── Phase 3: A second write replaces the suggestion ──────
         TestStep.log("Phase 3: A new Write hook replaces the previous suggestion")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PostToolUse",
-                "session_id": "writehook-session",
-                "timestamp": "2026-04-25T10:01:00.000000Z",
-                "tool_name": "Write",
-                "tool_input": {
-                    "file_path": "/Users/test/MyProject/docs/guide.md",
-                    "content": "# Guide"
-                },
-                "tool_response": {}
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PostToolUse"),
+                "session_id": .string("writehook-session"),
+                "timestamp": .string("2026-04-25T10:01:00.000000Z"),
+                "tool_name": .string("Write"),
+                "tool_input": .object([
+                    "file_path": .string("/Users/test/MyProject/docs/guide.md"),
+                    "content": .string("# Guide"),
+                ]),
+                "tool_response": .object([:]),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "writehook-session"
         )
 
         TestStep.macWaitForElement(titled: "Want to open guide.md?", timeout: 5)
@@ -110,22 +109,21 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // would be treated as project documentation and use its filename.
         TestStep.log("Phase 5: Plan-style path uses 'the plan' label, not the random filename")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PostToolUse",
-                "session_id": "writehook-session",
-                "timestamp": "2026-04-25T10:02:00.000000Z",
-                "tool_name": "Write",
-                "tool_input": {
-                    "file_path": "\(NSTemporaryDirectory())plans/8f3c2d.md",
-                    "content": "# Plan"
-                },
-                "tool_response": {}
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PostToolUse"),
+                "session_id": .string("writehook-session"),
+                "timestamp": .string("2026-04-25T10:02:00.000000Z"),
+                "tool_name": .string("Write"),
+                "tool_input": .object([
+                    "file_path": .string("\(NSTemporaryDirectory())plans/8f3c2d.md"),
+                    "content": .string("# Plan"),
+                ]),
+                "tool_response": .object([:]),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "writehook-session"
         )
 
         TestStep.macWaitForElement(titled: "Want to open the plan?", timeout: 5)
@@ -139,22 +137,21 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // ── Phase 6: Non-markdown writes do NOT show the bar ─────
         TestStep.log("Phase 6: Write of a non-markdown file does not show a suggestion")
 
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "PostToolUse",
-                "session_id": "writehook-session",
-                "timestamp": "2026-04-25T10:03:00.000000Z",
-                "tool_name": "Write",
-                "tool_input": {
-                    "file_path": "/Users/test/MyProject/notes.txt",
-                    "content": "plain text"
-                },
-                "tool_response": {}
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("PostToolUse"),
+                "session_id": .string("writehook-session"),
+                "timestamp": .string("2026-04-25T10:03:00.000000Z"),
+                "tool_name": .string("Write"),
+                "tool_input": .object([
+                    "file_path": .string("/Users/test/MyProject/notes.txt"),
+                    "content": .string("plain text"),
+                ]),
+                "tool_response": .object([:]),
+            ],
             tmuxPane: "${paneId}",
-            projectPath: "/Users/test/MyProject"
+            projectPath: "/Users/test/MyProject",
+            sessionID: "writehook-session"
         )
 
         // No bar should appear for .txt files.

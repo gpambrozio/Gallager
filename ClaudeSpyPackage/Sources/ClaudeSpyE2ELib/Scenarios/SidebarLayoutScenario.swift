@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Sidebar cell layout customization and sort modes
@@ -30,81 +31,75 @@ public enum SidebarLayoutScenario {
         // ── Simulate different Claude states ──────────────────────
 
         // Alpha: Attention (SessionStart + Stop = triggers notification)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "alpha-session",
-                "timestamp": "2026-02-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("alpha-session"),
+                "timestamp": .string("2026-02-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${paneAlpha}",
-            projectPath: "/Users/test/AlphaProject"
+            projectPath: "/Users/test/AlphaProject",
+            sessionID: "alpha-session"
         )
         TestStep.wait(seconds: 1)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "alpha-session",
-                "timestamp": "2026-02-14T10:00:01.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("alpha-session"),
+                "timestamp": .string("2026-02-14T10:00:01.000000Z"),
+            ],
             tmuxPane: "${paneAlpha}",
-            projectPath: "/Users/test/AlphaProject"
+            projectPath: "/Users/test/AlphaProject",
+            sessionID: "alpha-session"
         )
         TestStep.wait(seconds: 1)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "Stop",
-                "session_id": "alpha-session",
-                "timestamp": "2026-02-14T10:00:02.000000Z",
-                "last_assistant_message": "Done with alpha task"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("Stop"),
+                "session_id": .string("alpha-session"),
+                "timestamp": .string("2026-02-14T10:00:02.000000Z"),
+                "last_assistant_message": .string("Done with alpha task"),
+            ],
             tmuxPane: "${paneAlpha}",
-            projectPath: "/Users/test/AlphaProject"
+            projectPath: "/Users/test/AlphaProject",
+            sessionID: "alpha-session"
         )
         TestStep.wait(seconds: 1)
 
         // Beta: Working (SessionStart + UserPromptSubmit)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "beta-session",
-                "timestamp": "2026-02-14T10:01:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("beta-session"),
+                "timestamp": .string("2026-02-14T10:01:00.000000Z"),
+            ],
             tmuxPane: "${paneBeta}",
-            projectPath: "/Users/test/BetaProject"
+            projectPath: "/Users/test/BetaProject",
+            sessionID: "beta-session"
         )
         TestStep.wait(seconds: 1)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "UserPromptSubmit",
-                "session_id": "beta-session",
-                "timestamp": "2026-02-14T10:01:01.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("UserPromptSubmit"),
+                "session_id": .string("beta-session"),
+                "timestamp": .string("2026-02-14T10:01:01.000000Z"),
+            ],
             tmuxPane: "${paneBeta}",
-            projectPath: "/Users/test/BetaProject"
+            projectPath: "/Users/test/BetaProject",
+            sessionID: "beta-session"
         )
         TestStep.wait(seconds: 1)
 
         // Gamma: Idle (SessionStart only, no working state)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "gamma-session",
-                "timestamp": "2026-02-14T10:02:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("gamma-session"),
+                "timestamp": .string("2026-02-14T10:02:00.000000Z"),
+            ],
             tmuxPane: "${paneGamma}",
-            projectPath: "/Users/test/GammaProject"
+            projectPath: "/Users/test/GammaProject",
+            sessionID: "gamma-session"
         )
         TestStep.wait(seconds: 2)
 

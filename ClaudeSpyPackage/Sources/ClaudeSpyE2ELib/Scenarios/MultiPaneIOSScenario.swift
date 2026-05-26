@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 
 /// E2E scenario: Multi-pane window on iOS with Claude session integration
@@ -45,20 +46,23 @@ public enum MultiPaneIOSScenario {
 
         // 4. Send a SessionStart hook event on pane 0 (left pane) to simulate a Claude session
         TestStep.log("Send SessionStart hook to pane 0")
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "SessionStart",
-                "session_id": "e2e-multi-pane-session",
-                "timestamp": "2026-03-14T10:00:00.000000Z"
-            }
-            """,
+        Shortcut.macSendClaudeHook(
+            [
+                "hook_event_name": .string("SessionStart"),
+                "session_id": .string("e2e-multi-pane-session"),
+                "timestamp": .string("2026-03-14T10:00:00.000000Z"),
+            ],
             tmuxPane: "${pane0Id}",
-            projectPath: "/Users/test/MultiPaneProject"
+            projectPath: "/Users/test/MultiPaneProject",
+            sessionID: "e2e-multi-pane-session"
         )
 
-        // Verify the session row shows the Claude session (SessionRowView with event info)
-        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
+        // Verify the session row appears as a Claude session — the
+        // legacy EventRowView "Session Started" string is gone (Task 20);
+        // the row now exposes "Attention" via accessibilityValue plus the
+        // project label "MultiPaneProject".
+        TestStep.iosWaitForElement(.labelContains("MultiPaneProject"), timeout: 10)
+        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-session-list-with-claude")
 
         // 5. Open the multi-pane window layout view
