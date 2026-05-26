@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "title": "Echo",
+      "fields": [
+        {
+          "id": "label",
+          "type": "string",
+          "label": "Label",
+          "default": "echo"
+        }
+      ]
+    }
+  ]
+}
