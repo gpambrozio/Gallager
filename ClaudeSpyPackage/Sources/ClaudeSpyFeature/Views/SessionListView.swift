@@ -197,8 +197,7 @@
                 height: settings.newSessionHeight,
                 workingDirectory: project?.path,
                 claudeConfigDir: project?.claudeConfigDir,
-                agent: project
-                    .flatMap { CodingAgent(rawValue: $0.pluginID) } ?? .claudeCode
+                pluginID: project?.pluginID ?? "claude-code"
             )
 
             // paneId is not used for session creation, pass empty string

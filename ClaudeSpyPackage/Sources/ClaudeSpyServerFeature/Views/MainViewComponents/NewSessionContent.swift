@@ -39,15 +39,15 @@ struct NewSessionContent: View {
 
     /// Returns a one-line plugin label for the row badge, or `nil` for the
     /// default Claude Code projects (badgeless to match how things looked
-    /// before plugins were configurable).
+    /// before plugins were configurable). Non-Claude built-in plugins map
+    /// to short labels; unknown third-party ids fall back to the raw plugin
+    /// id so the user still gets a visual hint.
     private func badgeForProject(_ project: AgentProject) -> String? {
-        guard project.pluginID != "claude-code" else { return nil }
-        // Map known plugin ids back to short labels; unknown ids fall back
-        // to the raw plugin id so the user still gets a visual hint.
-        if let known = CodingAgent(rawValue: project.pluginID) {
-            return known.shortName
+        switch project.pluginID {
+        case "claude-code": nil
+        case "codex": "Codex"
+        default: project.pluginID
         }
-        return project.pluginID
     }
 
     /// All keyboard-selectable rows in display order.

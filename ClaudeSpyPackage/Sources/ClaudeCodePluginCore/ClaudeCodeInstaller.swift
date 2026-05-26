@@ -7,12 +7,10 @@ import Foundation
 /// Installs / uninstalls / detects the `gallager` plugin inside the Claude
 /// Code CLI's plugin marketplace.
 ///
-/// Lives in `ClaudeCodePluginCore` rather than `ClaudeSpyServerFeature` so
-/// the Task 12 sidecar executable can reuse the exact same install flow
-/// the Mac app uses today (`PluginService.installPlugin()` will eventually
-/// route through this dependency once Task 15 wires the new path).
+/// Lives in `ClaudeCodePluginCore` so the sidecar executable and any
+/// `gallager plugin install` CLI verb can reuse the same install flow.
 ///
-/// The shape mirrors `PluginService`'s steps:
+/// Steps:
 ///   1. `claude plugin marketplace add <plugin-root>`
 ///   2. `claude plugin install gallager --scope user`
 ///   3. parse `~/.claude/plugins/installed_plugins.json` to confirm.

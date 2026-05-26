@@ -340,8 +340,8 @@ final public class AppSettings {
     /// only piece of state that still lives in the global preferences.
     public func autoRunInProjects(forPluginID pluginID: String) -> Bool {
         switch pluginID {
-        case CodingAgent.claudeCode.rawValue: autoRunClaudeInProjects
-        case CodingAgent.codex.rawValue: autoRunCodexInProjects
+        case "claude-code": autoRunClaudeInProjects
+        case "codex": autoRunCodexInProjects
         default: false
         }
     }

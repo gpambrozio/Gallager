@@ -698,28 +698,28 @@ struct CreateTmuxSessionTests {
         #expect(decoded.height == 24)
         #expect(decoded.workingDirectory == nil)
         #expect(decoded.claudeConfigDir == nil)
-        #expect(decoded.agent == .claudeCode)
+        #expect(decoded.pluginID == "claude-code")
     }
 
-    @Test("Round-trip preserves Codex agent")
-    func roundTripPreservesCodexAgent() throws {
+    @Test("Round-trip preserves Codex plugin id")
+    func roundTripPreservesCodexPluginID() throws {
         let original = CreateTmuxSession(
             sessionName: "codex-work",
             width: 120,
             height: 40,
             workingDirectory: "/Users/test/codex-work",
-            agent: .codex
+            pluginID: "codex"
         )
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: data)
 
         #expect(decoded == original)
-        #expect(decoded.agent == .codex)
+        #expect(decoded.pluginID == "codex")
     }
 
-    @Test("Defaults agent to Claude Code when omitted on init")
-    func defaultsAgentToClaude() {
+    @Test("Defaults plugin id to Claude Code when omitted on init")
+    func defaultsPluginIDToClaude() {
         let session = CreateTmuxSession(
             sessionName: "work",
             width: 80,
@@ -727,6 +727,22 @@ struct CreateTmuxSessionTests {
             workingDirectory: "/Users/test/work"
         )
 
-        #expect(session.agent == .claudeCode)
+        #expect(session.pluginID == "claude-code")
+    }
+
+    @Test("Decodes legacy `agent` field into pluginID")
+    func decodesLegacyAgentField() throws {
+        let json = """
+        {
+            "sessionName": "old-host",
+            "width": 80,
+            "height": 24,
+            "agent": "codex"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: Data(json.utf8))
+
+        #expect(decoded.pluginID == "codex")
     }
 }

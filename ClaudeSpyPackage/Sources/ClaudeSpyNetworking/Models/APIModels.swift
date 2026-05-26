@@ -118,14 +118,18 @@ public struct APIProjectInfo: Codable, Sendable {
     public let name: String
     public let path: String
     public let lastUsed: Date?
-    public let agent: CodingAgent
+    /// Plugin manifest id of the owning plugin (e.g. `"claude-code"`,
+    /// `"codex"`). Surfaced verbatim in the CLI's JSON output as both
+    /// `agent` (legacy key) and `plugin_id` (new key) so existing
+    /// scripts keep parsing the same string.
+    public let pluginID: String
 
-    public init(id: String, name: String, path: String, lastUsed: Date?, agent: CodingAgent = .claudeCode) {
+    public init(id: String, name: String, path: String, lastUsed: Date?, pluginID: String = "claude-code") {
         self.id = id
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
-        self.agent = agent
+        self.pluginID = pluginID
     }
 
     public init(_ info: AgentProject) {
@@ -133,11 +137,7 @@ public struct APIProjectInfo: Codable, Sendable {
         self.name = info.name
         self.path = info.path
         self.lastUsed = info.lastUsed
-        // The CLI's wire shape still uses the legacy `agent` field — map
-        // the plugin id back to a CodingAgent so existing scripts keep
-        // working. Unknown plugin ids fall back to .claudeCode (the CLI
-        // historically only saw `.claudeCode` / `.codex`).
-        self.agent = CodingAgent(rawValue: info.pluginID) ?? .claudeCode
+        self.pluginID = info.pluginID
     }
 
     public func toJSONValue() -> [String: JSONValue] {
@@ -145,7 +145,8 @@ public struct APIProjectInfo: Codable, Sendable {
             "id": .string(id),
             "name": .string(name),
             "path": .string(path),
-            "agent": .string(agent.rawValue),
+            "agent": .string(pluginID),
+            "plugin_id": .string(pluginID),
         ]
         if let lastUsed {
             dict["last_used"] = .string(Self.iso8601.string(from: lastUsed))

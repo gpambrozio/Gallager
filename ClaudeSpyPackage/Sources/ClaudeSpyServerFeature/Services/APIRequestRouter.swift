@@ -156,9 +156,9 @@
         let onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
 
         let onProjectList: (@Sendable () async -> [[String: JSONValue]])?
-        /// Parameters: (path, args, agent). `agent` defaults to `.claudeCode`
-        /// when callers don't specify one over the wire.
-        let onProjectStart: (@Sendable (String, [String], CodingAgent) async throws -> [String: JSONValue])?
+        /// Parameters: (path, args, pluginID). `pluginID` defaults to
+        /// `"claude-code"` when callers don't specify one over the wire.
+        let onProjectStart: (@Sendable (String, [String], String) async throws -> [String: JSONValue])?
 
         /// Parameters: (sessionId, [name: optional value]). `nil` value unsets.
         let onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)?
@@ -233,7 +233,7 @@
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
             onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil,
             onProjectList: (@Sendable () async -> [[String: JSONValue]])? = nil,
-            onProjectStart: (@Sendable (String, [String], CodingAgent) async throws -> [String: JSONValue])? = nil,
+            onProjectStart: (@Sendable (String, [String], String) async throws -> [String: JSONValue])? = nil,
             onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)? = nil,
             onLayoutApply: (
                 @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
@@ -655,9 +655,13 @@
                     } else {
                         args = []
                     }
-                    let agent: CodingAgent = (params["agent"]?.stringValue)
-                        .flatMap(CodingAgent.init(rawValue:)) ?? .claudeCode
-                    if let result = try await onProjectStart?(path, args, agent) {
+                    // Accept both the legacy `agent` key and the new
+                    // `plugin_id` key. Defaults to "claude-code" so the CLI's
+                    // pre-plugin behaviour is preserved.
+                    let pluginID = params["plugin_id"]?.stringValue
+                        ?? params["agent"]?.stringValue
+                        ?? "claude-code"
+                    if let result = try await onProjectStart?(path, args, pluginID) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Project start not available")

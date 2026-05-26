@@ -796,7 +796,7 @@
                     let projects = (await claude + codex).sortedByLastUsed()
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
-                onProjectStart: { [tmux, weak self] path, args, agent in
+                onProjectStart: { [tmux, weak self] path, args, pluginID in
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     var isDirectory: ObjCBool = false
                     guard
@@ -814,7 +814,7 @@
                         guard let manager = self?.pluginManager else { return nil }
                         guard
                             let spec = try? await manager.commandForLaunch(
-                                pluginID: agent.rawValue,
+                                pluginID: pluginID,
                                 projectPath: url.path
                             )
                         else { return nil }
@@ -1728,20 +1728,21 @@
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                let pluginID = spec.agent.rawValue
-                let runCommand: String? = if
+                let launchSpec: PluginManager.LaunchCommandSpec? = if
                     spec.workingDirectory != nil,
-                    settings.autoRunInProjects(forPluginID: pluginID),
-                    let manager = pluginManager,
-                    let launchSpec = try? await manager.commandForLaunch(
-                        pluginID: pluginID,
+                    settings.autoRunInProjects(forPluginID: spec.pluginID),
+                    let manager = pluginManager {
+                    try? await manager.commandForLaunch(
+                        pluginID: spec.pluginID,
                         projectPath: workingDirectory
-                    ) {
-                    launchSpec.args.isEmpty
-                        ? launchSpec.command
-                        : ([launchSpec.command] + launchSpec.args).joined(separator: " ")
+                    )
                 } else {
                     nil
+                }
+                let runCommand: String? = launchSpec.map { resolved in
+                    resolved.args.isEmpty
+                        ? resolved.command
+                        : ([resolved.command] + resolved.args).joined(separator: " ")
                 }
 
                 let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
@@ -1753,9 +1754,10 @@
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from project" request — that's the only flow today
                 // that supplies a directory. Name the first window after the
-                // agent's CLI command so the tab matches what's running.
+                // agent's CLI command (resolved by the sidecar) so the tab
+                // matches what's running.
                 let firstWindowName = spec.workingDirectory != nil
-                    ? spec.agent.defaultCommand
+                    ? (launchSpec?.command ?? "terminal 1")
                     : "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,

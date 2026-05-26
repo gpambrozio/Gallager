@@ -483,11 +483,13 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// so that `claude` picks up the right config.
     public let claudeConfigDir: String?
 
-    /// Which coding-agent CLI to launch when `workingDirectory` is supplied
-    /// (and the corresponding auto-run setting is enabled). Defaults to
-    /// `.claudeCode` for backward compatibility with viewers built before the
-    /// Codex integration.
-    public let agent: CodingAgent
+    /// Plugin id of the coding-agent CLI to launch when `workingDirectory`
+    /// is supplied (and the corresponding auto-run setting is enabled).
+    /// Matches the plugin manifest id — `"claude-code"` or `"codex"` for
+    /// the bundled plugins, any third-party id for installed plugins.
+    /// Defaults to `"claude-code"` for backward compatibility with viewers
+    /// built before the plugin system landed.
+    public let pluginID: String
 
     public init(
         sessionName: String,
@@ -495,14 +497,14 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
         height: Int,
         workingDirectory: String? = nil,
         claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
+        pluginID: String = "claude-code"
     ) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
         self.workingDirectory = workingDirectory
         self.claudeConfigDir = claudeConfigDir
-        self.agent = agent
+        self.pluginID = pluginID
     }
 
     public var commandType: CommandType {
@@ -511,8 +513,9 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
 
     // MARK: - Codable
 
-    /// Custom decoder so this build can talk to an older host that predates the
-    /// `agent` field. Treat absence as Claude Code — the only agent older
+    /// Custom decoder so this build can talk to an older host that predates
+    /// the `plugin_id` field (which still writes the legacy `agent` key on
+    /// the wire). Treat absence as Claude Code — the only agent older
     /// versions know about.
     private enum CodingKeys: String, CodingKey {
         case sessionName
@@ -520,6 +523,7 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
         case height
         case workingDirectory
         case claudeConfigDir
+        case pluginID = "plugin_id"
         case agent
     }
 
@@ -530,7 +534,26 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
         self.height = try container.decode(Int.self, forKey: .height)
         self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
         self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
-        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+        if let id = try container.decodeIfPresent(String.self, forKey: .pluginID) {
+            self.pluginID = id
+        } else if let legacy = try container.decodeIfPresent(String.self, forKey: .agent) {
+            // Cross-host fallback: an older peer sent the legacy `agent`
+            // raw value. Use it verbatim — those values ("claude-code" /
+            // "codex") are already the plugin ids.
+            self.pluginID = legacy
+        } else {
+            self.pluginID = "claude-code"
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sessionName, forKey: .sessionName)
+        try container.encode(width, forKey: .width)
+        try container.encode(height, forKey: .height)
+        try container.encodeIfPresent(workingDirectory, forKey: .workingDirectory)
+        try container.encodeIfPresent(claudeConfigDir, forKey: .claudeConfigDir)
+        try container.encode(pluginID, forKey: .pluginID)
     }
 }
 
@@ -989,7 +1012,7 @@ public enum CommandType: Codable, Sendable, Equatable {
         height: Int,
         workingDirectory: String? = nil,
         claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
+        pluginID: String = "claude-code"
     ) -> CommandType {
         .createTmuxSession(CreateTmuxSession(
             sessionName: sessionName,
@@ -997,7 +1020,7 @@ public enum CommandType: Codable, Sendable, Equatable {
             height: height,
             workingDirectory: workingDirectory,
             claudeConfigDir: claudeConfigDir,
-            agent: agent
+            pluginID: pluginID
         ))
     }
 

@@ -3,11 +3,12 @@ import Testing
 
 @Suite("CodexNotificationCopy")
 struct CodexNotificationCopyTests {
-    @Test("Agent display names match CodingAgent defaults")
+    @Test("Agent display names match legacy CodingAgent.codex defaults")
     func agentNames() {
-        // Lock the copy strings in — Task 21 deletes the legacy code path
-        // that derives these from `CodingAgent`, but the public copy must
-        // stay byte-identical so notifications don't visibly change shape.
+        // Lock the copy strings in — Task 21 deleted the legacy
+        // `CodingAgent.codex.{displayName,shortName}` helpers, but these
+        // public strings must stay byte-identical so notifications don't
+        // visibly change shape.
         #expect(CodexNotificationCopy.agentDisplayName == "Codex")
         #expect(CodexNotificationCopy.agentShortName == "Codex")
     }

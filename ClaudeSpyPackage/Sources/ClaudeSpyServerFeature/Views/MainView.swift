@@ -2,6 +2,7 @@ import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import ClaudeSpyPluginRuntime
 import Dependencies
 import SwiftUI
 
@@ -3662,22 +3663,23 @@ public struct MainView: View {
                 // Resolve the per-project launch command via the owning
                 // plugin sidecar. The plugin reads its own per-plugin
                 // `settings.json` (Spec §11), so this branch is fully
-                // plugin-id-native — no `CodingAgent` switch.
+                // plugin-id-native.
                 let projectPluginID = project?.pluginID
-                let projectAgent: CodingAgent? = projectPluginID.flatMap { CodingAgent(rawValue: $0) }
-                let runCommand: String? = if
+                let launchSpec: PluginManager.LaunchCommandSpec? = if
                     let pluginID = projectPluginID,
                     settings.autoRunInProjects(forPluginID: pluginID),
-                    let manager = coordinator.pluginManager,
-                    let launchSpec = try? await manager.commandForLaunch(
+                    let manager = coordinator.pluginManager {
+                    try? await manager.commandForLaunch(
                         pluginID: pluginID,
                         projectPath: workingDirectory
-                    ) {
-                    launchSpec.args.isEmpty
-                        ? launchSpec.command
-                        : ([launchSpec.command] + launchSpec.args).joined(separator: " ")
+                    )
                 } else {
                     nil
+                }
+                let runCommand: String? = launchSpec.map { spec in
+                    spec.args.isEmpty
+                        ? spec.command
+                        : ([spec.command] + spec.args).joined(separator: " ")
                 }
 
                 let extraEnvironment: [String] = if let configDir = project?.claudeConfigDir {
@@ -3689,8 +3691,10 @@ public struct MainView: View {
                 // Calculate optimal dimensions based on available space
                 let dimensions = calculateOptimalTerminalDimensions()
 
-                // Create the session with calculated dimensions
-                let firstWindowName = projectAgent?.defaultCommand ?? "terminal 1"
+                // Name the first window after the agent's CLI command so the
+                // tab matches what's running. Falls back to "terminal 1" when
+                // there's no project context or no launch spec was resolved.
+                let firstWindowName = launchSpec?.command ?? "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
                     width: dimensions.columns,
@@ -3737,8 +3741,7 @@ public struct MainView: View {
             height: dimensions.rows,
             workingDirectory: project?.path,
             claudeConfigDir: project?.claudeConfigDir,
-            agent: project
-                .flatMap { CodingAgent(rawValue: $0.pluginID) } ?? .claudeCode
+            pluginID: project?.pluginID ?? "claude-code"
         )
 
         guard let manager = coordinator.viewerConnectionManager else {
