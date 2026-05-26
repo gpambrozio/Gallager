@@ -11,9 +11,6 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Host registers with the relay server after connecting
     case registerHost(RegisterHostMessage)
 
-    /// Host forwards a hook event to be relayed to viewers
-    case hookEvent(HookEventMessage)
-
     /// Host responds to a command from viewer
     case commandResponse(CommandResponseMessage)
 
@@ -176,7 +173,6 @@ public extension WebSocketMessage {
 
     private enum MessageType: String, Codable {
         case registerHost
-        case hookEvent
         case commandResponse
         case terminalStream
         case sessionState
@@ -212,9 +208,6 @@ public extension WebSocketMessage {
         case .registerHost:
             let payload = try container.decode(RegisterHostMessage.self, forKey: .payload)
             self = .registerHost(payload)
-        case .hookEvent:
-            let payload = try container.decode(HookEventMessage.self, forKey: .payload)
-            self = .hookEvent(payload)
         case .commandResponse:
             let payload = try container.decode(CommandResponseMessage.self, forKey: .payload)
             self = .commandResponse(payload)
@@ -294,9 +287,6 @@ public extension WebSocketMessage {
         case let .registerHost(payload):
             try container.encode(MessageType.registerHost, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .hookEvent(payload):
-            try container.encode(MessageType.hookEvent, forKey: .type)
-            try container.encode(payload, forKey: .payload)
         case let .commandResponse(payload):
             try container.encode(MessageType.commandResponse, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -373,7 +363,6 @@ public extension WebSocketMessage {
     var messageType: String {
         switch self {
         case .registerHost: MessageType.registerHost.rawValue
-        case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalStream: MessageType.terminalStream.rawValue
         case .sessionState: MessageType.sessionState.rawValue
@@ -409,8 +398,7 @@ public extension WebSocketMessage {
     /// Whether this message type should be encrypted for E2EE.
     var shouldEncrypt: Bool {
         switch self {
-        case .hookEvent,
-             .sessionState,
+        case .sessionState,
              .command,
              .commandResponse,
              .terminalStream,

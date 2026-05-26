@@ -18,27 +18,6 @@ public struct PeerHelloMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Hook Event Relay
-
-/// A hook event wrapped for relay through the external server
-public struct HookEventMessage: Codable, Sendable {
-    public let pairId: String
-    public let event: HookEvent
-
-    public init(pairId: String, event: HookEvent) {
-        self.pairId = pairId
-        self.event = event
-    }
-
-    /// Project name extracted from the event's project path
-    public var projectName: String? {
-        guard let projectPath = event.projectPath, !projectPath.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: projectPath).lastPathComponent
-    }
-}
-
 // MARK: - Session State
 
 /// Complete session state for sync between host and viewer

@@ -662,36 +662,6 @@ struct AgentSessionCrossVersionTests {
     }
 }
 
-@Suite("HookEvent Cross-Version Decoding")
-struct HookEventCrossVersionTests {
-    @Test("Decodes legacy HookEvent without agent field")
-    func decodesLegacyHookEvent() throws {
-        // Round-trip a known event through the encoder, then strip the
-        // `agent` key from the wire to mimic what a `main`-version host
-        // would emit, and verify decode still works.
-        let original = HookEvent(
-            action: .setup(SetupBody(
-                sessionId: "abc",
-                hookEventName: "Setup",
-                trigger: .`init`
-            )),
-            projectPath: "/Users/test/Proj",
-            tmuxPane: "%0",
-            agent: .claudeCode
-        )
-        let encoder = JSONEncoder()
-        let encoded = try encoder.encode(original)
-        var root = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] ?? [:]
-        root.removeValue(forKey: "agent")
-        let stripped = try JSONSerialization.data(withJSONObject: root)
-
-        let decoded = try JSONDecoder().decode(HookEvent.self, from: stripped)
-
-        #expect(decoded.agent == .claudeCode)
-        #expect(decoded.tmuxPane == "%0")
-    }
-}
-
 @Suite("CreateTmuxSession Tests")
 struct CreateTmuxSessionTests {
     @Test("Round-trip preserves claudeConfigDir")
