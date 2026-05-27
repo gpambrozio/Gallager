@@ -138,7 +138,7 @@ public struct ClaudeCodeEventTranslator: Sendable {
         envelope(
             sessionID: body.sessionId,
             working: false,
-            attention: true,
+            attention: false,
             notification: .init(
                 title: ClaudeCodeNotificationCopy.agentDisplayName,
                 body: ClaudeCodeNotificationCopy.sessionStartedBody
