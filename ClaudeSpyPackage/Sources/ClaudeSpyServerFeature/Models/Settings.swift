@@ -111,7 +111,15 @@ public struct BrowserDomainRule: Codable, Identifiable, Sendable, Hashable {
 public extension AppearanceMode {
     var nsAppearance: NSAppearance? {
         switch self {
-        case .system: nil
+        case .system:
+            // E2E tests pin .system to light chrome so screenshots match
+            // the CI baselines regardless of the host machine's
+            // interface style — AppearanceModeScenario documents that
+            // "CI runs in light mode, so the System and Light selections
+            // produce equivalent app chrome".
+            CommandLine.arguments.contains("--e2e-test")
+                ? NSAppearance(named: .aqua)
+                : nil
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
         }
