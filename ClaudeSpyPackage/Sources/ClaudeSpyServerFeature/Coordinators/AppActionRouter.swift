@@ -47,14 +47,6 @@
             // session to a pane. Status sink typically runs first, but
             // some payloads (e.g. `_test: "open_file_suggestion"`) only
             // emit an AppAction.
-            //
-            // Refresh tmux pane metadata first so `bootstrapPluginSessionIfNeeded`
-            // and the per-action handlers downstream (which resolve a tmux
-            // sessionName from the pane state) see fresh data — without this
-            // an event arriving before the next periodic refresh would land on
-            // a PaneState with an empty sessionName, dropping suggestions.
-            let allPanes = await tmuxService.refreshPanes()
-            await mirrorManager.updatePaneStates(from: allPanes)
             if let sessionID {
                 mirrorManager.bootstrapPluginSessionIfNeeded(
                     pluginID: pluginID,
