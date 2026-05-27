@@ -50,6 +50,17 @@
             super.init()
         }
 
+        public func applicationWillFinishLaunching(_: Notification) {
+            // Pin the test instance to light appearance so screenshots
+            // are stable regardless of the host machine's interface
+            // style. The Mac baselines were captured in light mode and
+            // a host running in dark mode would otherwise diff ~75% on
+            // every Mac screenshot.
+            if CommandLine.arguments.contains("--e2e-test") {
+                NSApp.appearance = NSAppearance(named: .aqua)
+            }
+        }
+
         public func applicationShouldTerminate(
             _: NSApplication
         ) -> NSApplication.TerminateReply {
