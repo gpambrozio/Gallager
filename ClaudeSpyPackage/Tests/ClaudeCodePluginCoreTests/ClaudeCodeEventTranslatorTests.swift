@@ -99,14 +99,17 @@ struct ClaudeCodeEventTranslatorTests {
 
     // MARK: - sessionStart
 
-    @Test("sessionStart → working:false, attention:false, notification(Session started)")
+    @Test("sessionStart → working:false, attention:true, notification(Session started)")
     func sessionStart() async throws {
         let (raw, _) = try await translate(action: "sessionStart")
         let event = try #require(raw)
         #expect(event.pluginID == "claude-code")
         #expect(event.sessionID == "S1")
         #expect(event.working == false)
-        #expect(event.attention == false)
+        // SessionStart restores the legacy contract that the iOS sidebar
+        // surfaces a red "needs attention" indicator on every newly-
+        // started Claude session (see ClaudeSessionsShowScenario).
+        #expect(event.attention == true)
         #expect(event.notification?.title == "Claude Code")
         #expect(event.notification?.body == "Session started")
         #expect(event.responseRequest == nil)
