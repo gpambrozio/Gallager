@@ -75,9 +75,14 @@
             let cfPaths = existing.map { $0.path as CFString } as CFArray
             let box = CallbackBox(watcher: self)
             callbackBox = box
+            // `passRetained` so the C side owns its own +1 — the trampoline's
+            // `takeUnretainedValue()` is safe even if `callbackBox` is nilled
+            // before the dispatch queue drains. The matching `release()` runs
+            // in `stop()` after `FSEventStreamInvalidate` guarantees no further
+            // callbacks will fire.
             var context = FSEventStreamContext(
                 version: 0,
-                info: Unmanaged.passUnretained(box).toOpaque(),
+                info: Unmanaged.passRetained(box).toOpaque(),
                 retain: nil,
                 release: nil,
                 copyDescription: nil
@@ -123,6 +128,11 @@
                 FSEventStreamRelease(stream)
             }
             stream = nil
+            if let box = callbackBox {
+                // Reclaim the +1 we gave to FSEvents at start. Safe after
+                // Invalidate because no further callbacks will fire.
+                Unmanaged.passUnretained(box).release()
+            }
             callbackBox = nil
             onChange = nil
         }
@@ -135,7 +145,11 @@
             pendingTask?.cancel()
             let debounce = debounce
             let onChange = onChange
-            pendingTask = Task { [weak self] in
+            // `pendingTask` is intentionally left set after the worker exits —
+            // a finished task is harmless, and the next event replaces it
+            // wholesale. Clearing it from inside the worker raced with a
+            // fresh `didReceiveEvents()` and could nuke the new task.
+            pendingTask = Task {
                 do {
                     try await Task.sleep(for: debounce)
                 } catch {
@@ -143,12 +157,7 @@
                 }
                 guard !Task.isCancelled else { return }
                 await onChange?()
-                await self?.clearPending()
             }
-        }
-
-        private func clearPending() {
-            pendingTask = nil
         }
     }
 

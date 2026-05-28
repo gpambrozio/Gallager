@@ -681,8 +681,14 @@ final public class PluginManager {
             )
         }
 
-        // Fetch the manifest JSON.
-        let (manifestData, _) = try await URLSession.shared.data(from: manifestURL)
+        // Fetch the manifest JSON — hard-capped at 1 MiB so a hostile or
+        // accidentally-huge URL can't pull the whole payload into RAM on
+        // the MainActor.
+        let manifestData = try await fetchWithSizeCap(
+            manifestURL,
+            maxBytes: PluginManager.maxManifestBytes,
+            label: "manifest"
+        )
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let manifest: PluginManifest
@@ -713,7 +719,11 @@ final public class PluginManager {
         // Resolve the bundle URL: alongside the manifest, named
         // `bundle.zip`. v2 will let the manifest specify its own location.
         let bundleURL = manifestURL.deletingLastPathComponent().appendingPathComponent("bundle.zip")
-        let (bundleData, _) = try await URLSession.shared.data(from: bundleURL)
+        let bundleData = try await fetchWithSizeCap(
+            bundleURL,
+            maxBytes: PluginManager.maxBundleBytes,
+            label: "bundle"
+        )
         let actualSHA = sha256Hex(of: bundleData)
         guard actualSHA.caseInsensitiveCompare(bundleSHA) == .orderedSame else {
             throw PluginManagerError.installFailed(
@@ -731,16 +741,20 @@ final public class PluginManager {
         let unzipDir = tempRoot.appendingPathComponent("unzipped", isDirectory: true)
         try fm.createDirectory(at: unzipDir, withIntermediateDirectories: true)
 
-        // Use `/usr/bin/unzip` — Foundation has no built-in zip support and
-        // every macOS ships unzip in the base system.
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-q", zipURL.path, "-d", unzipDir.path]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        // Hop off MainActor for the unzip — `process.waitUntilExit()` is
+        // synchronous and would otherwise freeze the UI for the duration of
+        // the extraction on large bundles or slow disks.
+        let unzipStatus = try await Task.detached(priority: .userInitiated) { () -> Int32 in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            process.arguments = ["-q", zipURL.path, "-d", unzipDir.path]
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }.value
+        guard unzipStatus == 0 else {
             throw PluginManagerError.installFailed(
-                message: "unzip exited with status \(process.terminationStatus)"
+                message: "unzip exited with status \(unzipStatus)"
             )
         }
 
@@ -777,6 +791,40 @@ final public class PluginManager {
 
         // Best-effort cleanup of the staging dir.
         try? fm.removeItem(at: tempRoot)
+    }
+
+    /// Manifest fetch ceiling. LSP-style manifests are a few KiB; 1 MiB
+    /// leaves room for screenshots/icons inlined as data URLs but rejects
+    /// pathological payloads.
+    static let maxManifestBytes = 1 * 1_024 * 1_024
+    /// Bundle fetch ceiling. Real bundles are tens of MiB at most.
+    static let maxBundleBytes = 50 * 1_024 * 1_024
+
+    /// Download `url` enforcing a hard byte ceiling. Refuses upfront when
+    /// `Content-Length` is over the cap; otherwise streams the body and
+    /// throws once the accumulated count crosses the limit.
+    private func fetchWithSizeCap(
+        _ url: URL,
+        maxBytes: Int,
+        label: String
+    ) async throws -> Data {
+        let (byteStream, response) = try await URLSession.shared.bytes(from: url)
+        if response.expectedContentLength > Int64(maxBytes) {
+            throw PluginManagerError.installFailed(
+                message: "\(label) advertised \(response.expectedContentLength) bytes — exceeds cap \(maxBytes)"
+            )
+        }
+        var data = Data()
+        data.reserveCapacity(min(Int(max(response.expectedContentLength, 0)), maxBytes))
+        for try await byte in byteStream {
+            if data.count >= maxBytes {
+                throw PluginManagerError.installFailed(
+                    message: "\(label) exceeded \(maxBytes) bytes mid-stream"
+                )
+            }
+            data.append(byte)
+        }
+        return data
     }
 
     private func sha256Hex(of data: Data) -> String {
@@ -867,10 +915,11 @@ final public class PluginManager {
             presentations.append(presentation)
             // Notify the app so it can broadcast the updated bundle to any
             // connected viewers — covers both initial start and mid-session
-            // manifest upgrade (Spec §15.3 #5).
+            // manifest upgrade (Spec §15.3 #5). Awaited inline so back-to-back
+            // presentation changes can't reach iOS out of order.
             if let handler = onPresentationsChanged {
                 let snapshot = presentations
-                Task { await handler(snapshot) }
+                await handler(snapshot)
             }
         } catch {
             // Missing icon shouldn't take the whole start sequence down —

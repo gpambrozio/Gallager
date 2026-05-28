@@ -73,9 +73,20 @@ public actor JSONRPCConnection {
     private let logger: Logger
 
     private var nextID = 1
-    private var pending: [JSONRPCID: CheckedContinuation<Data, Error>] = [:]
+    /// Pending request slots. Switched from `CheckedContinuation` to
+    /// `AsyncThrowingStream.Continuation` so callers can register
+    /// synchronously on the actor *before* the wire write, closing the race
+    /// where a fast peer's reply landed before the continuation existed.
+    private var pending: [JSONRPCID: AsyncThrowingStream<Data, Error>.Continuation] = [:]
     private var readerTask: Task<Void, Never>?
     private var isStopped = false
+
+    /// Serial queue that owns `input.write(contentsOf:)`. Writes are offloaded
+    /// so a full child stdin pipe doesn't pin the actor's executor and starve
+    /// every other call (Spec §12's heartbeat in particular).
+    private nonisolated let writeQueue = DispatchQueue(
+        label: "gallager.plugin.rpc.write"
+    )
 
     /// JSON encoders/decoders configured to match the wire convention
     /// (snake_case keys, ISO-8601 dates). Reused across calls so we don't
@@ -128,7 +139,7 @@ public actor JSONRPCConnection {
         let outstanding = pending
         pending.removeAll()
         for (_, continuation) in outstanding {
-            continuation.resume(throwing: JSONRPCConnectionError.connectionClosed)
+            continuation.finish(throwing: JSONRPCConnectionError.connectionClosed)
         }
     }
 
@@ -168,7 +179,8 @@ public actor JSONRPCConnection {
 
     // MARK: - Outbound: notifications
 
-    /// Fire-and-forget: encode + frame + write a JSON-RPC notification.
+    /// Fire-and-forget on the wire — but the local write itself awaits so the
+    /// actor doesn't block on a full child stdin pipe.
     public func notify<P: Encodable & Sendable>(method: String, params: P) async throws {
         let paramsValue = try encodeParams(params)
         let notification = JSONRPCNotification(
@@ -177,14 +189,14 @@ public actor JSONRPCConnection {
             params: paramsValue
         )
         let body = try encodeMessage(.notification(notification))
-        try writeFrame(body)
+        try await writeFrame(body)
     }
 
     // MARK: - Outbound: implementation
 
-    /// Builds a request, registers a continuation, writes the frame, then
-    /// races a timeout against the response. On any failure the continuation
-    /// is removed from the table.
+    /// Builds a request, registers a response slot synchronously, writes the
+    /// frame, then races a timeout against the response. On any failure the
+    /// pending slot is removed.
     private func sendAndWaitForResult<P: Encodable & Sendable>(
         method: String,
         params: P,
@@ -206,67 +218,63 @@ public actor JSONRPCConnection {
         )
         let body = try encodeMessage(.request(request))
 
-        return try await withThrowingTaskGroup(of: Data.self) { group in
-            // Response branch — registers a continuation that the reader will
-            // resume when the matching response arrives. The continuation
-            // resolves to the raw `result` bytes so the typed decode happens
-            // outside the actor's critical section.
-            group.addTask { [weak self] in
-                guard let self else {
-                    throw JSONRPCConnectionError.connectionClosed
+        // Register the response slot synchronously, BEFORE writing, so a fast
+        // peer's reply can never beat us to `pending`. The actor's serial
+        // execution guarantees no other call sees an intermediate state.
+        let resultStream = registerPending(id: id)
+
+        do {
+            try await writeFrame(body)
+        } catch {
+            cancelPending(id: id, error: error)
+            throw error
+        }
+
+        do {
+            return try await withThrowingTaskGroup(of: Data.self) { group in
+                group.addTask {
+                    var iterator = resultStream.makeAsyncIterator()
+                    guard let data = try await iterator.next() else {
+                        throw JSONRPCConnectionError.connectionClosed
+                    }
+                    return data
                 }
-                return try await self.waitForResponse(id: id)
-            }
-
-            // Send the frame AFTER the continuation is registered so a fast
-            // peer can't reply before we're listening. With cooperative
-            // multitasking the registration runs synchronously inside the
-            // child task; the actor's serial queue keeps writes from racing.
-            try writeFrame(body)
-
-            // Timeout branch — drops the continuation on fire so a late reply
-            // doesn't try to resume an already-resumed continuation.
-            group.addTask { [weak self] in
-                try await Task.sleep(for: timeout)
-                if let self {
-                    await self.failIfPending(
-                        id: id,
-                        error: JSONRPCConnectionError.timeout(method: method)
-                    )
+                group.addTask { [weak self] in
+                    try await Task.sleep(for: timeout)
+                    let timeoutError = JSONRPCConnectionError.timeout(method: method)
+                    await self?.cancelPending(id: id, error: timeoutError)
+                    throw timeoutError
                 }
-                throw JSONRPCConnectionError.timeout(method: method)
-            }
-
-            do {
                 let result = try await group.next()!
                 group.cancelAll()
                 return result
-            } catch {
-                group.cancelAll()
-                throw error
             }
+        } catch {
+            // Defensive: in the connectionClosed / cancelled paths the slot
+            // may still be present. `cancelPending` is idempotent.
+            cancelPending(id: id, error: JSONRPCConnectionError.connectionClosed)
+            throw error
         }
     }
 
-    /// Register a continuation under `id` and suspend until the reader resumes
-    /// it. The continuation is removed from `pending` inside the reader.
-    private func waitForResponse(id: JSONRPCID) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            // If we were stopped between the caller's check and us getting
-            // here, fail immediately instead of orphaning the continuation.
-            if isStopped {
-                continuation.resume(throwing: JSONRPCConnectionError.connectionClosed)
-                return
-            }
-            pending[id] = continuation
+    /// Synchronously add a pending slot keyed by `id` and return its stream.
+    /// Runs entirely on the actor — no suspension between insert and write.
+    private func registerPending(id: JSONRPCID) -> AsyncThrowingStream<Data, Error> {
+        let (stream, continuation) = AsyncThrowingStream<Data, Error>.makeStream()
+        if isStopped {
+            continuation.finish(throwing: JSONRPCConnectionError.connectionClosed)
+            return stream
         }
+        pending[id] = continuation
+        return stream
     }
 
-    /// Cancel the continuation for `id` with the given error if it's still
-    /// pending. Used by the timeout branch so a late reply finds no entry.
-    private func failIfPending(id: JSONRPCID, error: Error) {
+    /// Remove and fail a pending slot if it's still there. Idempotent so the
+    /// timeout branch, the writeFrame failure path, and the catch-all can all
+    /// call it without coordinating.
+    private func cancelPending(id: JSONRPCID, error: Error) {
         guard let continuation = pending.removeValue(forKey: id) else { return }
-        continuation.resume(throwing: error)
+        continuation.finish(throwing: error)
     }
 
     // MARK: - Inbound
@@ -284,7 +292,7 @@ public actor JSONRPCConnection {
             do {
                 let body = try await JSONRPCFramer.read(from: bytes)
                 let message = try decoder.decode(JSONRPCMessage.self, from: body)
-                handleMessage(message, rawBody: body)
+                await handleMessage(message, rawBody: body)
             } catch is CancellationError {
                 break
             } catch {
@@ -297,19 +305,19 @@ public actor JSONRPCConnection {
         teardownOnReaderExit()
     }
 
-    private func handleMessage(_ message: JSONRPCMessage, rawBody: Data) {
+    /// Dispatch one inbound message. Inbound notifications + requests are
+    /// awaited inline so back-to-back wire messages reach the delegate in
+    /// arrival order — `Task.detached` / `Task { … }` here would break the
+    /// ordering the wire establishes (CLAUDE.md
+    /// `feedback_no-fire-and-forget-tasks.md`).
+    private func handleMessage(_ message: JSONRPCMessage, rawBody: Data) async {
         switch message {
         case let .response(response):
             handleResponse(response, rawBody: rawBody)
 
         case let .notification(notification):
-            // Notification handling is allowed to be async — hop into a
-            // detached Task so the reader doesn't stall on slow delegates.
-            // Capture the delegate once on the actor and pass it in.
             if let delegate = delegate {
-                Task.detached {
-                    await delegate.received(notification: notification)
-                }
+                await delegate.received(notification: notification)
             } else {
                 logger.debug(
                     "dropping notification \(notification.method) — no delegate"
@@ -317,15 +325,13 @@ public actor JSONRPCConnection {
             }
 
         case let .request(request):
+            let response: JSONRPCResponse
             if let delegate = delegate {
-                Task { [weak self] in
-                    let response = await delegate.received(request: request)
-                    await self?.writeResponse(response)
-                }
+                response = await delegate.received(request: request)
             } else {
                 // No delegate to ask — synthesize a "method not found" reply
                 // so the peer doesn't hang waiting.
-                let response = JSONRPCResponse(
+                response = JSONRPCResponse(
                     jsonrpc: "2.0",
                     id: request.id,
                     result: nil,
@@ -334,10 +340,8 @@ public actor JSONRPCConnection {
                         message: "Method not handled: \(request.method)"
                     )
                 )
-                Task { [weak self] in
-                    await self?.writeResponse(response)
-                }
             }
+            await writeResponse(response)
         }
     }
 
@@ -349,9 +353,7 @@ public actor JSONRPCConnection {
             return
         }
         if let rpcError = response.error {
-            continuation.resume(
-                throwing: JSONRPCConnectionError.rpcError(rpcError)
-            )
+            continuation.finish(throwing: JSONRPCConnectionError.rpcError(rpcError))
             return
         }
         // The `result` we hand back to the typed `send<R>` is encoded fresh
@@ -360,21 +362,22 @@ public actor JSONRPCConnection {
         do {
             resultBody = try encoder.encode(response.result ?? JSONValue.null)
         } catch {
-            continuation.resume(
+            continuation.finish(
                 throwing: JSONRPCConnectionError.decodingFailed(
                     "could not re-encode result: \(error)"
                 )
             )
             return
         }
-        continuation.resume(returning: resultBody)
+        continuation.yield(resultBody)
+        continuation.finish()
     }
 
     /// Send a response (built by the delegate) back over the wire.
-    private func writeResponse(_ response: JSONRPCResponse) {
+    private func writeResponse(_ response: JSONRPCResponse) async {
         do {
             let body = try encodeMessage(.response(response))
-            try writeFrame(body)
+            try await writeFrame(body)
         } catch {
             logger.warning("failed to write response \(response.id): \(error)")
         }
@@ -388,7 +391,7 @@ public actor JSONRPCConnection {
         let outstanding = pending
         pending.removeAll()
         for (_, continuation) in outstanding {
-            continuation.resume(throwing: JSONRPCConnectionError.connectionClosed)
+            continuation.finish(throwing: JSONRPCConnectionError.connectionClosed)
         }
     }
 
@@ -414,12 +417,25 @@ public actor JSONRPCConnection {
         }
     }
 
-    /// Write one framed JSON-RPC body to the input handle. Serialised because
-    /// every call is on the actor.
-    private func writeFrame(_ body: Data) throws {
+    /// Write one framed JSON-RPC body to the input handle on `writeQueue`,
+    /// suspending the actor only across the I/O itself. A backed-up child
+    /// stdin (e.g. sidecar stalled in `initialize`) blocks the write queue
+    /// alone instead of the actor's mailbox.
+    private func writeFrame(_ body: Data) async throws {
         let frame = JSONRPCFramer.encode(body)
+        let input = self.input
+        let queue = writeQueue
         do {
-            try input.write(contentsOf: frame)
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queue.async {
+                    do {
+                        try input.write(contentsOf: frame)
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
         } catch {
             throw JSONRPCConnectionError.connectionClosed
         }

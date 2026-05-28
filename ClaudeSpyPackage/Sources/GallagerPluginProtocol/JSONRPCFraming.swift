@@ -22,6 +22,11 @@ public enum JSONRPCFramer {
         return out
     }
 
+    /// Upper bound on the header block. LSP-style headers are short
+    /// (`Content-Length: <N>\r\n\r\n`); 16 KiB is generous and ensures a peer
+    /// that never sends `\r\n\r\n` can't grow `headerBuffer` until OOM.
+    public static let maxHeaderBytes = 16 * 1_024
+
     /// Read one framed message from `bytes` and return the JSON body.
     ///
     /// Parses headers byte-by-byte until the blank `\r\n\r\n` separator, then
@@ -42,6 +47,11 @@ public enum JSONRPCFramer {
                 throw JSONRPCFramingError.malformedHeader("stream ended before header terminator")
             }
             headerBuffer.append(byte)
+            if headerBuffer.count > maxHeaderBytes {
+                throw JSONRPCFramingError.malformedHeader(
+                    "header exceeded \(maxHeaderBytes) bytes without CRLFCRLF"
+                )
+            }
 
             // Cheap end-of-headers detector: last 4 bytes equal CRLFCRLF.
             if

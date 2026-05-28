@@ -45,6 +45,11 @@ public actor IngressSocketServer {
         )
     }
 
+    /// Maximum bytes the kernel will accept in `sockaddr_un.sun_path` on
+    /// Darwin (104) — `NWListener` surfaces a fairly opaque error if exceeded,
+    /// so callers get a more actionable diagnostic via `pathTooLong` first.
+    public static let maxSocketPathBytes = 104
+
     // MARK: - Lifecycle
 
     /// Start listening. Returns the stream of parsed frames. Throws on
@@ -52,6 +57,16 @@ public actor IngressSocketServer {
     /// Subscribe to ``parseErrors()`` before calling `start()` if you need
     /// to observe malformed-frame errors; otherwise they are dropped.
     public func start() throws -> AsyncStream<IngressFrame> {
+        // sun_path has a hard ~104-byte cap on Darwin; reject upfront with a
+        // useful error rather than letting NWListener emit "invalid argument".
+        let pathByteCount = socketURL.path.utf8.count
+        if pathByteCount >= IngressSocketServer.maxSocketPathBytes {
+            throw IngressSocketServerError.socketPathTooLong(
+                length: pathByteCount,
+                limit: IngressSocketServer.maxSocketPathBytes
+            )
+        }
+
         // Remove any stale socket file before binding. The kernel will refuse
         // `bind()` on a path that already exists, so a previous run's socket
         // file would prevent us from coming back up cleanly.
@@ -135,7 +150,10 @@ public actor IngressSocketServer {
         do {
             let lengthBytes = try await receiveExactly(4, on: connection)
             let length = lengthBytes.withUnsafeBytes { raw in
-                raw.load(as: UInt32.self).bigEndian
+                // `loadUnaligned` because Data's buffer doesn't guarantee
+                // 4-byte alignment — `load(as:)` would be UB on strict-alignment
+                // architectures and traps under sanitizers.
+                raw.loadUnaligned(as: UInt32.self).bigEndian
             }
             // Reject pathological lengths to avoid OOM from a hostile peer.
             // 32 MiB is far larger than any legitimate hook payload but small
@@ -216,4 +234,6 @@ public enum IngressSocketServerError: Error, Equatable, Sendable {
     /// — should never happen on a healthy connection, but bail out rather
     /// than spinning if it ever does.
     case unexpectedReceiveOutcome
+    /// The socket path exceeded Darwin's `sun_path` limit.
+    case socketPathTooLong(length: Int, limit: Int)
 }

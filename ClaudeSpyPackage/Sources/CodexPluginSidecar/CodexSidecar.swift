@@ -458,7 +458,18 @@
             let socketURL = stateDir.appendingPathComponent("ingress.sock")
             let server = IngressSocketServer(socketURL: socketURL)
             ingressServer = server
-            let frames = try await server.start()
+            let frames: AsyncStream<IngressFrame>
+            do {
+                frames = try await server.start()
+            } catch let error as IngressSocketServerError {
+                // Path-too-long is a host-environment problem (sandboxed test
+                // dirs, deep state roots). Log loudly and continue — the
+                // sidecar still works over stdin/stdout and the legacy
+                // wrapper script still drives the agent without ingress.
+                logger.warning("ingress disabled: \(error); ingress traffic will be dropped")
+                ingressServer = nil
+                return
+            }
             let errors = await server.parseErrors()
 
             ingressTask = Task { [weak self] in

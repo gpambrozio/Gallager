@@ -113,6 +113,9 @@ public actor SidecarSupervisor {
     private var heartbeatTask: Task<Void, Never>?
     private var backoffTask: Task<Void, Never>?
     private var crashTimestamps: [Date] = []
+    /// Callers parked inside `waitForProcessExit`. Resumed when the
+    /// terminationHandler fires (or `stop()` decides to give up).
+    private var exitWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Set during `stop()` so the termination handler doesn't trigger a
     /// restart for an intentional exit.
@@ -244,7 +247,7 @@ public actor SidecarSupervisor {
         // supervisor alive after callers drop it.
         proc.terminationHandler = { [weak self] _ in
             guard let self else { return }
-            Task { await self.handleTermination() }
+            Task { await self.processDidExit() }
         }
 
         try proc.run()
@@ -419,26 +422,68 @@ public actor SidecarSupervisor {
         }
     }
 
-    /// Poll `Process.isRunning` against the injected clock, with a deadline.
-    /// Returns true if the process exited within the deadline.
+    /// Wait for `process` to exit, up to `deadline`. Driven by the
+    /// `terminationHandler` (see `processDidExit`) rather than polling, so
+    /// the actor wakes the instant the child exits.
     private func waitForProcessExit(_ process: Process, deadline: Duration) async -> Bool {
         if !process.isRunning { return true }
 
-        let totalSeconds = Double(deadline.components.seconds)
-            + Double(deadline.components.attoseconds) / 1E18
-        let stepSeconds = max(0.05, totalSeconds / 20)
-        let step = Duration.milliseconds(Int(stepSeconds * 1_000))
-        let iterations = max(1, Int((totalSeconds / stepSeconds).rounded(.up)))
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                await self.awaitExit()
+                return true
+            }
+            group.addTask { [clock] in
+                try? await clock.sleep(for: deadline)
+                return false
+            }
+            let exited = await group.next() ?? false
+            group.cancelAll()
+            return exited
+        }
+    }
 
-        for _ in 0..<iterations {
-            if !process.isRunning { return true }
-            do {
-                try await clock.sleep(for: step)
-            } catch {
-                return !process.isRunning
+    /// Park on `exitWaiters` until the terminationHandler resumes us. If the
+    /// process is already gone by the time we get here, resolve immediately.
+    private func awaitExit() async {
+        if let process, !process.isRunning { return }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if let process, !process.isRunning {
+                    continuation.resume()
+                    return
+                }
+                exitWaiters.append(continuation)
+            }
+        } onCancel: {
+            // Hop back to the actor and resume any parked waiters; with a
+            // single in-flight `waitForProcessExit` call per stop attempt
+            // this just resumes our own continuation.
+            Task { [weak self] in
+                await self?.cancelExitWaiters()
             }
         }
-        return !process.isRunning
+    }
+
+    private func cancelExitWaiters() {
+        let parked = exitWaiters
+        exitWaiters.removeAll()
+        for continuation in parked {
+            continuation.resume()
+        }
+    }
+
+    /// Called on the actor when the child's `terminationHandler` fires. Wakes
+    /// any parked `waitForProcessExit` callers, then runs the existing crash
+    /// / restart bookkeeping.
+    private func processDidExit() async {
+        let parked = exitWaiters
+        exitWaiters.removeAll()
+        for continuation in parked {
+            continuation.resume()
+        }
+        await handleTermination()
     }
 
     // MARK: - Teardown
