@@ -190,7 +190,12 @@
                 return
             }
             do {
-                logText = try readTail(of: url, maxBytes: Self.maxBytesLoaded)
+                // Offload the blocking FileHandle read off the MainActor so
+                // tailing (a 1s repeat) doesn't hitch the UI on large logs.
+                let maxBytes = Self.maxBytesLoaded
+                logText = try await Task.detached {
+                    try Self.readTail(of: url, maxBytes: maxBytes)
+                }.value
             } catch let error as CocoaError where error.code == .fileNoSuchFile {
                 logText = ""
             } catch {
@@ -201,7 +206,7 @@
         /// Read up to `maxBytes` from the end of `url`. Larger files have
         /// their head truncated with a marker line so the user can tell
         /// the buffer doesn't represent the entire log.
-        private func readTail(of url: URL, maxBytes: Int) throws -> String {
+        private nonisolated static func readTail(of url: URL, maxBytes: Int) throws -> String {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             let endOffset = try handle.seekToEnd()

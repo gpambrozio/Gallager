@@ -5,7 +5,9 @@ import Foundation
 /// High-frequency wire format sent by the Mac whenever a session's status
 /// changes. iOS uses it to update sidebar badges.
 ///
-/// Encoded with `keyEncodingStrategy = .convertToSnakeCase` as:
+/// Snake_case keys come from the explicit `CodingKeys` below (the WebSocket
+/// transport encodes/decodes with a plain `JSONEncoder`/`JSONDecoder`, so it
+/// does not apply `.convertToSnakeCase`). On the wire this is:
 /// ```json
 /// {
 ///   "type": "agent_session_status",
@@ -25,10 +27,9 @@ public struct AgentSessionStatusUpdate: Codable, Sendable, Equatable {
     /// The session this status update applies to.
     public let sessionId: String
 
-    /// The plugin that owns this session. Property name uses lowercase `Id` so
-    /// `convertToSnakeCase` produces `plugin_id` on the wire automatically (no
-    /// explicit `CodingKeys` needed) — matches the casing in `HookEventMessage`,
-    /// `SessionStateMessage`, `PaneState`, etc.
+    /// The plugin that owns this session. The explicit `CodingKeys` below map
+    /// this to `plugin_id` on the wire, matching `AgentSession`,
+    /// `CommandModels`, and `RelayMessages`.
     public let pluginId: String
 
     /// Whether the agent is currently working (processing, not waiting for
@@ -67,8 +68,8 @@ public struct AgentSessionStatusUpdate: Codable, Sendable, Equatable {
     // `update.type` after decode) while still rejecting wrong payloads.
     private enum CodingKeys: String, CodingKey {
         case type
-        case sessionId
-        case pluginId
+        case sessionId = "session_id"
+        case pluginId = "plugin_id"
         case working
         case attention
         case timestamp

@@ -30,19 +30,24 @@ public struct ResponseRequestEntry: Sendable, Equatable {
     public let pluginId: String
     public let requestId: String
     public let request: AgentResponseRequest
+    /// When this request arrived locally. Used to select the most recent
+    /// request when several are open on the same session simultaneously.
+    public let receivedAt: Date
 
     public init(
         hostId: String,
         sessionId: String,
         pluginId: String,
         requestId: String,
-        request: AgentResponseRequest
+        request: AgentResponseRequest,
+        receivedAt: Date = Date()
     ) {
         self.hostId = hostId
         self.sessionId = sessionId
         self.pluginId = pluginId
         self.requestId = requestId
         self.request = request
+        self.receivedAt = receivedAt
     }
 }
 

@@ -363,11 +363,14 @@ struct AgentSessionStatusUpdateTests {
             timestamp: Date(timeIntervalSince1970: 1_716_575_531)
         )
 
-        let encoder = snakeCaseEncoder()
+        // The WebSocket transport encodes/decodes with a plain coder (no
+        // key strategy); `AgentSessionStatusUpdate` carries explicit
+        // snake_case `CodingKeys`, so round-trip through the production coder.
+        let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(original)
 
-        let decoder = snakeCaseDecoder()
+        let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(AgentSessionStatusUpdate.self, from: data)
 
@@ -384,7 +387,9 @@ struct AgentSessionStatusUpdateTests {
             timestamp: Date(timeIntervalSince1970: 0)
         )
 
-        let encoder = snakeCaseEncoder()
+        // Production transport uses a plain encoder; the explicit snake_case
+        // `CodingKeys` are what put `session_id`/`plugin_id` on the wire.
+        let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(original)
         let json = try #require(String(data: data, encoding: .utf8))
@@ -693,6 +698,70 @@ struct WebSocketMessagePluginEnvelopeTests {
         }
         #expect(decodedPayload == payload)
         #expect(original.messageType == "plugin_presentations")
+    }
+
+    @Test("Production encoder pins the real WebSocket wire keys")
+    func productionWireFormatIsPinned() throws {
+        // The per-type tests above encode through `snakeCaseEncoder()`
+        // (`.convertToSnakeCase`), but the WebSocket transport
+        // (`WebSocketMessage.encrypt`, `ConnectedViewer.send`,
+        // `ExternalServerClient.send`) uses a plain `JSONEncoder` with only
+        // `dateEncodingStrategy = .iso8601` — it never sets that strategy.
+        // This test encodes through that exact production config so it pins
+        // the bytes that actually travel over the wire, rather than what the
+        // snake_case strategy would synthesize.
+
+        // `AgentSessionStatusUpdate` has explicit snake_case `CodingKeys`, so
+        // its envelope keys are genuinely snake_case on the wire.
+        let statusData = try encoder().encode(
+            WebSocketMessage.agentSessionStatus(AgentSessionStatusUpdate(
+                sessionId: "s1",
+                pluginId: "claude-code",
+                working: true,
+                attention: false,
+                timestamp: Date(timeIntervalSince1970: 1_716_575_531)
+            ))
+        )
+        let statusJSON = try #require(String(data: statusData, encoding: .utf8))
+        #expect(statusJSON.contains("\"session_id\":\"s1\""))
+        #expect(statusJSON.contains("\"plugin_id\":\"claude-code\""))
+
+        // `AgentResponseRequestMessage`/`AgentResponseSubmission` use bare
+        // `CodingKeys` (no snake_case raw values), so without the conversion
+        // strategy the envelope keys are emitted as camelCase on the wire.
+        // The discriminator strings remain snake_case because they are enum
+        // raw values, not key names. Pinning the actual camelCase keys here
+        // documents the real contract and keeps the symmetric round-trip
+        // tests below from masking it.
+        let requestData = try encoder().encode(
+            WebSocketMessage.agentResponseRequest(AgentResponseRequestMessage(
+                sessionId: "s1",
+                pluginId: "claude-code",
+                requestId: "r1",
+                request: .approvePlan(ApprovePlanRequest(plan: "do it", allowEdit: true))
+            ))
+        )
+        let requestJSON = try #require(String(data: requestData, encoding: .utf8))
+        #expect(requestJSON.contains("\"type\":\"agent_response_request\""))
+        #expect(requestJSON.contains("\"sessionId\":\"s1\""))
+        #expect(requestJSON.contains("\"pluginId\":\"claude-code\""))
+        #expect(requestJSON.contains("\"requestId\":\"r1\""))
+        #expect(!requestJSON.contains("\"session_id\""))
+
+        let submissionData = try encoder().encode(
+            WebSocketMessage.agentResponseSubmission(AgentResponseSubmission(
+                sessionId: "s1",
+                pluginId: "claude-code",
+                requestId: "r1",
+                response: .replyAfterStop(ReplyAfterStopResponse(text: "ok"))
+            ))
+        )
+        let submissionJSON = try #require(String(data: submissionData, encoding: .utf8))
+        #expect(submissionJSON.contains("\"type\":\"agent_response_submission\""))
+        #expect(submissionJSON.contains("\"sessionId\":\"s1\""))
+        #expect(submissionJSON.contains("\"pluginId\":\"claude-code\""))
+        #expect(submissionJSON.contains("\"requestId\":\"r1\""))
+        #expect(!submissionJSON.contains("\"plugin_id\""))
     }
 
     @Test("All new envelopes are gated for E2EE")

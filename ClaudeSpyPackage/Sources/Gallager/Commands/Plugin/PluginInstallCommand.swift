@@ -37,8 +37,8 @@ struct PluginInstallCommand: ParsableCommand {
     @OptionGroup var options: GlobalOptions
 
     func run() throws {
-        guard URL(string: url) != nil else {
-            throw ValidationError("Invalid URL: \(url)")
+        guard let parsed = URL(string: url), parsed.scheme?.lowercased() == "https" else {
+            throw ValidationError("Manifest URL must be an https:// URL: \(url)")
         }
 
         if !yes {

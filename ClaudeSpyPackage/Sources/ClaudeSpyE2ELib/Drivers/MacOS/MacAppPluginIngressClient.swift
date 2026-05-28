@@ -80,15 +80,20 @@ public actor MacAppPluginIngressClient {
                         cont.resume(throwing: error)
                     }
                 case let .waiting(error):
-                    // `.waiting` means the connection is stuck (e.g. the
-                    // socket file exists but no listener is bound, or the
-                    // listener queue is full). Surface it so the test fails
-                    // fast rather than hanging until the orchestrator's
-                    // outer step timeout.
-                    if didResume.compareAndSet(false, true) {
-                        connection.cancel()
-                        cont.resume(throwing: error)
-                    }
+                    // `.waiting` is a *retryable* state — Network.framework
+                    // keeps trying and typically recovers to `.ready` on its
+                    // own (e.g. an ECONNREFUSED against a Unix socket whose
+                    // listener is mid-bind). This is exactly the race after a
+                    // sidecar restart: `IngressSocketServer.start()` removes
+                    // and re-binds the socket while the orchestrator only
+                    // gates on `fileExists`, so the file can be back before
+                    // the listener calls `accept()`. Let it ride and rely on
+                    // the outer step timeout to catch a genuinely stuck
+                    // connection rather than failing fast on a recoverable
+                    // retry.
+                    self.logger.warning(
+                        "ingress connection waiting: \(error) — retrying"
+                    )
                 default:
                     break
                 }

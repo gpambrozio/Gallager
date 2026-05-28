@@ -258,15 +258,24 @@ final public class PluginManager {
     public func enable(pluginID: String) async throws {
         try await registry.setEnabled(id: pluginID, enabled: true)
         guard supervisors[pluginID] == nil else { return }
-        guard
-            let manifest = manifestsByID[pluginID],
-            let pluginDir = pluginDirsByID[pluginID],
-            let bridge = supervisorBridge
-        else {
-            throw PluginManagerError.unknownPlugin(id: pluginID)
+        // Roll the registry's enabled bit back if anything below fails, so a
+        // failed spawn/load doesn't leave `registry.json` claiming the plugin
+        // is enabled while no supervisor is actually running (an
+        // inconsistency that would otherwise persist across launches).
+        do {
+            guard
+                let manifest = manifestsByID[pluginID],
+                let pluginDir = pluginDirsByID[pluginID],
+                let bridge = supervisorBridge
+            else {
+                throw PluginManagerError.unknownPlugin(id: pluginID)
+            }
+            try await spawnSupervisor(manifest: manifest, pluginDir: pluginDir, bridge: bridge)
+            try await loadPresentation(manifest: manifest, pluginDir: pluginDir)
+        } catch {
+            try? await registry.setEnabled(id: pluginID, enabled: false)
+            throw error
         }
-        try await spawnSupervisor(manifest: manifest, pluginDir: pluginDir, bridge: bridge)
-        try await loadPresentation(manifest: manifest, pluginDir: pluginDir)
     }
 
     /// Stop the supervisor and flip the registry's enabled bit off.
@@ -700,6 +709,14 @@ final public class PluginManager {
             )
         }
 
+        // `manifest.id` flows straight into on-disk paths (`installDir`,
+        // `layout.stateDir(id)`, `layout.logsDir(id)`) and
+        // `appendingPathComponent` does NOT collapse `..`, so an id like
+        // "../../foo" would let createDirectory/moveItem/removeItem escape
+        // `~/.gallager/plugins/`. Constrain it to a strict allow-list before
+        // any path is built. (Download came from a fully-untrusted source.)
+        try Self.validatePluginID(manifest.id)
+
         // Reject id collisions with installed plugins. Bundled plugins win.
         let entries = try await registry.entries()
         if entries.contains(where: { $0.id == manifest.id }) {
@@ -757,6 +774,14 @@ final public class PluginManager {
                 message: "unzip exited with status \(unzipStatus)"
             )
         }
+
+        // `unzip` skips traversal entries with a warning but still exits 0,
+        // and the SHA256 check only confirms the bundle matches the (equally
+        // untrusted) manifest's declared hash — it doesn't establish trust in
+        // the contents. Reject the install if any extracted entry's resolved
+        // path (including symlink targets) escapes `unzipDir`, so a crafted
+        // archive can't write outside the staging dir before the move.
+        try Self.assertNoTraversal(in: unzipDir, fileManager: fm)
 
         // Resolve the plugin install root: `~/.gallager/plugins/<id>/`.
         let userPluginsDir = layout.userPluginsDir()
@@ -816,15 +841,72 @@ final public class PluginManager {
         }
         var data = Data()
         data.reserveCapacity(min(Int(max(response.expectedContentLength, 0)), maxBytes))
+        // Drain in 64 KiB chunks rather than one async-iterator hop +
+        // single-byte append per byte — that's ~52M hops for a 50 MiB bundle.
+        // The cap still fires mid-stream so a server that lies about
+        // `Content-Length` can't blow past `maxBytes`.
+        let chunkSize = 64 * 1_024
+        var chunk = Data()
+        chunk.reserveCapacity(chunkSize)
         for try await byte in byteStream {
-            if data.count >= maxBytes {
-                throw PluginManagerError.installFailed(
-                    message: "\(label) exceeded \(maxBytes) bytes mid-stream"
-                )
+            chunk.append(byte)
+            if chunk.count >= chunkSize {
+                data.append(chunk)
+                chunk.removeAll(keepingCapacity: true)
+                if data.count > maxBytes {
+                    throw PluginManagerError.installFailed(
+                        message: "\(label) exceeded \(maxBytes) bytes mid-stream"
+                    )
+                }
             }
-            data.append(byte)
+        }
+        data.append(chunk)
+        if data.count > maxBytes {
+            throw PluginManagerError.installFailed(
+                message: "\(label) exceeded \(maxBytes) bytes mid-stream"
+            )
         }
         return data
+    }
+
+    /// Strict allow-list for plugin ids that get baked into on-disk paths.
+    /// Must start with `[a-z0-9]` and contain only `[a-z0-9._-]` thereafter
+    /// — no `/`, no `..`, no leading dot — with a sane length ceiling. Throws
+    /// `installFailed` so a hostile manifest can't traverse outside the
+    /// per-plugin install / state / logs directories.
+    static func validatePluginID(_ id: String) throws {
+        let pattern = "^[a-z0-9][a-z0-9._-]*$"
+        guard
+            id.count <= 128,
+            id.range(of: pattern, options: .regularExpression) != nil,
+            !id.contains("..")
+        else {
+            throw PluginManagerError.installFailed(
+                message: "plugin id '\(id)' is invalid; must match \(pattern), have no '..', and be ≤128 chars"
+            )
+        }
+    }
+
+    /// Walk every extracted entry and confirm its resolved path stays inside
+    /// `root`. Catches path-traversal (`../`) and symlink entries pointing
+    /// outside the staging dir — both of which `/usr/bin/unzip` tolerates
+    /// with a zero exit status. Throws `installFailed` on the first escape.
+    static func assertNoTraversal(in root: URL, fileManager fm: FileManager) throws {
+        // `standardizedFileURL` collapses `..`; `resolvingSymlinksInPath`
+        // follows symlink targets so an entry that links outside is caught.
+        let rootResolved = root.standardizedFileURL.resolvingSymlinksInPath()
+        let prefix = rootResolved.path.hasSuffix("/") ? rootResolved.path : rootResolved.path + "/"
+        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for case let entry as URL in enumerator {
+            let resolved = entry.standardizedFileURL.resolvingSymlinksInPath()
+            guard resolved.path == rootResolved.path || resolved.path.hasPrefix(prefix) else {
+                throw PluginManagerError.installFailed(
+                    message: "bundle contains an entry that escapes the extraction dir: \(entry.path)"
+                )
+            }
+        }
     }
 
     private func sha256Hex(of data: Data) -> String {

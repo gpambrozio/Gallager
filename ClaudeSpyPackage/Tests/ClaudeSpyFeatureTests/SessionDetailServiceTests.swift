@@ -170,6 +170,54 @@ struct SessionDetailServiceTests {
         #expect(service.openResponseRequest == nil)
     }
 
+    @Test("openResponseRequest picks the most recently received request when several are open")
+    func openResponseRequestPicksMostRecent() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        seedSession(
+            on: sessionStore,
+            hostId: "test-pair",
+            paneId: "%1",
+            sessionId: "abc-123"
+        )
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        let base = Date()
+        // The newer request has a `requestId` that sorts lexicographically
+        // BEFORE the older one, so selecting by arrival time (not id) is the
+        // only way to land on it.
+        sessionStore.presentResponseRequest(
+            ResponseRequestEntry(
+                hostId: "test-pair",
+                sessionId: "abc-123",
+                pluginId: "claude-code",
+                requestId: "req-zzz-old",
+                request: .prompt(PromptRequest(placeholder: "older")),
+                receivedAt: base
+            )
+        )
+        sessionStore.presentResponseRequest(
+            ResponseRequestEntry(
+                hostId: "test-pair",
+                sessionId: "abc-123",
+                pluginId: "claude-code",
+                requestId: "req-aaa-new",
+                request: .prompt(PromptRequest(placeholder: "newer")),
+                receivedAt: base.addingTimeInterval(5)
+            )
+        )
+        service.refreshOpenResponseRequestForTesting()
+
+        #expect(service.openResponseRequest?.id == "req-aaa-new")
+    }
+
     // MARK: - Pane Active Status Tests
 
     @Test("Pane active status reflects session store state")

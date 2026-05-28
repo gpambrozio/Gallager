@@ -42,7 +42,7 @@ struct PluginCallCommand: ParsableCommand {
         if let paramsJSON, !paramsJSON.isEmpty {
             rawParams = paramsJSON
         } else if !isStdinTTY() {
-            let stdin = FileHandle.standardInput.availableData
+            let stdin = FileHandle.standardInput.readDataToEndOfFile()
             if let str = String(data: stdin, encoding: .utf8), !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 rawParams = str
             } else {

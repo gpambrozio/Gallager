@@ -371,7 +371,7 @@
         fileprivate static func runCodex(
             binary: String,
             arguments: [String],
-            timeout _: TimeInterval
+            timeout: TimeInterval
         ) async throws -> RunResult {
             try await Task.detached(priority: .userInitiated) { () -> RunResult in
                 let process = Process()
@@ -385,10 +385,38 @@
                 process.standardError = stderrPipe
 
                 try process.run()
-                process.waitUntilExit()
 
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                // Watchdog: if the process outlives `timeout`, terminate it
+                // (SIGTERM, then SIGKILL) so an interactive login shell that
+                // blocks on a slow `~/.zshrc` prompt can't hang the RPC
+                // forever. Killing the process closes its pipe write ends,
+                // which lets the reads below hit EOF and unblock.
+                let watchdog = Task {
+                    try? await Task.sleep(for: .seconds(timeout))
+                    guard process.isRunning else { return }
+                    process.terminate()
+                    try? await Task.sleep(for: .seconds(2))
+                    if process.isRunning {
+                        kill(process.processIdentifier, SIGKILL)
+                    }
+                }
+                defer { watchdog.cancel() }
+
+                // Drain both pipes *concurrently* before waiting on exit.
+                // `readDataToEndOfFile()` returns on pipe EOF (the child
+                // closing its write ends on exit); reading them sequentially
+                // would still deadlock if the child fills stderr's buffer
+                // (~64KB) while we're blocked draining stdout, so run them on
+                // separate tasks.
+                async let stdoutTask = Task.detached {
+                    stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                }.value
+                async let stderrTask = Task.detached {
+                    stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                }.value
+                let stdoutData = await stdoutTask
+                let stderrData = await stderrTask
+                process.waitUntilExit()
 
                 return RunResult(
                     exitCode: process.terminationStatus,

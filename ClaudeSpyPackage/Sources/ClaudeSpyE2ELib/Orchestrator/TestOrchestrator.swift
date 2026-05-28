@@ -584,6 +584,14 @@ public actor TestOrchestrator {
             // don't share `registry.json`, per-plugin state, ingress
             // sockets, or settings.
             let stateRoot = gallagerStateRoot(for: instance)
+            // Defensively clear before creating so a launch starts from a clean
+            // tree even if a prior run was aborted (crash, Ctrl-C, or a hang past
+            // the step timeout) and `cleanup()` never ran. Otherwise a stale
+            // `registry.json`, per-plugin `state/`, or leftover `ingress.sock`
+            // would leak into this launch — the last is especially nasty because
+            // `macSendRawHookPayload` only waits for the socket file to *exist*,
+            // so it could target a dead listener.
+            try? FileManager.default.removeItem(atPath: stateRoot)
             try? FileManager.default.createDirectory(
                 at: URL(fileURLWithPath: stateRoot, isDirectory: true),
                 withIntermediateDirectories: true

@@ -59,13 +59,12 @@ final public class DefaultAgentResponseSubmitter: AgentResponseSubmitter {
         requestID: String,
         response: AgentResponse
     ) async {
-        // Optimistically clear the local presentation as soon as the user
-        // submits. The Mac will also send an `agent_response_request` with
-        // `request == nil` once it accepts the submission, but doing it here
-        // first means the UI doesn't briefly show the form again if the user
-        // dismisses the sheet before that round-trip lands.
-        sessionStore.dismissResponseRequest(requestID: requestID)
-
+        // Intentionally do NOT clear the local presentation here. The
+        // response views show a brief "Reply submitted" confirmation once
+        // `submit` returns, and an optimistic dismiss would tear that view
+        // down before it can render. The Mac sends an `agent_response_request`
+        // with `request == nil` once it accepts the submission, which is the
+        // authoritative signal that dismisses the form.
         let submission = AgentResponseSubmission(
             sessionId: sessionID,
             pluginId: pluginID,

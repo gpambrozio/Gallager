@@ -1836,9 +1836,9 @@
                     nil
                 }
                 let runCommand: String? = launchSpec.map { resolved in
-                    resolved.args.isEmpty
-                        ? resolved.command
-                        : ([resolved.command] + resolved.args).joined(separator: " ")
+                    ([resolved.command] + resolved.args)
+                        .map(shellQuoteSingle)
+                        .joined(separator: " ")
                 }
 
                 let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {

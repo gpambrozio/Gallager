@@ -121,13 +121,18 @@ final public class SessionDetailService {
                 && entry.pluginId == session.pluginID
         }
 
-        // Most-recent wins when multiple are open simultaneously.
+        // Most-recent wins when multiple are open simultaneously, ordered by
+        // the arrival timestamp stamped on each entry. `requestId` is only a
+        // stable tiebreak for entries that arrived in the same instant.
         let latest = candidates.max(by: { lhs, rhs in
-            lhs.requestId.localizedCompare(rhs.requestId) == .orderedAscending
+            if lhs.receivedAt != rhs.receivedAt {
+                return lhs.receivedAt < rhs.receivedAt
+            }
+            return lhs.requestId.localizedCompare(rhs.requestId) == .orderedAscending
         })
 
         if let latest {
-            openResponseRequest = OpenResponseRequest(entry: latest)
+            openResponseRequest = OpenResponseRequest(entry: latest, receivedAt: latest.receivedAt)
         } else {
             openResponseRequest = nil
         }

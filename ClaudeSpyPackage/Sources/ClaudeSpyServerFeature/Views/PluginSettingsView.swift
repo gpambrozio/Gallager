@@ -33,6 +33,7 @@
         @State private var isInstallingHooks = false
 
         @State private var enabled = true
+        @State private var isProgrammaticEnabledChange = false
         @State private var bundled = true
         @State private var sourceDescription = ""
 
@@ -62,6 +63,7 @@
 
                     Toggle("Enabled", isOn: $enabled)
                         .onChange(of: enabled) { _, newValue in
+                            guard !isProgrammaticEnabledChange else { return }
                             Task { await applyEnabled(newValue) }
                         }
                 }
@@ -158,7 +160,10 @@
             }
             do {
                 bundled = try await manager.isBundled(pluginID: presentation.id)
-                enabled = try await manager.isEnabled(pluginID: presentation.id)
+                let isEnabled = try await manager.isEnabled(pluginID: presentation.id)
+                isProgrammaticEnabledChange = true
+                enabled = isEnabled
+                isProgrammaticEnabledChange = false
                 let source = try await manager.source(pluginID: presentation.id)
                 sourceDescription = (source == .bundled) ? "Bundled" : "Installed from URL"
             } catch {
@@ -217,8 +222,11 @@
                 }
                 await refreshHookStatus()
             } catch {
-                // Roll back the toggle on failure.
+                // Roll back the toggle on failure. Guard the write so the
+                // rollback doesn't re-fire `onChange` and issue the opposite RPC.
+                isProgrammaticEnabledChange = true
                 enabled = !newValue
+                isProgrammaticEnabledChange = false
                 hookOperationError = error.localizedDescription
             }
         }

@@ -49,7 +49,7 @@ final public class PluginPresentationCache {
     ///   plugin-presentations.json`. Tests override with a temp file.
     public init(diskURL: URL = PluginPresentationCache.defaultDiskURL) {
         self.diskURL = diskURL
-        loadFromDisk()
+        Task { await loadFromDisk() }
     }
 
     // MARK: - Apply / Lookup
@@ -88,25 +88,33 @@ final public class PluginPresentationCache {
 
     // MARK: - Disk Persistence
 
-    /// Loads the cached presentations from disk synchronously. Missing files,
-    /// truncated JSON, or schema mismatches are logged and treated as an
-    /// empty cache — the next `apply(_:)` will overwrite the file.
-    private func loadFromDisk() {
-        guard FileManager.default.fileExists(atPath: diskURL.path) else { return }
-        do {
-            let data = try Data(contentsOf: diskURL)
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            let presentations = try decoder.decode([PluginPresentation].self, from: data)
-            byID = Dictionary(uniqueKeysWithValues: presentations.map { ($0.id, $0) })
-            logger.info("Loaded \(presentations.count) plugin presentations from disk")
-        } catch {
-            logger.warning(
-                "Failed to load plugin presentation cache; starting fresh",
-                metadata: ["error": "\(error)"]
-            )
-            byID = [:]
-        }
+    /// Loads the cached presentations from disk. The file read and JSON decode
+    /// happen on a background `Task.detached` so launch-time I/O never blocks
+    /// the main actor; the decoded entries are then seeded back into `byID`
+    /// on the main actor. Missing files, truncated JSON, or schema mismatches
+    /// are logged and treated as an empty cache — the next `apply(_:)` will
+    /// overwrite the file.
+    private func loadFromDisk() async {
+        let url = diskURL
+        let loaded = await Task.detached { () -> [PluginPresentation]? in
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            do {
+                let data = try Data(contentsOf: url)
+                let decoder = JSONDecoder()
+                decoder.keyDecodingStrategy = .convertFromSnakeCase
+                return try decoder.decode([PluginPresentation].self, from: data)
+            } catch {
+                Logger(label: "com.claudespy.pluginpresentationcache")
+                    .warning(
+                        "Failed to load plugin presentation cache; starting fresh",
+                        metadata: ["error": "\(error)"]
+                    )
+                return nil
+            }
+        }.value
+        guard let loaded else { return }
+        byID = Dictionary(uniqueKeysWithValues: loaded.map { ($0.id, $0) })
+        logger.info("Loaded \(loaded.count) plugin presentations from disk")
     }
 
     /// Persist the current cache contents to disk. Writes happen via

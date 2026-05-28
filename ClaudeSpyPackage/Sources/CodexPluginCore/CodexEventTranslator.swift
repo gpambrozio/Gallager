@@ -61,7 +61,7 @@ public struct CodexEventTranslator: Sendable {
             requestStore: requestStore
         )?
             .withTmuxPane(context.tmuxPane)
-            .withProjectPath(context.projectPath)
+            .withProjectPath(context.codexProjectPath)
     }
 
     // MARK: - Decode helpers

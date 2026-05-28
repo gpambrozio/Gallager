@@ -53,7 +53,16 @@
         private var ingressTask: Task<Void, Never>?
         private var ingressErrorTask: Task<Void, Never>?
         private var projectWatcher: FSEventsProjectWatcher?
+        private var initialScanTask: Task<Void, Never>?
         private var shouldShutdown = false
+
+        /// Monotonic counter bumped on each `scanAndPushProjects()` entry.
+        /// Because scans suspend at `scanProjects()`/`emit(...)`, the
+        /// initial scan and an FSEvents-driven scan can interleave; the
+        /// counter lets a scan detect that a newer scan started while it
+        /// was suspended and drop its now-stale `set_projects` push so the
+        /// Mac always ends up with the latest snapshot.
+        private var projectScanGeneration = 0
 
         // MARK: - Init
 
@@ -203,6 +212,8 @@
         }
 
         private func tearDown() async {
+            initialScanTask?.cancel()
+            initialScanTask = nil
             ingressTask?.cancel()
             ingressErrorTask?.cancel()
             ingressTask = nil
@@ -247,7 +258,12 @@
 
             // Kick an initial scan so the Mac gets a fresh `set_projects`
             // promptly, without having to wait for the first FSEvent fire.
-            Task { @MainActor [weak self] in
+            // We can't `await` it here (initialize must return the
+            // capabilities response promptly), so retain the handle and
+            // cancel it in `tearDown()` for lifecycle symmetry with
+            // `ingressTask`. `scanAndPushProjects()`'s generation counter
+            // keeps this from racing an FSEvents-driven scan.
+            initialScanTask = Task { @MainActor [weak self] in
                 await self?.scanAndPushProjects()
             }
 
@@ -548,8 +564,14 @@
         }
 
         private func scanAndPushProjects() async {
+            projectScanGeneration += 1
+            let generation = projectScanGeneration
             @Dependency(ClaudeProjectScanner.self) var scanner
             let projects = await scanner.scanProjects()
+            // A newer scan started (and may already have pushed) while we
+            // were suspended in `scanProjects()` — drop this stale result
+            // so we never push an older snapshot last.
+            guard generation == projectScanGeneration else { return }
             do {
                 let projectsValue = try encodeAsJSONValue(projects)
                 let params = JSONValue.object([

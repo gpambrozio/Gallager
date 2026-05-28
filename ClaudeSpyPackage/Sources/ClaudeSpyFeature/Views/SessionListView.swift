@@ -628,6 +628,11 @@
 
         @Environment(PluginPresentationCache.self) private var cache
 
+        // Decoded once per icon-data change (see `.task(id:)`) rather than on
+        // every `body` evaluation, so repeated list re-renders reuse the same
+        // image instead of re-parsing the PNG each time.
+        @State private var decodedIcon: UIImage?
+
         var body: some View {
             HStack(spacing: 4) {
                 icon
@@ -643,6 +648,13 @@
             .foregroundStyle(Color.accentColor)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(label)
+            .task(id: cache.presentation(for: pluginID)?.iconPNGData) {
+                if let data = cache.presentation(for: pluginID)?.iconPNGData {
+                    decodedIcon = UIImage(data: data)
+                } else {
+                    decodedIcon = nil
+                }
+            }
         }
 
         private var label: String {
@@ -651,10 +663,8 @@
 
         @ViewBuilder
         private var icon: some View {
-            if
-                let presentation = cache.presentation(for: pluginID),
-                let uiImage = UIImage(data: presentation.iconPNGData) {
-                Image(uiImage: uiImage)
+            if let decodedIcon {
+                Image(uiImage: decodedIcon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else {

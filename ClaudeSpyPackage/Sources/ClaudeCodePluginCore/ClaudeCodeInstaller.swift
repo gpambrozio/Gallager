@@ -175,10 +175,21 @@ private extension ClaudeCodeInstaller {
             process.standardError = stderrPipe
 
             try process.run()
-            process.waitUntilExit()
 
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            // Drain both pipes concurrently *before* waiting on exit.
+            // Otherwise a child that writes more than the pipe buffer
+            // (~64 KiB) to either stream blocks on the full pipe while we
+            // block in `waitUntilExit()` — a two-pipe deadlock.
+            async let stdoutTask = Task.detached {
+                stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            }.value
+            async let stderrTask = Task.detached {
+                stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            }.value
+            let stdoutData = await stdoutTask
+            let stderrData = await stderrTask
+
+            process.waitUntilExit()
 
             return RunResult(
                 exitCode: process.terminationStatus,

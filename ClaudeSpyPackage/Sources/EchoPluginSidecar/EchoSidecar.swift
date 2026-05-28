@@ -649,8 +649,8 @@ final class EchoSidecar {
         let socketURL = stateDir.appendingPathComponent("ingress.sock")
         let server = IngressSocketServer(socketURL: socketURL)
         ingressServer = server
-        let frames = try await server.start()
         let errors = await server.parseErrors()
+        let frames = try await server.start()
 
         ingressTask = Task { [weak self] in
             for await frame in frames {

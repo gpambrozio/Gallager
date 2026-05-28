@@ -165,6 +165,12 @@ public actor SidecarSupervisor {
             break
         }
 
+        // Cancel any pending crash-backoff timer so a direct re-enable can't
+        // leave a stale `restartAfterBackoff()` armed to spawn a second child
+        // after this start() already brought one up.
+        backoffTask?.cancel()
+        backoffTask = nil
+
         await transition(to: .starting)
         isShuttingDown = false
 
@@ -333,6 +339,10 @@ public actor SidecarSupervisor {
     }
 
     private func restartAfterBackoff() async {
+        // A direct `start()` (re-enable) may have already respawned while this
+        // backoff timer was armed; only proceed if we're still crashed so we
+        // don't orphan a live process by spawning a second child.
+        guard case .crashed = state else { return }
         do {
             try await spawnAndInitialize()
             await transition(to: .running)

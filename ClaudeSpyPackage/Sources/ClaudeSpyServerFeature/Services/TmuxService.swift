@@ -545,44 +545,6 @@ final public class TmuxService {
         }
     }
 
-    /// Lightweight "is any agent process still running in this pane?" check.
-    /// Used by the legacy `closePaneOnSessionEnd` polling loop; the plugin
-    /// system's `closePaneIfPreferenceAllows` AppAction subsumes this for
-    /// new code paths but the existing handler still needs to wait for the
-    /// CLI to actually exit before killing its pane.
-    public func isAgentRunning(inPane paneId: String, processNames: [String]) async -> Bool {
-        guard !processNames.isEmpty else { return false }
-        do {
-            let sep = String(PaneInfo.fieldSeparator)
-            let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}",
-            ])
-            guard result.isSuccess else { return false }
-
-            var panePid: String?
-            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 1)
-                if parts.count == 2, String(parts[0]) == paneId {
-                    panePid = String(parts[1])
-                    break
-                }
-            }
-            guard let pid = panePid else { return false }
-
-            guard let tree = try await processTree() else { return false }
-            let lookup = Set(processNames)
-            for descendantPid in tree.descendants(of: pid) {
-                if let name = tree.processName(for: descendantPid), lookup.contains(name) {
-                    return true
-                }
-            }
-            return false
-        } catch {
-            logger.debug("isAgentRunning failed for pane \(paneId): \(error)")
-            return false
-        }
-    }
-
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
     private func getAttachedSessionNames() async -> Set<String> {
         // Joined with U+001F so a `|` in a tmux session name can't shift

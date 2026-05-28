@@ -27,6 +27,12 @@ public enum JSONRPCFramer {
     /// that never sends `\r\n\r\n` can't grow `headerBuffer` until OOM.
     public static let maxHeaderBytes = 16 * 1_024
 
+    /// Upper bound on the JSON body. A buggy or hostile sidecar could send a
+    /// huge `Content-Length` and trigger a multi-GB eager allocation in
+    /// `reserveCapacity`; 32 MiB mirrors `IngressSocketServer.drain` and is far
+    /// larger than any legitimate message but cheap to refuse.
+    public static let maxBodyBytes = 32 * 1_024 * 1_024
+
     /// Read one framed message from `bytes` and return the JSON body.
     ///
     /// Parses headers byte-by-byte until the blank `\r\n\r\n` separator, then
@@ -119,6 +125,11 @@ public enum JSONRPCFramer {
         guard let length = contentLength else {
             throw JSONRPCFramingError.contentLengthMissing
         }
+        // Validate the bound before any allocation: `read` does
+        // `reserveCapacity(length)`, so an oversized value would OOM the host.
+        guard length <= maxBodyBytes else {
+            throw JSONRPCFramingError.contentLengthTooLarge(length)
+        }
         return length
     }
 }
@@ -132,6 +143,10 @@ public enum JSONRPCFramingError: Error, Equatable, Sendable {
 
     /// Header block parsed but did not contain a `Content-Length` field.
     case contentLengthMissing
+
+    /// `Content-Length` exceeded `JSONRPCFramer.maxBodyBytes`; refused before
+    /// allocating to avoid OOM from a buggy or hostile peer.
+    case contentLengthTooLarge(Int)
 
     /// Stream ended before the body finished. Header said the body would be
     /// N bytes; we got fewer.
