@@ -249,6 +249,12 @@ public actor SidecarSupervisor {
 
         try proc.run()
 
+        // Drop parent's copies of child-inherited ends so the reader EOFs when
+        // the child exits — otherwise attachStderrPipe's read() wedges forever.
+        try? stdin.fileHandleForReading.close()
+        try? stdout.fileHandleForWriting.close()
+        try? stderr.fileHandleForWriting.close()
+
         let bridge = ConnectionBridge()
         let connection = JSONRPCConnection(
             input: stdin.fileHandleForWriting,

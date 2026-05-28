@@ -82,17 +82,25 @@ public actor SidecarLogFile {
     /// this log. Safe to call once; calling again replaces the previous task.
     public func attachStderrPipe(_ pipe: Pipe) {
         stderrTask?.cancel()
-        let reader = pipe.fileHandleForReading
+        // NB: `FileHandle.AsyncBytes` (`.bytes.lines`) parks reads on the main
+        // DispatchQueue and only delivers bytes when the writer closes its end,
+        // so a long-lived sidecar wedges the main thread inside `read()`. Same
+        // workaround `JSONRPCConnection.readLoop` uses for stdout.
+        let bytes = pipe.fileHandleForReading.makeAsyncByteStream()
         stderrTask = Task { [weak self] in
-            do {
-                for try await line in reader.bytes.lines {
-                    guard !Task.isCancelled else { break }
-                    await self?.append(line)
+            var line: [UInt8] = []
+            for await byte in bytes {
+                if byte == 0x0A {
+                    if let text = String(bytes: line, encoding: .utf8) {
+                        await self?.append(text)
+                    }
+                    line.removeAll(keepingCapacity: true)
+                } else {
+                    line.append(byte)
                 }
-            } catch {
-                // `bytes.lines` throws on cancellation / file closed —
-                // expected during teardown. Logged at debug level.
-                await self?.logger.debug("stderr stream ended: \(error)")
+            }
+            if !line.isEmpty, let text = String(bytes: line, encoding: .utf8) {
+                await self?.append(text)
             }
         }
     }
