@@ -420,6 +420,18 @@ PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
 MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
 IOS_APP="$PRODUCTS_SIM/Gallager.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
+E2E_HOST_APP="$PRODUCTS_SIM/ClaudeSpyE2EHost.app"
+
+# Assert that an xcodebuild step produced its expected artifact. xcsift
+# reports "status: success" whenever no compile errors were parsed, even
+# when no executable was emitted — so a missing binary slips through to
+# the run step otherwise.
+verify_artifact() {
+    if [ ! -e "$1" ]; then
+        fail "Build reported success but expected artifact is missing: $1"
+        exit 1
+    fi
+}
 
 XCODEBUILD_FLAGS=(
     -workspace "$WORKSPACE"
@@ -513,12 +525,14 @@ else
         -scheme ClaudeSpyServer \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$MACOS_APP"
 
     step "Building E2E coordinator"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
         build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$E2E_BIN"
 
     # The plugin E2E scenarios install a test-only EchoPluginSidecar
     # into a per-scenario state root via `EchoPluginInstaller`. The
@@ -550,12 +564,14 @@ else
         -scheme ClaudeSpy \
         -destination "id=$SIM_UDID" \
         build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$IOS_APP"
 
     step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2EHost \
         -destination "id=$SIM_UDID" \
         build-for-testing 2>&1 | xcsift --format toon --executable
+    verify_artifact "$E2E_HOST_APP"
 fi
 
 # =====================================================
