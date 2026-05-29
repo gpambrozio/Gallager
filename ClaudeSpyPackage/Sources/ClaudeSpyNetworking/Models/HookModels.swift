@@ -177,6 +177,7 @@ public struct ClaudeSession: Codable, Sendable {
              .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
+             .messageDisplay,
              .unknown:
             break
         }
@@ -269,6 +270,7 @@ public struct HookEvent: Identifiable, Codable, Sendable, Equatable {
              .fileChanged,
              .worktreeCreate,
              .worktreeRemove,
+             .messageDisplay,
              .unknown:
             return nil
         }
@@ -1263,6 +1265,27 @@ public struct PostToolBatchBody: HookBodyProtocol {
     }
 }
 
+public struct MessageDisplayBody: HookBodyProtocol {
+    public let sessionId: String
+    public let transcriptPath: String?
+    public let cwd: String?
+    public let hookEventName: String
+    public let timestamp: String?
+    public let messageContent: String?
+    public var shouldSendToServer: Bool {
+        false
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case transcriptPath = "transcript_path"
+        case cwd
+        case hookEventName = "hook_event_name"
+        case timestamp
+        case messageContent = "message_content"
+    }
+}
+
 // MARK: - Yolo Mode Support
 
 public extension PermissionRequestBody {
@@ -1467,6 +1490,7 @@ public enum HookAction: Codable, Sendable {
     case taskCreated(TaskCreatedBody)
     case userPromptExpansion(UserPromptExpansionBody)
     case postToolBatch(PostToolBatchBody)
+    case messageDisplay(MessageDisplayBody)
     case unknown(CommonHookFields)
 
     private enum CodingKeys: String, CodingKey {
@@ -1504,6 +1528,7 @@ public enum HookAction: Codable, Sendable {
         case taskCreated
         case userPromptExpansion
         case postToolBatch
+        case messageDisplay
         case unknown
     }
 
@@ -1599,6 +1624,9 @@ public enum HookAction: Codable, Sendable {
         case .postToolBatch:
             let body = try container.decode(PostToolBatchBody.self, forKey: .body)
             self = .postToolBatch(body)
+        case .messageDisplay:
+            let body = try container.decode(MessageDisplayBody.self, forKey: .body)
+            self = .messageDisplay(body)
         case .unknown:
             let body = try container.decode(CommonHookFields.self, forKey: .body)
             self = .unknown(body)
@@ -1696,6 +1724,9 @@ public enum HookAction: Codable, Sendable {
         case let .postToolBatch(body):
             try container.encode(ActionType.postToolBatch, forKey: .type)
             try container.encode(body, forKey: .body)
+        case let .messageDisplay(body):
+            try container.encode(ActionType.messageDisplay, forKey: .type)
+            try container.encode(body, forKey: .body)
         case let .unknown(body):
             try container.encode(ActionType.unknown, forKey: .type)
             try container.encode(body, forKey: .body)
@@ -1734,6 +1765,7 @@ public enum HookAction: Codable, Sendable {
         case let .taskCreated(body): body
         case let .userPromptExpansion(body): body
         case let .postToolBatch(body): body
+        case let .messageDisplay(body): body
         case let .unknown(body): body
         }
     }
@@ -1817,6 +1849,8 @@ public enum HookAction: Codable, Sendable {
             "Expansion: \(body.commandName ?? "Unknown")"
         case .postToolBatch:
             "Tool Batch Complete"
+        case .messageDisplay:
+            "Message Display"
         case let .unknown(body):
             body.hookEventName
         }
@@ -1882,6 +1916,10 @@ public enum HookAction: Codable, Sendable {
             body.prompt
         case .postToolBatch:
             nil
+        case let .messageDisplay(body):
+            body.messageContent.map { content in
+                content.count > 100 ? String(content.prefix(100)) + "..." : content
+            }
         case .unknown:
             nil
         }
@@ -1982,6 +2020,9 @@ public enum HookAction: Codable, Sendable {
         case "PostToolBatch":
             let body = try decoder.decode(PostToolBatchBody.self, from: jsonData)
             return .postToolBatch(body)
+        case "MessageDisplay":
+            let body = try decoder.decode(MessageDisplayBody.self, from: jsonData)
+            return .messageDisplay(body)
         default:
             return .unknown(common)
         }

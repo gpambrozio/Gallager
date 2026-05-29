@@ -318,6 +318,17 @@
           }
         ]
       }
+    ],
+    "MessageDisplay": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }

@@ -64,6 +64,7 @@ public extension HookEventMessage {
              .elicitationResult,
              .worktreeCreate,
              .worktreeRemove,
+             .messageDisplay,
              .unknown:
             return nil
         }

@@ -60,6 +60,8 @@ public extension HookAction {
             .textBubbleFill
         case .postToolBatch:
             .wrenchAndScrewdriver
+        case .messageDisplay:
+            .textBubbleFill
         case .unknown:
             .questionmark
         }
@@ -122,6 +124,8 @@ public extension HookAction {
             .cyan
         case .postToolBatch:
             .blue
+        case .messageDisplay:
+            .secondary
         case .unknown:
             .gray
         }
