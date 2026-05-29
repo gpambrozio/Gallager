@@ -32,12 +32,18 @@ SWIFT_CONFIG=$(echo "${CONFIGURATION:-Debug}" | tr '[:upper:]' '[:lower:]')
 # also into `.build/<config>/<target>` via SPM's symlink). We use the
 # `swift build --show-bin-path` output to discover the right directory
 # regardless of arch.
+#
+# `swift build --product` accepts a single product; passing two
+# `--product` flags silently honors only the last one (so the
+# claude-code sidecar would never get built on a clean .build). Build
+# each product in its own invocation.
 echo "Building sidecar executables via swift build (${SWIFT_CONFIG})..."
-swift build \
-    --package-path "${PACKAGE_PATH}" \
-    --configuration "${SWIFT_CONFIG}" \
-    --product ClaudeCodePluginSidecar \
-    --product CodexPluginSidecar
+for product in ClaudeCodePluginSidecar CodexPluginSidecar; do
+    swift build \
+        --package-path "${PACKAGE_PATH}" \
+        --configuration "${SWIFT_CONFIG}" \
+        --product "$product"
+done
 
 BIN_PATH=$(swift build \
     --package-path "${PACKAGE_PATH}" \
