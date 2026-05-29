@@ -437,11 +437,8 @@ XCODEBUILD_FLAGS=(
     -workspace "$WORKSPACE"
     -skipMacroValidation
     -skipPackagePluginValidation
+    -derivedDataPath "$DERIVED_DATA"
 )
-
-if [ -z "$SANDBOX_DERIVED_DATA" ]; then
-    XCODEBUILD_FLAGS+=(-derivedDataPath "$DERIVED_DATA")
-fi
 
 # =====================================================
 # LIST SCENARIOS (no build needed)
