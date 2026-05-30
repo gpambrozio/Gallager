@@ -67,15 +67,9 @@ struct TmuxPaneMirrorApp: App {
                 prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.tmuxSocket.rawValue)
             }
 
-            // E2E test support: override hook server port file for isolation
-            let hookPortFile: String?
-            if let idx = CommandLine.arguments.firstIndex(of: "--hook-port-file"),
-               idx + 1 < CommandLine.arguments.count
-            {
-                hookPortFile = CommandLine.arguments[idx + 1]
-            } else {
-                hookPortFile = nil
-            }
+            // (The legacy hook HTTP server + `--hook-port-file` are gone; the
+            // plugin ingress Unix socket — set up in AppCoordinator and isolated
+            // per scenario via `--gallager-state-root` — replaces them.)
 
             // E2E test support: override notification log path for verification
             let notificationLogPath: String?
@@ -143,20 +137,11 @@ struct TmuxPaneMirrorApp: App {
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
-                $0[ClaudeProjectScanner.self] = .inMemory()
-                // Don't let the live Codex scanner walk `~/.codex/sessions/`
-                // on every session-state request — heavy disk I/O there can
-                // stall the iOS terminal reconnect long enough to time out.
-                //
-                // `AaaOpenAIApp` sorts alphabetically ahead of every Claude
-                // project so e2e scenarios that exercise the project picker
-                // always see a Codex project near the top of the list and can
-                // assert against the Codex tag rendering. The name deliberately
-                // avoids the substring "Codex" so a scenario looking for the
-                // "Codex" badge can't accidentally match the row's project name.
-                $0[CodexProjectScanner.self] = .inMemory(projects: [
-                    ClaudeProjectInfo(name: "AaaOpenAIApp", path: "/Users/test/AaaOpenAIApp", agent: .codex),
-                ])
+                // Project lists now come from the plugin cores via
+                // `PluginHost.setProjects` (the per-agent scanners moved into the
+                // cores). E2E project-list determinism is handled by the plugin
+                // runtime / `--gallager-state-root` fixtures (Step 10), not by
+                // injecting scanners here.
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle
                 // via --sample-files-dir passed by the test orchestrator.
@@ -265,9 +250,6 @@ struct TmuxPaneMirrorApp: App {
                     isEnabled: { false },
                     setEnabled: { _ in }
                 )
-                if let hookPortFile {
-                    $0[HookServerService.self] = .live(portFilePath: hookPortFile)
-                }
                 if let notificationLogPath {
                     // Clean up any previous log from earlier runs
                     try? FileManager.default.removeItem(atPath: notificationLogPath)
@@ -502,7 +484,7 @@ struct TmuxPaneMirrorApp: App {
     private var totalPendingSessionCount: Int {
         let localCount = coordinator.windowManager.pendingSessionCount
         let remoteCount = coordinator.remoteSessionStore?.paneStates.values
-            .filter { $0.claudeSession?.needsAttention == true }.count ?? 0
+            .filter { $0.agentSession?.needsAttention == true }.count ?? 0
         return localCount + remoteCount
     }
 

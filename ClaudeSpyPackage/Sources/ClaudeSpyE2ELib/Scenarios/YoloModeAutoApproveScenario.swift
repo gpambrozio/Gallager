@@ -81,9 +81,11 @@ public enum YoloModeAutoApproveScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("Run Command"), timeout: 3)
         TestStep.iosScreenshot(label: "ios-yolo-no-response-ui")
 
-        // Verify no push notification was sent for the auto-approved event
+        // Verify no push notification was sent for the auto-approved event.
+        // The push log records the agent-blind notification title; a Bash
+        // permission would log "Permission: Bash|<pane>" — yolo must suppress it.
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterYolo")
-        TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "Permission: Bash|${pane1Id}")
 
         // Session should NOT be in "Attention" state — yolo auto-approved it (#338)
         TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
@@ -140,9 +142,10 @@ public enum YoloModeAutoApproveScenario {
         TestStep.iosWaitForElement(.labelContains("Which framework"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-ask-user-still-shows")
 
-        // Verify a push notification WAS sent for the non-auto-approvable event
+        // Verify a push notification WAS sent for the non-auto-approvable event.
+        // AskUserQuestion logs the dedicated "<agent> wants answers" title.
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterAsk")
-        TestStep.assertStoredContains(key: "pushLogAfterAsk", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredContains(key: "pushLogAfterAsk", substring: "Claude wants answers|${pane1Id}")
 
         // ══════════════════════════════════════════════════════════════
         // Phase 6: Disable yolo mode, send another auto-approvable event,
@@ -197,7 +200,7 @@ public enum YoloModeAutoApproveScenario {
 
         // Verify a push notification WAS sent (yolo mode is off)
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterNonYolo")
-        TestStep.assertStoredContains(key: "pushLogAfterNonYolo", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredContains(key: "pushLogAfterNonYolo", substring: "Permission: Bash|${pane1Id}")
 
         // ══════════════════════════════════════════════════════════════
         // Phase 7: With a pending auto-approvable request, enabling

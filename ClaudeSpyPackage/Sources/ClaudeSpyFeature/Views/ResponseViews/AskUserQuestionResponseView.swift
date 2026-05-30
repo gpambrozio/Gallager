@@ -2,20 +2,47 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
+// MARK: - Collected answer
+
+/// One question's in-progress answer (toggled option indices + optional "Other"
+/// text). Maps to a `QuestionAnswer` (option ids) on submit — iOS sends
+/// structured choices, never keystrokes (spec §7.1).
+private struct CollectedAnswer: Equatable {
+    var selectedIndices: Set<Int> = []
+    var customText: String?
+
+    init(selectedIndices: Set<Int> = [], customText: String? = nil) {
+        self.selectedIndices = selectedIndices
+        self.customText = customText
+    }
+
+    /// Human-readable summary for the review screen.
+    func displayText(for question: AskUserQuestionRequest.Question) -> String {
+        var parts: [String] = []
+        for index in selectedIndices.sorted() where index < question.options.count {
+            parts.append(question.options[index].label)
+        }
+        if let customText, !customText.isEmpty {
+            parts.append("Other: \(customText)")
+        }
+        return parts.isEmpty ? "—" : parts.joined(separator: ", ")
+    }
+}
+
 // MARK: - Ask User Question Response View
 
-/// Interactive question response view for AskUserQuestion tool calls.
-/// Collects all answers first, shows a summary for confirmation, then submits.
+/// Interactive question response view. Collects all answers, shows a summary for
+/// confirmation, then submits a structured `AgentResponse.askUserQuestion`.
 struct AskUserQuestionResponseView: View {
-    let params: AskUserQuestionParameters
+    let request: AskUserQuestionRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
+    let submit: ResponseSender
     let state: ResponseState
 
     /// Tracks which question index we're currently on
     @State private var currentQuestionIndex = 0
     /// Collected answers for each question (keyed by question index)
-    @State private var collectedAnswers: [Int: QuestionAnswer] = [:]
+    @State private var collectedAnswers: [Int: CollectedAnswer] = [:]
     /// For multi-select questions, tracks selected option indices for current question
     @State private var selectedOptions: Set<Int> = []
     /// For "Other" option custom input
@@ -24,11 +51,11 @@ struct AskUserQuestionResponseView: View {
     @State private var showingCustomInput = false
     @FocusState private var isTextFieldFocused: Bool
 
-    private var questions: [AskUserQuestionParameters.AskUserQuestion] {
-        params.questions
+    private var questions: [AskUserQuestionRequest.Question] {
+        request.questions
     }
 
-    private var currentQuestion: AskUserQuestionParameters.AskUserQuestion? {
+    private var currentQuestion: AskUserQuestionRequest.Question? {
         guard currentQuestionIndex < questions.count else { return nil }
         return questions[currentQuestionIndex]
     }
@@ -120,7 +147,7 @@ struct AskUserQuestionResponseView: View {
     }
 
     private func summaryRow(
-        for question: AskUserQuestionParameters.AskUserQuestion,
+        for question: AskUserQuestionRequest.Question,
         at index: Int
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -146,7 +173,7 @@ struct AskUserQuestionResponseView: View {
 
     // MARK: - Question Content
 
-    private func questionContent(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+    private func questionContent(_ question: AskUserQuestionRequest.Question) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             // Progress indicator
             if questions.count > 1 {
@@ -160,7 +187,9 @@ struct AskUserQuestionResponseView: View {
             optionsList(question)
 
             // "Other" option
-            otherOptionSection
+            if question.allowsFreeText {
+                otherOptionSection
+            }
 
             // Multi-select next button
             if
@@ -182,7 +211,7 @@ struct AskUserQuestionResponseView: View {
         }
     }
 
-    private func questionHeader(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+    private func questionHeader(_ question: AskUserQuestionRequest.Question) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             // Header tag
             Text(question.header.uppercased())
@@ -200,7 +229,7 @@ struct AskUserQuestionResponseView: View {
         }
     }
 
-    private func optionsList(_ question: AskUserQuestionParameters.AskUserQuestion) -> some View {
+    private func optionsList(_ question: AskUserQuestionRequest.Question) -> some View {
         VStack(spacing: 8) {
             ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
                 optionButton(option, index: index, isMultiSelect: question.multiSelect)
@@ -209,7 +238,7 @@ struct AskUserQuestionResponseView: View {
     }
 
     private func optionButton(
-        _ option: AskUserQuestionParameters.AskUserQuestionOption,
+        _ option: AskUserQuestionRequest.Option,
         index: Int,
         isMultiSelect: Bool
     ) -> some View {
@@ -363,7 +392,7 @@ struct AskUserQuestionResponseView: View {
 
     private func selectSingleOption(_ index: Int) {
         // Save the answer and advance to next question
-        collectedAnswers[currentQuestionIndex] = QuestionAnswer(selectedIndices: [index])
+        collectedAnswers[currentQuestionIndex] = CollectedAnswer(selectedIndices: [index])
         advanceToNextQuestion()
     }
 
@@ -379,7 +408,7 @@ struct AskUserQuestionResponseView: View {
         let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
         let other = trimmed.isEmpty ? nil : trimmed
         guard !selectedOptions.isEmpty || other != nil else { return }
-        collectedAnswers[currentQuestionIndex] = QuestionAnswer(
+        collectedAnswers[currentQuestionIndex] = CollectedAnswer(
             selectedIndices: selectedOptions,
             customText: other
         )
@@ -397,7 +426,7 @@ struct AskUserQuestionResponseView: View {
         if currentQuestion?.multiSelect == true {
             return
         }
-        collectedAnswers[currentQuestionIndex] = QuestionAnswer(customText: trimmed)
+        collectedAnswers[currentQuestionIndex] = CollectedAnswer(customText: trimmed)
         advanceToNextQuestion()
     }
 
@@ -416,10 +445,24 @@ struct AskUserQuestionResponseView: View {
         showingCustomInput = false
     }
 
+    /// Map the per-index collected answers to a structured `[QuestionAnswer]`
+    /// (option ids) and submit.
     private func confirmAndSubmit() async {
         state.isSending = true
-        let keys = AskUserQuestionKeystrokes.build(for: params, answers: collectedAnswers)
-        await sendCommand(.sendKeystroke(keys))
+        var answers: [QuestionAnswer] = []
+        for (index, question) in questions.enumerated() {
+            guard let collected = collectedAnswers[index] else { continue }
+            let optionIDs = collected.selectedIndices.sorted()
+                .compactMap { idx -> String? in
+                    idx < question.options.count ? question.options[idx].id : nil
+                }
+            answers.append(QuestionAnswer(
+                questionID: question.id,
+                selectedOptionIDs: optionIDs,
+                freeText: collected.customText
+            ))
+        }
+        await submit(.askUserQuestion(answers: answers))
         state.isSending = false
         state.response = .allQuestionsAnswered
     }
@@ -427,127 +470,56 @@ struct AskUserQuestionResponseView: View {
 
 // MARK: - Preview Helpers
 
-extension AskUserQuestionParameters {
-    static var previewSingleSelect: AskUserQuestionParameters {
-        AskUserQuestionParameters(
-            questions: [
-                AskUserQuestion(
-                    question: "The current networking only supports request/response. For live streaming, should I add new WebSocket message types?",
-                    header: "Streaming",
-                    options: [
-                        AskUserQuestionOption(
-                            label: "Yes, new message types (Recommended)",
-                            description: "Add dedicated streaming messages for continuous data flow. More efficient, cleaner architecture."
-                        ),
-                        AskUserQuestionOption(
-                            label: "Polling with existing snapshots",
-                            description: "Request snapshots repeatedly at intervals. Simpler but higher latency and network overhead."
-                        ),
-                    ],
-                    multiSelect: false
-                ),
-            ],
-            answers: nil
-        )
+private extension AskUserQuestionRequest {
+    static var previewSingleSelect: AskUserQuestionRequest {
+        AskUserQuestionRequest(questions: [
+            Question(
+                id: "q0",
+                question: "For live streaming, should I add new WebSocket message types?",
+                header: "Streaming",
+                options: [
+                    Option(id: "q0-o0", label: "Yes, new message types (Recommended)", description: "Cleaner architecture."),
+                    Option(id: "q0-o1", label: "Polling with existing snapshots", description: "Simpler but higher latency."),
+                ],
+                multiSelect: false
+            ),
+        ])
     }
 
-    static var previewMultiSelect: AskUserQuestionParameters {
-        AskUserQuestionParameters(
-            questions: [
-                AskUserQuestion(
-                    question: "Which features do you want to enable for the new dashboard?",
-                    header: "Features",
-                    options: [
-                        AskUserQuestionOption(
-                            label: "Real-time updates",
-                            description: "Live data streaming via WebSockets"
-                        ),
-                        AskUserQuestionOption(
-                            label: "Dark mode",
-                            description: "Support for dark color scheme"
-                        ),
-                        AskUserQuestionOption(
-                            label: "Export to CSV",
-                            description: "Download data in CSV format"
-                        ),
-                        AskUserQuestionOption(
-                            label: "Charts and graphs",
-                            description: "Visual data representation"
-                        ),
-                    ],
-                    multiSelect: true
-                ),
-            ],
-            answers: nil
-        )
-    }
-
-    static var previewMultipleQuestions: AskUserQuestionParameters {
-        AskUserQuestionParameters(
-            questions: [
-                AskUserQuestion(
-                    question: "For live streaming, should I add new WebSocket message types?",
-                    header: "Streaming",
-                    options: [
-                        AskUserQuestionOption(
-                            label: "Yes, new message types (Recommended)",
-                            description: "More efficient, cleaner architecture."
-                        ),
-                        AskUserQuestionOption(
-                            label: "Polling with existing snapshots",
-                            description: "Simpler but higher latency."
-                        ),
-                    ],
-                    multiSelect: false
-                ),
-                AskUserQuestion(
-                    question: "Who controls the terminal dimensions for the iOS streaming view?",
-                    header: "Terminal sizing",
-                    options: [
-                        AskUserQuestionOption(
-                            label: "iOS requests specific dimensions",
-                            description: "iOS calculates desired size based on screen space."
-                        ),
-                        AskUserQuestionOption(
-                            label: "Host sends actual tmux pane dimensions",
-                            description: "iOS receives whatever size the tmux pane actually is."
-                        ),
-                        AskUserQuestionOption(
-                            label: "Match the pane dimensions",
-                            description: "iOS view should match the actual tmux pane size."
-                        ),
-                    ],
-                    multiSelect: false
-                ),
-            ],
-            answers: nil
-        )
+    static var previewMultiSelect: AskUserQuestionRequest {
+        AskUserQuestionRequest(questions: [
+            Question(
+                id: "q0",
+                question: "Which features do you want to enable?",
+                header: "Features",
+                options: [
+                    Option(id: "q0-o0", label: "Real-time updates", description: "Live data streaming"),
+                    Option(id: "q0-o1", label: "Dark mode", description: "Dark color scheme"),
+                    Option(id: "q0-o2", label: "Export to CSV", description: "Download as CSV"),
+                ],
+                multiSelect: true
+            ),
+        ])
     }
 }
 
 // MARK: - Previews
 
 #Preview("Ask User Question - Single Select") {
-    let params = AskUserQuestionParameters.previewSingleSelect
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "AskUserQuestion",
-            toolInput: .askUserQuestion(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
+    let request = AskUserQuestionRequest.previewSingleSelect
+    let state = ResponseState(
+        request: .askUserQuestion(request),
+        pluginID: "claude-code",
+        requestID: "test:auq"
     )
-    let state = ResponseState(event: event)
 
     return NavigationStack {
         List {
             Section("Question") {
                 AskUserQuestionResponseView(
-                    params: params,
+                    request: request,
                     isConnected: true,
-                    sendCommand: { _ in },
+                    submit: { _ in },
                     state: state
                 )
             }
@@ -556,54 +528,20 @@ extension AskUserQuestionParameters {
 }
 
 #Preview("Ask User Question - Multi Select") {
-    let params = AskUserQuestionParameters.previewMultiSelect
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "AskUserQuestion",
-            toolInput: .askUserQuestion(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
+    let request = AskUserQuestionRequest.previewMultiSelect
+    let state = ResponseState(
+        request: .askUserQuestion(request),
+        pluginID: "claude-code",
+        requestID: "test:auq-multi"
     )
-    let state = ResponseState(event: event)
 
     return NavigationStack {
         List {
             Section("Question") {
                 AskUserQuestionResponseView(
-                    params: params,
+                    request: request,
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
-                )
-            }
-        }
-    }
-}
-
-#Preview("Ask User Question - Multiple Questions") {
-    let params = AskUserQuestionParameters.previewMultipleQuestions
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "AskUserQuestion",
-            toolInput: .askUserQuestion(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
-        List {
-            Section("Question") {
-                AskUserQuestionResponseView(
-                    params: params,
-                    isConnected: true,
-                    sendCommand: { _ in },
+                    submit: { _ in },
                     state: state
                 )
             }

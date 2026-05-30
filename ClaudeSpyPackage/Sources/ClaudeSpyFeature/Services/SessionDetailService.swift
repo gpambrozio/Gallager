@@ -31,8 +31,8 @@ final public class SessionDetailService {
 
     // MARK: - Private State
 
-    /// Tracks the last event ID we processed for response state
-    private var lastProcessedEventId: UUID?
+    /// Tracks the last request ID we built response state for.
+    private var lastProcessedRequestID: String?
 
     /// Task handling observation tracking (allows cancellation if needed)
     private var observationTask: Task<Void, Never>?
@@ -40,7 +40,7 @@ final public class SessionDetailService {
     // MARK: - Computed Properties
 
     /// Live session from store (always up-to-date via observation tracking)
-    public var session: ClaudeSession? {
+    public var session: AgentSession? {
         sessionStore.session(for: paneId, hostId: hostId)
     }
 
@@ -93,8 +93,9 @@ final public class SessionDetailService {
             guard let self else { return }
 
             withObservationTracking {
-                // Access the properties we want to observe
+                // Observe both the session and the open response form for this pane.
                 _ = self.sessionStore.session(for: self.paneId, hostId: self.hostId)
+                _ = self.sessionStore.openResponseRequest(for: self.paneId, hostId: self.hostId)
             } onChange: {
                 // Schedule update on main actor when store changes
                 Task { @MainActor [weak self] in
@@ -107,19 +108,23 @@ final public class SessionDetailService {
         }
     }
 
-    /// Updates response state based on current session's latest event
+    /// Updates response state based on the currently-open response form (if any)
+    /// for this pane (spec §5/§7.2).
     private func updateResponseState() {
-        let currentSession = sessionStore.session(for: paneId, hostId: hostId)
-
-        if let latestEvent = currentSession?.latestEvent {
-            if latestEvent.id != lastProcessedEventId {
-                lastProcessedEventId = latestEvent.id
-                // Pass sessionStore so ResponseState can persist/restore responses
-                responseState = ResponseState(event: latestEvent, sessionStore: sessionStore)
+        if let open = sessionStore.openResponseRequest(for: paneId, hostId: hostId) {
+            if open.requestID != lastProcessedRequestID {
+                lastProcessedRequestID = open.requestID
+                // Pass sessionStore so ResponseState can persist/restore responses.
+                responseState = ResponseState(
+                    request: open.request,
+                    pluginID: open.pluginID,
+                    requestID: open.requestID,
+                    sessionStore: sessionStore
+                )
             }
-        } else if lastProcessedEventId != nil {
-            // Session has no events anymore, clear state
-            lastProcessedEventId = nil
+        } else if lastProcessedRequestID != nil {
+            // The form was retracted (the agent advanced, or answered Mac-side).
+            lastProcessedRequestID = nil
             responseState = nil
         }
     }
@@ -136,5 +141,16 @@ final public class SessionDetailService {
     /// Send a command to the host for this pane (fire-and-forget style)
     public func sendCommand(_ command: CommandType) async {
         await relayClient.send(command, paneId: paneId)
+    }
+
+    /// Submit a structured `AgentResponse` for the open request. The host matches
+    /// `requestID` and calls `core.deliverResponse(...)` (spec §7.2).
+    public func submitResponse(_ response: AgentResponse, pluginID: String, requestID: String) async {
+        await relayClient.submitAgentResponse(
+            sessionId: paneId,
+            pluginId: pluginID,
+            requestId: requestID,
+            response: response
+        )
     }
 }

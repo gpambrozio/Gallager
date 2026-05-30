@@ -103,23 +103,24 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
-            connectionManager.onHookEvent = { [sessionStore] event in
+            // High-frequency per-session status updates drive the sidebar badges.
+            connectionManager.onAgentSessionStatus = { [sessionStore] status in
                 Task { @MainActor in
-                    sessionStore.handleEvent(event)
+                    sessionStore.handleAgentStatus(status)
+                }
+            }
 
-                    // If app is backgrounded, show a local notification.
-                    // The server won't send a push since we're "connected" via WebSocket,
-                    // but the user can't see the app, so we need to alert them.
-                    if scenePhase != .active {
-                        if let notification = event.buildNotification() {
-                            PushNotificationService.shared.scheduleLocalNotification(
-                                title: notification.title,
-                                body: notification.body,
-                                paneId: event.event.tmuxPane,
-                                hostId: event.pairId
-                            )
-                        }
-                    }
+            // Open/retract a response form for a session (spec §5/§7.2).
+            connectionManager.onAgentResponseRequest = { [sessionStore] request in
+                Task { @MainActor in
+                    sessionStore.handleAgentResponseRequest(request)
+                }
+            }
+
+            // The complete enabled-plugin presentation set (icons/names/colors).
+            connectionManager.onPluginPresentations = { [sessionStore] presentations in
+                Task { @MainActor in
+                    sessionStore.handlePluginPresentations(presentations)
                 }
             }
 

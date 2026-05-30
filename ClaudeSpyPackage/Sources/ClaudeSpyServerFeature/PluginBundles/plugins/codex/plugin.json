@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "codex",
+  "display_name": "Codex",
+  "short_name": "Codex",
+  "version": "1.0.0",
+  "process_names": ["codex"],
+  "ui": { "icon": "assets/icon.png", "color": "#3B82F6" }
+}

@@ -85,29 +85,3 @@ public struct EncryptedPushPayload: Codable, Sendable, Equatable {
         self.silent = silent
     }
 }
-
-// MARK: - Convenience Extensions
-
-public extension NotificationContent {
-    /// Creates notification content from a HookEventMessage.
-    ///
-    /// - Parameters:
-    ///   - eventMessage: The hook event message
-    ///   - title: The notification title
-    ///   - body: The notification body
-    /// - Returns: NotificationContent ready for encryption
-    static func from(
-        eventMessage: HookEventMessage,
-        title: String,
-        body: String
-    ) -> NotificationContent {
-        NotificationContent(
-            title: title,
-            body: body,
-            eventType: eventMessage.event.action.eventName,
-            pairId: eventMessage.pairId,
-            paneId: eventMessage.event.tmuxPane,
-            timestamp: eventMessage.event.timestamp
-        )
-    }
-}

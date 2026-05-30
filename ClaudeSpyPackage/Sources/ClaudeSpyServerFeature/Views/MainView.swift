@@ -24,7 +24,7 @@ public struct MainView: View {
     @State private var selectedRemoteWindowId: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var projects: [ClaudeProjectInfo] = []
+    @State private var projects: [AgentProject] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
     @State private var detailPaneSize: CGSize = .zero
@@ -401,9 +401,9 @@ public struct MainView: View {
 
     /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
-        let claudeSession: ClaudeSession? = session.windows.lazy
+        let claudeSession: AgentSession? = session.windows.lazy
             .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.claudeSession }
+            .compactMap { windowManager.paneStates[$0.paneId]?.agentSession }
             .first
 
         let primaryPane = session.activeWindow?.activePane
@@ -428,13 +428,21 @@ public struct MainView: View {
             gitBranch: paneState?.gitBranch
         )
 
+        // Recency = the latest plugin-status arrival across the session's panes.
+        // The per-event timestamp buffer was dropped (spec §16); status-arrival
+        // order is the agent-blind stand-in and matches event-receipt order.
+        let latestActivity = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { windowManager.lastActivity(for: $0.paneId) }
+            .max()
+
         return SessionSortData(
             sessionName: session.sessionName,
             primaryLabel: primaryLabel,
             hasClaude: claudeSession != nil,
             statusPriority: SessionSortData.statusPriority(for: claudeSession),
             statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+            latestEventTimestamp: latestActivity
         )
     }
 
@@ -502,7 +510,7 @@ public struct MainView: View {
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
         let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let emoji = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customEmoji }
-        let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+        let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
@@ -1416,7 +1424,7 @@ public struct MainView: View {
         // Actions for selected window
         ToolbarItemGroup(placement: .primaryAction) {
             if let window = selectedWindow, selectedRemoteSession == nil {
-                let claudePane = window.panes.first { windowManager.paneStates[$0.paneId]?.claudeSession != nil }
+                let claudePane = window.panes.first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
                 let activePane = window.activePane
 
                 // Yolo mode toggle (only for windows with active Claude sessions)
@@ -1458,7 +1466,7 @@ public struct MainView: View {
                 .help("Close session")
             } else if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
                 // Yolo mode toggle for remote windows with active Claude sessions
-                let claudePaneId = remoteWindow.panes.first(where: { $0.claudeSession != nil })?.paneId
+                let claudePaneId = remoteWindow.panes.first(where: { $0.agentSession != nil })?.paneId
                 if
                     let claudePaneId,
                     let sessionStore = coordinator.remoteSessionStore,
@@ -1918,7 +1926,7 @@ public struct MainView: View {
         if let window = selectedWindow {
             var stateChanged = false
             for pane in window.panes
-                where windowManager.paneStates[pane.paneId]?.claudeSession?.needsAttention == true {
+                where windowManager.paneStates[pane.paneId]?.agentSession?.needsAttention == true {
                 windowManager.markSessionHandled(paneId: pane.paneId)
                 stateChanged = true
             }
@@ -1932,7 +1940,7 @@ public struct MainView: View {
         }
 
         if let remote = selectedRemoteSession, let remoteWindow = selectedRemoteWindow {
-            for pane in remoteWindow.panes where pane.claudeSession?.needsAttention == true {
+            for pane in remoteWindow.panes where pane.agentSession?.needsAttention == true {
                 coordinator.remoteSessionStore?.markSessionHandled(paneId: pane.paneId, hostId: remote.hostId)
                 Task {
                     _ = await coordinator.viewerConnectionManager?.sendCommand(
@@ -3649,7 +3657,7 @@ public struct MainView: View {
         let rightWindowId: String?
     }
 
-    private func createNewSession(project: ClaudeProjectInfo?) {
+    private func createNewSession(project: AgentProject?) {
         guard creatingSelection == nil else { return }
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
@@ -3659,31 +3667,35 @@ public struct MainView: View {
                 let sessionName = project?.name ?? "terminal"
                 let workingDirectory = project?.path ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                // Determine which agent command to launch. Each agent has its
-                // own auto-run toggle so a user can keep "open Codex folders
-                // in a bare shell" as a real choice.
-                let runCommand: String? = if let project {
-                    switch project.agent {
-                    case .claudeCode:
-                        settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
-                    case .codex:
-                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
-                    }
+                // Resolve the launch command from the project's owning plugin core
+                // (`commandForLaunch`, gated on the plugin's auto-run setting). A
+                // nil runCommand means "open in a bare shell".
+                let launch = if let project {
+                    await coordinator.resolveLaunch(forPluginID: project.pluginID, projectPath: project.path)
                 } else {
-                    nil
+                    (runCommand: String?.none, extraEnvironment: [String]())
                 }
+                let runCommand = launch.runCommand
 
-                let extraEnvironment: [String] = if let configDir = project?.claudeConfigDir {
-                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
-                } else {
-                    []
+                var extraEnvironment: [String] = []
+                if let configDir = project?.configDir {
+                    extraEnvironment.append("CLAUDE_CONFIG_DIR=\(configDir)")
                 }
+                extraEnvironment.append(contentsOf: launch.extraEnvironment)
 
                 // Calculate optimal dimensions based on available space
                 let dimensions = calculateOptimalTerminalDimensions()
 
-                // Create the session with calculated dimensions
-                let firstWindowName = project?.agent.defaultCommand ?? "terminal 1"
+                // Create the session with calculated dimensions; name the first
+                // window after the launch command's binary (or "terminal 1" for a
+                // bare shell). Take the first token + its last path component so a
+                // full path with args ("/usr/bin/claude --foo") shows as "claude".
+                let firstWindowName: String = if let runCommand {
+                    URL(fileURLWithPath: runCommand.split(separator: " ").first.map(String.init) ?? runCommand)
+                        .lastPathComponent
+                } else {
+                    "terminal 1"
+                }
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: sessionName,
                     width: dimensions.columns,
@@ -3716,7 +3728,7 @@ public struct MainView: View {
 
     // MARK: - Remote Session Creation
 
-    private func createRemoteSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+    private func createRemoteSession(on host: PairedHost, inProject project: AgentProject?) async {
         guard creatingSelection == nil else { return }
 
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
@@ -3729,8 +3741,8 @@ public struct MainView: View {
             width: dimensions.columns,
             height: dimensions.rows,
             workingDirectory: project?.path,
-            claudeConfigDir: project?.claudeConfigDir,
-            agent: project?.agent ?? .claudeCode
+            configDir: project?.configDir,
+            pluginID: project?.pluginID ?? "claude-code"
         )
 
         guard let manager = coordinator.viewerConnectionManager else {

@@ -363,11 +363,28 @@ public enum TestStep: Sendable {
 
     // MARK: - Hook Events
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`) via HTTP POST.
-    /// The `json` parameter is the raw JSON body (supports `${var}` interpolation).
-    /// `tmuxPane` and `projectPath` are sent as query parameters.
-    /// The server port is read from the orchestrator's `hookPortFile`.
-    case macSendHookEvent(json: String, tmuxPane: String, projectPath: String? = nil, instance: Int = 0)
+    /// Deliver a hook event to the macOS app by writing one length-prefixed
+    /// `IngressFrame` to the app's ingress socket (spec §8) — the transport that
+    /// replaced the deleted HTTP hook POST path.
+    ///
+    /// - `pluginID` routes the frame to the owning core. Defaults to
+    ///   `"claude-code"` so existing scenarios sending real Claude hook JSON keep
+    ///   exercising the real `ClaudeCodePluginCore.handleIngress` translation —
+    ///   same flow, new transport. Codex scenarios pass `"codex"`; the
+    ///   `EchoPluginCore` round-trip scenarios pass `"echo"`.
+    /// - `json` is the raw host-agent event body the core decodes (supports
+    ///   `${var}` interpolation).
+    /// - `tmuxPane` becomes the frame's `context["TMUX_PANE"]` (pane identity);
+    ///   `projectPath`, when present, becomes `context["CLAUDE_PROJECT_DIR"]`.
+    /// - The socket path is the per-scenario `<gallager-state-root>/ingress.sock`,
+    ///   derived per instance by the orchestrator.
+    case macSendHookEvent(
+        pluginID: String = "claude-code",
+        json: String,
+        tmuxPane: String,
+        projectPath: String? = nil,
+        instance: Int = 0
+    )
 
     // MARK: - Assertions
 

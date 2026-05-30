@@ -209,7 +209,9 @@ actor APNsService {
                 _ = try await client.send(request)
             } else {
                 let alert = APNSAlertNotificationContent(
-                    title: .raw("Claude Code"),
+                    // Agent-neutral placeholder; the iOS Notification Service
+                    // Extension decrypts and replaces both title and body.
+                    title: .raw("Gallager"),
                     body: .raw("New activity") // Placeholder - extension replaces this
                 )
                 let notification = APNSAlertNotification(
@@ -356,7 +358,7 @@ public struct APNsPushLogEntry: Codable, Sendable, Equatable {
 /// The `encrypted` field contains a Base64-encoded JSON representation of
 /// `EncryptedPayload` from ClaudeSpyEncryption. The iOS Notification Service
 /// Extension decodes and decrypts this to get the actual notification content.
-struct EncryptedClaudeSpyPayload: Codable, Sendable {
+struct EncryptedClaudeSpyPayload: Codable {
     /// Base64-encoded JSON of EncryptedPayload
     let encrypted: String
 
@@ -370,7 +372,7 @@ struct EncryptedClaudeSpyPayload: Codable, Sendable {
 /// own `APNSMessage` to support badge-only silent updates over
 /// `apns-push-type: background`.
 struct EncryptedBackgroundNotification: APNSMessage {
-    struct APS: Encodable, Sendable {
+    struct APS: Encodable {
         enum CodingKeys: String, CodingKey {
             case contentAvailable = "content-available"
             case badge

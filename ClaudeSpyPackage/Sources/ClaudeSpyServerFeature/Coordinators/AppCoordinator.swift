@@ -5,6 +5,7 @@
     import ClaudeSpyNetworking
     import Dependencies
     import Foundation
+    import GallagerPluginProtocol
     import Logging
 
     /// A pending selection set by the menu bar to be consumed by MainView.
@@ -84,6 +85,50 @@
         /// Holds "Claude wrote a markdown file — open it?" prompts per tmux session.
         public let markdownOpenSuggestionStore: MarkdownOpenSuggestionStore
 
+        // MARK: - In-Process Plugin Runtime (additive; coexists with HookServerService)
+
+        /// On-disk layout for the in-process plugin runtime. Built in
+        /// `setupAllServices()` from `--gallager-state-root` (E2E isolation) or
+        /// the default `~/.gallager` tree.
+        @ObservationIgnored
+        private var gallagerPaths: GallagerPaths?
+
+        /// Owns the plugin factory table + enabled-core lifecycle.
+        @ObservationIgnored
+        private var pluginRegistry: PluginRegistry?
+
+        /// The single agent-blind event dispatcher; its sinks are wired to the
+        /// local adapter methods (status/notification/app-action) below.
+        @ObservationIgnored
+        private var pluginDispatcher: PluginEventDispatcher?
+
+        /// The one app-owned ingress socket server. Coexists with
+        /// `hookServer`; in normal runs no frames reach it (hook bridges aren't
+        /// installed to it), so the new path is exercised only by E2E/tests.
+        @ObservationIgnored
+        private var ingressSocketServer: IngressSocketServer?
+
+        /// Per-plugin log sinks (one per active plugin), retained so the host's
+        /// `log()` calls keep landing in the right file.
+        @ObservationIgnored
+        private var pluginLogSinks: [String: PluginLogSink] = [:]
+
+        /// Latest project list each plugin pushed via `PluginHost.setProjects`.
+        /// Merged across plugins into `SessionStateMessage.agentProjects` by
+        /// `currentAgentProjects()` on each session-state push.
+        @ObservationIgnored
+        private var pluginProjects: [String: [AgentProject]] = [:]
+
+        #if DEBUG
+            /// When `true` (E2E `--e2e-seed-projects`), `scanProjects()` returns
+            /// the deterministic seed verbatim and never invokes the real cores'
+            /// `refreshProjects()` — which would otherwise re-scan the host's real
+            /// `~/.claude/projects` / `~/.codex/sessions` and clobber the seed when
+            /// the project picker opens (`loadProjects` → `scanProjects`).
+            @ObservationIgnored
+            private var e2eSeededProjects = false
+        #endif
+
         // MARK: - Private Services
 
         @ObservationIgnored
@@ -119,15 +164,6 @@
 
         @ObservationIgnored
         @Dependency(SleepPreventionService.self) private var sleepPreventionService
-
-        @ObservationIgnored
-        @Dependency(HookServerService.self) private var hookServer
-
-        @ObservationIgnored
-        @Dependency(ClaudeProjectScanner.self) private var projectScanner
-
-        @ObservationIgnored
-        @Dependency(CodexProjectScanner.self) private var codexScanner
 
         private let logger = Logger(label: "com.claudespy.coordinator")
 
@@ -208,11 +244,28 @@
             return createPairingManager()
         }
 
-        /// Scans for Claude Code and Codex projects, merging results.
-        public func scanProjects() async -> [ClaudeProjectInfo] {
-            async let claude = projectScanner.scanProjects()
-            async let codex = codexScanner.scanProjects()
-            return (await claude + codex).sortedByLastUsed()
+        /// Asks every active plugin to rescan, then returns the merged project
+        /// list each plugin pushed via `host.setProjects` (spec §12). The plugin
+        /// cores own scanning now (the legacy Swift scanners were deleted).
+        public func scanProjects() async -> [AgentProject] {
+            #if DEBUG
+                // E2E determinism: return the seeded set without re-scanning the
+                // host's real project dirs (which would clobber the seed).
+                if e2eSeededProjects {
+                    return mergedPluginProjects()
+                }
+            #endif
+            if let registry = pluginRegistry {
+                for id in Array(registry.active.keys) {
+                    await registry.core(id)?.refreshProjects()
+                }
+            }
+            return mergedPluginProjects()
+        }
+
+        /// Flattens the per-plugin project lists into one recency-sorted list.
+        private func mergedPluginProjects() -> [AgentProject] {
+            pluginProjects.values.flatMap { $0 }.sortedByLastUsed()
         }
 
         /// Sets up all services. Call this once when the app starts (e.g., from a .task modifier).
@@ -243,40 +296,11 @@
             // Start dock icon management (hides dock icon initially, shows when windows open)
             await dockIconService.startObserving()
 
-            // Forward hook events to window manager AND all connected iOS devices
-            await hookServer.setEventHandler(handler: { [weak self] event in
-                guard let self else { return }
-                // Handle locally
-                await windowManager.handleHookEvent(event)
-
-                if let paneId = event.tmuxPane {
-                    let sessionName = await resolveSessionName(forPaneId: paneId)
-                    if let sessionName, !sessionName.isEmpty {
-                        await markdownOpenSuggestionStore.handleHookEvent(event, sessionName: sessionName)
-                    }
-                }
-
-                // Update sleep prevention based on new session count
-                await updateSleepPrevention()
-
-                guard event.action.body.shouldSendToServer else { return }
-                // Skip push notifications for auto-approvable events in yolo mode
-                let skipPush: Bool
-                if
-                    let paneId = event.tmuxPane,
-                    case let .permissionRequest(body) = event.action,
-                    body.isYoloAutoApprovable,
-                    await windowManager.isYoloModeEnabled(for: paneId) {
-                    skipPush = true
-                } else {
-                    skipPush = false
-                }
-                // Forward to all connected viewers
-                await connectedViewerManager?.sendHookEventToAll(event, skipPushNotification: skipPush)
-            })
-
+            // Hook ingestion now flows through the in-process plugin runtime
+            // (ingress socket → core → dispatcher → sinks). The legacy
+            // HTTP `HookServerService` path is gone (spec §16).
             await initializeServices()
-            await hookServer.startServer()
+            await setupPluginRuntime()
             await setupAPIServer()
             await setupConnectedViewerManager()
             await setupViewerConnectionManager()
@@ -313,6 +337,15 @@
             logger.info("App shutdown: disconnecting pane streams and control clients")
             await paneStreamManager.disconnectAll()
             await controlClientManager.disconnectAll()
+
+            // Tear down the in-process plugin runtime: stop accepting ingress
+            // frames, then `shutdown()` each active core via the registry.
+            await ingressSocketServer?.stop()
+            if let registry = pluginRegistry {
+                for id in Array(registry.active.keys) {
+                    await registry.disable(id)
+                }
+            }
         }
 
         /// Resolves the tmux session name for a pane. Tries `paneStates` first
@@ -324,6 +357,606 @@
                 return name
             }
             return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
+        }
+
+        // MARK: - In-Process Plugin Runtime Setup (additive)
+
+        /// Constructs and starts the agent-blind in-process plugin runtime
+        /// alongside the existing `HookServerService` path (spec §4–§9). This
+        /// path is ADDITIVE: both ingestion paths coexist. In normal runs no
+        /// frames hit the ingress socket (hook bridges aren't installed to it),
+        /// so there is no double-processing; the new path is exercised only by
+        /// E2E/tests writing to the socket.
+        ///
+        /// Wires the dispatcher's local sinks (status → `MirrorWindowManager`,
+        /// notification → `TerminalNotificationService`, app actions → markdown
+        /// suggestions / pane close) and the host's send sinks (text/keys →
+        /// `TmuxService`, projects → `pluginProjects`). The response-request
+        /// sinks (open/retract) forward to iOS via
+        /// `ConnectedViewerManager.sendAgentResponseRequestToAll`; the inbound
+        /// `agent_response_submission` routes back to the owning core's
+        /// `deliverResponse` (wired in `setupConnectedViewerManager`). Status
+        /// forwards as `agent_session_status` and notifications forward to the
+        /// iOS push path; plugin status also rides the existing `SessionStateMessage`.
+        private func setupPluginRuntime() async {
+            let paths = GallagerPaths(stateRootOverride: Self.parseGallagerStateRoot())
+            paths.ensureBaseDirectories()
+            gallagerPaths = paths
+
+            // One-shot migration of legacy per-agent settings → per-plugin
+            // settings.json, before cores read them via PluginEnv.settings (§11).
+            PluginSettingsMigration.runIfNeeded(
+                paths: paths,
+                claudeCommandPath: settings.claudeCommandPath,
+                claudeAutoRun: settings.autoRunClaudeInProjects,
+                codexCommandPath: settings.codexCommandPath,
+                codexAutoRun: settings.autoRunCodexInProjects,
+                preferences: preferences
+            )
+
+            // Dispatcher: fan PluginEvents out to local app behavior.
+            let dispatcher = PluginEventDispatcher(
+                onStatus: { [weak self] pluginID, sessionID, working, attention, tmuxPane, projectPath in
+                    await self?.handlePluginStatus(
+                        pluginID: pluginID,
+                        sessionID: sessionID,
+                        working: working,
+                        attention: attention,
+                        tmuxPane: tmuxPane,
+                        projectPath: projectPath
+                    )
+                    // (handlePluginStatus also forwards agent_session_status to iOS.)
+                },
+                onNotification: { [weak self] _, paneID, notification in
+                    await self?.handlePluginNotification(notification, paneId: paneID)
+                    // (handlePluginNotification also forwards the push to iOS.)
+                },
+                onOpenResponseRequest: { [weak self] pluginID, sessionID, requestID, request in
+                    guard let self else { return }
+                    // Yolo auto-approve (spec §6): for a permission request the
+                    // core marked auto-approvable, when the pane is in yolo mode
+                    // the app immediately delivers `.permission(.allow)` to the
+                    // core instead of showing an iOS form.
+                    if
+                        case let .permission(permission) = request,
+                        permission.isAutoApprovable,
+                        await self.windowManager.isYoloModeEnabled(for: sessionID) {
+                        await self.pluginRegistry?.core(pluginID)?.deliverResponse(
+                            sessionID: sessionID,
+                            requestID: requestID,
+                            .permission(decision: .allow, appliedSuggestionID: nil)
+                        )
+                        return
+                    }
+                    // A blocking form (permission / question / plan approval) keeps
+                    // the pane's attention non-clearable until answered (the host's
+                    // own mark-handled must respect this too, not just viewers).
+                    await self.windowManager.setBlockingResponseForm(open: request.isBlocking, for: sessionID)
+                    // Remember an auto-approvable permission shown without yolo so
+                    // enabling yolo later can approve it immediately (#315).
+                    let pending: MirrorWindowManager.PendingApproval? = {
+                        if case let .permission(permission) = request, permission.isAutoApprovable {
+                            return .init(pluginID: pluginID, requestID: requestID)
+                        }
+                        return nil
+                    }()
+                    await self.windowManager.setPendingApproval(pending, for: sessionID)
+                    // Otherwise forward to iOS: open the response form on every viewer.
+                    await self.connectedViewerManager?.sendAgentResponseRequestToAll(
+                        sessionId: sessionID,
+                        pluginId: pluginID,
+                        requestId: requestID,
+                        request: request
+                    )
+                },
+                onRetractResponseRequest: { [weak self] pluginID, sessionID, requestID in
+                    await self?.windowManager.setBlockingResponseForm(open: false, for: sessionID)
+                    // Forward to iOS: retract the open form (request == nil).
+                    await self?.connectedViewerManager?.sendAgentResponseRequestToAll(
+                        sessionId: sessionID,
+                        pluginId: pluginID,
+                        requestId: requestID,
+                        request: nil
+                    )
+                },
+                onAppAction: { [weak self] action in
+                    await self?.handlePluginAppAction(action)
+                },
+                isYoloModeEnabled: { [weak self] paneID in
+                    guard let self else { return false }
+                    return await self.windowManager.isYoloModeEnabled(for: paneID)
+                }
+            )
+            pluginDispatcher = dispatcher
+
+            // Registry + per-plugin enable.
+            let registry = PluginRegistry()
+            pluginRegistry = registry
+
+            var pluginIDs = ["claude-code", "codex"]
+            #if DEBUG
+                if CommandLine.arguments.contains("--e2e-test") {
+                    pluginIDs.append("echo")
+                }
+            #endif
+
+            for id in pluginIDs {
+                paths.ensurePluginStateDir(id)
+                let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                let env = makePluginEnv(id: id, registry: registry, paths: paths)
+
+                await registry.enable(id, host: host, env: env)
+                if let failure = registry.failedInit[id] {
+                    logger.warning("Plugin '\(id)' left disabled: \(failure)")
+                }
+            }
+
+            // Ingress socket: route frames by pluginID to the enabled core.
+            let server = IngressSocketServer(
+                socketPath: paths.ingressSocketPath.path,
+                coreLookup: { [weak registry] pluginID in
+                    await MainActor.run { registry?.core(pluginID) }
+                },
+                dispatcher: dispatcher
+            )
+            ingressSocketServer = server
+            do {
+                try await server.start()
+                logger.info("Plugin ingress socket listening at \(paths.ingressSocketPath.path)")
+            } catch {
+                logger.error("Failed to start plugin ingress socket: \(error)")
+            }
+
+            // E2E project-list determinism (spec §17.3). The per-agent in-memory
+            // scanners that used to seed a fixed project set were deleted in the
+            // plugin-system flip; restore the same deterministic set via the
+            // plugin path by pushing it through the host's setProjects sink so
+            // project-list / project-search scenarios stay stable. Gated to
+            // DEBUG + `--e2e-test --e2e-seed-projects`; never affects real runs.
+            #if DEBUG
+                if
+                    CommandLine.arguments.contains("--e2e-test"),
+                    CommandLine.arguments.contains("--e2e-seed-projects") {
+                    seedE2EDeterministicProjects()
+                }
+            #endif
+        }
+
+        #if DEBUG
+            /// Seed the fixed E2E project set through the plugin path, tagged by
+            /// pluginID exactly as the live scanners would (one Codex-tagged
+            /// project sorting first + twelve Claude projects). Sorting is by
+            /// name (all `lastUsed == nil`), matching the scenarios' expectations.
+            /// The Codex project name avoids the substring "Codex" so the picker's
+            /// "Codex" badge assertion can't match the project name itself.
+            private func seedE2EDeterministicProjects() {
+                let claudeNames = [
+                    "AlphaProject", "BetaProject", "GammaService", "DeltaApp",
+                    "EpsilonHub", "IotaWeb", "KappaCli", "MuShell",
+                    "NuRunner", "SigmaLib", "TauNode", "ZetaCore",
+                ]
+                let claudeProjects = claudeNames.map { name in
+                    AgentProject(name: name, path: "/Users/test/\(name)", pluginID: "claude-code")
+                }
+                pluginProjects["claude-code"] = claudeProjects
+                pluginProjects["codex"] = [
+                    AgentProject(
+                        name: "AaaOpenAIApp",
+                        path: "/Users/test/AaaOpenAIApp",
+                        pluginID: "codex"
+                    ),
+                ]
+                e2eSeededProjects = true
+            }
+        #endif
+
+        /// Builds the `LivePluginHost` for `id`, retaining its log sink so the
+        /// host's `log()` calls keep landing in the right file. Shared by initial
+        /// startup and the CLI `plugin enable` re-enable path.
+        private func makePluginHost(
+            id: String,
+            dispatcher: PluginEventDispatcher,
+            paths: GallagerPaths
+        ) -> LivePluginHost {
+            let logSink = PluginLogSink(logFileURL: paths.pluginLogPath(id))
+            pluginLogSinks[id] = logSink
+            return LivePluginHost(
+                pluginID: id,
+                dispatcher: dispatcher,
+                logSink: logSink,
+                onSetProjects: { [weak self] pluginID, projects in
+                    await self?.handlePluginSetProjects(pluginID: pluginID, projects: projects)
+                },
+                onSendText: { [weak self] _, sessionID, text in
+                    await self?.handlePluginSendText(sessionID: sessionID, text: text)
+                },
+                onSendKeys: { [weak self] _, sessionID, keys in
+                    await self?.handlePluginSendKeys(sessionID: sessionID, keys: keys)
+                }
+            )
+        }
+
+        /// Builds the `PluginEnv` for `id`. `pluginRoot` is the bundled
+        /// `plugins/<id>` directory; falls back to the state dir when a plugin
+        /// (e.g. echo) ships no manifest so `enable` can still construct the core
+        /// via the factory table.
+        private func makePluginEnv(
+            id: String,
+            registry: PluginRegistry,
+            paths: GallagerPaths
+        ) -> PluginEnv {
+            let pluginRoot = registry.pluginRoot(id) ?? paths.pluginStateDir(id)
+            let settingsData = (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
+            return PluginEnv(
+                pluginRoot: pluginRoot,
+                stateDir: paths.pluginStateDir(id),
+                appVersion: VersionCompatibility.currentAppVersion,
+                settings: settingsData
+            )
+        }
+
+        // MARK: - Plugin runtime CLI support (spec §14)
+
+        /// Enable a plugin by id (CLI `plugin enable`). Constructs + initializes
+        /// the core via the registry, building a fresh host/env. Returns `nil`
+        /// when `id` isn't a registered plugin; otherwise the resulting enabled
+        /// state. Idempotent: a no-op when already enabled.
+        func enablePluginViaCLI(_ id: String) async -> Bool? {
+            guard
+                let registry = pluginRegistry,
+                let dispatcher = pluginDispatcher,
+                let paths = gallagerPaths
+            else {
+                return nil
+            }
+            guard registry.isRegistered(id) else { return nil }
+            paths.ensurePluginStateDir(id)
+            let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+            let env = makePluginEnv(id: id, registry: registry, paths: paths)
+            await registry.enable(id, host: host, env: env)
+            // The enabled-plugin set changed; re-push the complete presentation
+            // set to all connected viewers (spec §7.2/§7.3).
+            await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
+            return registry.isEnabled(id)
+        }
+
+        /// Disable a plugin by id (CLI `plugin disable`). `shutdown()`s the core
+        /// and leaves files in place. Returns `nil` for an unregistered id;
+        /// otherwise the resulting enabled state (always `false`).
+        func disablePluginViaCLI(_ id: String) async -> Bool? {
+            guard let registry = pluginRegistry else { return nil }
+            guard registry.isRegistered(id) else { return nil }
+            await registry.disable(id)
+            // The enabled-plugin set changed; re-push the complete presentation
+            // set to all connected viewers (spec §7.2/§7.3).
+            await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
+            return registry.isEnabled(id)
+        }
+
+        /// Build the `plugin.info` envelope for `id` (CLI `plugin info`). Returns
+        /// `nil` for an unregistered id.
+        func pluginInfoViaCLI(_ id: String) async -> [String: JSONValue]? {
+            guard let registry = pluginRegistry, registry.isRegistered(id) else { return nil }
+            let manifest = registry.manifest(id)
+            let logPath = gallagerPaths?.pluginLogPath(id).path ?? ""
+            let stateBytes = gallagerPaths.map { Self.directorySize($0.pluginStateDir(id)) } ?? 0
+
+            var result: [String: JSONValue] = [
+                "id": .string(id),
+                "version": .string(manifest?.version ?? ""),
+                "enabled": .bool(registry.isEnabled(id)),
+                "failedInit": registry.failedInitError(id).map { .string($0) } ?? .null,
+                "source": .string("bundled"),
+                "logPath": .string(logPath),
+                "stateDirBytes": .int(stateBytes),
+            ]
+            if let manifest {
+                result["manifest"] = Self.manifestJSON(manifest)
+            }
+            return result
+        }
+
+        /// Build the `plugin.logs` envelope for `id` (CLI `plugin logs`). Returns
+        /// the last `lines` lines of the plugin's log file (all lines when
+        /// `lines` is `nil`), or `nil` for an unregistered id. A missing log file
+        /// yields an empty `lines` array (not an error) — the plugin simply
+        /// hasn't logged yet.
+        func pluginLogsViaCLI(_ id: String, lines: Int?) async -> [String: JSONValue]? {
+            guard let registry = pluginRegistry, registry.isRegistered(id) else { return nil }
+            guard let paths = gallagerPaths else {
+                return ["logPath": .string(""), "lines": .array([])]
+            }
+            let logURL = paths.pluginLogPath(id)
+            let allLines: [String]
+            if let content = try? String(contentsOf: logURL, encoding: .utf8) {
+                // Drop a single trailing empty element from the final newline so a
+                // 3-line file reports 3 lines, not 4.
+                var split = content.components(separatedBy: "\n")
+                if split.last == "" { split.removeLast() }
+                allLines = split
+            } else {
+                allLines = []
+            }
+            let tail: [String]
+            if let lines, lines >= 0, lines < allLines.count {
+                tail = Array(allLines.suffix(lines))
+            } else {
+                tail = allLines
+            }
+            return [
+                "logPath": .string(logURL.path),
+                "lines": .array(tail.map { .string($0) }),
+            ]
+        }
+
+        /// Dispatch a direct core-method `call` (CLI `plugin call`). `enable` and
+        /// `disable` are handled here (they need the app-built host/env); all
+        /// other methods route into the active core via the registry.
+        func pluginCallViaCLI(
+            _ id: String,
+            method: String,
+            json _: String?
+        ) async -> LiveAPIRequestRouter.PluginCallResult {
+            guard let registry = pluginRegistry, registry.isRegistered(id) else {
+                return .unknownPlugin
+            }
+            switch method {
+            case "enable":
+                let enabled = await enablePluginViaCLI(id) ?? false
+                return .ok(result: enabled ? "enabled" : "failed-init")
+            case "disable":
+                _ = await disablePluginViaCLI(id)
+                return .ok(result: "disabled")
+            default:
+                switch await registry.callCore(id, method: method) {
+                case let .ok(result): return .ok(result: result)
+                case .notEnabled: return .notEnabled
+                case let .unknownMethod(name): return .unknownMethod(name)
+                case let .failed(message): return .failed(message)
+                }
+            }
+        }
+
+        /// Recursively sum the byte sizes of regular files under `url`.
+        /// Best-effort and trap-free; an unreadable tree reports `0`.
+        private static func directorySize(_ url: URL) -> Int {
+            let fm = FileManager.default
+            guard
+                let enumerator = fm.enumerator(
+                    at: url,
+                    includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+                )
+            else {
+                return 0
+            }
+            var total = 0
+            for case let fileURL as URL in enumerator {
+                guard
+                    let values = try? fileURL.resourceValues(
+                        forKeys: [.fileSizeKey, .isRegularFileKey]
+                    ),
+                    values.isRegularFile == true,
+                    let size = values.fileSize
+                else {
+                    continue
+                }
+                total += size
+            }
+            return total
+        }
+
+        /// Encode a `PluginManifest` into a JSONValue tree for the `plugin.info`
+        /// response (snake_case keys matching the on-disk manifest schema §10).
+        private static func manifestJSON(_ manifest: PluginManifest) -> JSONValue {
+            var ui: [String: JSONValue] = ["color": .string(manifest.color)]
+            if let icon = manifest.ui.icon {
+                ui["icon"] = .string(icon)
+            }
+            return .object([
+                "schema_version": .int(manifest.schemaVersion),
+                "id": .string(manifest.id),
+                "display_name": .string(manifest.displayName),
+                "short_name": .string(manifest.shortName),
+                "version": .string(manifest.version),
+                "process_names": .array(manifest.processNames.map { .string($0) }),
+                "runtime": .string(manifest.runtime.rawValue),
+                "ui": .object(ui),
+            ])
+        }
+
+        /// Parses the optional `--gallager-state-root <path>` launch argument
+        /// (E2E state isolation). Returns the override URL, or `nil` for the
+        /// default `~/.gallager` layout.
+        private static func parseGallagerStateRoot() -> URL? {
+            let args = CommandLine.arguments
+            guard
+                let flagIndex = args.firstIndex(of: "--gallager-state-root"),
+                flagIndex + 1 < args.count
+            else {
+                return nil
+            }
+            let path = args[flagIndex + 1]
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+
+        // MARK: - Plugin Runtime Local Sinks
+
+        /// StatusSink → reflect plugin working/attention onto the pane's session
+        /// (the sole status driver), then forward a high-frequency
+        /// `agent_session_status` push to iOS and refresh the full session state.
+        private func handlePluginStatus(
+            pluginID: String,
+            sessionID: String,
+            working: Bool?,
+            attention: Bool,
+            tmuxPane: String?,
+            projectPath: String?
+        ) async {
+            windowManager.applyPluginStatus(
+                pluginID: pluginID,
+                sessionID: sessionID,
+                working: working,
+                attention: attention,
+                tmuxPane: tmuxPane,
+                projectPath: projectPath
+            )
+            updateSleepPrevention()
+
+            // High-frequency badge update to iOS (spec §7.2). Keyed by the pane,
+            // matching how the session is keyed locally. `working == nil` is "no
+            // opinion"; resolve it to the current session's flag for the push.
+            if let paneId = tmuxPane, !paneId.isEmpty {
+                let resolvedWorking = working
+                    ?? windowManager.paneStates[paneId]?.agentSession?.isWorking
+                    ?? false
+                await connectedViewerManager?.sendAgentSessionStatusToAll(
+                    sessionId: paneId,
+                    pluginId: pluginID,
+                    working: resolvedWorking,
+                    attention: attention
+                )
+            }
+            await connectedViewerManager?.pushSessionStateToAll()
+        }
+
+        /// NotificationSink → show a Mac desktop notification using the
+        /// core-baked title/body, and forward it to paired iOS viewers via the
+        /// encrypted-push path (falls back to APNs when a viewer is offline).
+        private func handlePluginNotification(_ notification: NotificationSpec, paneId: String?) async {
+            let macNotification = TerminalStreamMessage.TerminalNotification(
+                title: notification.title,
+                body: notification.body
+            )
+            terminalNotificationService.showNotification("system", macNotification)
+            await connectedViewerManager?.sendCustomPushNotificationToAll(
+                title: notification.title,
+                body: notification.body,
+                paneId: paneId
+            )
+        }
+
+        /// AppActionSink → drive the matching agent-blind Mac feature (spec §6).
+        private func handlePluginAppAction(_ action: AppAction) async {
+            switch action {
+            case let .openFileSuggestion(sessionID, path, displayName, isPlan):
+                // `sessionID` is the plugin's opaque session id; resolve it to a
+                // tmux session name when it names a known pane, otherwise use it
+                // verbatim (the markdown store keys purely by name).
+                let sessionName = resolveSessionName(forPaneId: sessionID) ?? sessionID
+                let directoryPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
+                markdownOpenSuggestionStore.suggest(MarkdownOpenSuggestion(
+                    filePath: path,
+                    directoryPath: directoryPath,
+                    sessionName: sessionName,
+                    isPlan: isPlan
+                ))
+                _ = displayName // label is derived from the path in the UI
+
+            case let .dismissFileSuggestions(sessionID):
+                // Mirrors the legacy `userPromptSubmit` path: start the 30s
+                // auto-dismiss timer rather than clearing immediately, so the
+                // suggestion lingers briefly after the user sends a new prompt.
+                let sessionName = resolveSessionName(forPaneId: sessionID) ?? sessionID
+                markdownOpenSuggestionStore.userSubmittedPrompt(sessionName: sessionName)
+
+            case let .sessionEnded(sessionID, closePaneEligible):
+                // `sessionID` carries the pane id in the plugin path. A session end
+                // (any reason) resets the pane's session-scoped Mac state so a fresh
+                // session doesn't inherit it. Yolo is per-pane app state the core
+                // never sees — clear it here. Context compaction sends no SessionEnd,
+                // so yolo correctly survives a compaction restart (issue #193).
+                if windowManager.isYoloModeEnabled(for: sessionID) {
+                    windowManager.setYoloMode(enabled: false, for: sessionID)
+                    await connectedViewerManager?.pushSessionStateToAll()
+                }
+                // Close the pane only on a clean prompt-exit AND with the pref on.
+                guard closePaneEligible, settings.closePaneOnSessionEnd else { return }
+                try? await tmuxService.killPane(sessionID)
+            }
+        }
+
+        // MARK: - Plugin Runtime Host Send Sinks
+
+        /// Resolve a plugin `sessionID` to a tmux pane target. The plugin path
+        /// carries the pane id as the session id; if it doesn't name a tracked
+        /// pane we still pass it through so a freshly-created pane works.
+        private func resolvePluginPaneTarget(_ sessionID: String) -> String {
+            if windowManager.paneStates[sessionID] != nil { return sessionID }
+            if let pane = tmuxService.panes.first(where: { $0.paneId == sessionID }) {
+                return pane.paneId
+            }
+            return sessionID
+        }
+
+        /// SendTextSink → write verbatim text to the pane backing the session.
+        private func handlePluginSendText(sessionID: String, text: String) async {
+            guard !text.isEmpty else { return }
+            let target = resolvePluginPaneTarget(sessionID)
+            do {
+                try await tmuxService.sendKeys(target, keys: text, literal: true)
+            } catch {
+                logger.warning("Plugin sendText failed for \(target): \(error)")
+            }
+        }
+
+        /// SendKeysSink → send a key sequence to the pane backing the session.
+        /// Reuses the shared `TmuxKey` vocabulary (`PluginTmuxKey` is its alias)
+        /// and the batching `send-keys` path.
+        private func handlePluginSendKeys(sessionID: String, keys: [PluginTmuxKey]) async {
+            guard !keys.isEmpty else { return }
+            let target = resolvePluginPaneTarget(sessionID)
+            do {
+                for key in keys {
+                    if case let .text(literal) = key {
+                        try await tmuxService.sendKeys(target, keys: literal, literal: true)
+                    } else if case let .delay(ms) = key {
+                        try await Task.sleep(for: .milliseconds(ms))
+                    } else {
+                        try await tmuxService.sendKeys(target, keys: key.tmuxKeyName)
+                    }
+                }
+            } catch {
+                logger.warning("Plugin sendKeys failed for \(target): \(error)")
+            }
+        }
+
+        /// SetProjectsSink → store the plugin's project list and push the merged
+        /// set to viewers via the existing `SessionStateMessage.agentProjects`
+        /// payload (spec §7.2).
+        private func handlePluginSetProjects(pluginID: String, projects: [AgentProject]) async {
+            // E2E: once a deterministic project set is seeded, it is authoritative —
+            // ignore the cores' real `~/.claude.json` / `~/.codex` scans so the
+            // project-list / sidebar / new-session screenshots stay stable.
+            guard !e2eSeededProjects else { return }
+            pluginProjects[pluginID] = projects
+            await connectedViewerManager?.pushSessionStateToAll()
+        }
+
+        /// The merged per-plugin project list for the iOS session-state push.
+        /// Read by `ConnectedViewerManager` when building `SessionStateMessage`.
+        public func currentAgentProjects() -> [AgentProject] {
+            mergedPluginProjects()
+        }
+
+        /// Resolve the auto-launch command for a project from its owning plugin
+        /// core (`commandForLaunch`, gated on the plugin's auto-run setting),
+        /// flattened to the shell command line + extra env strings the local
+        /// "create from project" flow needs. `runCommand == nil` means launch a
+        /// bare shell. Returned as primitives so `MainView` needn't import the
+        /// plugin protocol's `LaunchCommand` type.
+        public func resolveLaunch(
+            forPluginID pluginID: String,
+            projectPath: String
+        ) async -> (runCommand: String?, extraEnvironment: [String]) {
+            guard let launch = await pluginRegistry?.core(pluginID)?.commandForLaunch(projectPath: projectPath) else {
+                return (nil, [])
+            }
+            let runCommand = launch.args.isEmpty
+                ? launch.command
+                : ([launch.command] + launch.args).joined(separator: " ")
+            let env = launch.env.map { "\($0.key)=\($0.value)" }
+            return (runCommand, env)
         }
 
         // MARK: - Private Setup Methods
@@ -386,10 +1019,9 @@
             let winManager = windowManager
             let editorManager = editorSessionManager
             let notificationService = terminalNotificationService
-            let scanner = projectScanner
-            let codexScanner = codexScanner
+            // `claudeCommandPath` is still consumed by the layout driver, which
+            // shell-launches `claude` for `agent:` panes in a YAML layout.
             let claudeCommandPath = settings.claudeCommandPath
-            let codexCommandPath = settings.codexCommandPath
 
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
@@ -633,7 +1265,7 @@
                             panes
                         }
                         return filtered.map { pane in
-                            let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                            let hasSession = winManager.paneStates[pane.paneId]?.agentSession != nil
                             return APIPaneInfo(
                                 id: pane.paneId,
                                 index: pane.paneIndex,
@@ -643,7 +1275,7 @@
                                 width: pane.width,
                                 height: pane.height,
                                 windowId: pane.windowId,
-                                hasClaudeSession: hasSession
+                                hasAgentSession: hasSession
                             ).toJSONValue()
                         }
                     }
@@ -674,7 +1306,7 @@
                         width: newPane.width,
                         height: newPane.height,
                         windowId: newPane.windowId,
-                        hasClaudeSession: false
+                        hasAgentSession: false
                     ).toJSONValue()
                 },
                 onPaneSelect: { [tmux] paneId in
@@ -771,7 +1403,7 @@
                             ?? panes.first(where: { $0.isActive && $0.isWindowActive })
                         else { return nil }
 
-                        let hasSession = winManager.paneStates[pane.paneId]?.claudeSession != nil
+                        let hasSession = winManager.paneStates[pane.paneId]?.agentSession != nil
                         let attached = tmux.attachedSessionNames
                         return APIIdentifyInfo(
                             session: APISessionInfo(
@@ -798,18 +1430,18 @@
                                 width: pane.width,
                                 height: pane.height,
                                 windowId: pane.windowId,
-                                hasClaudeSession: hasSession
+                                hasAgentSession: hasSession
                             )
                         ).toJSONValue()
                     }
                 },
-                onProjectList: { [scanner, codexScanner] in
-                    async let claude = scanner.scanProjects()
-                    async let codex = codexScanner.scanProjects()
-                    let projects = (await claude + codex).sortedByLastUsed()
+                onProjectList: { [weak self] in
+                    // Refresh then return the merged per-plugin project list (the
+                    // cores own scanning now — spec §12).
+                    let projects = await self?.scanProjects() ?? []
                     return projects.map { APIProjectInfo($0).toJSONValue() }
                 },
-                onProjectStart: { [tmux, claudeCommandPath, codexCommandPath] path, args, agent in
+                onProjectStart: { [tmux, weak self] path, args, pluginID in
                     let url = URL(fileURLWithPath: path).standardizedFileURL
                     var isDirectory: ObjCBool = false
                     guard
@@ -818,15 +1450,17 @@
                     else {
                         throw APIError.notFound("Path does not exist or is not a directory: \(path)")
                     }
-                    let commandPath: String = switch agent {
-                    case .claudeCode: claudeCommandPath
-                    case .codex: codexCommandPath
-                    }
+                    // Resolve the launch command from the owning plugin core
+                    // (`commandForLaunch`); fall back to the pluginID as the
+                    // command when no core/launch command is available.
+                    let launch = await self?.pluginRegistry?.core(pluginID)?.commandForLaunch(projectPath: url.path)
+                    let commandPath = launch?.command ?? pluginID
+                    let launchArgs = args.isEmpty ? (launch?.args ?? []) : args
                     let runCommand: String
-                    if args.isEmpty {
+                    if launchArgs.isEmpty {
                         runCommand = shellQuoteSingle(commandPath)
                     } else {
-                        let quoted = args.map(shellQuoteSingle).joined(separator: " ")
+                        let quoted = launchArgs.map(shellQuoteSingle).joined(separator: " ")
                         runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
@@ -904,6 +1538,39 @@
                         "warnings": .array(result.warnings.map { .string($0) }),
                         "planned_actions": .array(result.plannedActions.map { .string($0) }),
                     ]
+                },
+                onPluginList: { [weak self] in
+                    guard let registry = await self?.pluginRegistry else { return [] }
+                    return await MainActor.run {
+                        registry.listEntries().map { entry in
+                            [
+                                "id": .string(entry.id),
+                                "version": .string(entry.version),
+                                "enabled": .bool(entry.enabled),
+                                "source": .string(entry.source),
+                            ] as [String: JSONValue]
+                        }
+                    }
+                },
+                onPluginInfo: { [weak self] id in
+                    await self?.pluginInfoViaCLI(id)
+                },
+                onPluginEnable: { [weak self] id in
+                    guard let self else { return nil }
+                    guard let enabled = await self.enablePluginViaCLI(id) else { return nil }
+                    return ["id": .string(id), "enabled": .bool(enabled)]
+                },
+                onPluginDisable: { [weak self] id in
+                    guard let self else { return nil }
+                    guard let enabled = await self.disablePluginViaCLI(id) else { return nil }
+                    return ["id": .string(id), "enabled": .bool(enabled)]
+                },
+                onPluginLogs: { [weak self] id, lines in
+                    await self?.pluginLogsViaCLI(id, lines: lines)
+                },
+                onPluginCall: { [weak self] id, method, json in
+                    guard let self else { return .unknownPlugin }
+                    return await self.pluginCallViaCLI(id, method: method, json: json)
                 }
             )
             liveRouter = router
@@ -1007,6 +1674,21 @@
                 windowManager.pendingSessionCount
             }
 
+            // Plugin runtime ↔ iOS bridge (additive, in-process plugin path):
+            // route an inbound plugin response submission to the owning core's
+            // `deliverResponse`, and feed the enabled-plugin presentation set so
+            // each viewer receives it on connect.
+            connectionManager.onAgentResponseSubmission = { [weak self] submission in
+                await self?.pluginRegistry?.core(submission.pluginId)?.deliverResponse(
+                    sessionID: submission.sessionId,
+                    requestID: submission.requestId,
+                    submission.response
+                )
+            }
+            connectionManager.presentationsProvider = { [weak self] in
+                self?.pluginRegistry?.presentations() ?? []
+            }
+
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
                 connectionManager: connectionManager,
@@ -1037,11 +1719,13 @@
             await paneStreamManager.startMonitoring(panes: initialPanes)
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
-            // Detect Claude Code instances already running in tmux panes
-            let claudePanes = await tmuxService.detectClaudePanes()
-            if !claudePanes.isEmpty {
-                windowManager.markDetectedClaudeSessions(claudePanes)
-                logger.info("Detected running Claude Code in panes: \(claudePanes.keys.sorted())")
+            // Detect coding-agent instances already running in tmux panes, using
+            // each enabled plugin's manifest `process_names` (spec §6).
+            let processNames = pluginRegistry?.processNamesByPlugin ?? [:]
+            let agentPanes = await tmuxService.detectAgentPanes(processNamesByPlugin: processNames)
+            if !agentPanes.isEmpty {
+                windowManager.markDetectedAgentSessions(agentPanes)
+                logger.info("Detected running agents in panes: \(agentPanes.keys.sorted())")
             }
 
             // Connect pane stream manager to window manager for view injection
@@ -1069,9 +1753,8 @@
             // Set up command handler - called when any viewer sends a command
             let streamService = terminalStreamService
             let tmux = tmuxService
-            let appSettings = settings
             let editorManager = editorSessionManager
-            connectionManager.onCommand = { [executor, streamService, tmux, appSettings, winManager, editorManager, weak connectionManager] command in
+            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, weak connectionManager] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -1086,24 +1769,52 @@
 
                 // Handle create session command
                 if case let .createTmuxSession(spec) = command.command {
+                    // Resolve the launch command from the owning plugin core when
+                    // this is a "create from project" request (a working dir is
+                    // supplied); `commandForLaunch` already gates on the plugin's
+                    // auto-run setting and returns nil to launch a bare shell.
+                    let launch: LaunchCommand?
+                    if spec.workingDirectory != nil {
+                        launch = await self?.pluginRegistry?.core(spec.pluginID)?
+                            .commandForLaunch(projectPath: spec.workingDirectory ?? "")
+                    } else {
+                        launch = nil
+                    }
                     return await Self.handleCreateSession(
                         command: command,
                         spec: spec,
-                        tmuxService: tmux,
-                        settings: appSettings
+                        launch: launch,
+                        tmuxService: tmux
                     )
                 }
 
                 // Handle yolo mode toggle
                 if case let .setYoloMode(spec) = command.command {
                     winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
+                    // #315: enabling yolo immediately approves a permission form that
+                    // was already open (it arrived before yolo was on). Deliver the
+                    // approval to the owning core and retract the now-answered form.
+                    if spec.enabled, let pending = winManager.pendingApproval(for: command.paneId) {
+                        winManager.setBlockingResponseForm(open: false, for: command.paneId)
+                        await self?.pluginRegistry?.core(pending.pluginID)?.deliverResponse(
+                            sessionID: command.paneId,
+                            requestID: pending.requestID,
+                            .permission(decision: .allow, appliedSuggestionID: nil)
+                        )
+                        await connectionManager?.sendAgentResponseRequestToAll(
+                            sessionId: command.paneId,
+                            pluginId: pending.pluginID,
+                            requestId: pending.requestID,
+                            request: nil
+                        )
+                    }
                     await connectionManager?.pushSessionStateToAll()
                     return .success(for: command.id)
                 }
 
                 // Handle mark session as handled
                 if case .markHandled = command.command {
-                    let wasNeeding = winManager.paneStates[command.paneId]?.claudeSession?.needsAttention == true
+                    let wasNeeding = winManager.paneStates[command.paneId]?.agentSession?.needsAttention == true
                     winManager.markSessionHandled(paneId: command.paneId)
                     if wasNeeding {
                         await connectionManager?.pushSessionStateToAll()
@@ -1272,10 +1983,8 @@
             }
 
             // Set up session state handler
-            let scanner = projectScanner
-            let codexProjectScanner = codexScanner
             connectionManager.onSessionStateRequest = {
-                [weak windowManager, tmuxService, scanner, codexProjectScanner, editorManager] in
+                [weak self, weak windowManager, tmuxService, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
@@ -1290,15 +1999,14 @@
                     paneStates[paneId] = state
                 }
 
-                async let claudeOnly = scanner.scanProjects()
-                async let codexOnly = codexProjectScanner.scanProjects()
-                let claudeProjects = (await claudeOnly + codexOnly).sortedByLastUsed()
+                // The merged per-plugin project list (the cores own scanning now).
+                let agentProjects = await self?.currentAgentProjects() ?? []
 
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
                     pairId: "",
                     paneStates: paneStates,
-                    claudeProjects: claudeProjects,
+                    agentProjects: agentProjects,
                     homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
                 )
             }
@@ -1446,40 +2154,39 @@
         private static func handleCreateSession(
             command: CommandMessage,
             spec: CreateTmuxSession,
-            tmuxService: TmuxService,
-            settings: AppSettings
+            launch: LaunchCommand?,
+            tmuxService: TmuxService
         ) async -> CommandResponseMessage {
             do {
-                // Determine which agent command to launch. Each agent has its
-                // own auto-run toggle so a user can keep "open Codex folders
-                // in a bare shell" as a real choice — matches the local
-                // create-from-project path in MainView.
-                let runCommand: String? = if spec.workingDirectory != nil {
-                    switch spec.agent {
-                    case .claudeCode:
-                        settings.autoRunClaudeInProjects ? settings.claudeCommandPath : nil
-                    case .codex:
-                        settings.autoRunCodexInProjects ? settings.codexCommandPath : nil
+                // The owning plugin core resolved `launch` (gated on its auto-run
+                // setting); a nil launch means "open in a bare shell".
+                let runCommand: String? = launch.map { command in
+                    if command.args.isEmpty {
+                        return shellQuoteSingle(command.command)
                     }
-                } else {
-                    nil
+                    let quoted = command.args.map(shellQuoteSingle).joined(separator: " ")
+                    return "\(shellQuoteSingle(command.command)) \(quoted)"
                 }
 
                 let workingDirectory = spec.workingDirectory
                     ?? FileManager.default.homeDirectoryForCurrentUser.path()
 
-                let extraEnvironment: [String] = if let configDir = spec.claudeConfigDir {
-                    ["CLAUDE_CONFIG_DIR=\(configDir)"]
-                } else {
-                    []
+                // Pass through any config-dir + plugin-provided env the launch
+                // command carries (e.g. CLAUDE_CONFIG_DIR for a non-default folder).
+                var extraEnvironment: [String] = []
+                if let configDir = spec.configDir {
+                    extraEnvironment.append("CLAUDE_CONFIG_DIR=\(configDir)")
+                }
+                for (key, value) in launch?.env ?? [:] {
+                    extraEnvironment.append("\(key)=\(value)")
                 }
 
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from project" request — that's the only flow today
                 // that supplies a directory. Name the first window after the
-                // agent's CLI command so the tab matches what's running.
+                // launch command so the tab matches what's running.
                 let firstWindowName = spec.workingDirectory != nil
-                    ? spec.agent.defaultCommand
+                    ? (launch?.command ?? spec.pluginID)
                     : "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,
@@ -1749,9 +2456,10 @@
                 let store = SessionStore()
                 remoteSessionStore = store
 
-                // Wire hook events from remote hosts
-                manager.onHookEvent = { [weak store] event in
-                    store?.handleEvent(event)
+                // Wire per-session status updates from remote hosts (the plugin
+                // status path replaces the old hook-event forwarding).
+                manager.onAgentSessionStatus = { [weak store] status in
+                    store?.handleAgentStatus(status)
                 }
 
                 // Wire session state updates from remote hosts.

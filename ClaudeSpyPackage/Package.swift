@@ -141,6 +141,18 @@ extension Target.Dependency {
         "ClaudeSpyNetworking"
     }
 
+    static var gallagerPluginProtocol: Self {
+        "GallagerPluginProtocol"
+    }
+
+    static var claudeCodePluginCore: Self {
+        "ClaudeCodePluginCore"
+    }
+
+    static var codexPluginCore: Self {
+        "CodexPluginCore"
+    }
+
     static var claudeSpyCommon: Self {
         "ClaudeSpyCommon"
     }
@@ -180,6 +192,18 @@ let products: [Product] = [
     .library(
         name: "ClaudeSpyNetworking",
         targets: ["ClaudeSpyNetworking"]
+    ),
+    .library(
+        name: "GallagerPluginProtocol",
+        targets: ["GallagerPluginProtocol"]
+    ),
+    .library(
+        name: "ClaudeCodePluginCore",
+        targets: ["ClaudeCodePluginCore"]
+    ),
+    .library(
+        name: "CodexPluginCore",
+        targets: ["CodexPluginCore"]
     ),
     .library(
         name: "ClaudeSpyCommon",
@@ -238,6 +262,14 @@ let targets: [Target] = [
             .claudeSpyEncryption,
         ]
     ),
+    // The durable plugin contract: PluginCore / PluginHost / IngressFrame /
+    // value types / manifest. Cross-platform; depends only on networking models.
+    .target(
+        name: "GallagerPluginProtocol",
+        dependencies: [
+            .claudeSpyNetworking,
+        ]
+    ),
     .target(
         name: "ClaudeSpyCommon",
         dependencies: [
@@ -245,6 +277,34 @@ let targets: [Target] = [
             .claudeSpyEncryption,
             .logging,
         ] + macOnlyTargetDependencies(for: "ClaudeSpyCommon")
+    ),
+    // Per-agent plugin cores. Each conforms to PluginCore and owns all
+    // agent-specific logic (scanner, installer, translator, keystrokes,
+    // settings). Only the registry in ClaudeSpyServerFeature names these
+    // concrete types — the dispatcher/runtime stay agent-neutral (spec §4.1).
+    .target(
+        name: "ClaudeCodePluginCore",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .claudeSpyCommon,
+            .dependencies,
+            .dependenciesMacros,
+        ]
+    ),
+    .target(
+        name: "CodexPluginCore",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+            .claudeSpyCommon,
+            // Shares the migrated Claude hook-parsing types (HookAction/HookEvent
+            // /*Body/ClaudeCodeTool/AnyCodable + AskUserQuestion keystroke helper);
+            // Codex hook payloads parse through the same enum (spec §16).
+            .claudeCodePluginCore,
+            .dependencies,
+            .dependenciesMacros,
+        ]
     ),
     // End-to-end encryption module using CryptoKit (Apple) / Swift Crypto (Linux)
     .target(
@@ -270,12 +330,20 @@ let targets: [Target] = [
         dependencies: [
             .claudeSpyCommon,
             .claudeSpyEncryption,
+            .gallagerPluginProtocol,
+            .claudeCodePluginCore,
+            .codexPluginCore,
             .vapor,
             .dependencies,
             .dependenciesMacros,
         ] + macOnlyTargetDependencies(for: "ClaudeSpyServerFeature"),
         resources: [
             .process("Resources"),
+            // Bundled plugin manifests/assets, copied verbatim so the per-plugin
+            // directory structure (plugins/<id>/plugin.json + assets) survives
+            // into Gallager.app/Contents/Resources (spec §9). `.copy` (not
+            // `.process`) keeps the tree and avoids flattening same-named files.
+            .copy("PluginBundles/plugins"),
         ]
     ),
     // External server library (all business logic, importable by tests and E2E)
@@ -307,6 +375,10 @@ let targets: [Target] = [
             .claudeSpyNetworking,
             .claudeSpyServerFeature,
             .claudeSpyExternalServerLib,
+            // The DSL hook-delivery step builds length-prefixed `IngressFrame`s
+            // (and, for the round-trip scenarios, `EchoDirective` payloads) to
+            // write to the app's ingress socket — the same codec the app reads.
+            .gallagerPluginProtocol,
             .vapor,
             .logging,
         ],
@@ -333,6 +405,30 @@ let targets: [Target] = [
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
             "ClaudeSpyNetworking",
+        ]
+    ),
+    .testTarget(
+        name: "GallagerPluginProtocolTests",
+        dependencies: [
+            .gallagerPluginProtocol,
+            .claudeSpyNetworking,
+        ]
+    ),
+    .testTarget(
+        name: "ClaudeCodePluginCoreTests",
+        dependencies: [
+            .claudeCodePluginCore,
+            .gallagerPluginProtocol,
+            .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "CodexPluginCoreTests",
+        dependencies: [
+            .codexPluginCore,
+            .claudeCodePluginCore,
+            .gallagerPluginProtocol,
+            .dependenciesTestSupport,
         ]
     ),
     .testTarget(

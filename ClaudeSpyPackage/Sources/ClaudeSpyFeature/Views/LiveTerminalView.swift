@@ -42,8 +42,8 @@
         /// Used in multi-pane layouts where only the selected pane accepts input.
         let isActive: Bool
 
-        /// Command sender for response actions
-        let sendCommand: CommandSender
+        /// Submits a structured `AgentResponse` for the open response form.
+        let submitResponse: ResponseSender
 
         @Environment(ViewerRelayClient.self) private var relayClient
         @Environment(\.dismiss) private var dismiss
@@ -66,7 +66,7 @@
             showKeyboardButton: Bool = true,
             isActive: Bool = true,
             settings: IOSSettings,
-            sendCommand: @escaping CommandSender
+            submitResponse: @escaping ResponseSender
         ) {
             self.paneId = paneId
             self._responseState = responseState
@@ -77,7 +77,7 @@
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
             self.isActive = isActive
-            self.sendCommand = sendCommand
+            self.submitResponse = submitResponse
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
                 fontName: settings.terminalFontName,
@@ -92,20 +92,18 @@
                 // to avoid hiding when response view's own TextField activates the keyboard
                 if
                     !isInteractive,
-                    let responseState,
-                    let responseView = responseState.event.responseView(
-                        isYoloMode: isYoloMode,
+                    let responseState {
+                    responseState.request.responseView(
                         isConnected: isConnected,
-                        sendCommand: sendCommand,
+                        submit: submitResponse,
                         state: responseState
-                    ) {
-                    responseView
-                        .padding()
-                        .background(Color(.systemGroupedBackground))
-                        // Force a fresh view identity per event so per-event
-                        // @State (e.g. AskUserQuestion's collected answers) is
-                        // discarded when a new hook event replaces the prior one.
-                        .id(responseState.event.id)
+                    )
+                    .padding()
+                    .background(Color(.systemGroupedBackground))
+                    // Force a fresh view identity per request so per-request
+                    // @State (e.g. AskUserQuestion's collected answers) is
+                    // discarded when a new request replaces the prior one.
+                    .id(responseState.requestID)
 
                     Divider()
                 }
@@ -676,7 +674,7 @@
                 terminalTitle: .init(get: { nil }, set: { _ in }),
                 isConnected: true,
                 settings: settings,
-                sendCommand: { _ in }
+                submitResponse: { _ in }
             )
         }
         .environment(ViewerRelayClient())

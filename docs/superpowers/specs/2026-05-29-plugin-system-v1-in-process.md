@@ -252,16 +252,19 @@ its own, or the user answered on the Mac side first.)
 public enum AppAction: Codable, Sendable, Equatable {
     case openFileSuggestion(sessionId: String, path: String, displayName: String, isPlan: Bool)
     case dismissFileSuggestions(sessionId: String)
-    case closePaneIfPreferenceAllows(sessionId: String)
+    case sessionEnded(sessionId: String, closePaneEligible: Bool)
 }
 ```
 
 - `openFileSuggestion` — the core saw a Write to a `.md`/`.markdown` path; the app surfaces an
   "open this file?" prompt.
 - `dismissFileSuggestions` — clear outstanding suggestions (on prompt submit).
-- `closePaneIfPreferenceAllows` — the core signals a clean session end; the app closes the pane
-  **iff** the user's `closePaneOnSessionEnd` preference is on. The app reads the pref; the core
-  only states intent.
+- `sessionEnded` — the core signals a session end (any reason). The app resets the pane's
+  session-scoped state — notably yolo mode, so a fresh session on the same pane doesn't inherit it
+  (context compaction sends no SessionEnd, so yolo survives a compaction restart). When
+  `closePaneEligible` is true (the agent exited cleanly at the prompt) the app additionally closes
+  the pane **iff** the user's `closePaneOnSessionEnd` preference is on. The app owns yolo and the
+  pref; the core only states intent + close-eligibility.
 
 **Yolo auto-approve is not an AppAction.** It is `PermissionRequest.isAutoApprovable: Bool`. When
 the app receives a `responseRequest: .permission` with `isAutoApprovable == true` for a pane in

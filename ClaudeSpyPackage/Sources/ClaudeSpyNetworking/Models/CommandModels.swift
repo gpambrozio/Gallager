@@ -478,31 +478,30 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// Optional working directory to start the session in
     public let workingDirectory: String?
 
-    /// Optional `CLAUDE_CONFIG_DIR` value to set on the session. Used when the
-    /// project being launched was discovered under a non-default `.claude` folder
-    /// so that `claude` picks up the right config.
-    public let claudeConfigDir: String?
+    /// Optional config-dir value (e.g. `CLAUDE_CONFIG_DIR`) to set on the session.
+    /// Used when the project being launched was discovered under a non-default
+    /// config folder so the agent picks up the right config.
+    public let configDir: String?
 
-    /// Which coding-agent CLI to launch when `workingDirectory` is supplied
-    /// (and the corresponding auto-run setting is enabled). Defaults to
-    /// `.claudeCode` for backward compatibility with viewers built before the
-    /// Codex integration.
-    public let agent: CodingAgent
+    /// Id of the plugin whose agent to launch when `workingDirectory` is supplied
+    /// (and the plugin's auto-run setting is enabled). Defaults to "claude-code"
+    /// for backward compatibility with viewers built before the plugin system.
+    public let pluginID: String
 
     public init(
         sessionName: String,
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
+        configDir: String? = nil,
+        pluginID: String = "claude-code"
     ) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
         self.workingDirectory = workingDirectory
-        self.claudeConfigDir = claudeConfigDir
-        self.agent = agent
+        self.configDir = configDir
+        self.pluginID = pluginID
     }
 
     public var commandType: CommandType {
@@ -512,15 +511,15 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     // MARK: - Codable
 
     /// Custom decoder so this build can talk to an older host that predates the
-    /// `agent` field. Treat absence as Claude Code — the only agent older
+    /// `pluginID` field. Treat absence as "claude-code" — the only agent older
     /// versions know about.
     private enum CodingKeys: String, CodingKey {
         case sessionName
         case width
         case height
         case workingDirectory
-        case claudeConfigDir
-        case agent
+        case configDir
+        case pluginID
     }
 
     public init(from decoder: Decoder) throws {
@@ -529,8 +528,8 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
         self.width = try container.decode(Int.self, forKey: .width)
         self.height = try container.decode(Int.self, forKey: .height)
         self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
-        self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
-        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
+        self.configDir = try container.decodeIfPresent(String.self, forKey: .configDir)
+        self.pluginID = try container.decodeIfPresent(String.self, forKey: .pluginID) ?? "claude-code"
     }
 }
 
@@ -988,16 +987,16 @@ public enum CommandType: Codable, Sendable, Equatable {
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
+        configDir: String? = nil,
+        pluginID: String = "claude-code"
     ) -> CommandType {
         .createTmuxSession(CreateTmuxSession(
             sessionName: sessionName,
             width: width,
             height: height,
             workingDirectory: workingDirectory,
-            claudeConfigDir: claudeConfigDir,
-            agent: agent
+            configDir: configDir,
+            pluginID: pluginID
         ))
     }
 

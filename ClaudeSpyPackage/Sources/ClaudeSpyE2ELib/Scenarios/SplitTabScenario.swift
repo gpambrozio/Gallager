@@ -60,6 +60,10 @@ public enum SplitTabScenario {
         // ── Launch app ───────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
+        // Re-pin the sidebar after this second resize: `.balanced` NavigationSplitView
+        // reflows column widths on resize, so without this the sidebar width is
+        // non-deterministic across runs and the screenshots flake.
+        TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
         // Enable auto-resize globally so the terminal pane in tmux is

@@ -344,14 +344,6 @@ final public class AppSettings {
         didSet { preferences.setBool(autoRunCodexInProjects, Keys.autoRunCodexInProjects) }
     }
 
-    /// Resolves the command path for a given coding agent.
-    public func commandPath(for agent: CodingAgent) -> String {
-        switch agent {
-        case .claudeCode: claudeCommandPath
-        case .codex: codexCommandPath
-        }
-    }
-
     /// tmux socket path (empty for default)
     public var tmuxSocket: String = Defaults.tmuxSocket {
         didSet { preferences.setString(tmuxSocket, Keys.tmuxSocket) }

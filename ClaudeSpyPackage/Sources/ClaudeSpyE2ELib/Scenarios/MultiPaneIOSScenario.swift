@@ -57,8 +57,10 @@ public enum MultiPaneIOSScenario {
             projectPath: "/Users/test/MultiPaneProject"
         )
 
-        // Verify the session row shows the Claude session (SessionRowView with event info)
-        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 10)
+        // Verify the session row shows the agent session named after the project.
+        // (The agent-blind iOS renders the session by project name + status, not a
+        // per-event "Session Started" row.)
+        TestStep.iosWaitForElement(.labelContains("MultiPaneProject"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-session-list-with-claude")
 
         // 5. Open the multi-pane window layout view

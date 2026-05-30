@@ -60,6 +60,12 @@
         "project.list",
         "project.start",
         "layout.apply",
+        "plugin.list",
+        "plugin.info",
+        "plugin.enable",
+        "plugin.disable",
+        "plugin.logs",
+        "plugin.call",
     ]
 
     /// Live implementation that routes JSON-RPC methods to service calls.
@@ -78,6 +84,22 @@
                 self.info = info
                 self.created = created
             }
+        }
+
+        /// Outcome of `plugin.call` (spec §14). Lets the router map a direct
+        /// core-method dispatch onto the right JSON-RPC envelope without the
+        /// router knowing any plugin types.
+        public enum PluginCallResult: Sendable, Equatable {
+            /// The method ran. `result` is a JSON-friendly status string.
+            case ok(result: String)
+            /// No plugin with this id is registered.
+            case unknownPlugin
+            /// The plugin is registered but not enabled, so nothing ran.
+            case notEnabled
+            /// The method name isn't routable.
+            case unknownMethod(String)
+            /// The core method threw; carries its description.
+            case failed(String)
         }
 
         private let logger = Logger(label: "com.claudespy.apirouter")
@@ -147,9 +169,9 @@
         let onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)?
 
         let onProjectList: (@Sendable () async -> [[String: JSONValue]])?
-        /// Parameters: (path, args, agent). `agent` defaults to `.claudeCode`
-        /// when callers don't specify one over the wire.
-        let onProjectStart: (@Sendable (String, [String], CodingAgent) async throws -> [String: JSONValue])?
+        /// Parameters: (path, args, pluginID). `pluginID` defaults to
+        /// "claude-code" when callers don't specify one over the wire.
+        let onProjectStart: (@Sendable (String, [String], String) async throws -> [String: JSONValue])?
 
         /// Parameters: (sessionId, [name: optional value]). `nil` value unsets.
         let onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)?
@@ -159,6 +181,25 @@
         let onLayoutApply: (
             @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
         )?
+
+        // MARK: - Plugin runtime callbacks (spec §14)
+
+        /// Returns one entry per registered plugin: `{id, version, enabled, source}`.
+        let onPluginList: (@Sendable () async -> [[String: JSONValue]])?
+        /// Parameter: `id`. Returns the info envelope, or `nil` for an unknown id.
+        let onPluginInfo: (@Sendable (String) async -> [String: JSONValue]?)?
+        /// Parameter: `id`. Constructs + initializes the core. Returns
+        /// `{id, enabled}`, or `nil` for an unknown id.
+        let onPluginEnable: (@Sendable (String) async -> [String: JSONValue]?)?
+        /// Parameter: `id`. `shutdown()`s the core (leaves files). Returns
+        /// `{id, enabled}`, or `nil` for an unknown id.
+        let onPluginDisable: (@Sendable (String) async -> [String: JSONValue]?)?
+        /// Parameters: (id, lines?). Returns `{logPath, lines}`, or `nil` for an
+        /// unknown id. `lines` caps the number of trailing lines returned.
+        let onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)?
+        /// Parameters: (id, method, json?). Direct debugging dispatch into the
+        /// in-process core.
+        let onPluginCall: (@Sendable (String, String, String?) async -> PluginCallResult)?
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
@@ -195,11 +236,17 @@
             onEditorOpen: (@Sendable (String, String) async -> Void)? = nil,
             onIdentify: (@Sendable (String?) async -> [String: JSONValue]?)? = nil,
             onProjectList: (@Sendable () async -> [[String: JSONValue]])? = nil,
-            onProjectStart: (@Sendable (String, [String], CodingAgent) async throws -> [String: JSONValue])? = nil,
+            onProjectStart: (@Sendable (String, [String], String) async throws -> [String: JSONValue])? = nil,
             onSetEnvironment: (@Sendable (String, [String: String?]) async throws -> Void)? = nil,
             onLayoutApply: (
                 @Sendable (JSONValue, Bool, Bool, Bool, Bool, Bool, String?) async throws -> [String: JSONValue]
-            )? = nil
+            )? = nil,
+            onPluginList: (@Sendable () async -> [[String: JSONValue]])? = nil,
+            onPluginInfo: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
+            onPluginEnable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
+            onPluginDisable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
+            onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)? = nil,
+            onPluginCall: (@Sendable (String, String, String?) async -> PluginCallResult)? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -230,6 +277,12 @@
             self.onProjectStart = onProjectStart
             self.onSetEnvironment = onSetEnvironment
             self.onLayoutApply = onLayoutApply
+            self.onPluginList = onPluginList
+            self.onPluginInfo = onPluginInfo
+            self.onPluginEnable = onPluginEnable
+            self.onPluginDisable = onPluginDisable
+            self.onPluginLogs = onPluginLogs
+            self.onPluginCall = onPluginCall
         }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -597,9 +650,12 @@
                     } else {
                         args = []
                     }
-                    let agent: CodingAgent = (params["agent"]?.stringValue)
-                        .flatMap(CodingAgent.init(rawValue:)) ?? .claudeCode
-                    if let result = try await onProjectStart?(path, args, agent) {
+                    // Accept `plugin_id`; fall back to the legacy `agent` key for
+                    // older CLI callers, then default to "claude-code".
+                    let pluginID = params["plugin_id"]?.stringValue
+                        ?? params["agent"]?.stringValue
+                        ?? "claude-code"
+                    if let result = try await onProjectStart?(path, args, pluginID) {
                         return JSONRPCResponse(id: id, result: result)
                     }
                     return .internalError(id: id, "Project start not available")
@@ -629,6 +685,101 @@
                         configPath
                     )
                     return JSONRPCResponse(id: id, result: result)
+
+                // MARK: - Plugins (spec §14)
+
+                case "plugin.list":
+                    let plugins = await onPluginList?() ?? []
+                    return JSONRPCResponse(id: id, result: [
+                        "plugins": .array(plugins.map { .object($0) }),
+                    ])
+
+                case "plugin.info":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginInfo else {
+                        return .internalError(id: id, "Plugin info not available")
+                    }
+                    guard let info = await callback(pluginId) else {
+                        return .notFound(id: id, "Unknown plugin: \(pluginId)")
+                    }
+                    return JSONRPCResponse(id: id, result: info)
+
+                case "plugin.enable":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginEnable else {
+                        return .internalError(id: id, "Plugin enable not available")
+                    }
+                    guard let result = await callback(pluginId) else {
+                        return .notFound(id: id, "Unknown plugin: \(pluginId)")
+                    }
+                    return JSONRPCResponse(id: id, result: result)
+
+                case "plugin.disable":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let callback = onPluginDisable else {
+                        return .internalError(id: id, "Plugin disable not available")
+                    }
+                    guard let result = await callback(pluginId) else {
+                        return .notFound(id: id, "Unknown plugin: \(pluginId)")
+                    }
+                    return JSONRPCResponse(id: id, result: result)
+
+                case "plugin.logs":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    let lines = params["lines"]?.intValue
+                    guard let callback = onPluginLogs else {
+                        return .internalError(id: id, "Plugin logs not available")
+                    }
+                    guard let result = await callback(pluginId, lines) else {
+                        return .notFound(id: id, "Unknown plugin: \(pluginId)")
+                    }
+                    return JSONRPCResponse(id: id, result: result)
+
+                case "plugin.call":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    guard let method = params["method"]?.stringValue else {
+                        return .invalidParams(id: id, "method required")
+                    }
+                    let json = params["json"]?.stringValue
+                    guard let callback = onPluginCall else {
+                        return .internalError(id: id, "Plugin call not available")
+                    }
+                    switch await callback(pluginId, method, json) {
+                    case let .ok(result):
+                        return JSONRPCResponse(id: id, result: [
+                            "id": .string(pluginId),
+                            "method": .string(method),
+                            "ok": .bool(true),
+                            "result": .string(result),
+                        ])
+                    case .unknownPlugin:
+                        return .notFound(id: id, "Unknown plugin: \(pluginId)")
+                    case .notEnabled:
+                        return JSONRPCResponse(
+                            id: id,
+                            error: JSONRPCError(
+                                code: "not_enabled",
+                                message: "Plugin '\(pluginId)' is not enabled"
+                            )
+                        )
+                    case let .unknownMethod(name):
+                        return .invalidParams(
+                            id: id,
+                            "Unknown method '\(name)' for plugin '\(pluginId)'"
+                        )
+                    case let .failed(message):
+                        return .internalError(id: id, message)
+                    }
 
                 default:
                     return .methodNotFound(id: id, request.method)

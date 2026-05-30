@@ -44,6 +44,10 @@ public enum TabReorderScenario {
         // ── Launch app ────────────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_300, height: 700)
+        // Re-pin the sidebar after this second resize: `.balanced` NavigationSplitView
+        // reflows column widths on resize, so without this the sidebar width is
+        // non-deterministic across runs and the screenshots flake.
+        TestStep.macSetSidebarWidth(250)
 
         TestStep.macWaitForElement(titled: "tabreorder", timeout: 10)
         TestStep.macClickButton(titled: "tabreorder")

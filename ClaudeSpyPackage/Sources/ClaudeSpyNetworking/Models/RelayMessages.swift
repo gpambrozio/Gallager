@@ -18,27 +18,6 @@ public struct PeerHelloMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Hook Event Relay
-
-/// A hook event wrapped for relay through the external server
-public struct HookEventMessage: Codable, Sendable {
-    public let pairId: String
-    public let event: HookEvent
-
-    public init(pairId: String, event: HookEvent) {
-        self.pairId = pairId
-        self.event = event
-    }
-
-    /// Project name extracted from the event's project path
-    public var projectName: String? {
-        guard let projectPath = event.projectPath, !projectPath.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: projectPath).lastPathComponent
-    }
-}
-
 // MARK: - Session State
 
 /// Complete session state for sync between host and viewer
@@ -46,20 +25,22 @@ public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     /// Unified per-pane state keyed by pane ID
     public let paneStates: [String: PaneState]
-    /// Discovered Claude projects on the host
-    public let claudeProjects: [ClaudeProjectInfo]?
+    /// Discovered agent projects on the host (each tagged by `pluginID`).
+    /// Carries the merged per-plugin project lists pushed via `host.setProjects`
+    /// (spec §7.2 — the project list rides this existing message).
+    public let agentProjects: [AgentProject]?
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
 
     public init(
         pairId: String,
         paneStates: [String: PaneState],
-        claudeProjects: [ClaudeProjectInfo]? = nil,
+        agentProjects: [AgentProject]? = nil,
         homeDirectory: String = ""
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
-        self.claudeProjects = claudeProjects
+        self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
     }
 
@@ -71,7 +52,7 @@ public struct SessionStateMessage: Codable, Sendable {
         SessionStateMessage(
             pairId: pairId,
             paneStates: paneStates,
-            claudeProjects: claudeProjects,
+            agentProjects: agentProjects,
             homeDirectory: homeDirectory
         )
     }
@@ -151,10 +132,10 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The git branch name for this pane's current working directory, if it's a git repo
     public var gitBranch: String?
 
-    // MARK: - Claude Session
+    // MARK: - Agent Session
 
-    /// The Claude Code session running in this pane, if any
-    public var claudeSession: ClaudeSession?
+    /// The coding-agent session running in this pane, if any
+    public var agentSession: AgentSession?
 
     // MARK: - Behavior Flags
 
@@ -210,7 +191,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         customEmoji: String? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
-        claudeSession: ClaudeSession? = nil,
+        agentSession: AgentSession? = nil,
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
         editorSession: EditorSessionInfo? = nil,
@@ -234,7 +215,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.customEmoji = customEmoji
         self.terminalTitle = terminalTitle
         self.gitBranch = gitBranch
-        self.claudeSession = claudeSession
+        self.agentSession = agentSession
         self.yoloMode = yoloMode
         self.cliSessionState = cliSessionState
         self.editorSession = editorSession
@@ -278,93 +259,6 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
     public init(success: Bool, error: String? = nil) {
         self.success = success
         self.error = error
-    }
-}
-
-// MARK: - Claude Projects
-
-/// Information about a discovered coding-agent project (Claude Code or Codex).
-///
-/// The type name is retained for source compatibility; the `agent` field
-/// distinguishes Claude Code projects from Codex projects.
-public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
-    /// Unique identifier (agent + path; two agents can share a working directory).
-    public var id: String {
-        "\(agent.rawValue):\(path)"
-    }
-
-    /// Project name (last component of path)
-    public let name: String
-
-    /// Full path to project directory
-    public let path: String
-
-    /// Timestamp of last activity in this project (for sorting by recency)
-    public let lastUsed: Date?
-
-    /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
-    /// in a non-default `.claude` folder. `nil` when the project lives in the
-    /// default `~/.claude` location. Always `nil` for Codex projects.
-    public let claudeConfigDir: String?
-
-    /// Which coding-agent CLI this project belongs to.
-    public let agent: CodingAgent
-
-    public init(
-        name: String,
-        path: String,
-        lastUsed: Date? = nil,
-        claudeConfigDir: String? = nil,
-        agent: CodingAgent = .claudeCode
-    ) {
-        self.name = name
-        self.path = path
-        self.lastUsed = lastUsed
-        self.claudeConfigDir = claudeConfigDir
-        self.agent = agent
-    }
-
-    // MARK: - Codable
-
-    // Custom decoder so this build can pair with hosts running an older
-    // version that predates the `agent` field. Treat absence as
-    // Claude Code — the only agent those versions know about.
-    private enum CodingKeys: String, CodingKey {
-        case name
-        case path
-        case lastUsed
-        case claudeConfigDir
-        case agent
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try container.decode(String.self, forKey: .name)
-        self.path = try container.decode(String.self, forKey: .path)
-        self.lastUsed = try container.decodeIfPresent(Date.self, forKey: .lastUsed)
-        self.claudeConfigDir = try container.decodeIfPresent(String.self, forKey: .claudeConfigDir)
-        self.agent = try container.decodeIfPresent(CodingAgent.self, forKey: .agent) ?? .claudeCode
-    }
-}
-
-public extension Sequence where Element == ClaudeProjectInfo {
-    /// Sorts projects newest-first by `lastUsed`. Projects without a
-    /// timestamp fall to the bottom in name order. Centralising this so the
-    /// scanner, the project-list API, and the relay session-state response
-    /// can't drift.
-    func sortedByLastUsed() -> [ClaudeProjectInfo] {
-        sorted { lhs, rhs in
-            switch (lhs.lastUsed, rhs.lastUsed) {
-            case let (lhsDate?, rhsDate?):
-                lhsDate > rhsDate
-            case (nil, .some):
-                false
-            case (.some, nil):
-                true
-            case (nil, nil):
-                lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
-        }
     }
 }
 

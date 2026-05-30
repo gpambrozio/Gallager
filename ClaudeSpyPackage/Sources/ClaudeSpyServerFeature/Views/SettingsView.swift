@@ -248,14 +248,11 @@ struct GeneralSettingsView: View {
                 }
 
                 Text(
-                    "Gallager ships as a Codex plugin (codex-gallager). " +
-                        "The first time you start Codex after installing, Codex will ask you " +
-                        "to review and trust the plugin's hook commands — approve them so events flow into Gallager."
+                    "Gallager installs a Codex hook bridge that writes events to its " +
+                        "ingress socket. The bridge is managed by the Codex plugin."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-                CodexPluginInstallerRow(settings: settings)
             }
 
             Section("Project Folders") {

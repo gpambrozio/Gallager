@@ -16,10 +16,10 @@ enum NewSessionSelection: Hashable {
 /// Unified content for creating a new session, used in popovers and the empty-state detail area
 struct NewSessionContent: View {
     let title: String
-    let projects: [ClaudeProjectInfo]
+    let projects: [AgentProject]
     let isLoadingProjects: Bool
     let creatingSelection: NewSessionCreatingState?
-    let onCreate: (ClaudeProjectInfo?) -> Void
+    let onCreate: (AgentProject?) -> Void
     /// When true, constrains size for popover use. When false, expands to fill available space.
     var popover = true
 
@@ -32,7 +32,7 @@ struct NewSessionContent: View {
         creatingSelection != nil
     }
 
-    private var filteredProjects: [ClaudeProjectInfo] {
+    private var filteredProjects: [AgentProject] {
         guard !searchText.isEmpty else { return projects }
         return projects.filter { $0.name.fuzzyMatches(searchText) }
     }
@@ -145,7 +145,7 @@ struct NewSessionContent: View {
                                     isCreating: creatingSelection == .project(project.id),
                                     isDisabled: isCreating,
                                     isSelected: selection == .project(project.id),
-                                    badge: project.agent == .claudeCode ? nil : project.agent.shortName
+                                    badge: project.pluginID == "claude-code" ? nil : project.pluginID
                                 ) {
                                     dismiss()
                                     onCreate(project)

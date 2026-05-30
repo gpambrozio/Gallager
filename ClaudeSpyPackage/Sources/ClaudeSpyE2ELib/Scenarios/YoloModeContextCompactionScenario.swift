@@ -98,8 +98,14 @@ public enum YoloModeContextCompactionScenario {
             projectPath: "/Users/test/CompactionProject"
         )
 
-        // Session ended — Claude status indicator should disappear
-        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
+        // Session ended. The agent-blind model keeps the session badge (now Idle) —
+        // a badge is reclaimed by pane detection, not the end hook — but a clean
+        // session end resets the pane's yolo state, so the toolbar button reverts
+        // to "Enable yolo mode". Verify that directly (the actual cleared-yolo flow).
+        TestStep.macWaitForElement(
+            titled: "Enable yolo mode to auto-approve permissions",
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "mac-session-ended-yolo-cleared")
 
         // ── Phase 5: New session starts without yolo leaked ─────

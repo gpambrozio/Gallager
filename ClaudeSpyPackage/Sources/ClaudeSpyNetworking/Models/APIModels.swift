@@ -65,7 +65,7 @@ public struct APIPaneInfo: Codable, Sendable {
     public let width: Int
     public let height: Int
     public let windowId: String
-    public let hasClaudeSession: Bool
+    public let hasAgentSession: Bool
 
     public init(
         id: String,
@@ -76,7 +76,7 @@ public struct APIPaneInfo: Codable, Sendable {
         width: Int,
         height: Int,
         windowId: String,
-        hasClaudeSession: Bool
+        hasAgentSession: Bool
     ) {
         self.id = id
         self.index = index
@@ -86,7 +86,7 @@ public struct APIPaneInfo: Codable, Sendable {
         self.width = width
         self.height = height
         self.windowId = windowId
-        self.hasClaudeSession = hasClaudeSession
+        self.hasAgentSession = hasAgentSession
     }
 
     public func toJSONValue() -> [String: JSONValue] {
@@ -99,12 +99,12 @@ public struct APIPaneInfo: Codable, Sendable {
             "width": .int(width),
             "height": .int(height),
             "window_id": .string(windowId),
-            "has_claude_session": .bool(hasClaudeSession),
+            "has_agent_session": .bool(hasAgentSession),
         ]
     }
 }
 
-/// API representation of a Claude project discovered on the host.
+/// API representation of an agent project discovered on the host.
 public struct APIProjectInfo: Codable, Sendable {
     /// Shared ISO8601 formatter to avoid per-call allocation in `toJSONValue()`.
     /// Note: `nonisolated(unsafe)` is safe here because we never mutate the formatter after creation.
@@ -118,22 +118,22 @@ public struct APIProjectInfo: Codable, Sendable {
     public let name: String
     public let path: String
     public let lastUsed: Date?
-    public let agent: CodingAgent
+    public let pluginID: String
 
-    public init(id: String, name: String, path: String, lastUsed: Date?, agent: CodingAgent = .claudeCode) {
+    public init(id: String, name: String, path: String, lastUsed: Date?, pluginID: String = "claude-code") {
         self.id = id
         self.name = name
         self.path = path
         self.lastUsed = lastUsed
-        self.agent = agent
+        self.pluginID = pluginID
     }
 
-    public init(_ info: ClaudeProjectInfo) {
-        self.id = info.id
-        self.name = info.name
-        self.path = info.path
-        self.lastUsed = info.lastUsed
-        self.agent = info.agent
+    public init(_ project: AgentProject) {
+        self.id = project.id
+        self.name = project.name
+        self.path = project.path
+        self.lastUsed = project.lastUsed
+        self.pluginID = project.pluginID
     }
 
     public func toJSONValue() -> [String: JSONValue] {
@@ -141,7 +141,7 @@ public struct APIProjectInfo: Codable, Sendable {
             "id": .string(id),
             "name": .string(name),
             "path": .string(path),
-            "agent": .string(agent.rawValue),
+            "plugin_id": .string(pluginID),
         ]
         if let lastUsed {
             dict["last_used"] = .string(Self.iso8601.string(from: lastUsed))

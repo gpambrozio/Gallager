@@ -167,6 +167,16 @@ final public class ConnectedViewer: Identifiable {
     /// sync with the host's needs-attention count.
     public var onPendingSessionCount: (@MainActor @Sendable () async -> Int)?
 
+    /// Called when this viewer submits a plugin response (iOS→Mac). The
+    /// coordinator routes it to the owning plugin core's `deliverResponse`.
+    /// Mirrors how `onCommand` routes inbound viewer messages up to the manager.
+    public var onAgentResponseSubmission: (@Sendable (AgentResponseSubmissionMessage) async -> Void)?
+
+    /// Called once the viewer becomes fully connected (E2EE up + peerHello
+    /// validated), the same point session-state pushes become valid. The manager
+    /// uses this to push the current plugin presentations on connect (spec §7.2).
+    public var onViewerConnected: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -272,21 +282,29 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to viewer (encrypted)
-    public func sendHookEvent(_ event: HookEvent, skipPushNotification: Bool = false) async {
+    /// Send a high-frequency per-session working/attention badge update to this
+    /// viewer (encrypted, spec §7.2).
+    public func sendAgentSessionStatus(
+        sessionId: String,
+        pluginId: String,
+        working: Bool,
+        attention: Bool
+    ) async {
         guard state.isConnected else {
-            logger.debug("Not connected to \(viewerName), cannot send hook event")
+            logger.debug("Not connected to \(viewerName), cannot send agent session status")
             return
         }
-
-        let message = WebSocketMessage.hookEvent(
-            HookEventMessage(pairId: id, event: event)
+        let message = WebSocketMessage.agentSessionStatus(
+            AgentSessionStatusMessage(
+                pairId: id,
+                sessionId: sessionId,
+                pluginId: pluginId,
+                working: working,
+                attention: attention,
+                timestamp: Date()
+            )
         )
         await sendEncrypted(message)
-
-        // Also send encrypted push payload for notifications when iOS is offline
-        guard !skipPushNotification else { return }
-        await sendEncryptedPushNotification(for: event)
     }
 
     /// Send an encrypted push notification with arbitrary title/body to this
@@ -326,7 +344,10 @@ final public class ConnectedViewer: Identifiable {
                 silent: false
             )
             await send(.encryptedPush(payload))
-            pushNotificationLog.logPushSent("cli.notify", paneId)
+            // Log the (pre-formatted, agent-blind) notification title so E2E
+            // scenarios can tell notification kinds apart — the wire `eventType`
+            // stays "cli.notify" for the NSE; this is a test-only signal.
+            pushNotificationLog.logPushSent(title, paneId)
         } catch {
             logger.error("Failed to encrypt custom push notification: \(error)")
         }
@@ -417,6 +438,48 @@ final public class ConnectedViewer: Identifiable {
         let sessionState = await onSessionStateRequest().withPairId(id)
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
+    }
+
+    /// Open or retract an iOS response form for a plugin (encrypted). A non-nil
+    /// `request` opens the form; `request == nil` retracts the open form with
+    /// `requestId`. Mirrors `sendHookEvent`/`pushSessionState`: E2EE, ordered on
+    /// the same serial send chain.
+    public func sendAgentResponseRequest(
+        sessionId: String,
+        pluginId: String,
+        requestId: String,
+        request: AgentResponseRequest?
+    ) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send agent response request")
+            return
+        }
+
+        let message = WebSocketMessage.agentResponseRequest(
+            AgentResponseRequestMessage(
+                pairId: id,
+                sessionId: sessionId,
+                pluginId: pluginId,
+                requestId: requestId,
+                request: request
+            )
+        )
+        await sendEncrypted(message)
+    }
+
+    /// Push the complete enabled-plugin presentation set to this viewer
+    /// (encrypted). Sent on viewer connect and on enable/disable; always the
+    /// complete set (spec §7.2/§7.3).
+    public func sendPluginPresentations(_ presentations: [PluginPresentation]) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send plugin presentations")
+            return
+        }
+
+        let message = WebSocketMessage.pluginPresentations(
+            PluginPresentationsMessage(pairId: id, presentations: presentations)
+        )
+        await sendEncrypted(message)
     }
 
     // MARK: - Private Connection Methods
@@ -615,6 +678,13 @@ final public class ConnectedViewer: Identifiable {
                 }
             }
 
+        case let .agentResponseSubmission(submission):
+            logger.info(
+                "Received plugin response submission from viewer",
+                metadata: ["pluginId": "\(submission.pluginId)", "requestId": "\(submission.requestId)"]
+            )
+            await onAgentResponseSubmission?(submission)
+
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
 
@@ -657,6 +727,9 @@ final public class ConnectedViewer: Identifiable {
                 // Compatible — now safe to surface the viewer as connected; the
                 // session-state push will fire when the viewer requests it.
                 isViewerConnected = true
+                // Push the current plugin presentations now that the viewer is
+                // ready to receive (the session-state push is still pull-based).
+                await onViewerConnected?()
             }
 
         case .viewerDisconnected:
@@ -795,47 +868,6 @@ final public class ConnectedViewer: Identifiable {
             await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
-        }
-    }
-
-    private func sendEncryptedPushNotification(for event: HookEvent) async {
-        guard state.isConnected else {
-            return
-        }
-
-        guard await e2eeService.isSessionEstablished else {
-            logger.error("E2EE session not established, cannot send encrypted push")
-            return
-        }
-
-        let eventMessage = HookEventMessage(pairId: id, event: event)
-        guard let notification = eventMessage.buildNotification() else {
-            return
-        }
-
-        let content = NotificationContent(
-            title: notification.title,
-            body: notification.body,
-            eventType: event.action.eventName,
-            pairId: id,
-            paneId: event.tmuxPane,
-            timestamp: event.timestamp
-        )
-
-        do {
-            let encryptedContent = try await e2eeService.encrypt(content)
-            let badge = await onPendingSessionCount?()
-            let payload = EncryptedPushPayload(
-                encryptedContent: encryptedContent,
-                pairId: id,
-                badge: badge,
-                silent: false
-            )
-            let message = WebSocketMessage.encryptedPush(payload)
-            await send(message)
-            pushNotificationLog.logPushSent(event.action.eventName, event.tmuxPane)
-        } catch {
-            logger.error("Failed to encrypt push notification: \(error)")
         }
     }
 

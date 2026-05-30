@@ -31,8 +31,14 @@ final public class ViewerConnectionManager {
 
     // MARK: - Public Callbacks
 
-    /// Called when a hook event is received from any host
-    public var onHookEvent: ((HookEventMessage) -> Void)?
+    /// Called when a per-session status update is received from any host
+    public var onAgentSessionStatus: ((AgentSessionStatusMessage) -> Void)?
+
+    /// Called when a response form is opened/retracted by any host
+    public var onAgentResponseRequest: ((AgentResponseRequestMessage) -> Void)?
+
+    /// Called when a host pushes its plugin presentation set
+    public var onPluginPresentations: ((PluginPresentationsMessage) -> Void)?
 
     /// Called when session state is received from any host
     public var onSessionState: ((SessionStateMessage) -> Void)?
@@ -315,9 +321,19 @@ final public class ViewerConnectionManager {
         let hostId = connection.id
 
         connection.setupCallbacks(
-            onHookEvent: { [weak self] event in
+            onAgentSessionStatus: { [weak self] status in
                 Task { @MainActor [weak self] in
-                    self?.onHookEvent?(event)
+                    self?.onAgentSessionStatus?(status)
+                }
+            },
+            onAgentResponseRequest: { [weak self] request in
+                Task { @MainActor [weak self] in
+                    self?.onAgentResponseRequest?(request)
+                }
+            },
+            onPluginPresentations: { [weak self] presentations in
+                Task { @MainActor [weak self] in
+                    self?.onPluginPresentations?(presentations)
                 }
             },
             onSessionState: { [weak self] state in

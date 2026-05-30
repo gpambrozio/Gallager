@@ -29,8 +29,10 @@ public enum StopHookSummaryScenario {
             projectPath: "/Users/test/MyProject"
         )
 
-        // 3. Verify iOS session list shows "Session Idle" for the stop event
-        TestStep.iosWaitForElement(.labelContains("Session Idle"), timeout: 10)
+        // 3. Verify iOS session list shows the stop state. In the agent-blind model
+        //    a Stop sets the session to "Attention" (the agent is waiting for input),
+        //    shown as the row's status label — not a per-event "Session Idle" row.
+        TestStep.iosWaitForElement(.labelContains("Attention"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-session-idle")
 
         // 4. Tap the session to open the terminal view
@@ -56,8 +58,9 @@ public enum StopHookSummaryScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-stop-summary-expanded")
 
-        // 8. Verify the prompt input is also present below the summary
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
+        // 8. Verify the reply input is also present below the summary (the
+        //    reply-after-stop form's placeholder).
+        TestStep.iosWaitForElement(.labelContains("Reply to Claude"), timeout: 5)
 
         // 9. Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))

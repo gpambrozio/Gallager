@@ -122,7 +122,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macScreenshot(_, _, _, _, instance):
             return .macOS(instance: instance)
-        case let .macSendHookEvent(_, _, _, instance):
+        case let .macSendHookEvent(_, _, _, _, instance):
             return .macOS(instance: instance)
         // Server, tmux, assertions, scripts, general — any running platform
         // could be relevant to diagnose the failure.

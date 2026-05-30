@@ -10,7 +10,7 @@ struct RemoteHostSidebarSection: View {
     let creatingSelection: NewSessionCreatingState?
     @Binding var selectedRemoteSession: RemoteSessionSelection?
     let onSelect: (RemoteSessionSelection) -> Void
-    let onCreate: (ClaudeProjectInfo?) -> Void
+    let onCreate: (AgentProject?) -> Void
     let onSetDescription: (String, String?) -> Void
     let onSetColor: (String, SessionColor?) -> Void
     let onSetEmoji: (String, String?) -> Void
@@ -84,7 +84,7 @@ struct RemoteHostSidebarSection: View {
 
     @ViewBuilder
     private func remoteSessionButton(_ session: TmuxSession) -> some View {
-        let claudePane = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
+        let claudePane = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
         let isSelected = selectedRemoteSession?.sessionName == session.sessionName
             && selectedRemoteSession?.hostId == host.id
         // See `sessionButton` — when the row gains a "Working" indicator the
@@ -105,7 +105,7 @@ struct RemoteHostSidebarSection: View {
         } label: {
             RemoteSessionSidebarRow(
                 session: session,
-                claudeSession: claudePane?.claudeSession,
+                claudeSession: claudePane?.agentSession,
                 homeDirectory: sessionStore.homeDirectoryByHost[host.id]
             )
         }

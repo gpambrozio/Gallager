@@ -2,10 +2,12 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Text input view for sending messages to Claude.
+/// Free-text input view for sending a prompt to the agent. Renders from a
+/// `PromptRequest` and submits a structured `AgentResponse.prompt` (spec §7.1).
 struct PromptView: View {
+    let request: PromptRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
+    let submit: ResponseSender
     let state: ResponseState
 
     @State private var inputText = ""
@@ -13,6 +15,10 @@ struct PromptView: View {
 
     private var isInputEmpty: Bool {
         inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var placeholder: String {
+        request.placeholder ?? "Send a message..."
     }
 
     var body: some View {
@@ -38,7 +44,7 @@ struct PromptView: View {
     }
 
     private var textField: some View {
-        TextField("Send a message to Claude...", text: $inputText, axis: .vertical)
+        TextField(placeholder, text: $inputText, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(3...6)
             .padding(12)
@@ -46,7 +52,7 @@ struct PromptView: View {
             .overlay(textFieldBorder)
             .focused($isTextFieldFocused)
             .disabled(state.isSending || !isConnected)
-            .accessibilityLabel("Send a message to Claude")
+            .accessibilityLabel(placeholder)
     }
 
     private var textFieldBackground: some View {
@@ -61,9 +67,11 @@ struct PromptView: View {
 
     private func responseFeedback(_ response: ResponseType) -> some View {
         HStack {
-            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
-                .foregroundStyle(response.feedbackColor)
+            (
+                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
+            )
+            .foregroundStyle(response.feedbackColor)
             Text(response.feedbackMessage)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -79,7 +87,7 @@ struct PromptView: View {
         state.isSending = true
 
         Task {
-            await sendCommand(.sendKeystroke([.text(trimmed), .enter]))
+            await submit(.prompt(text: trimmed))
             inputText = ""
             state.isSending = false
             state.response = .promptSubmitted
@@ -90,19 +98,19 @@ struct PromptView: View {
 // MARK: - Preview
 
 #Preview("Prompt View") {
-    let event = HookEvent(
-        action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-        projectPath: nil,
-        tmuxPane: nil
+    let state = ResponseState(
+        request: .prompt(PromptRequest(title: "Send a message to Claude")),
+        pluginID: "claude-code",
+        requestID: "test:prompt"
     )
-    let state = ResponseState(event: event)
 
     return NavigationStack {
         List {
             Section("Response") {
                 PromptView(
+                    request: PromptRequest(title: "Send a message to Claude"),
                     isConnected: true,
-                    sendCommand: { _ in },
+                    submit: { _ in },
                     state: state
                 )
             }

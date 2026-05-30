@@ -191,23 +191,33 @@ final class LiveDockIconManager {
     }
 
     private func countVisibleAppWindows() -> Int {
-        return NSApp.windows.filter { window in
+        // `NSApp` is an implicitly-unwrapped global that is nil until the shared
+        // application instance exists. It is always live in the running app, but
+        // can be nil in a headless unit-test process (where this would otherwise
+        // trap). Treat "no application" as zero windows.
+        guard let app = NSApp else { return 0 }
+        return app.windows.filter { window in
             isRelevantWindow(window) && window.isVisible
         }.count
     }
 
     private func updateActivationPolicy() {
         guard !DockIconConfig.isE2ETestMode else { return }
+        // No shared application instance (e.g. a headless unit-test process where
+        // the `NSApp` IUO global is nil) → there is no dock icon to manage. The
+        // caller still fires `onActivationPolicyUpdated`, so debounce-counting
+        // tests are unaffected.
+        guard let app = NSApp else { return }
         let visibleCount = countVisibleAppWindows()
-        let currentPolicy = NSApp.activationPolicy()
+        let currentPolicy = app.activationPolicy()
 
         if visibleCount > 0 {
             if currentPolicy != .regular {
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: false)
+                app.setActivationPolicy(.regular)
+                app.activate(ignoringOtherApps: false)
             }
         } else if currentPolicy != .accessory {
-            NSApp.setActivationPolicy(.accessory)
+            app.setActivationPolicy(.accessory)
         }
     }
 }
