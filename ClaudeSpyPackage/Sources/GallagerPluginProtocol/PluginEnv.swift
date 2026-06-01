@@ -16,11 +16,17 @@ public struct PluginEnv: Sendable {
     /// not call `applySettings` right after `initialize` (spec §11).
     public let settings: Data
 
-    public init(pluginRoot: URL, stateDir: URL, appVersion: String, settings: Data) {
+    /// The on-disk marketplace source dir for this plugin's agent CLI install
+    /// (e.g. `<app>/Contents/Resources/plugin` for Claude). Passed to
+    /// `<agent> plugin marketplace add`.
+    public let marketplaceSource: URL
+
+    public init(pluginRoot: URL, stateDir: URL, appVersion: String, settings: Data, marketplaceSource: URL) {
         self.pluginRoot = pluginRoot
         self.stateDir = stateDir
         self.appVersion = appVersion
         self.settings = settings
+        self.marketplaceSource = marketplaceSource
     }
 }
 
@@ -41,6 +47,15 @@ public struct LaunchCommand: Sendable {
 public enum InstallResult: Sendable {
     case installed(message: String)
     case alreadyInstalled
+}
+
+/// Snapshot of whether the agent's plugin is installed for a given config root.
+/// Transient `installing` / `failed` states are view state, not core state.
+public enum PluginInstallStatus: Sendable, Equatable {
+    case installed(version: String?)
+    case notInstalled
+    /// The agent's CLI binary could not be located / run.
+    case agentUnavailable
 }
 
 /// Result of `applySettings(_:)`. `.error` surfaces inline in the settings form.
