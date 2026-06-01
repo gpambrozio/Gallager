@@ -59,7 +59,15 @@ public extension IngressFrame {
         guard let pluginID = object[BodyKeys.pluginID.rawValue] as? String, !pluginID.isEmpty else {
             throw IngressFrameError.missingPluginID
         }
-        let context = (object[BodyKeys.context.rawValue] as? [String: String]) ?? [:]
+        // Keep only the string-valued entries: a single non-string value would
+        // make an `as? [String: String]` cast fail wholesale, dropping the whole
+        // dict (including TMUX_PANE) and mis-routing the frame.
+        var context: [String: String] = [:]
+        if let rawContext = object[BodyKeys.context.rawValue] as? [String: Any] {
+            for (key, value) in rawContext {
+                if let string = value as? String { context[key] = string }
+            }
+        }
 
         // Preserve the raw payload bytes by re-serializing the sub-object. The
         // payload may be any JSON value (object/array/scalar).

@@ -62,12 +62,14 @@
                 logger.info("Another instance already owns the ingress socket, skipping")
                 return
             }
-            // Ensure the parent directory exists before binding.
+            // Ensure the parent directory exists before binding, and lock it to
+            // the owning user (0700) so other local users can't reach the socket.
             let dir = (socketPath as NSString).deletingLastPathComponent
             try? FileManager.default.createDirectory(
                 atPath: dir,
                 withIntermediateDirectories: true
             )
+            chmod(dir, 0o700)
             unlink(socketPath)
 
             serverFd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -100,6 +102,11 @@
                 serverFd = -1
                 throw IngressSocketError.bindFailed
             }
+
+            // Restrict the socket to the owning user: connect() needs write
+            // permission on the socket file, so 0600 blocks other local users
+            // from injecting frames (which drive keystroke injection + writes).
+            chmod(socketPath, 0o600)
 
             guard listen(serverFd, 16) == 0 else {
                 close(serverFd)
@@ -148,6 +155,17 @@
                     }
                     break
                 }
+
+                // Bound each blocking read so a stalled client (e.g. a large
+                // length prefix then silence) can't park a thread + fd
+                // indefinitely; the per-connection task then completes on the
+                // timeout instead of outliving stop(). The bridge writes its
+                // frame immediately, so 30s is far more than any real client needs.
+                var readTimeout = timeval(tv_sec: 30, tv_usec: 0)
+                setsockopt(
+                    clientFd, SOL_SOCKET, SO_RCVTIMEO,
+                    &readTimeout, socklen_t(MemoryLayout<timeval>.size)
+                )
 
                 // Each connection is handled in its own task; the bridge writes one
                 // (or a few) frames and disconnects.

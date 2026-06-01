@@ -66,9 +66,23 @@
 
         // MARK: - Per-plugin paths
 
-        /// `<stateRoot>/plugins/<id>/` — writable per-plugin scratch/state.
+        /// `<stateRoot>/plugins/<id>/` — writable per-plugin scratch/state. The
+        /// id is sanitized first (every per-plugin path funnels through here).
         public func pluginStateDir(_ id: String) -> URL {
-            pluginsStateRoot.appendingPathComponent(id, isDirectory: true)
+            pluginsStateRoot.appendingPathComponent(Self.safeComponent(id), isDirectory: true)
+        }
+
+        /// Defense-in-depth: keep only `[a-z0-9-]` so a hostile `id` can't escape
+        /// the plugins dir via `../` or an absolute path. Registered ids
+        /// (`claude-code`, `codex`) already match, so this is a no-op for them.
+        private static let allowedIDCharacters = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-"
+        )
+        private static func safeComponent(_ id: String) -> String {
+            let safe = String(String.UnicodeScalarView(
+                id.unicodeScalars.filter { allowedIDCharacters.contains($0) }
+            ))
+            return safe.isEmpty ? "_invalid_" : safe
         }
 
         /// `<stateRoot>/plugins/<id>/settings.json` — user settings for this plugin.

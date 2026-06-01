@@ -160,6 +160,12 @@
 
             // App actions.
             for action in event.appActions {
+                // Cap `lastAttention` growth: a session end drops this session's
+                // entry so the map doesn't accumulate one key per session for the
+                // lifetime of the app.
+                if case .sessionEnded = action {
+                    lastAttention.removeValue(forKey: key)
+                }
                 await onAppAction(action)
             }
         }

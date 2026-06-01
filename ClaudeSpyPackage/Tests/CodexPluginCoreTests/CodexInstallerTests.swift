@@ -142,4 +142,19 @@ struct CodexInstallerTests {
         try Data("{ not json".utf8).write(to: installer.settingsPath)
         #expect(installer.isInstalled() == false)
     }
+
+    @Test("install refuses to overwrite an existing-but-unparseable settings file")
+    func installBailsOnUnparseableSettings() throws {
+        let (installer, root) = try makeInstaller()
+        defer { try? fileManager.removeItem(at: root) }
+
+        let corrupt = "{ this is not valid json"
+        try Data(corrupt.utf8).write(to: installer.settingsPath)
+
+        #expect(throws: CodexInstallerError.self) {
+            _ = try installer.install()
+        }
+        let after = try String(contentsOf: installer.settingsPath, encoding: .utf8)
+        #expect(after == corrupt)
+    }
 }

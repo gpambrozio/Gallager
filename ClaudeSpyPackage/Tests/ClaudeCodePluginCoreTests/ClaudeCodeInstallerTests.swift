@@ -138,4 +138,21 @@ struct ClaudeCodeInstallerTests {
         try Data("{ not json".utf8).write(to: installer.settingsPath)
         #expect(installer.isInstalled() == false)
     }
+
+    @Test("install refuses to overwrite an existing-but-unparseable settings.json")
+    func installBailsOnUnparseableSettings() throws {
+        let (installer, root) = try makeInstaller()
+        defer { try? fileManager.removeItem(at: root) }
+
+        // A real-but-corrupt config the user would be furious to lose.
+        let corrupt = "{ this is not valid json"
+        try Data(corrupt.utf8).write(to: installer.settingsPath)
+
+        #expect(throws: ClaudeCodeInstallerError.self) {
+            _ = try installer.install()
+        }
+        // The file is left exactly as it was — not overwritten.
+        let after = try String(contentsOf: installer.settingsPath, encoding: .utf8)
+        #expect(after == corrupt)
+    }
 }

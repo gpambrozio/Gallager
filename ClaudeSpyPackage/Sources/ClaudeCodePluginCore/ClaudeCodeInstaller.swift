@@ -1,6 +1,20 @@
 import Foundation
 import GallagerPluginProtocol
 
+/// Errors raised while registering the Claude Code hook bridge.
+enum ClaudeCodeInstallerError: LocalizedError {
+    /// The settings file exists but isn't valid top-level JSON, so overwriting
+    /// it would destroy the user's config — we refuse instead.
+    case settingsUnparseable(path: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .settingsUnparseable(path):
+            "Refusing to overwrite \(path): it exists but isn't valid JSON. Fix or remove it, then retry."
+        }
+    }
+}
+
 // MARK: - ClaudeCodeInstaller
 
 /// Registers (and removes) the Claude Code hook bridge in the agent's own hook
@@ -122,6 +136,13 @@ struct ClaudeCodeInstaller {
     // MARK: - Registration writing
 
     private func writeHookRegistration() throws {
+        // Never clobber a real-but-unparseable settings file: if it exists on
+        // disk but `readSettings()` can't decode it, bail rather than starting
+        // from `[:]` — `writeSettings` would atomically overwrite it, wiping the
+        // user's real Claude config (permissions, model, …).
+        if FileManager.default.fileExists(atPath: settingsPath.path), readSettings() == nil {
+            throw ClaudeCodeInstallerError.settingsUnparseable(path: settingsPath.path)
+        }
         var settings = readSettings() ?? [:]
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
@@ -204,9 +225,11 @@ struct ClaudeCodeInstaller {
         )
     }
 
-    /// Minimal shell quoting for embedding a path in the hook command string.
+    /// Shell quoting for embedding a path in the hook command string. Single
+    /// quotes (with the `'\''` escape) suppress all expansion — inside double
+    /// quotes the shell would still expand `$`, backtick, and `\`.
     private func shellQuote(_ value: String) -> String {
-        "\"" + value.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// The language-agnostic bridge: reads stdin + `TMUX_PANE` /
