@@ -328,6 +328,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CodexResponseRoundTripScenario.scenario,
         MultiPluginPresentationsScenario.scenario,
         CreateFromProjectLaunchScenario.scenario,
+        MultiPluginCoexistenceScenario.scenario,
+        CodexFormsParityScenario.scenario,
+        PermissionSuggestionDenyScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

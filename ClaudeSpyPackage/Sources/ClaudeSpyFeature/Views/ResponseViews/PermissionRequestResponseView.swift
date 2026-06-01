@@ -181,6 +181,9 @@ struct PermissionRequestResponseView: View {
     private var customInstructionsSection: some View {
         VStack(spacing: 8) {
             TextField("Custom instructions...", text: $customInstructions, axis: .vertical)
+                // Stable id so E2E can target the deny-with-feedback field (a
+                // TextField's placeholder isn't exposed as its accessibility label).
+                .accessibilityIdentifier("permission-custom-instructions")
                 .textFieldStyle(.plain)
                 .lineLimit(2...4)
                 .padding(12)
