@@ -76,6 +76,9 @@
         /// When returning to foreground, we immediately attempt reconnection to avoid
         /// waiting for exponential backoff timers.
         private func handleScenePhaseChange(_ phase: ScenePhase) {
+            // Keep the notification service's foreground flag in sync so the
+            // backgrounded-only local-notification fallback fires correctly.
+            pushService.setAppActive(phase == .active)
             switch phase {
             case .background:
                 // Only start background task if we have any active connections
@@ -121,6 +124,22 @@
             connectionManager.onPluginPresentations = { [sessionStore] presentations in
                 Task { @MainActor in
                     sessionStore.handlePluginPresentations(presentations)
+                }
+            }
+
+            // Backgrounded fallback: the relay drops the APNs push while we're
+            // WS-connected, so a host's live-socket notification is the only
+            // alert during the backgrounded-but-connected window. When active,
+            // the in-app UI already reflects the event, so we suppress it.
+            connectionManager.onAgentNotification = { [pushService] notification in
+                Task { @MainActor in
+                    guard !pushService.isAppActive else { return }
+                    pushService.scheduleLocalNotification(
+                        title: notification.title,
+                        body: notification.body,
+                        paneId: notification.sessionId,
+                        hostId: notification.pairId
+                    )
                 }
             }
 

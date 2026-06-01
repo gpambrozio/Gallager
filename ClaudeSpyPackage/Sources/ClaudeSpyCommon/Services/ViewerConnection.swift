@@ -161,6 +161,7 @@ final public class ViewerConnection: Identifiable {
     ///   - onAgentSessionStatus: Called when a session status update arrives
     ///   - onAgentResponseRequest: Called when a response form is opened/retracted
     ///   - onPluginPresentations: Called when the plugin presentation set arrives
+    ///   - onAgentNotification: Called when a pre-baked notification arrives over the live socket
     ///   - onSessionState: Called when session state is received
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
     ///   - onHostDisconnected: Called when the host device disconnects (pairing still active)
@@ -169,6 +170,7 @@ final public class ViewerConnection: Identifiable {
         onAgentSessionStatus: (@Sendable (AgentSessionStatusMessage) -> Void)? = nil,
         onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)? = nil,
         onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)? = nil,
+        onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
         onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
         onHostDisconnected: (@MainActor @Sendable () async -> Void)? = nil,
@@ -177,6 +179,7 @@ final public class ViewerConnection: Identifiable {
         relayClient.onAgentSessionStatus = onAgentSessionStatus
         relayClient.onAgentResponseRequest = onAgentResponseRequest
         relayClient.onPluginPresentations = onPluginPresentations
+        relayClient.onAgentNotification = onAgentNotification
         relayClient.onSessionState = onSessionState
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
         relayClient.onHostDisconnected = onHostDisconnected

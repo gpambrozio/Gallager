@@ -627,9 +627,15 @@
             guard let registry = pluginRegistry else { return nil }
             guard registry.isRegistered(id) else { return nil }
             await registry.disable(id)
+            // Drop the disabled plugin's last-pushed projects so they stop
+            // surfacing in the iOS sidebar / New Session picker (`mergedPluginProjects`
+            // flattens every entry, with no active-plugin check).
+            pluginProjects.removeValue(forKey: id)
             // The enabled-plugin set changed; re-push the complete presentation
-            // set to all connected viewers (spec §7.2/§7.3).
+            // set to all connected viewers (spec §7.2/§7.3), then push session
+            // state so viewers see the now-removed projects immediately.
             await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
+            await connectedViewerManager?.pushSessionStateToAll()
             return registry.isEnabled(id)
         }
 
@@ -872,7 +878,23 @@
                 }
                 // Close the pane only on a clean prompt-exit AND with the pref on.
                 guard closePaneEligible, settings.closePaneOnSessionEnd else { return }
-                try? await tmuxService.killPane(sessionID)
+                // The SessionEnd hook fires while the agent is still mid-exit, so
+                // killing the pane now would truncate its final output. Mirror the
+                // legacy `closePaneWhenClaudeExits`: poll until the agent process
+                // has left the pane (up to 30s), then a 1s grace, before killing.
+                // Detached so the sink returns immediately.
+                let processNames = pluginRegistry?.processNamesByPlugin ?? [:]
+                Task { [tmuxService] in
+                    for _ in 0..<30 {
+                        try? await Task.sleep(for: .seconds(1))
+                        let panes = await tmuxService.detectAgentPanes(processNamesByPlugin: processNames)
+                        if panes[sessionID] == nil {
+                            try? await Task.sleep(for: .seconds(1))
+                            try? await tmuxService.killPane(sessionID)
+                            return
+                        }
+                    }
+                }
             }
         }
 
@@ -902,20 +924,12 @@
 
         /// SendKeysSink → send a key sequence to the pane backing the session.
         /// Reuses the shared `TmuxKey` vocabulary (`PluginTmuxKey` is its alias)
-        /// and the batching `send-keys` path.
+        /// and the batching `send-keys` path (`TmuxService.sendKeystrokes`).
         private func handlePluginSendKeys(sessionID: String, keys: [PluginTmuxKey]) async {
             guard !keys.isEmpty else { return }
             let target = resolvePluginPaneTarget(sessionID)
             do {
-                for key in keys {
-                    if case let .text(literal) = key {
-                        try await tmuxService.sendKeys(target, keys: literal, literal: true)
-                    } else if case let .delay(ms) = key {
-                        try await Task.sleep(for: .milliseconds(ms))
-                    } else {
-                        try await tmuxService.sendKeys(target, keys: key.tmuxKeyName)
-                    }
-                }
+                try await tmuxService.sendKeystrokes(target, keys: keys)
             } catch {
                 logger.warning("Plugin sendKeys failed for \(target): \(error)")
             }
@@ -1774,16 +1788,23 @@
                     // supplied); `commandForLaunch` already gates on the plugin's
                     // auto-run setting and returns nil to launch a bare shell.
                     let launch: LaunchCommand?
+                    let defaultCommand: String?
                     if spec.workingDirectory != nil {
                         launch = await self?.pluginRegistry?.core(spec.pluginID)?
                             .commandForLaunch(projectPath: spec.workingDirectory ?? "")
+                        // The plugin's CLI binary name (manifest `process_names`),
+                        // used to label the tab when auto-run is off and `launch`
+                        // is nil — e.g. "claude" rather than the "claude-code" id.
+                        defaultCommand = self?.pluginRegistry?.manifest(spec.pluginID)?.processNames.first
                     } else {
                         launch = nil
+                        defaultCommand = nil
                     }
                     return await Self.handleCreateSession(
                         command: command,
                         spec: spec,
                         launch: launch,
+                        defaultCommand: defaultCommand,
                         tmuxService: tmux
                     )
                 }
@@ -2155,6 +2176,7 @@
             command: CommandMessage,
             spec: CreateTmuxSession,
             launch: LaunchCommand?,
+            defaultCommand: String?,
             tmuxService: TmuxService
         ) async -> CommandResponseMessage {
             do {
@@ -2184,9 +2206,11 @@
                 // A non-nil `spec.workingDirectory` means this was a
                 // "create from project" request — that's the only flow today
                 // that supplies a directory. Name the first window after the
-                // launch command so the tab matches what's running.
+                // launch command so the tab matches what's running; when
+                // auto-run is off (`launch` is nil) fall back to the plugin's
+                // CLI binary name ("claude") rather than the dashed plugin id.
                 let firstWindowName = spec.workingDirectory != nil
-                    ? (launch?.command ?? spec.pluginID)
+                    ? (launch?.command ?? defaultCommand ?? spec.pluginID)
                     : "terminal 1"
                 let (_, paneId) = try await tmuxService.createSession(
                     baseName: spec.sessionName,

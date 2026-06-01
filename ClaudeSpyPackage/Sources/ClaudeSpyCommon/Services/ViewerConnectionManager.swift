@@ -40,6 +40,10 @@ final public class ViewerConnectionManager {
     /// Called when a host pushes its plugin presentation set
     public var onPluginPresentations: ((PluginPresentationsMessage) -> Void)?
 
+    /// Called when a host pushes a pre-baked notification over the live socket
+    /// (used to show a local notification while the app is backgrounded).
+    public var onAgentNotification: ((AgentNotificationMessage) -> Void)?
+
     /// Called when session state is received from any host
     public var onSessionState: ((SessionStateMessage) -> Void)?
 
@@ -334,6 +338,11 @@ final public class ViewerConnectionManager {
             onPluginPresentations: { [weak self] presentations in
                 Task { @MainActor [weak self] in
                     self?.onPluginPresentations?(presentations)
+                }
+            },
+            onAgentNotification: { [weak self] notification in
+                Task { @MainActor [weak self] in
+                    self?.onAgentNotification?(notification)
                 }
             },
             onSessionState: { [weak self] state in

@@ -149,6 +149,10 @@ final public class ViewerRelayClient {
     /// Called when the host pushes the complete enabled-plugin presentation set.
     public var onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)?
 
+    /// Called when the host pushes a pre-baked notification over the live socket
+    /// (so a backgrounded-but-connected viewer can show a local notification).
+    public var onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)?
+
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
 
@@ -692,6 +696,10 @@ final public class ViewerRelayClient {
         case let .pluginPresentations(presentations):
             logger.info("Received plugin presentations from host")
             onPluginPresentations?(presentations)
+
+        case let .agentNotification(notification):
+            logger.info("Received agent notification from host")
+            onAgentNotification?(notification)
 
         case let .sessionState(sessionState):
             logger.info("Received session state from host")

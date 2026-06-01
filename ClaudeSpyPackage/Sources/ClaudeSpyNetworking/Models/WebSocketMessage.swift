@@ -109,6 +109,11 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Host pushes the complete enabled-plugin presentation set (on connect and
     /// on enable/disable/upgrade).
     case pluginPresentations(PluginPresentationsMessage)
+
+    /// Host pushes a pre-baked notification over the live WebSocket so a
+    /// backgrounded-but-connected viewer can show a local notification (the
+    /// parallel APNs `.encryptedPush` is dropped by the relay while connected).
+    case agentNotification(AgentNotificationMessage)
 }
 
 // MARK: - Encrypted Message Wrapper
@@ -190,6 +195,7 @@ public extension WebSocketMessage {
         case agentResponseRequest
         case agentResponseSubmission
         case pluginPresentations
+        case agentNotification
     }
 
     init(from decoder: Decoder) throws {
@@ -269,6 +275,9 @@ public extension WebSocketMessage {
         case .pluginPresentations:
             let payload = try container.decode(PluginPresentationsMessage.self, forKey: .payload)
             self = .pluginPresentations(payload)
+        case .agentNotification:
+            let payload = try container.decode(AgentNotificationMessage.self, forKey: .payload)
+            self = .agentNotification(payload)
         }
     }
 
@@ -348,6 +357,9 @@ public extension WebSocketMessage {
         case let .pluginPresentations(payload):
             try container.encode(MessageType.pluginPresentations, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .agentNotification(payload):
+            try container.encode(MessageType.agentNotification, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         }
     }
 
@@ -380,6 +392,7 @@ public extension WebSocketMessage {
         case .agentResponseRequest: MessageType.agentResponseRequest.rawValue
         case .agentResponseSubmission: MessageType.agentResponseSubmission.rawValue
         case .pluginPresentations: MessageType.pluginPresentations.rawValue
+        case .agentNotification: MessageType.agentNotification.rawValue
         }
     }
 }
@@ -398,7 +411,8 @@ public extension WebSocketMessage {
              .agentSessionStatus,
              .agentResponseRequest,
              .agentResponseSubmission,
-             .pluginPresentations:
+             .pluginPresentations,
+             .agentNotification:
             true
         default:
             false

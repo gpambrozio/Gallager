@@ -246,11 +246,13 @@ struct CodexInstaller {
 
         context = {"TMUX_PANE": tmux_pane}
         # Codex doesn't expose a project-dir env var; harvest cwd from the
-        # payload so the core can resolve the project path.
+        # payload so the core can resolve the project path. The context key
+        # must match what CodexPluginCore reads (CODEX_PROJECT_DIR), mirroring
+        # the Claude bridge's CLAUDE_PROJECT_DIR convention.
         if isinstance(payload, dict):
             cwd = payload.get("cwd")
             if isinstance(cwd, str) and cwd:
-                context["cwd"] = cwd
+                context["CODEX_PROJECT_DIR"] = cwd
 
         body = json.dumps(
             {"plugin_id": PLUGIN_ID, "context": context, "payload": payload}

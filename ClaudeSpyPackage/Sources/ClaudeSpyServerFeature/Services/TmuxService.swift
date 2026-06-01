@@ -1570,6 +1570,44 @@ final public class TmuxService {
         }
     }
 
+    /// Sends a `TmuxKey` sequence to a pane, batching consecutive keys by
+    /// literal mode to minimize tmux subprocess spawns: literal text is
+    /// concatenated into a single `send-keys -l`, runs of named keys go through
+    /// `sendBatchKeys`, and a `.delay` flushes the current batch then sleeps.
+    /// Shared by the keystroke-command path and the plugin `sendKeys` sink.
+    public func sendKeystrokes(_ target: String, keys: [TmuxKey]) async throws {
+        var batch: [TmuxKey] = []
+        var batchIsLiteral = false
+
+        for key in keys {
+            if case let .delay(milliseconds) = key {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+                batchIsLiteral = false
+                try await Task.sleep(for: .milliseconds(milliseconds))
+                continue
+            }
+
+            let isLiteral = key.requiresLiteralMode
+            if !batch.isEmpty, isLiteral != batchIsLiteral {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+            }
+            batchIsLiteral = isLiteral
+            batch.append(key)
+        }
+
+        try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+    }
+
+    private func flushKeystrokeBatch(_ target: String, keys: inout [TmuxKey], literal: Bool) async throws {
+        guard !keys.isEmpty else { return }
+        if literal {
+            try await sendKeys(target, keys: keys.map(\.tmuxKeyName).joined(), literal: true)
+        } else {
+            try await sendBatchKeys(target, keys: keys.map(\.tmuxKeyName))
+        }
+        keys.removeAll()
+    }
+
     /// Tmux strips a trailing ";" from the last argv entry, treating it
     /// as a command separator. Escaping it as "\;" prevents this.
     /// This affects standalone ";" and any string ending in ";" (e.g. ";;;;;").

@@ -124,3 +124,40 @@ public struct PluginPresentationsMessage: Codable, Sendable, Equatable {
         PluginPresentationsMessage(pairId: pairId, presentations: presentations)
     }
 }
+
+/// A pre-baked notification (title/body) delivered over the live WebSocket so a
+/// backgrounded-but-connected viewer can materialize a local notification. The
+/// relay drops the parallel `.encryptedPush` (APNs) while the viewer is
+/// WS-connected, so this is the only alert path during the backgrounded window;
+/// once the socket drops, APNs takes over. `sessionId` carries the pane id.
+public struct AgentNotificationMessage: Codable, Sendable, Equatable {
+    public let pairId: String
+    public let sessionId: String?
+    public let title: String
+    public let body: String
+    public let timestamp: Date
+
+    public init(
+        pairId: String,
+        sessionId: String?,
+        title: String,
+        body: String,
+        timestamp: Date
+    ) {
+        self.pairId = pairId
+        self.sessionId = sessionId
+        self.title = title
+        self.body = body
+        self.timestamp = timestamp
+    }
+
+    public func withPairId(_ pairId: String) -> AgentNotificationMessage {
+        AgentNotificationMessage(
+            pairId: pairId,
+            sessionId: sessionId,
+            title: title,
+            body: body,
+            timestamp: timestamp
+        )
+    }
+}
