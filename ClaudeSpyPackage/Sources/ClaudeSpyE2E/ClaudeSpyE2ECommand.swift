@@ -321,6 +321,13 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         OSCBackgroundProbeScenario.scenario,
         EchoIngressRoundTripScenario.scenario,
         EchoResponseRoundTripScenario.scenario,
+        PluginCLIScenario.scenario,
+        PluginEnableDisableScenario.scenario,
+        ClosePaneOnSessionEndScenario.scenario,
+        CodexSessionUpdatesScenario.scenario,
+        CodexResponseRoundTripScenario.scenario,
+        MultiPluginPresentationsScenario.scenario,
+        CreateFromProjectLaunchScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
