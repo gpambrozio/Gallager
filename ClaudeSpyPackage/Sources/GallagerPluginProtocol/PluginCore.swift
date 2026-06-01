@@ -38,16 +38,16 @@ public protocol PluginCore: Actor {
     /// plugin's `autoRun` setting.
     func commandForLaunch(projectPath: String) async -> LaunchCommand?
 
-    /// Register the host-agent hook bridge (writes into the agent's own hook
-    /// config, e.g. `~/.claude/.../hooks.json`), baking in this plugin's id and
-    /// the well-known socket path (spec §8.1).
-    func install() async throws -> InstallResult
+    /// Register the host-agent plugin via its own CLI (marketplace + install),
+    /// scoped to `configRoot` (CLAUDE_CONFIG_DIR / CODEX_HOME; `nil` = default
+    /// root). The app never edits agent settings files directly (spec §1–2).
+    func install(configRoot: String?) async throws -> InstallResult
 
-    /// Remove the host-agent hook bridge.
-    func uninstall() async throws
+    /// Remove the host-agent plugin via its CLI, scoped to `configRoot`.
+    func uninstall(configRoot: String?) async throws
 
-    /// Query whether the hook bridge is registered.
-    func isInstalled() async -> Bool
+    /// Query install state for `configRoot`.
+    func installStatus(configRoot: String?) async -> PluginInstallStatus
 
     /// Apply user settings (raw JSON from `settings.json`). The core decodes its
     /// typed struct and runs semantic validation; return `.error` to surface

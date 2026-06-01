@@ -19,7 +19,6 @@
         public static let pluginID = "echo"
 
         private var host: (any PluginHost)?
-        private var installed = false
 
         public init() { }
 
@@ -83,17 +82,14 @@
             nil
         }
 
-        public func install() async throws -> InstallResult {
-            defer { installed = true }
-            return installed ? .alreadyInstalled : .installed(message: "echo installed")
+        public func install(configRoot _: String?) async throws -> InstallResult {
+            .alreadyInstalled
         }
 
-        public func uninstall() async throws {
-            installed = false
-        }
+        public func uninstall(configRoot _: String?) async throws { }
 
-        public func isInstalled() async -> Bool {
-            installed
+        public func installStatus(configRoot _: String?) async -> PluginInstallStatus {
+            .installed(version: "echo")
         }
 
         public func applySettings(_: Data) async -> SettingsResult {
