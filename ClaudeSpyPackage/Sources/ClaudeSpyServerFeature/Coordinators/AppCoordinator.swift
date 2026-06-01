@@ -939,10 +939,12 @@
         /// set to viewers via the existing `SessionStateMessage.agentProjects`
         /// payload (spec §7.2).
         private func handlePluginSetProjects(pluginID: String, projects: [AgentProject]) async {
-            // E2E: once a deterministic project set is seeded, it is authoritative —
-            // ignore the cores' real `~/.claude.json` / `~/.codex` scans so the
-            // project-list / sidebar / new-session screenshots stay stable.
-            guard !e2eSeededProjects else { return }
+            #if DEBUG
+                // E2E: once a deterministic project set is seeded, it is authoritative —
+                // ignore the cores' real `~/.claude.json` / `~/.codex` scans so the
+                // project-list / sidebar / new-session screenshots stay stable.
+                guard !e2eSeededProjects else { return }
+            #endif
             pluginProjects[pluginID] = projects
             await connectedViewerManager?.pushSessionStateToAll()
         }
