@@ -421,6 +421,21 @@ struct ToolInputView: View {
                 if params.plan != nil {
                     detailRow("Plan:", "Included")
                 }
+                if let planFilePath = params.planFilePath {
+                    detailRow("Plan file:", planFilePath)
+                }
+
+            case let .workflow(params):
+                headerRow("Run Workflow")
+                if let name = params.name {
+                    detailRow("Name:", name)
+                }
+                if let scriptPath = params.scriptPath {
+                    detailRow("Script:", scriptPath)
+                }
+                if let resumeFromRunId = params.resumeFromRunId {
+                    detailRow("Resuming run:", resumeFromRunId)
+                }
 
             case let .webFetch(params):
                 headerRow("Fetch Web Page")
@@ -495,6 +510,28 @@ struct ToolInputView: View {
                 }
                 if let shellId = params.shellId {
                     detailRow("Shell ID:", shellId)
+                }
+
+            case let .taskCreate(params):
+                headerRow("Create Task")
+                detailRow("Subject:", params.subject, maxLines: 2)
+                detailRow("Description:", params.description, maxLines: 3)
+
+            case let .taskGet(params):
+                headerRow("Get Task")
+                detailRow("Task ID:", params.taskId)
+
+            case .taskList:
+                headerRow("List Tasks")
+
+            case let .taskUpdate(params):
+                headerRow("Update Task")
+                detailRow("Task ID:", params.taskId)
+                if let status = params.status {
+                    detailRow("Status:", status.rawValue.replacingOccurrences(of: "_", with: " "))
+                }
+                if let subject = params.subject {
+                    detailRow("Subject:", subject, maxLines: 2)
                 }
 
             case let .enterWorktree(params):

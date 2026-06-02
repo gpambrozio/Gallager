@@ -20,6 +20,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     case agent(AgentParameters)
     case todoWrite(TodoWriteParameters)
     case exitPlanMode(ExitPlanModeParameters)
+    case workflow(WorkflowParameters)
 
     // Web Operations
     case webFetch(WebFetchParameters)
@@ -40,6 +41,12 @@ public enum ClaudeCodeTool: Sendable, Equatable {
     // Background Tasks
     case taskOutput(TaskOutputParameters)
     case taskStop(TaskStopParameters)
+
+    // Task Management
+    case taskCreate(TaskCreateParameters)
+    case taskGet(TaskGetParameters)
+    case taskList(TaskListParameters)
+    case taskUpdate(TaskUpdateParameters)
 
     /// Worktrees
     case enterWorktree(EnterWorktreeParameters)
@@ -66,6 +73,7 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .agent: "Agent"
         case .todoWrite: "TodoWrite"
         case .exitPlanMode: "ExitPlanMode"
+        case .workflow: "Workflow"
         case .webFetch: "WebFetch"
         case .webSearch: "WebSearch"
         case .notebookEdit: "NotebookEdit"
@@ -74,6 +82,10 @@ public enum ClaudeCodeTool: Sendable, Equatable {
         case .askUserQuestion: "AskUserQuestion"
         case .taskOutput: "TaskOutput"
         case .taskStop: "TaskStop"
+        case .taskCreate: "TaskCreate"
+        case .taskGet: "TaskGet"
+        case .taskList: "TaskList"
+        case .taskUpdate: "TaskUpdate"
         case .enterWorktree: "EnterWorktree"
         case .listMcpResources: "ListMcpResourcesTool"
         case .readMcpResource: "ReadMcpResourceTool"
@@ -105,6 +117,8 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             nil
         case .exitPlanMode:
             nil
+        case let .workflow(params):
+            params.name ?? params.scriptPath ?? params.script
         case let .webFetch(params):
             params.url
         case let .webSearch(params):
@@ -121,6 +135,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             params.taskId
         case let .taskStop(params):
             params.taskId ?? params.shellId
+        case let .taskCreate(params):
+            params.subject
+        case let .taskGet(params):
+            params.taskId
+        case .taskList:
+            nil
+        case let .taskUpdate(params):
+            params.taskId
         case let .enterWorktree(params):
             params.name ?? params.path
         case let .listMcpResources(params):
@@ -162,6 +184,8 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .todoWrite(container.decode(TodoWriteParameters.self))
         case "ExitPlanMode":
             return try .exitPlanMode(container.decode(ExitPlanModeParameters.self))
+        case "Workflow":
+            return try .workflow(container.decode(WorkflowParameters.self))
         case "WebFetch":
             return try .webFetch(container.decode(WebFetchParameters.self))
         case "WebSearch":
@@ -178,6 +202,14 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .taskOutput(container.decode(TaskOutputParameters.self))
         case "TaskStop":
             return try .taskStop(container.decode(TaskStopParameters.self))
+        case "TaskCreate":
+            return try .taskCreate(container.decode(TaskCreateParameters.self))
+        case "TaskGet":
+            return try .taskGet(container.decode(TaskGetParameters.self))
+        case "TaskList":
+            return try .taskList(container.decode(TaskListParameters.self))
+        case "TaskUpdate":
+            return try .taskUpdate(container.decode(TaskUpdateParameters.self))
         case "EnterWorktree":
             return try .enterWorktree(container.decode(EnterWorktreeParameters.self))
         case "ListMcpResourcesTool":
@@ -508,13 +540,16 @@ public struct TodoWriteParameters: Codable, Sendable, Equatable {
 }
 
 public struct ExitPlanModeParameters: Codable, Sendable, Equatable {
-    /// The markdown plan content (may be nil if not provided)
+    /// The markdown plan content. Injected by Claude Code from the plan file on disk
     public let plan: String?
+    /// Path to the plan file on disk. Injected by Claude Code
+    public let planFilePath: String?
     /// Prompt-based permissions requested for plan implementation
     public let allowedPrompts: [AllowedPrompt]?
 
-    public init(plan: String?, allowedPrompts: [AllowedPrompt]?) {
+    public init(plan: String?, planFilePath: String? = nil, allowedPrompts: [AllowedPrompt]?) {
         self.plan = plan
+        self.planFilePath = planFilePath
         self.allowedPrompts = allowedPrompts
     }
 
@@ -528,6 +563,33 @@ public struct ExitPlanModeParameters: Codable, Sendable, Equatable {
             self.tool = tool
             self.prompt = prompt
         }
+    }
+}
+
+public struct WorkflowParameters: Codable, Sendable, Equatable {
+    /// Inline workflow script
+    public let script: String?
+    /// Name of a built-in workflow or one saved in `.claude/workflows/`
+    public let name: String?
+    /// Path to a workflow script file on disk
+    public let scriptPath: String?
+    /// Input value exposed to the script as the global `args`
+    public let args: AnyCodable?
+    /// Run ID of a prior `Workflow` invocation to resume
+    public let resumeFromRunId: String?
+
+    public init(
+        script: String? = nil,
+        name: String? = nil,
+        scriptPath: String? = nil,
+        args: AnyCodable? = nil,
+        resumeFromRunId: String? = nil
+    ) {
+        self.script = script
+        self.name = name
+        self.scriptPath = scriptPath
+        self.args = args
+        self.resumeFromRunId = resumeFromRunId
     }
 }
 
@@ -661,6 +723,78 @@ public struct TaskStopParameters: Codable, Sendable, Equatable {
     }
 }
 
+public struct TaskCreateParameters: Codable, Sendable, Equatable {
+    public let subject: String
+    public let description: String
+    public let activeForm: String?
+    public let metadata: [String: AnyCodable]?
+
+    public init(
+        subject: String,
+        description: String,
+        activeForm: String? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.subject = subject
+        self.description = description
+        self.activeForm = activeForm
+        self.metadata = metadata
+    }
+}
+
+public struct TaskGetParameters: Codable, Sendable, Equatable {
+    public let taskId: String
+
+    public init(taskId: String) {
+        self.taskId = taskId
+    }
+}
+
+public struct TaskListParameters: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+public struct TaskUpdateParameters: Codable, Sendable, Equatable {
+    public let taskId: String
+    public let status: TaskStatus?
+    public let subject: String?
+    public let description: String?
+    public let activeForm: String?
+    public let addBlocks: [String]?
+    public let addBlockedBy: [String]?
+    public let owner: String?
+    public let metadata: [String: AnyCodable]?
+
+    public enum TaskStatus: String, Codable, Sendable, Equatable {
+        case pending
+        case inProgress = "in_progress"
+        case completed
+        case deleted
+    }
+
+    public init(
+        taskId: String,
+        status: TaskStatus? = nil,
+        subject: String? = nil,
+        description: String? = nil,
+        activeForm: String? = nil,
+        addBlocks: [String]? = nil,
+        addBlockedBy: [String]? = nil,
+        owner: String? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.taskId = taskId
+        self.status = status
+        self.subject = subject
+        self.description = description
+        self.activeForm = activeForm
+        self.addBlocks = addBlocks
+        self.addBlockedBy = addBlockedBy
+        self.owner = owner
+        self.metadata = metadata
+    }
+}
+
 public struct EnterWorktreeParameters: Codable, Sendable, Equatable {
     public let name: String?
     public let path: String?
@@ -731,6 +865,8 @@ extension ClaudeCodeTool: Codable {
             try container.encode(params)
         case let .exitPlanMode(params):
             try container.encode(params)
+        case let .workflow(params):
+            try container.encode(params)
         case let .webFetch(params):
             try container.encode(params)
         case let .webSearch(params):
@@ -746,6 +882,14 @@ extension ClaudeCodeTool: Codable {
         case let .taskOutput(params):
             try container.encode(params)
         case let .taskStop(params):
+            try container.encode(params)
+        case let .taskCreate(params):
+            try container.encode(params)
+        case let .taskGet(params):
+            try container.encode(params)
+        case let .taskList(params):
+            try container.encode(params)
+        case let .taskUpdate(params):
             try container.encode(params)
         case let .enterWorktree(params):
             try container.encode(params)
