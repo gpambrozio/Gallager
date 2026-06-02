@@ -19,33 +19,27 @@ public enum ClosePaneOnSessionEndScenario {
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
-        // 2. Enable the "close pane when Claude exits" preference (General tab,
-        //    "Claude Code" section — far down the form, so focus it to scroll it
-        //    into view, then toggle with Space). Verify it actually flipped on.
+        // 2. Enable "Close pane when Claude Code exits" in the Agents tab. This
+        //    is a per-agent setting (persisted to the plugin's settings.json and
+        //    applied live); the Claude Code core folds it into close-pane
+        //    eligibility. Verify the toggle actually flipped on.
         TestStep.macOpenSettings()
-        TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        // The "Claude Code" section is below the fold; scroll the settings form
-        // to the bottom, then back up a little so the "Close pane when Claude
-        // exits" toggle lands fully in view (not clipped at the top edge).
-        TestStep.macScrollWheel(deltaY: -5, count: 20)
-        TestStep.wait(seconds: 1)
-        TestStep.macScrollWheel(deltaY: 5, count: 4)
-        TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-settings-scrolled", compare: false)
+        TestStep.macSelectSettingsTab("Agents")
+        TestStep.macWaitForElementQuery(.identifier("agentClosePane-claude-code"), timeout: 5)
         // AXPress is a no-op on a SwiftUI Toggle, so use a real click on the
-        // switch (far-right of the row) matched by the toggle's help text.
+        // switch (far-right of the row), matched by its accessibility identifier.
         TestStep.macCGClickElement(
-            query: .help("Automatically close the tmux pane after Claude Code exits normally"),
+            query: .identifier("agentClosePane-claude-code"),
             pointInRect: { CGPoint(x: $0.maxX - 20, y: $0.midY) }
         )
         TestStep.macWaitForElementQuery(
             .allOf([
-                .help("Automatically close the tmux pane after Claude Code exits normally"),
+                .identifier("agentClosePane-claude-code"),
                 .valueContains("1"),
             ]),
             timeout: 5
         )
-        TestStep.macCloseWindow(titled: "General")
+        TestStep.macCloseWindow(titled: "Agents")
         TestStep.wait(seconds: 1)
 
         // 3. Store pane ids for the hook events; confirm both sessions present.
