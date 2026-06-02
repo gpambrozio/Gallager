@@ -142,7 +142,7 @@ struct EchoPluginCoreTests {
         let host = MockPluginHost()
         let core = EchoPluginCore()
         try await core.initialize(
-            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data()),
+            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data(), marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")),
             host: host
         )
 
@@ -177,7 +177,7 @@ struct EchoPluginCoreTests {
         let host = MockPluginHost()
         let core = EchoPluginCore()
         try await core.initialize(
-            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data()),
+            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data(), marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")),
             host: host
         )
 
@@ -194,7 +194,7 @@ struct EchoPluginCoreTests {
         let host = MockPluginHost()
         let core = EchoPluginCore()
         try await core.initialize(
-            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data()),
+            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data(), marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")),
             host: host
         )
 
@@ -210,7 +210,7 @@ struct EchoPluginCoreTests {
         let host = MockPluginHost()
         let core = EchoPluginCore()
         try await core.initialize(
-            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data()),
+            PluginEnv(pluginRoot: URL(fileURLWithPath: "/"), stateDir: URL(fileURLWithPath: "/"), appVersion: "2.0", settings: Data(), marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")),
             host: host
         )
 

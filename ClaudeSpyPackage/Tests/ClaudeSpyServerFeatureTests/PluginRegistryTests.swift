@@ -13,7 +13,8 @@
                 pluginRoot: URL(fileURLWithPath: "/tmp/echo-root"),
                 stateDir: stateDir,
                 appVersion: "1.0.0",
-                settings: Data()
+                settings: Data(),
+                marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")
             )
         }
 
@@ -169,17 +170,18 @@
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             // No active core → notEnabled.
-            #expect(await registry.callCore("echo", method: "isInstalled") == .notEnabled)
+            #expect(await registry.callCore("echo", method: "installStatus") == .notEnabled)
 
             let dispatcher = PluginEventDispatcher()
             let sink = PluginLogSink(logFileURL: tmp.appendingPathComponent("sidecar.log"))
             let host = LivePluginHost(pluginID: "echo", dispatcher: dispatcher, logSink: sink)
             await registry.enable("echo", host: host, env: makeEnv(stateDir: tmp))
 
-            // Echo starts uninstalled; install flips it.
-            #expect(await registry.callCore("echo", method: "isInstalled") == .ok(result: "not-installed"))
-            #expect(await registry.callCore("echo", method: "install") == .ok(result: "echo installed"))
-            #expect(await registry.callCore("echo", method: "isInstalled") == .ok(result: "installed"))
+            // EchoPluginCore always reports installed; install returns alreadyInstalled.
+            // describe(.installed(version: "echo")) → "installed vecho" (no space after v).
+            #expect(await registry.callCore("echo", method: "installStatus") == .ok(result: "installed vecho"))
+            #expect(await registry.callCore("echo", method: "install") == .ok(result: "already-installed"))
+            #expect(await registry.callCore("echo", method: "installStatus") == .ok(result: "installed vecho"))
             #expect(await registry.callCore("echo", method: "refreshProjects") == .ok(result: "refreshed"))
             #expect(await registry.callCore("echo", method: "uninstall") == .ok(result: "uninstalled"))
 

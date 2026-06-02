@@ -279,10 +279,10 @@ func pluginLogsRequiresId() async {
 
 @Test
 func pluginCallOkReturnsResult() async {
-    let received = LockedValue<(String?, String?, String?)>((nil, nil, nil))
+    let received = LockedValue<(String?, String?, String?, String?)>((nil, nil, nil, nil))
     let router = LiveAPIRequestRouter(
-        onPluginCall: { id, method, json in
-            await received.set((id, method, json))
+        onPluginCall: { id, method, json, configRoot in
+            await received.set((id, method, json, configRoot))
             return .ok(result: "installed")
         }
     )
@@ -290,7 +290,7 @@ func pluginCallOkReturnsResult() async {
         JSONRPCRequest(
             id: "plg-call",
             method: "plugin.call",
-            params: ["id": .string("claude-code"), "method": .string("install")]
+            params: ["id": .string("claude-code"), "method": .string("install"), "configRoot": .string("/custom/config")]
         )
     )
     #expect(response.ok == true)
@@ -298,16 +298,17 @@ func pluginCallOkReturnsResult() async {
     #expect(response.result?["method"]?.stringValue == "install")
     #expect(response.result?["ok"]?.boolValue == true)
     #expect(response.result?["result"]?.stringValue == "installed")
-    let (id, method, _) = await received.get()
+    let (id, method, _, configRootReceived) = await received.get()
     #expect(id == "claude-code")
     #expect(method == "install")
+    #expect(configRootReceived == "/custom/config")
 }
 
 @Test
 func pluginCallForwardsJsonArgument() async {
     let receivedJson = LockedValue<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, json in
+        onPluginCall: { _, _, json, _ in
             await receivedJson.set(json)
             return .ok(result: "done")
         }
@@ -329,7 +330,7 @@ func pluginCallForwardsJsonArgument() async {
 @Test
 func pluginCallUnknownPluginReturnsNotFound() async {
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, _ in .unknownPlugin }
+        onPluginCall: { _, _, _, _ in .unknownPlugin }
     )
     let response = await router.handleRequest(
         JSONRPCRequest(
@@ -345,7 +346,7 @@ func pluginCallUnknownPluginReturnsNotFound() async {
 @Test
 func pluginCallNotEnabledReturnsError() async {
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, _ in .notEnabled }
+        onPluginCall: { _, _, _, _ in .notEnabled }
     )
     let response = await router.handleRequest(
         JSONRPCRequest(
@@ -361,7 +362,7 @@ func pluginCallNotEnabledReturnsError() async {
 @Test
 func pluginCallUnknownMethodReturnsInvalidParams() async {
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, _ in .unknownMethod("bogus") }
+        onPluginCall: { _, _, _, _ in .unknownMethod("bogus") }
     )
     let response = await router.handleRequest(
         JSONRPCRequest(
@@ -377,7 +378,7 @@ func pluginCallUnknownMethodReturnsInvalidParams() async {
 @Test
 func pluginCallFailedReturnsInternalError() async {
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, _ in .failed("boom") }
+        onPluginCall: { _, _, _, _ in .failed("boom") }
     )
     let response = await router.handleRequest(
         JSONRPCRequest(
@@ -393,7 +394,7 @@ func pluginCallFailedReturnsInternalError() async {
 @Test
 func pluginCallRequiresIdAndMethod() async {
     let router = LiveAPIRequestRouter(
-        onPluginCall: { _, _, _ in .ok(result: "") }
+        onPluginCall: { _, _, _, _ in .ok(result: "") }
     )
     let missingMethod = await router.handleRequest(
         JSONRPCRequest(id: "plg-call-nomethod", method: "plugin.call", params: ["id": .string("codex")])

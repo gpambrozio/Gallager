@@ -141,7 +141,8 @@
                 pluginRoot: URL(fileURLWithPath: "/tmp/echo-root"),
                 stateDir: tmp,
                 appVersion: "1.0.0",
-                settings: Data()
+                settings: Data(),
+                marketplaceSource: URL(fileURLWithPath: "/tmp/marketplace")
             )
             await registry.enable("echo", host: host, env: env)
             #expect(registry.core("echo") != nil)
