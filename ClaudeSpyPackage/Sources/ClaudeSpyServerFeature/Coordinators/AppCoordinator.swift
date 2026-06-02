@@ -587,11 +587,20 @@
         ) -> PluginEnv {
             let pluginRoot = registry.pluginRoot(id) ?? paths.pluginStateDir(id)
             let settingsData = (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
+            // Bundled marketplace dirs live in the app's main bundle Resources:
+            //   plugin/       → Claude marketplace
+            //   plugin/codex/ → Codex marketplace
+            let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
+            let marketplaceSource: URL = switch id {
+            case "codex": resources.appendingPathComponent("plugin/codex")
+            default: resources.appendingPathComponent("plugin")
+            }
             return PluginEnv(
                 pluginRoot: pluginRoot,
                 stateDir: paths.pluginStateDir(id),
                 appVersion: VersionCompatibility.currentAppVersion,
-                settings: settingsData
+                settings: settingsData,
+                marketplaceSource: marketplaceSource
             )
         }
 
@@ -701,7 +710,8 @@
         func pluginCallViaCLI(
             _ id: String,
             method: String,
-            json _: String?
+            json _: String?,
+            configRoot: String? = nil
         ) async -> LiveAPIRequestRouter.PluginCallResult {
             guard let registry = pluginRegistry, registry.isRegistered(id) else {
                 return .unknownPlugin
@@ -714,7 +724,7 @@
                 _ = await disablePluginViaCLI(id)
                 return .ok(result: "disabled")
             default:
-                switch await registry.callCore(id, method: method) {
+                switch await registry.callCore(id, method: method, configRoot: configRoot) {
                 case let .ok(result): return .ok(result: result)
                 case .notEnabled: return .notEnabled
                 case let .unknownMethod(name): return .unknownMethod(name)
@@ -1584,9 +1594,14 @@
                 onPluginLogs: { [weak self] id, lines in
                     await self?.pluginLogsViaCLI(id, lines: lines)
                 },
-                onPluginCall: { [weak self] id, method, json in
+                onPluginCall: { [weak self] id, method, json, configRoot in
                     guard let self else { return .unknownPlugin }
-                    return await self.pluginCallViaCLI(id, method: method, json: json)
+                    return await self.pluginCallViaCLI(
+                        id,
+                        method: method,
+                        json: json,
+                        configRoot: configRoot
+                    )
                 }
             )
             liveRouter = router

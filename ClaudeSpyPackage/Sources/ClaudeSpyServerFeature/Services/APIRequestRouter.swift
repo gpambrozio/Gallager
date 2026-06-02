@@ -197,9 +197,10 @@
         /// Parameters: (id, lines?). Returns `{logPath, lines}`, or `nil` for an
         /// unknown id. `lines` caps the number of trailing lines returned.
         let onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)?
-        /// Parameters: (id, method, json?). Direct debugging dispatch into the
-        /// in-process core.
-        let onPluginCall: (@Sendable (String, String, String?) async -> PluginCallResult)?
+        /// Parameters: (id, method, json?, configRoot?). Direct debugging
+        /// dispatch into the in-process core. `configRoot` scopes per-root
+        /// install/uninstall/installStatus to a specific agent config dir.
+        let onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)?
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
@@ -246,7 +247,7 @@
             onPluginEnable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
             onPluginDisable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
             onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)? = nil,
-            onPluginCall: (@Sendable (String, String, String?) async -> PluginCallResult)? = nil
+            onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -751,10 +752,11 @@
                         return .invalidParams(id: id, "method required")
                     }
                     let json = params["json"]?.stringValue
+                    let configRoot = params["configRoot"]?.stringValue
                     guard let callback = onPluginCall else {
                         return .internalError(id: id, "Plugin call not available")
                     }
-                    switch await callback(pluginId, method, json) {
+                    switch await callback(pluginId, method, json, configRoot) {
                     case let .ok(result):
                         return JSONRPCResponse(id: id, result: [
                             "id": .string(pluginId),

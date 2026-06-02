@@ -261,7 +261,7 @@ struct PluginCallCommand: ParsableCommand {
         commandName: "call",
         abstract: "Dispatch a debugging method into a plugin's in-process core",
         discussion: """
-        Methods: enable, disable, refreshProjects, isInstalled, install, uninstall.
+        Methods: enable, disable, refreshProjects, installStatus, install, uninstall.
         Optionally pass a JSON argument string as the third positional.
         """
     )
@@ -269,11 +269,17 @@ struct PluginCallCommand: ParsableCommand {
     @Argument(help: "Plugin id")
     var id: String
 
-    @Argument(help: "Method name (e.g. refreshProjects, isInstalled, install, uninstall)")
+    @Argument(help: "Method name (e.g. refreshProjects, installStatus, install, uninstall)")
     var method: String
 
     @Argument(help: "Optional JSON argument string")
     var json: String?
+
+    @Option(
+        name: .customLong("config-root"),
+        help: "Config root (CLAUDE_CONFIG_DIR / CODEX_HOME) to scope install/uninstall/installStatus to."
+    )
+    var configRoot: String?
 
     @OptionGroup var options: GlobalOptions
 
@@ -284,6 +290,9 @@ struct PluginCallCommand: ParsableCommand {
         ]
         if let json {
             params["json"] = .string(json)
+        }
+        if let configRoot {
+            params["configRoot"] = .string(configRoot)
         }
         let response = try pluginRequest(method: "plugin.call", params: params, options: options)
         if options.json {

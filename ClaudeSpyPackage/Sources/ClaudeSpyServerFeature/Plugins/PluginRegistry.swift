@@ -211,22 +211,22 @@
 
         /// Direct debugging dispatch into the in-process core (spec §14
         /// `plugin call`). Routes the **core-only** methods that need no host/env
-        /// (`refreshProjects`, `isInstalled`, `install`, `uninstall`); the
+        /// (`refreshProjects`, `installStatus`, `install`, `uninstall`); the
         /// lifecycle verbs `enable`/`disable` are handled by the caller (they
         /// require the app-built host/env). Returns `.notEnabled` when no active
         /// core exists for `id`.
-        public func callCore(_ id: String, method: String) async -> CallOutcome {
+        public func callCore(_ id: String, method: String, configRoot: String? = nil) async -> CallOutcome {
             guard let core = active[id] else { return .notEnabled }
             switch method {
             case "refreshProjects":
                 await core.refreshProjects()
                 return .ok(result: "refreshed")
-            case "isInstalled":
-                let installed = await core.isInstalled()
-                return .ok(result: installed ? "installed" : "not-installed")
+            case "installStatus":
+                let status = await core.installStatus(configRoot: configRoot)
+                return .ok(result: Self.describe(status))
             case "install":
                 do {
-                    let result = try await core.install()
+                    let result = try await core.install(configRoot: configRoot)
                     switch result {
                     case let .installed(message): return .ok(result: message)
                     case .alreadyInstalled: return .ok(result: "already-installed")
@@ -236,13 +236,23 @@
                 }
             case "uninstall":
                 do {
-                    try await core.uninstall()
+                    try await core.uninstall(configRoot: configRoot)
                     return .ok(result: "uninstalled")
                 } catch {
                     return .failed(String(describing: error))
                 }
             default:
                 return .unknownMethod(method)
+            }
+        }
+
+        /// Render an install status as the human/JSON-friendly string surfaced by
+        /// `plugin call installStatus` (debugging output, not parsed by the app).
+        private static func describe(_ status: PluginInstallStatus) -> String {
+            switch status {
+            case let .installed(version): "installed\(version.map { " v\($0)" } ?? "")"
+            case .notInstalled: "not-installed"
+            case .agentUnavailable: "agent-unavailable"
             }
         }
 
