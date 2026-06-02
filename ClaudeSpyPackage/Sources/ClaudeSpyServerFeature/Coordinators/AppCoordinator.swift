@@ -886,8 +886,9 @@
                     windowManager.setYoloMode(enabled: false, for: sessionID)
                     await connectedViewerManager?.pushSessionStateToAll()
                 }
-                // Close the pane only on a clean prompt-exit AND with the pref on.
-                guard closePaneEligible, settings.closePaneOnSessionEnd else { return }
+                // Close the pane when the core signals eligibility (the core folds
+                // in both the clean-exit check and the per-agent pref).
+                guard closePaneEligible else { return }
                 // The SessionEnd hook fires while the agent is still mid-exit, so
                 // killing the pane now would truncate its final output. Mirror the
                 // legacy `closePaneWhenClaudeExits`: poll until the agent process

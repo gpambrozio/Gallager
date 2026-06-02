@@ -94,7 +94,8 @@ public actor CodexPluginCore: PluginCore {
                 action: action,
                 pluginID: frame.pluginID,
                 tmuxPane: tmuxPane,
-                contextProjectDir: frame.context["CODEX_PROJECT_DIR"]
+                contextProjectDir: frame.context["CODEX_PROJECT_DIR"],
+                closePaneOnSessionEnd: settings.closePaneOnSessionEnd
             )
         else {
             return nil

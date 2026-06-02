@@ -99,8 +99,9 @@ public enum AppAction: Codable, Sendable, Equatable {
 
     /// The core signals a session end (any reason). The app resets the pane's
     /// session-scoped state — e.g. yolo mode, so a fresh session doesn't inherit
-    /// it — and, when `closePaneEligible` is true (the agent exited cleanly at the
-    /// prompt), closes the pane **iff** the user's `closePaneOnSessionEnd`
-    /// preference is on. The core states intent; the app owns yolo and the pref.
+    /// it. `closePaneEligible == true` means BOTH that the agent exited cleanly at
+    /// the prompt AND that the per-agent `closePaneOnSessionEnd` setting is on (the
+    /// core folds in both); the app closes the pane whenever the flag is true and
+    /// checks no pref of its own. The app still owns yolo (reset on every end).
     case sessionEnded(sessionID: String, closePaneEligible: Bool)
 }

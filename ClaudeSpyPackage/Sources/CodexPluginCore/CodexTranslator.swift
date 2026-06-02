@@ -60,7 +60,8 @@ enum CodexTranslator {
         action: HookAction,
         pluginID: String,
         tmuxPane: String?,
-        contextProjectDir: String?
+        contextProjectDir: String?,
+        closePaneOnSessionEnd: Bool = false
     ) -> Output? {
         let body = action.body
         let sessionID = body.sessionId
@@ -91,7 +92,12 @@ enum CodexTranslator {
         )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
-        let appActions = Self.appActions(for: action, sessionID: tmuxPane ?? sessionID, projectPath: projectPath)
+        let appActions = Self.appActions(
+            for: action,
+            sessionID: tmuxPane ?? sessionID,
+            projectPath: projectPath,
+            closePaneOnSessionEnd: closePaneOnSessionEnd
+        )
 
         // Drop frames that produce no state change at all, so the dispatcher
         // no-ops (spec §5 — `handleIngress` returns nil for log-and-ignore).
@@ -355,7 +361,8 @@ enum CodexTranslator {
     private static func appActions(
         for action: HookAction,
         sessionID: String,
-        projectPath: String?
+        projectPath: String?,
+        closePaneOnSessionEnd: Bool
     ) -> [AppAction] {
         switch action {
         case let .postToolUse(body):
@@ -377,10 +384,11 @@ enum CodexTranslator {
             // Signal the session end for every reason so the app resets the pane's
             // session-scoped state (yolo). The pane is only *closed* when the agent
             // exits cleanly at the prompt (`reason == .promptInputExit`) AND the
-            // pref is on — the app owns the pref check; we state close-eligibility.
+            // per-agent pref is on. The core folds both conditions here so the app
+            // honors the `closePaneEligible` flag alone.
             return [.sessionEnded(
                 sessionID: sessionID,
-                closePaneEligible: body.reason == .promptInputExit
+                closePaneEligible: body.reason == .promptInputExit && closePaneOnSessionEnd
             )]
 
         default:

@@ -80,7 +80,8 @@ public actor ClaudeCodePluginCore: PluginCore {
                 action: action,
                 pluginID: frame.pluginID,
                 tmuxPane: frame.tmuxPane,
-                contextProjectDir: frame.context["CLAUDE_PROJECT_DIR"]
+                contextProjectDir: frame.context["CLAUDE_PROJECT_DIR"],
+                closePaneOnSessionEnd: settings.closePaneOnSessionEnd
             )
         else {
             return nil

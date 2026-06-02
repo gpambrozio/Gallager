@@ -360,7 +360,7 @@ struct ClaudeCodeTranslatorTests {
             return
         }
         #expect(sessionID == "%1") // appAction keyed by pane
-        #expect(closePaneEligible == true) // clean prompt exit → close-eligible
+        #expect(closePaneEligible == false) // pref off (default) → not eligible even on clean exit
     }
 
     @Test("sessionEnd with another reason still signals end but not close-eligible")
@@ -402,6 +402,86 @@ struct ClaudeCodeTranslatorTests {
         let event = try #require(await core.handleIngress(frame(json)))
         #expect(event.working == false)
         #expect(event.appActions == [.sessionEnded(sessionID: "%1", closePaneEligible: false)])
+    }
+
+    // MARK: - SessionEnd × closePaneOnSessionEnd pref
+
+    private func makeCore(closePaneOnSessionEnd: Bool) async throws -> (ClaudeCodePluginCore, MockPluginHost) {
+        let host = MockPluginHost()
+        let core = ClaudeCodePluginCore()
+        let settingsData = try JSONEncoder().encode(
+            ClaudeCodeSettings(closePaneOnSessionEnd: closePaneOnSessionEnd)
+        )
+        let env = PluginEnv(
+            pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
+            stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("gallager-cc-test-pref-\(UUID().uuidString)"),
+            appVersion: "1.0",
+            settings: settingsData,
+            marketplaceSource: URL(fileURLWithPath: "/")
+        )
+        try await core.initialize(env, host: host)
+        return (core, host)
+    }
+
+    @Test("clean prompt-exit + closePaneOnSessionEnd:true → closePaneEligible true")
+    func sessionEndClosePrefOnCleanExit() async throws {
+        let (core, _) = try await makeCore(closePaneOnSessionEnd: true)
+        let json = """
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "sess-pref-on",
+            "reason": "prompt_input_exit"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        let action = try #require(event.appActions.first)
+        guard case let .sessionEnded(_, closePaneEligible) = action else {
+            Issue.record("expected .sessionEnded, got \(action)")
+            return
+        }
+        // clean exit AND pref on → eligible
+        #expect(closePaneEligible == true)
+    }
+
+    @Test("clean prompt-exit + closePaneOnSessionEnd:false → closePaneEligible false")
+    func sessionEndClosePrefOffCleanExit() async throws {
+        let (core, _) = try await makeCore(closePaneOnSessionEnd: false)
+        let json = """
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "sess-pref-off",
+            "reason": "prompt_input_exit"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        let action = try #require(event.appActions.first)
+        guard case let .sessionEnded(_, closePaneEligible) = action else {
+            Issue.record("expected .sessionEnded, got \(action)")
+            return
+        }
+        // pref off → not eligible even on clean exit
+        #expect(closePaneEligible == false)
+    }
+
+    @Test("non-clean exit + closePaneOnSessionEnd:true → closePaneEligible false")
+    func sessionEndClosePrefOnNonCleanExit() async throws {
+        let (core, _) = try await makeCore(closePaneOnSessionEnd: true)
+        let json = """
+        {
+            "hook_event_name": "SessionEnd",
+            "session_id": "sess-pref-on-dirty",
+            "reason": "user_quit"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        let action = try #require(event.appActions.first)
+        guard case let .sessionEnded(_, closePaneEligible) = action else {
+            Issue.record("expected .sessionEnded, got \(action)")
+            return
+        }
+        // non-clean exit → not eligible regardless of pref
+        #expect(closePaneEligible == false)
     }
 
     // MARK: - Project path fallback
