@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeCodePluginCore
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
@@ -385,14 +386,7 @@
 
             // One-shot migration of legacy per-agent settings → per-plugin
             // settings.json, before cores read them via PluginEnv.settings (§11).
-            PluginSettingsMigration.runIfNeeded(
-                paths: paths,
-                claudeCommandPath: settings.claudeCommandPath,
-                claudeAutoRun: settings.autoRunClaudeInProjects,
-                codexCommandPath: settings.codexCommandPath,
-                codexAutoRun: settings.autoRunCodexInProjects,
-                preferences: preferences
-            )
+            PluginSettingsMigration.runIfNeeded(paths: paths, preferences: preferences)
 
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
@@ -1150,10 +1144,6 @@
             let winManager = windowManager
             let editorManager = editorSessionManager
             let notificationService = terminalNotificationService
-            // `claudeCommandPath` is still consumed by the layout driver, which
-            // shell-launches `claude` for `agent:` panes in a YAML layout.
-            let claudeCommandPath = settings.claudeCommandPath
-
             let router = LiveAPIRequestRouter(
                 onSessionList: { [tmux] in
                     await MainActor.run {
@@ -1618,7 +1608,7 @@
                     }
                 },
                 onLayoutApply: {
-                    [tmux, winManager, claudeCommandPath, weak self] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
+                    [tmux, winManager, weak self] config, rebuild, detach, dryRun, lenient, requireCreate, configPath in
                     let parser = LayoutConfigParser(
                         lenient: lenient,
                         environment: ProcessInfo.processInfo.environment
@@ -1654,6 +1644,12 @@
                         }
                     )
                     let configDir = configPath.map { (URL(fileURLWithPath: $0).deletingLastPathComponent()).path }
+                    // Read the command path straight from the claude-code plugin's
+                    // settings.json (independent of auto-run) so the layout driver
+                    // honors the user's configured `claude` command for `agent:` panes.
+                    let claudeCommandPath = await ClaudeCodeSettings
+                        .decode(from: self?.pluginSettingsData(id: "claude-code") ?? Data())
+                        .commandPath
                     let result = try await driver.apply(
                         parsed,
                         rebuild: rebuild,

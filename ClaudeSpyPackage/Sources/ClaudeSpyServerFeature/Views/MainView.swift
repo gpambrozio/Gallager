@@ -112,9 +112,6 @@ public struct MainView: View {
                 await loadProjects(showLoadingIndicator: false)
             }
         }
-        .onChange(of: settings.additionalClaudeFolders) {
-            Task { await loadProjects() }
-        }
         .modifier(AlertsModifier(
             attachError: $attachError,
             closeConfirmation: $closeConfirmation,
