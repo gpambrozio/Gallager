@@ -195,4 +195,110 @@ struct CodexScannerTests {
         let projects = CodexScanner().scan(sessionsRoot: sessions)
         #expect(projects.map(\.name) == ["FlatLayout"])
     }
+
+    // MARK: - Multi-root scanning
+
+    /// Creates a temp CODEX_HOME root (the parent of `sessions/`).
+    private func makeTempCodexHome() throws -> URL {
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("gallager-cx-home-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    /// Seeds a rollout under `<codexHome>/sessions/YYYY/MM/DD/`.
+    @discardableResult
+    private func seedRolloutInHome(
+        codexHome: URL,
+        cwd: String,
+        startedAt: String = "2026-05-21T10:00:00Z",
+        day: (String, String, String) = ("2026", "05", "21")
+    ) throws -> URL {
+        let sessions = codexHome.appendingPathComponent("sessions")
+        return try seedRollout(sessionsRoot: sessions, cwd: cwd, startedAt: startedAt, day: day)
+    }
+
+    @Test("scan(codexHomeRoots:) returns union of projects from multiple CODEX_HOME roots")
+    func multiRootUnion() throws {
+        // Two CODEX_HOME roots.
+        let homeA = try makeTempCodexHome()
+        let homeB = try makeTempCodexHome()
+        defer {
+            try? fileManager.removeItem(at: homeA)
+            try? fileManager.removeItem(at: homeB)
+        }
+
+        // Two distinct project dirs — one per root.
+        let base = fileManager.temporaryDirectory
+            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+        let projAlpha = base.appendingPathComponent("AlphaMulti")
+        let projBeta = base.appendingPathComponent("BetaMulti")
+        try fileManager.createDirectory(at: projAlpha, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: projBeta, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: base) }
+
+        try seedRolloutInHome(codexHome: homeA, cwd: projAlpha.path)
+        try seedRolloutInHome(codexHome: homeB, cwd: projBeta.path)
+
+        let scanner = CodexScanner()
+        let projects = scanner.scan(codexHomeRoots: [homeA, homeB])
+
+        let names = Set(projects.map(\.name))
+        #expect(names == ["AlphaMulti", "BetaMulti"])
+        #expect(projects.count == 2)
+    }
+
+    @Test("scan(codexHomeRoots:) deduplicates a project appearing in two roots, most-recently-used wins")
+    func multiRootDedup() throws {
+        let homeA = try makeTempCodexHome()
+        let homeB = try makeTempCodexHome()
+        defer {
+            try? fileManager.removeItem(at: homeA)
+            try? fileManager.removeItem(at: homeB)
+        }
+
+        let projDir = fileManager.temporaryDirectory
+            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("SharedProject")
+        try fileManager.createDirectory(at: projDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: projDir.deletingLastPathComponent()) }
+
+        // homeA has an older rollout; homeB has a newer one.
+        try seedRolloutInHome(codexHome: homeA, cwd: projDir.path, startedAt: "2026-05-20T08:00:00Z")
+        try seedRolloutInHome(codexHome: homeB, cwd: projDir.path, startedAt: "2026-05-21T12:00:00Z")
+
+        let scanner = CodexScanner()
+        let projects = scanner.scan(codexHomeRoots: [homeA, homeB])
+
+        #expect(projects.count == 1)
+        let newerDate = ISO8601DateFormatter().date(from: "2026-05-21T12:00:00Z")
+        #expect(projects.first?.lastUsed == newerDate)
+    }
+
+    @Test("scan(codexHomeRoots:) sorts merged results most-recently-used first")
+    func multiRootSorting() throws {
+        let homeA = try makeTempCodexHome()
+        let homeB = try makeTempCodexHome()
+        defer {
+            try? fileManager.removeItem(at: homeA)
+            try? fileManager.removeItem(at: homeB)
+        }
+
+        let base = fileManager.temporaryDirectory
+            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+        let older = base.appendingPathComponent("OlderMulti")
+        let newer = base.appendingPathComponent("NewerMulti")
+        try fileManager.createDirectory(at: older, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: newer, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: base) }
+
+        // older project in homeA, newer project in homeB.
+        try seedRolloutInHome(codexHome: homeA, cwd: older.path, startedAt: "2026-05-19T10:00:00Z")
+        try seedRolloutInHome(codexHome: homeB, cwd: newer.path, startedAt: "2026-05-21T10:00:00Z")
+
+        let scanner = CodexScanner()
+        let projects = scanner.scan(codexHomeRoots: [homeA, homeB])
+
+        #expect(projects.map(\.name) == ["NewerMulti", "OlderMulti"])
+    }
 }

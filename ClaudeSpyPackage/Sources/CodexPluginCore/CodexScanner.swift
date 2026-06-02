@@ -25,6 +25,17 @@ struct CodexScanner {
     /// rollouts; we read newest-first so older ones rarely add useful info.
     private static let maxRolloutsToRead = 500
 
+    /// The default Codex home: `$CODEX_HOME` if set, otherwise `~/.codex`.
+    static func defaultCodexHome(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let override = environment["CODEX_HOME"], !override.isEmpty {
+            return URL(fileURLWithPath: override).standardizedFileURL
+        }
+        return home.appendingPathComponent(".codex").standardizedFileURL
+    }
+
     /// The default Codex sessions root: `$CODEX_HOME/sessions` if `CODEX_HOME`
     /// is set, otherwise `~/.codex/sessions`. Injected into `scan` so tests can
     /// point at a fixture.
@@ -32,15 +43,8 @@ struct CodexScanner {
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
-        if let override = environment["CODEX_HOME"], !override.isEmpty {
-            return URL(fileURLWithPath: override)
-                .standardizedFileURL
-                .appendingPathComponent("sessions")
-        }
-        return home
-            .appendingPathComponent(".codex")
+        defaultCodexHome(home: home, environment: environment)
             .appendingPathComponent("sessions")
-            .standardizedFileURL
     }
 
     /// Scans `sessionsRoot` for Codex rollouts and groups them by `cwd`.
@@ -96,6 +100,29 @@ struct CodexScanner {
         }
 
         return Array(projectsByPath.values).sortedByLastUsed()
+    }
+
+    /// Scans several CODEX_HOME roots and merges their projects (dedup by path,
+    /// most-recently-used wins). `roots` are CODEX_HOME dirs; sessions are at
+    /// `<root>/sessions`.
+    func scan(
+        codexHomeRoots roots: [URL],
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [AgentProject] {
+        var byPath: [String: AgentProject] = [:]
+        for root in roots {
+            let sessions = root.appendingPathComponent("sessions")
+            for project in scan(sessionsRoot: sessions, home: home) {
+                if let existing = byPath[project.path] {
+                    if shouldReplace(existing: existing, with: project) {
+                        byPath[project.path] = project
+                    }
+                } else {
+                    byPath[project.path] = project
+                }
+            }
+        }
+        return Array(byPath.values).sortedByLastUsed()
     }
 
     /// Newer `lastUsed` wins when the same project path appears under two

@@ -35,7 +35,7 @@ public actor CodexPluginCore: PluginCore {
     private var pendingRequests: [String: PendingRequest] = [:]
 
     #if os(macOS)
-        private var watcher: CodexSessionsWatcher?
+        private var watchers: [CodexSessionsWatcher] = []
     #endif
 
     public init() {
@@ -57,13 +57,14 @@ public actor CodexPluginCore: PluginCore {
         marketplaceSource = env.marketplaceSource
         command = settings.commandPath
         await refreshProjects()
-        startWatcher()
+        #if os(macOS)
+            startWatchers()
+        #endif
     }
 
     public func shutdown() async {
         #if os(macOS)
-            watcher?.stop()
-            watcher = nil
+            stopWatchers()
         #endif
         host = nil
     }
@@ -157,11 +158,11 @@ public actor CodexPluginCore: PluginCore {
 
     // MARK: - Projects
 
-    /// Rescan `~/.codex/sessions/` (or `$CODEX_HOME/sessions/`) for rollout files
-    /// and push the agent-blind project list to the host.
+    /// Rescan all configured CODEX_HOME roots (default + additionalConfigFolders)
+    /// for rollout files and push the agent-blind project list to the host.
     public func refreshProjects() async {
         guard let host else { return }
-        let projects = scanner.scan(sessionsRoot: CodexScanner.defaultSessionsRoot())
+        let projects = scanner.scan(codexHomeRoots: codexHomeRoots())
         await host.setProjects(projects)
     }
 
@@ -190,8 +191,15 @@ public actor CodexPluginCore: PluginCore {
 
     public func applySettings(_ raw: Data) async -> SettingsResult {
         let decoded = CodexSettings.decode(from: raw)
+        let foldersChanged = decoded.additionalConfigFolders != settings.additionalConfigFolders
         settings = decoded
         command = decoded.commandPath
+        #if os(macOS)
+            if foldersChanged {
+                stopWatchers()
+                startWatchers()
+            }
+        #endif
         return .applied
     }
 
@@ -205,19 +213,36 @@ public actor CodexPluginCore: PluginCore {
         )
     }
 
-    private func startWatcher() {
-        #if os(macOS)
-            guard watcher == nil else { return }
-            let sessionsPath = CodexScanner.defaultSessionsRoot().path
-            let created = CodexSessionsWatcher(path: sessionsPath) { [weak self] in
-                Task { [weak self] in
-                    await self?.refreshProjects()
-                }
-            }
-            created.start()
-            watcher = created
-        #endif
+    /// Returns all CODEX_HOME roots to scan/watch: the default root plus any
+    /// additional roots from settings.
+    private func codexHomeRoots() -> [URL] {
+        [CodexScanner.defaultCodexHome()] + settings.additionalConfigFolders.map {
+            URL(fileURLWithPath: $0).standardizedFileURL
+        }
     }
+
+    #if os(macOS)
+        private func startWatchers() {
+            guard watchers.isEmpty else { return }
+            for root in codexHomeRoots() {
+                let sessionsPath = root.appendingPathComponent("sessions").path
+                let watcher = CodexSessionsWatcher(path: sessionsPath) { [weak self] in
+                    Task { [weak self] in
+                        await self?.refreshProjects()
+                    }
+                }
+                watcher.start()
+                watchers.append(watcher)
+            }
+        }
+
+        private func stopWatchers() {
+            for watcher in watchers {
+                watcher.stop()
+            }
+            watchers = []
+        }
+    #endif
 
     private func log(_ level: LogLevel, _ message: String) async {
         await host?.log(LogLine(level: level, message: message))
