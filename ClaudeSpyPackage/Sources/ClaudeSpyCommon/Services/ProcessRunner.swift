@@ -60,6 +60,27 @@ public struct ProcessRunner: Sendable {
     ) async throws -> ProcessResult
 }
 
+// MARK: - PATH helpers
+
+public extension ProcessRunner {
+    /// The PATH to use for a subprocess: the resolved login-shell PATH when
+    /// available, else the inherited PATH with common install dirs prepended
+    /// (so the most common CLIs still resolve if shell resolution failed).
+    static func effectivePath(resolved: String?, inherited: String?) -> String {
+        if let resolved, !resolved.isEmpty { return resolved }
+        let commonDirs = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            NSString(string: "~/.local/bin").expandingTildeInPath,
+            NSString(string: "~/.npm-global/bin").expandingTildeInPath,
+        ]
+        let inheritedParts = (inherited ?? "").split(separator: ":").map(String.init)
+        let existing = Set(inheritedParts)
+        let prefix = commonDirs.filter { !existing.contains($0) }
+        return (prefix + inheritedParts).joined(separator: ":")
+    }
+}
+
 // MARK: - Convenience
 
 public extension ProcessRunner {
@@ -107,8 +128,13 @@ extension ProcessRunner: DependencyKey {
                     process.executableURL = URL(fileURLWithPath: executable)
                     process.arguments = arguments
 
-                    // Set up environment
+                    // Set up environment. A GUI app inherits launchd's minimal PATH,
+                    // so inject the user's real login-shell PATH (resolved once,
+                    // cached) before the caller's overrides — otherwise `/usr/bin/env
+                    // <cmd>` can't find CLIs in ~/.local/bin, Homebrew, mise/nvm, etc.
+                    @Dependency(LoginShellPath.self) var loginShellPath
                     var env = ProcessInfo.processInfo.environment
+                    env["PATH"] = effectivePath(resolved: loginShellPath.resolve(), inherited: env["PATH"])
                     if let additionalEnv = environment {
                         for (key, value) in additionalEnv {
                             env[key] = value
