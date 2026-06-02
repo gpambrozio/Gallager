@@ -67,6 +67,21 @@ public actor ClaudeCodePluginCore: PluginCore {
     /// durable `HookEvent` / `HookEventMessage` semantics for working/attention/
     /// notification (additive phase — those types still live in networking).
     public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {
+        // Drop subagent (`Task`) hook events — those carrying an `agent_id` — the
+        // way the legacy `HookServerService` did. They describe a subagent's
+        // lifecycle, not the main agent's, and must not drive the main session's
+        // status: a trailing `SubagentStop` fires ~seconds AFTER the main `Stop`
+        // and (mapping to isWorking=true) would flip the just-stopped session back
+        // to "Working". `PermissionRequest` is the sole exception — a subagent's
+        // permission prompt still needs a user response.
+        if
+            let common = try? JSONDecoder().decode(CommonHookFields.self, from: frame.payload),
+            common.agentId != nil,
+            common.hookEventName != CommonHookFields.permissionRequestEventName {
+            await log(.debug, "Ignoring subagent hook event: \(common.hookEventName)")
+            return nil
+        }
+
         let action: HookAction
         do {
             action = try HookAction.from(jsonData: frame.payload)

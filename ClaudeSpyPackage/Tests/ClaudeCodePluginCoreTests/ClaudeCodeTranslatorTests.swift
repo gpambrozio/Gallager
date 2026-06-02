@@ -42,6 +42,46 @@ struct ClaudeCodeTranslatorTests {
         )
     }
 
+    // MARK: - Subagent event filtering
+
+    @Test("a subagent hook event (agent_id set) is dropped, except PermissionRequest")
+    func subagentEventsDropped() async throws {
+        let (core, _) = try await makeCore()
+
+        // A trailing SubagentStop carries an agent_id and maps to isWorking=true; if
+        // applied it would flip the just-stopped main session back to "Working". Drop it.
+        let subagentStop = """
+        {
+            "hook_event_name": "SubagentStop",
+            "session_id": "sess-1",
+            "agent_id": "sub-123"
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentStop)) == nil)
+
+        // A subagent's permission prompt still needs a user response — NOT dropped.
+        let subagentPermission = """
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "sess-1",
+            "agent_id": "sub-123",
+            "tool_name": "Bash",
+            "tool_input": { "command": "ls", "description": "list" }
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentPermission)) != nil)
+
+        // A main-agent Stop (no agent_id) is processed normally → not working.
+        let mainStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(mainStop)))
+        #expect(event.working == false)
+    }
+
     // MARK: - Plain permission request
 
     @Test("plain permissionRequest opens a .permission form and needs attention")
