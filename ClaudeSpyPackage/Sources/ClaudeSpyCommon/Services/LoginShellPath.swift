@@ -51,6 +51,16 @@
         public static var previewValue: LoginShellPath {
             LoginShellPath(resolve: { "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" })
         }
+
+        /// Tests that exercise `ProcessRunner.liveValue` (e.g. tmux/`LayoutDriver`
+        /// integration tests) read this dependency unconditionally. Resolve to
+        /// `nil` so `ProcessRunner` falls back to the inherited PATH (the test
+        /// process's full shell PATH) — no shell spawn, no behavior change — rather
+        /// than tripping the auto-generated unimplemented test value. Tests that
+        /// assert injection override it explicitly via `withDependencies`.
+        public static var testValue: LoginShellPath {
+            LoginShellPath(resolve: { nil })
+        }
     }
 
     /// Caches the one-time login-shell PATH resolution for the process lifetime.
