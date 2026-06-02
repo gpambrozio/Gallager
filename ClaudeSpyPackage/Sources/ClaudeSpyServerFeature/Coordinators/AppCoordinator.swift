@@ -90,12 +90,18 @@
         /// On-disk layout for the in-process plugin runtime. Built in
         /// `setupAllServices()` from `--gallager-state-root` (E2E isolation) or
         /// the default `~/.gallager` tree.
+        ///
+        /// `internal` (not `private`) so `@testable import` tests can inject a
+        /// temp-dir `GallagerPaths` without calling `setupAllServices()`.
         @ObservationIgnored
-        private var gallagerPaths: GallagerPaths?
+        var gallagerPaths: GallagerPaths?
 
         /// Owns the plugin factory table + enabled-core lifecycle.
+        ///
+        /// `internal` (not `private`) so `@testable import` tests can inject a
+        /// pre-configured `PluginRegistry` without calling `setupAllServices()`.
         @ObservationIgnored
-        private var pluginRegistry: PluginRegistry?
+        var pluginRegistry: PluginRegistry?
 
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
@@ -794,6 +800,110 @@
             let path = args[flagIndex + 1]
             guard !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true)
+        }
+
+        // MARK: - Agents settings tab support
+
+        /// One row of the segmented agent picker. `Identifiable` so the settings
+        /// tab can drive it directly through `ForEach` (P2-T5).
+        public struct AgentPluginEntry: Identifiable, Sendable, Equatable {
+            public let id: String
+            public let name: String
+
+            public init(id: String, name: String) {
+                self.id = id
+                self.name = name
+            }
+        }
+
+        /// The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
+        /// behind `#if DEBUG`, so its id is mirrored as a literal for Release where
+        /// echo is never registered anyway (the filter is then a harmless no-op).
+        #if DEBUG
+            private static let echoPluginID = EchoPluginCore.pluginID
+        #else
+            private static let echoPluginID = "echo"
+        #endif
+
+        /// Display rows for the segmented agent picker, sorted by id. Excludes
+        /// `echo`, the test-only reference plugin (DEBUG/E2E builds only).
+        public func agentPluginList() -> [AgentPluginEntry] {
+            guard let registry = pluginRegistry else { return [] }
+            return registry.registeredIDs
+                .filter { $0 != Self.echoPluginID }
+                .map { AgentPluginEntry(id: $0, name: registry.manifest($0)?.displayName ?? $0) }
+        }
+
+        /// Raw settings.json bytes for a plugin (empty Data if none yet).
+        public func pluginSettingsData(id: String) -> Data {
+            guard let paths = gallagerPaths else { return Data() }
+            return (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
+        }
+
+        /// Persist a plugin's settings.json and, only on a successful write, push
+        /// the new settings live to the enabled core (if any). Returns `nil` on
+        /// success or an error string on failure — surfacing a failed write so the
+        /// live core never diverges from disk (which would silently revert on the
+        /// next launch).
+        @discardableResult
+        public func setPluginSettings(id: String, _ data: Data) async -> String? {
+            guard let paths = gallagerPaths else { return "Plugin state not initialised" }
+            let url = paths.pluginSettingsPath(id)
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: url, options: .atomic)
+            } catch {
+                return String(describing: error)
+            }
+            // SettingsResult.error surfacing is deferred to the settings UI (P2-T5).
+            _ = await pluginRegistry?.core(id)?.applySettings(data)
+            return nil
+        }
+
+        /// Ensure a plugin's core is enabled, then query its install status for
+        /// the given config root (nil = default location).
+        public func pluginInstallStatus(id: String, configRoot: String?) async -> PluginInstallStatus {
+            guard let core = await enabledCore(id) else { return .agentUnavailable }
+            return await core.installStatus(configRoot: configRoot)
+        }
+
+        /// Install a plugin for a config root via the enabled core.
+        /// Returns `nil` on success, or an error string on failure.
+        public func installPlugin(id: String, configRoot: String?) async -> String? {
+            guard let core = await enabledCore(id) else { return "Plugin not available" }
+            do {
+                _ = try await core.install(configRoot: configRoot)
+                return nil
+            } catch {
+                return String(describing: error)
+            }
+        }
+
+        /// Uninstall a plugin for a config root via the enabled core.
+        /// Returns `nil` on success, or an error string on failure.
+        public func uninstallPlugin(id: String, configRoot: String?) async -> String? {
+            guard let core = await enabledCore(id) else { return "Plugin not available" }
+            do {
+                try await core.uninstall(configRoot: configRoot)
+                return nil
+            } catch {
+                return String(describing: error)
+            }
+        }
+
+        /// Returns the already-enabled core for `id`, enabling it on demand when
+        /// it isn't active yet (plugins are normally enabled at startup; this is
+        /// defensive for the rare case where startup enable failed). Enabling via
+        /// `enablePluginViaCLI` also re-pushes the plugin presentation set to all
+        /// connected viewers as a side effect of the enabled-set change.
+        private func enabledCore(_ id: String) async -> (any PluginCore)? {
+            guard let registry = pluginRegistry else { return nil }
+            if let core = registry.core(id) { return core }
+            _ = await enablePluginViaCLI(id)
+            return registry.core(id)
         }
 
         // MARK: - Plugin Runtime Local Sinks
