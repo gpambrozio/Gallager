@@ -36,4 +36,26 @@ struct ClaudeCodeSettingsTests {
         let data = try JSONEncoder().encode(original)
         #expect(ClaudeCodeSettings.decode(from: data) == original)
     }
+
+    @Test("closePaneOnSessionEnd defaults to false")
+    func closePaneOnSessionEndDefault() {
+        let settings = ClaudeCodeSettings()
+        #expect(settings.closePaneOnSessionEnd == false)
+    }
+
+    @Test("decodes close_pane_on_session_end from JSON")
+    func decodesClosePaneOnSessionEnd() throws {
+        let json = Data("""
+        { "close_pane_on_session_end": true }
+        """.utf8)
+        let settings = try JSONDecoder().decode(ClaudeCodeSettings.self, from: json)
+        #expect(settings.closePaneOnSessionEnd == true)
+    }
+
+    @Test("closePaneOnSessionEnd round-trips through JSON")
+    func closePaneOnSessionEndRoundTrip() throws {
+        let original = ClaudeCodeSettings(closePaneOnSessionEnd: true)
+        let data = try JSONEncoder().encode(original)
+        #expect(ClaudeCodeSettings.decode(from: data) == original)
+    }
 }

@@ -15,17 +15,22 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
     public var logLevel: LogLevel
     /// Extra `.claude` config folders to scan beyond `~/.claude`.
     public var additionalConfigFolders: [String]
+    /// When true (and the agent exited cleanly at the prompt), the pane closes
+    /// on session end. Per-agent; the app honors the core's eligibility flag.
+    public var closePaneOnSessionEnd: Bool
 
     public init(
         commandPath: String = "claude",
         autoRun: Bool = true,
         logLevel: LogLevel = .info,
-        additionalConfigFolders: [String] = []
+        additionalConfigFolders: [String] = [],
+        closePaneOnSessionEnd: Bool = false
     ) {
         self.commandPath = commandPath
         self.autoRun = autoRun
         self.logLevel = logLevel
         self.additionalConfigFolders = additionalConfigFolders
+        self.closePaneOnSessionEnd = closePaneOnSessionEnd
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -33,6 +38,7 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
         case autoRun = "auto_run"
         case logLevel = "log_level"
         case additionalConfigFolders = "additional_config_folders"
+        case closePaneOnSessionEnd = "close_pane_on_session_end"
     }
 
     public init(from decoder: Decoder) throws {
@@ -42,6 +48,8 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
         self.logLevel = try container.decodeIfPresent(LogLevel.self, forKey: .logLevel) ?? .info
         self.additionalConfigFolders = try container
             .decodeIfPresent([String].self, forKey: .additionalConfigFolders) ?? []
+        self.closePaneOnSessionEnd = try container
+            .decodeIfPresent(Bool.self, forKey: .closePaneOnSessionEnd) ?? false
     }
 
     /// Decode from raw `settings.json` bytes, falling back to defaults when the
