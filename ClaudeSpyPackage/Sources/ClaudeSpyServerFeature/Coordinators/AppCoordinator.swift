@@ -851,9 +851,21 @@
             return nil
         }
 
+        /// Deterministic install-status overrides for `--e2e-test`, keyed by
+        /// `"<id>|<configRoot>"`. Keeps the Agents tab side-effect-free and stable
+        /// in e2e (no real `claude`/`codex plugin` shell-out against the tester's
+        /// own config). Empty / unused in production.
+        private var e2eInstallStatus: [String: PluginInstallStatus] = [:]
+        private let isE2ETest = CommandLine.arguments.contains("--e2e-test")
+
+        private func e2eInstallKey(_ id: String, _ configRoot: String?) -> String {
+            "\(id)|\(configRoot ?? "")"
+        }
+
         /// Ensure a plugin's core is enabled, then query its install status for
         /// the given config root (nil = default location).
         public func pluginInstallStatus(id: String, configRoot: String?) async -> PluginInstallStatus {
+            if isE2ETest { return e2eInstallStatus[e2eInstallKey(id, configRoot)] ?? .notInstalled }
             guard let core = await enabledCore(id) else { return .agentUnavailable }
             return await core.installStatus(configRoot: configRoot)
         }
@@ -861,6 +873,10 @@
         /// Install a plugin for a config root via the enabled core.
         /// Returns `nil` on success, or an error string on failure.
         public func installPlugin(id: String, configRoot: String?) async -> String? {
+            if isE2ETest {
+                e2eInstallStatus[e2eInstallKey(id, configRoot)] = .installed(version: "e2e")
+                return nil
+            }
             guard let core = await enabledCore(id) else { return "Plugin not available" }
             do {
                 _ = try await core.install(configRoot: configRoot)
@@ -873,6 +889,10 @@
         /// Uninstall a plugin for a config root via the enabled core.
         /// Returns `nil` on success, or an error string on failure.
         public func uninstallPlugin(id: String, configRoot: String?) async -> String? {
+            if isE2ETest {
+                e2eInstallStatus[e2eInstallKey(id, configRoot)] = .notInstalled
+                return nil
+            }
             guard let core = await enabledCore(id) else { return "Plugin not available" }
             do {
                 try await core.uninstall(configRoot: configRoot)

@@ -331,6 +331,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiPluginCoexistenceScenario.scenario,
         CodexFormsParityScenario.scenario,
         PermissionSuggestionDenyScenario.scenario,
+        AgentsSettingsTabScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
