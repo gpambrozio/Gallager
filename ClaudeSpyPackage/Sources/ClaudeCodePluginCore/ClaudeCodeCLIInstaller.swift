@@ -66,8 +66,7 @@ struct ClaudeCodeCLIInstaller: Sendable {
     /// JSON, or an empty array ⇒ `.notInstalled`.
     static func parseStatus(from listing: String) -> PluginInstallStatus {
         guard
-            let data = listing.data(using: .utf8),
-            let entries = try? JSONDecoder().decode([PluginListEntry].self, from: data),
+            let entries = try? JSONDecoder().decode([PluginListEntry].self, from: Data(listing.utf8)),
             let entry = entries.first(where: { $0.id == pluginRef })
         else {
             return .notInstalled
