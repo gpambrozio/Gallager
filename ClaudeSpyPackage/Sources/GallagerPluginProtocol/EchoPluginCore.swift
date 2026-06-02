@@ -30,6 +30,12 @@
             guard let directive = try? JSONDecoder().decode(EchoDirective.self, from: frame.payload) else {
                 return nil
             }
+            // Test hook: an artificial processing delay lets ordering tests make one
+            // frame take longer than the next, so a serialized ingress can be told
+            // apart from a racing one.
+            if let delayMs = directive.delayMs, delayMs > 0 {
+                try? await Task.sleep(for: .milliseconds(delayMs))
+            }
             return PluginEvent(
                 pluginID: frame.pluginID,
                 sessionID: directive.sessionID,
@@ -112,6 +118,8 @@
         public let appActions: [AppAction]?
         public let tmuxPane: String?
         public let projectPath: String?
+        /// Test-only artificial processing delay (ms) applied in `handleIngress`.
+        public let delayMs: Int?
 
         public init(
             sessionID: String,
@@ -121,7 +129,8 @@
             responseRequest: ResponseRequestPayload? = nil,
             appActions: [AppAction]? = nil,
             tmuxPane: String? = nil,
-            projectPath: String? = nil
+            projectPath: String? = nil,
+            delayMs: Int? = nil
         ) {
             self.sessionID = sessionID
             self.working = working
@@ -131,6 +140,7 @@
             self.appActions = appActions
             self.tmuxPane = tmuxPane
             self.projectPath = projectPath
+            self.delayMs = delayMs
         }
     }
 #endif

@@ -211,6 +211,50 @@
             await server.stop()
         }
 
+        @Test("frames from separate connections dispatch in arrival order, not processing-completion order")
+        func serializedDispatchOrder() async throws {
+            let collector = EventCollector()
+            let dispatcher = makeDispatcher(collector)
+            let core = EchoPluginCore()
+            let server = IngressSocketServer(
+                socketPath: makeSocketPath(),
+                coreLookup: { id in id == EchoPluginCore.pluginID ? core : nil },
+                dispatcher: dispatcher
+            )
+            try await server.start()
+            defer { Task { await server.stop() } }
+            let path = await pathOf(server)
+
+            // Connection A: a frame that is slow to process (400ms artificial delay).
+            let fdA = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
+            defer { close(fdA) }
+            let frameA = try echoFrameData(
+                directive: EchoDirective(sessionID: "A", working: true, tmuxPane: "%1", delayMs: 400),
+                context: [:]
+            )
+            #expect(writeAll(fdA, frameA))
+
+            // Let A be accepted and enter processing before B arrives.
+            try await Task.sleep(for: .milliseconds(150))
+
+            // Connection B: processes instantly. With one racing task per connection,
+            // B's event would reach the dispatcher ~250ms *before* A's; a serialized
+            // ingress must still dispatch A first because it arrived first.
+            let fdB = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
+            defer { close(fdB) }
+            let frameB = try echoFrameData(
+                directive: EchoDirective(sessionID: "B", working: true, tmuxPane: "%2", delayMs: 0),
+                context: [:]
+            )
+            #expect(writeAll(fdB, frameB))
+
+            let events = await waitForEvents(collector, atLeast: 2)
+            #expect(events.count == 2)
+            #expect(events.map(\.sessionID) == ["A", "B"])
+
+            await server.stop()
+        }
+
         /// Read the bound path back off the actor (the server holds it privately for
         /// liveness, but the test supplied it; this just keeps the read on-actor).
         private func pathOf(_ server: IngressSocketServer) async -> String {

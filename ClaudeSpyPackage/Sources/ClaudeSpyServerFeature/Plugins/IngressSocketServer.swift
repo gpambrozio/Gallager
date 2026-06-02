@@ -30,6 +30,18 @@
         private var isRunning = false
         private var acceptTask: Task<Void, Never>?
 
+        /// The single serial consumer that processes decoded frames in arrival
+        /// order, and the continuation per-connection read tasks yield into.
+        ///
+        /// Hooks carry NO ordering signal (no timestamp/sequence — verified against
+        /// the Claude hook spec) and fire as separate connections, so processing one
+        /// task per connection let a fast benign frame (e.g. `PostToolUse`) overtake
+        /// a slow meaningful one (e.g. `Stop`) and clobber session status. Reads stay
+        /// concurrent (no head-of-line blocking), but `handleIngress` + `dispatch`
+        /// run strictly one frame at a time, in the order frames were read.
+        private var consumerTask: Task<Void, Never>?
+        private var frameContinuation: AsyncStream<IngressFrame>.Continuation?
+
         /// - Parameters:
         ///   - socketPath: where to bind the ingress socket (typically
         ///     `GallagerPaths.ingressSocketPath.path`).
@@ -117,6 +129,31 @@
             isRunning = true
             logger.info("Ingress socket server listening at \(socketPath)")
 
+            // Serial frame consumer: route every decoded frame through one FIFO so
+            // status updates are applied in arrival order, not racing
+            // processing-completion order.
+            let (stream, continuation) = AsyncStream.makeStream(
+                of: IngressFrame.self,
+                bufferingPolicy: .unbounded
+            )
+            frameContinuation = continuation
+            let lookup = coreLookup
+            let dispatcher = dispatcher
+            let logger = logger
+            consumerTask = Task {
+                for await frame in stream {
+                    guard let core = await lookup(frame.pluginID) else {
+                        logger.debug("Dropping ingress frame for unknown/disabled plugin '\(frame.pluginID)'")
+                        continue
+                    }
+                    if let event = await core.handleIngress(frame) {
+                        await dispatcher.dispatch(event)
+                    } else {
+                        logger.debug("Core '\(frame.pluginID)' dropped ingress frame (returned nil)")
+                    }
+                }
+            }
+
             acceptTask = Task { [weak self] in
                 await self?.acceptLoop()
             }
@@ -128,6 +165,13 @@
             isRunning = false
             acceptTask?.cancel()
             acceptTask = nil
+
+            // Finishing the stream ends the consumer's `for await`; cancel is a
+            // belt-and-suspenders for any in-flight processing.
+            frameContinuation?.finish()
+            frameContinuation = nil
+            consumerTask?.cancel()
+            consumerTask = nil
 
             if serverFd >= 0 {
                 shutdown(serverFd, SHUT_RDWR)
@@ -167,29 +211,30 @@
                     &readTimeout, socklen_t(MemoryLayout<timeval>.size)
                 )
 
-                // Each connection is handled in its own task; the bridge writes one
-                // (or a few) frames and disconnects.
-                let lookup = coreLookup
-                let dispatcher = dispatcher
+                // Each connection's frames are READ in their own task (so a slow or
+                // stalled client can't head-of-line-block others), but the decoded
+                // frames are yielded into the serial consumer above, which processes
+                // them one at a time in arrival order. The bridge writes one (or a
+                // few) frames and disconnects.
+                guard let continuation = frameContinuation else {
+                    close(clientFd)
+                    continue
+                }
                 let logger = logger
                 Task {
-                    await Self.handleConnection(
-                        clientFd,
-                        coreLookup: lookup,
-                        dispatcher: dispatcher,
-                        logger: logger
-                    )
+                    await Self.readFrames(clientFd, into: continuation, logger: logger)
                 }
             }
         }
 
         /// Read length-prefixed frames from one client until it disconnects (spec
-        /// §8). Malformed frames and frames for unknown/disabled plugins are dropped
-        /// with a debug log; the connection survives for the next frame.
-        private static func handleConnection(
+        /// §8) and yield each decoded frame into the serial consumer. Malformed
+        /// frames are dropped with a debug log; the connection survives for the next
+        /// frame. Routing (`coreLookup` + `handleIngress` + `dispatch`) happens in
+        /// the consumer so frames are processed one at a time in arrival order.
+        private static func readFrames(
             _ fd: Int32,
-            coreLookup: @escaping CoreLookup,
-            dispatcher: PluginEventDispatcher,
+            into continuation: AsyncStream<IngressFrame>.Continuation,
             logger: Logger
         ) async {
             defer { close(fd) }
@@ -218,7 +263,8 @@
                     break // truncated body → give up on this client
                 }
 
-                // 3) Decode + route. Failures drop this frame but keep the socket.
+                // 3) Decode + hand off. A malformed frame is dropped but the socket
+                // survives for the next frame.
                 let frame: IngressFrame
                 do {
                     frame = try IngressFrame.decode(body: body)
@@ -227,16 +273,7 @@
                     continue
                 }
 
-                guard let core = await coreLookup(frame.pluginID) else {
-                    logger.debug("Dropping ingress frame for unknown/disabled plugin '\(frame.pluginID)'")
-                    continue
-                }
-
-                if let event = await core.handleIngress(frame) {
-                    await dispatcher.dispatch(event)
-                } else {
-                    logger.debug("Core '\(frame.pluginID)' dropped ingress frame (returned nil)")
-                }
+                continuation.yield(frame)
             }
         }
 
