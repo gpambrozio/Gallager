@@ -21,7 +21,8 @@ struct ClaudeCodeTranslatorTests {
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("gallager-cc-test-\(UUID().uuidString)"),
             appVersion: "1.0",
-            settings: Data()
+            settings: Data(),
+            marketplaceSource: URL(fileURLWithPath: "/")
         )
         try await core.initialize(env, host: host)
         return (core, host)

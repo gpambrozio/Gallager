@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 import GallagerPluginProtocol
 
@@ -19,10 +20,14 @@ public actor ClaudeCodePluginCore: PluginCore {
     public static let pluginID = "claude-code"
 
     private var host: (any PluginHost)?
-    private var env: PluginEnv?
     private var settings = ClaudeCodeSettings()
 
     private let scanner = ClaudeCodeScanner()
+
+    @Dependency(ProcessRunner.self) private var processRunner
+
+    private var marketplaceSource = URL(fileURLWithPath: "/")
+    private var command = "claude"
 
     /// Per-`requestID` context retained from `handleIngress` so `deliverResponse`
     /// can translate the structured answer into keystrokes (spec §7.1).
@@ -37,10 +42,11 @@ public actor ClaudeCodePluginCore: PluginCore {
     // MARK: - Lifecycle
 
     public func initialize(_ env: PluginEnv, host: any PluginHost) async throws {
-        self.env = env
         self.host = host
         // `env.settings` is the authoritative initial settings value (spec §11).
         settings = ClaudeCodeSettings.decode(from: env.settings)
+        marketplaceSource = env.marketplaceSource
+        command = settings.commandPath
         await refreshProjects()
         startWatcher()
     }
@@ -136,35 +142,37 @@ public actor ClaudeCodePluginCore: PluginCore {
         return LaunchCommand(command: settings.commandPath)
     }
 
-    // MARK: - Hook-bridge install
+    // MARK: - CLI-based plugin install
 
-    public func install() async throws -> InstallResult {
-        try installer().install()
+    public func install(configRoot: String?) async throws -> InstallResult {
+        try await cliInstaller().install(configRoot: configRoot)
     }
 
-    public func uninstall() async throws {
-        try installer().uninstall()
+    public func uninstall(configRoot: String?) async throws {
+        try await cliInstaller().uninstall(configRoot: configRoot)
     }
 
-    public func isInstalled() async -> Bool {
-        installer().isInstalled()
+    public func installStatus(configRoot: String?) async -> PluginInstallStatus {
+        await cliInstaller().installStatus(configRoot: configRoot)
     }
 
     // MARK: - Settings
 
     public func applySettings(_ raw: Data) async -> SettingsResult {
-        settings = ClaudeCodeSettings.decode(from: raw)
+        let decoded = ClaudeCodeSettings.decode(from: raw)
+        settings = decoded
+        command = decoded.commandPath
         return .applied
     }
 
     // MARK: - Private helpers
 
-    /// Builds the installer rooted at the plugin state dir (falls back to a
-    /// temp-dir-less default if `initialize` hasn't run yet — defensive).
-    private func installer() -> ClaudeCodeInstaller {
-        let stateDir = env?.stateDir
-            ?? URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("gallager-claude-code")
-        return ClaudeCodeInstaller.live(stateDir: stateDir)
+    private func cliInstaller() -> ClaudeCodeCLIInstaller {
+        ClaudeCodeCLIInstaller(
+            processRunner: processRunner,
+            command: command,
+            marketplaceSource: marketplaceSource
+        )
     }
 
     private func startWatcher() {
