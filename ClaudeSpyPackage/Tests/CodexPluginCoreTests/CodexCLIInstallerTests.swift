@@ -226,9 +226,11 @@ struct CodexCLIInstallerTests {
     @Test("installStatus returns .installed(version:) when gallager line with x.y.z is present")
     func installStatusParsesInstalledVersion() async throws {
         let listing = """
-        Installed plugins:
-          gallager@gallager  1.3.0  Gallager monitoring plugin
-          other@other        0.2.0  Some other plugin
+        Marketplace `gallager`
+        /Applications/Gallager.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
+
+        PLUGIN             STATUS     VERSION  PATH
+        gallager@gallager  installed  1.3.0    /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -249,11 +251,11 @@ struct CodexCLIInstallerTests {
 
     @Test("installStatus returns .installed(version: nil) when gallager line has no x.y.z token")
     func installStatusInstalledWithoutVersion() async throws {
-        // A gallager line with no dot-bearing numeric token → version is nil but
-        // the plugin is still reported installed.
+        // An installed gallager row with no dot-bearing numeric token → version is
+        // nil but the plugin is still reported installed.
         let listing = """
-        Installed plugins:
-          gallager@gallager  enabled
+        PLUGIN             STATUS     VERSION  PATH
+        gallager@gallager  installed           /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -272,11 +274,36 @@ struct CodexCLIInstallerTests {
         #expect(version == nil)
     }
 
+    @Test("installStatus is .notInstalled when the row STATUS says 'not installed' (marketplace header present)")
+    func installStatusNotInstalledFromStatusColumn() async throws {
+        // Real `codex plugin list -m gallager` output: the marketplace IS registered
+        // (header + path lines mention `gallager`) but the plugin row's STATUS is
+        // "not installed". The marketplace header must NOT be read as installed.
+        let listing = """
+        Marketplace `gallager`
+        /Applications/Gallager.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
+
+        PLUGIN             STATUS         VERSION  PATH
+        gallager@gallager  not installed           /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
+        """
+        let processRunner = ProcessRunner { _, _, _, _ in
+            .success(listing)
+        }
+        let installer = CodexCLIInstaller(
+            processRunner: processRunner,
+            command: "codex",
+            marketplaceSource: marketplaceSource
+        )
+
+        let status = await installer.installStatus(configRoot: nil)
+        #expect(status == .notInstalled)
+    }
+
     @Test("installStatus returns .notInstalled when gallager is absent from listing")
     func installStatusNotInstalled() async throws {
         let listing = """
-        Installed plugins:
-          other@other  0.5.0  Some other plugin
+        PLUGIN        STATUS     VERSION  PATH
+        other@other   installed  0.5.0    /some/path
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -338,7 +365,7 @@ struct CodexCLIInstallerTests {
 
         let calls = await recorder.calls
         #expect(calls.count == 1)
-        #expect(calls[0].arguments == ["codex", "plugin", "list"])
+        #expect(calls[0].arguments == ["codex", "plugin", "list", "-m", "gallager"])
         #expect(calls[0].environment?["CODEX_HOME"] == "/some/dir")
     }
 

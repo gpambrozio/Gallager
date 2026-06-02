@@ -10,6 +10,7 @@ struct CodexCLIInstaller: Sendable {
     let marketplaceSource: URL
 
     static let pluginRef = "gallager@gallager"
+    static let marketplaceName = "gallager"
 
     private func env(for configRoot: String?) -> [String: String]? {
         configRoot.map { ["CODEX_HOME": $0] }
@@ -37,14 +38,29 @@ struct CodexCLIInstaller: Sendable {
     }
 
     func installStatus(configRoot: String?) async -> PluginInstallStatus {
-        guard let result = try? await run(["plugin", "list"], configRoot: configRoot, timeout: 30) else {
+        // `-m gallager` scopes the listing to our marketplace, so the only
+        // `gallager@gallager` row is ours.
+        guard
+            let result = try? await run(
+                ["plugin", "list", "-m", Self.marketplaceName], configRoot: configRoot, timeout: 30
+            ) else {
             return .agentUnavailable
         }
         if result.exitCode == 127 { return .agentUnavailable }
         guard result.isSuccess else { return .notInstalled }
-        // Assumes a `codex plugin list` line format `<name> <version> …`; the first
-        // numeric, dot-bearing token on a line mentioning gallager is the version.
-        for line in result.stdoutString.split(separator: "\n") where line.contains("gallager") {
+        return Self.parseStatus(from: result.stdoutString)
+    }
+
+    /// Parses `codex plugin list -m gallager` output. Only the `gallager@gallager`
+    /// row's STATUS column is authoritative — `"not installed"` ⇒ `.notInstalled`,
+    /// `"installed"` ⇒ `.installed`. The marketplace header line (`` Marketplace
+    /// `gallager` ``) and the on-disk plugin path must NOT be mistaken for an
+    /// install. Version is the first dot-bearing numeric token on the row, if any.
+    static func parseStatus(from listing: String) -> PluginInstallStatus {
+        for line in listing.split(separator: "\n") where line.contains(pluginRef) {
+            let lower = line.lowercased()
+            if lower.contains("not installed") { return .notInstalled }
+            guard lower.contains("installed") else { continue }
             let version = line
                 .split(whereSeparator: { $0 == " " || $0 == "\t" })
                 .first(where: { $0.first?.isNumber == true && $0.contains(".") })
