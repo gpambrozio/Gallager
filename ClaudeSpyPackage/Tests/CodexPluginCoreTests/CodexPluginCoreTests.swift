@@ -14,7 +14,8 @@ struct CodexPluginCoreTests {
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("gallager-cx-core-\(UUID().uuidString)"),
             appVersion: "1.0",
-            settings: settings
+            settings: settings,
+            marketplaceSource: URL(fileURLWithPath: "/")
         )
     }
 
