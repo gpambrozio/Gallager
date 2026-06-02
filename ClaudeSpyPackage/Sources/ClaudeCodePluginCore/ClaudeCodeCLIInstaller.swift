@@ -15,6 +15,10 @@ struct ClaudeCodeCLIInstaller: Sendable {
     let marketplaceSource: URL
 
     static let pluginName = "gallager"
+    /// Fully-qualified plugin id (`<name>@<marketplace>`) as it appears in
+    /// `claude plugin list --json`. Matching this — not a bare "gallager"
+    /// substring — scopes status detection to our plugin.
+    static let pluginRef = "gallager@gallager"
 
     private func env(for configRoot: String?) -> [String: String]? {
         configRoot.map { ["CLAUDE_CONFIG_DIR": $0] }
@@ -44,7 +48,10 @@ struct ClaudeCodeCLIInstaller: Sendable {
     }
 
     func installStatus(configRoot: String?) async -> PluginInstallStatus {
-        guard let result = try? await run(["plugin", "list"], configRoot: configRoot, timeout: 30) else {
+        // `--json` yields a machine-readable array of installed plugins, so we can
+        // match our exact id instead of grepping for a "gallager" substring (which
+        // a marketplace header or another plugin could spuriously satisfy).
+        guard let result = try? await run(["plugin", "list", "--json"], configRoot: configRoot, timeout: 30) else {
             return .agentUnavailable
         }
         if result.exitCode == 127 { return .agentUnavailable }
@@ -52,17 +59,26 @@ struct ClaudeCodeCLIInstaller: Sendable {
         return Self.parseStatus(from: result.stdoutString)
     }
 
-    /// Finds a line mentioning our plugin and extracts a `x.y.z` version if present.
-    /// Assumes the `claude plugin list` line format `<name> <version> …` (whitespace
-    /// -separated columns); the first numeric, dot-bearing token is taken as the version.
+    /// Parses `claude plugin list --json` output (an array of installed-plugin
+    /// objects). Our plugin is the entry whose `id` equals `gallager@gallager`;
+    /// its `version` field is authoritative. `claude plugin list` lists only
+    /// *installed* plugins, so a present entry ⇒ installed. Absent id, malformed
+    /// JSON, or an empty array ⇒ `.notInstalled`.
     static func parseStatus(from listing: String) -> PluginInstallStatus {
-        for line in listing.split(separator: "\n") where line.contains(pluginName) {
-            let version = line
-                .split(whereSeparator: { $0 == " " || $0 == "\t" })
-                .first(where: { $0.first?.isNumber == true && $0.contains(".") })
-                .map(String.init)
-            return .installed(version: version)
+        guard
+            let data = listing.data(using: .utf8),
+            let entries = try? JSONDecoder().decode([PluginListEntry].self, from: data),
+            let entry = entries.first(where: { $0.id == pluginRef })
+        else {
+            return .notInstalled
         }
-        return .notInstalled
+        return .installed(version: entry.version)
+    }
+
+    /// Minimal projection of a `claude plugin list --json` entry; unknown keys
+    /// (scope, enabled, installPath, …) are ignored by the decoder.
+    private struct PluginListEntry: Decodable {
+        let id: String
+        let version: String?
     }
 }

@@ -204,12 +204,13 @@ struct ClaudeCodeCLIInstallerTests {
 
     // MARK: - installStatus(configRoot:)
 
-    @Test("installStatus returns .installed(version:) when gallager line with x.y.z is present")
+    @Test("installStatus returns .installed(version:) when the gallager@gallager entry is present")
     func installStatusParsesInstalledVersion() async throws {
         let listing = """
-        Available plugins:
-          gallager  1.2.3  Gallager monitoring plugin
-          other     0.1.0  Some other plugin
+        [
+          { "id": "other@somewhere", "version": "0.1.0", "scope": "user", "enabled": true },
+          { "id": "gallager@gallager", "version": "1.2.3", "scope": "user", "enabled": true }
+        ]
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -231,11 +232,27 @@ struct ClaudeCodeCLIInstallerTests {
     @Test("installStatus returns .notInstalled when gallager is absent from listing")
     func installStatusNotInstalled() async throws {
         let listing = """
-        Available plugins:
-          other  0.5.0  Some other plugin
+        [
+          { "id": "other@somewhere", "version": "0.5.0", "scope": "user", "enabled": true }
+        ]
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
+        }
+        let installer = ClaudeCodeCLIInstaller(
+            processRunner: processRunner,
+            command: "claude",
+            marketplaceSource: marketplaceSource
+        )
+
+        let status = await installer.installStatus(configRoot: nil)
+        #expect(status == .notInstalled)
+    }
+
+    @Test("installStatus returns .notInstalled for an empty plugin list")
+    func installStatusEmptyArray() async throws {
+        let processRunner = ProcessRunner { _, _, _, _ in
+            .success("[]")
         }
         let installer = ClaudeCodeCLIInstaller(
             processRunner: processRunner,
@@ -279,9 +296,9 @@ struct ClaudeCodeCLIInstallerTests {
 
     // MARK: - parseStatus (unit)
 
-    @Test("parseStatus: installed line with version token")
+    @Test("parseStatus: gallager@gallager entry with version")
     func parseStatusWithVersion() {
-        let listing = "  gallager  2.0.1  A plugin"
+        let listing = #"[{ "id": "gallager@gallager", "version": "2.0.1", "scope": "user", "enabled": true }]"#
         let status = ClaudeCodeCLIInstaller.parseStatus(from: listing)
         guard case let .installed(version) = status else {
             Issue.record("Expected .installed, got \(status)")
@@ -290,9 +307,9 @@ struct ClaudeCodeCLIInstallerTests {
         #expect(version == "2.0.1")
     }
 
-    @Test("parseStatus: gallager line without version token → installed(version: nil)")
+    @Test("parseStatus: gallager@gallager entry without a version field → installed(version: nil)")
     func parseStatusNoVersion() {
-        let listing = "  gallager"
+        let listing = #"[{ "id": "gallager@gallager", "scope": "user", "enabled": true }]"#
         let status = ClaudeCodeCLIInstaller.parseStatus(from: listing)
         guard case let .installed(version) = status else {
             Issue.record("Expected .installed, got \(status)")
@@ -301,16 +318,31 @@ struct ClaudeCodeCLIInstallerTests {
         #expect(version == nil)
     }
 
-    @Test("parseStatus: absent → .notInstalled")
-    func parseStatusAbsent() {
-        let listing = "  other  1.0.0  Not our plugin"
+    @Test("parseStatus: a bare \"gallager\" id from another marketplace is NOT our plugin")
+    func parseStatusForeignGallager() {
+        // Regression: the old substring match treated any line containing
+        // "gallager" as installed. The full id must equal `gallager@gallager`.
+        let listing = #"[{ "id": "gallager@someone-else", "version": "9.9.9", "scope": "user", "enabled": true }]"#
         let status = ClaudeCodeCLIInstaller.parseStatus(from: listing)
         #expect(status == .notInstalled)
     }
 
-    @Test("parseStatus: empty listing → .notInstalled")
-    func parseStatusEmpty() {
-        let status = ClaudeCodeCLIInstaller.parseStatus(from: "")
+    @Test("parseStatus: absent → .notInstalled")
+    func parseStatusAbsent() {
+        let listing = #"[{ "id": "other@somewhere", "version": "1.0.0", "scope": "user", "enabled": true }]"#
+        let status = ClaudeCodeCLIInstaller.parseStatus(from: listing)
+        #expect(status == .notInstalled)
+    }
+
+    @Test("parseStatus: empty array → .notInstalled")
+    func parseStatusEmptyArray() {
+        let status = ClaudeCodeCLIInstaller.parseStatus(from: "[]")
+        #expect(status == .notInstalled)
+    }
+
+    @Test("parseStatus: malformed / non-JSON output → .notInstalled")
+    func parseStatusMalformed() {
+        let status = ClaudeCodeCLIInstaller.parseStatus(from: "not json at all")
         #expect(status == .notInstalled)
     }
 
@@ -333,7 +365,7 @@ struct ClaudeCodeCLIInstallerTests {
 
         let calls = await recorder.calls
         #expect(calls.count == 1)
-        #expect(calls[0].arguments == ["claude", "plugin", "list"])
+        #expect(calls[0].arguments == ["claude", "plugin", "list", "--json"])
         #expect(calls[0].environment?["CLAUDE_CONFIG_DIR"] == "/some/dir")
     }
 }
