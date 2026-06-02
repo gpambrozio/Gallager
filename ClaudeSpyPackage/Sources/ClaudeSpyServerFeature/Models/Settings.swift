@@ -57,7 +57,7 @@ public enum SettingsTab: String, Sendable {
     case remoteHosts
     case sidebarLayout
     case editors
-    case plugin
+    case agents
     case about
 }
 

@@ -56,11 +56,11 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.remoteHosts)
 
-            PluginSettingsView()
+            AgentsSettingsView()
                 .tabItem {
-                    Label("Plugin", symbol: .puzzlepiece)
+                    Label("Agents", symbol: .puzzlepiece)
                 }
-                .tag(SettingsTab.plugin)
+                .tag(SettingsTab.agents)
 
             AboutView()
                 .tabItem {
