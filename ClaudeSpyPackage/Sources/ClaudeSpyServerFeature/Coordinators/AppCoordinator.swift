@@ -73,9 +73,6 @@
         /// Stored key pair for E2EE
         public private(set) var keyPair: StoredKeyPair?
 
-        /// Plugin service for Claude Code plugin management
-        public let pluginService: PluginService
-
         /// Editor session manager for Ctrl-G prompt editing
         public let editorSessionManager: EditorSessionManager
 
@@ -207,9 +204,6 @@
 
             // Create terminal stream service
             self.terminalStreamService = TerminalStreamService()
-
-            // Create plugin service
-            self.pluginService = PluginService()
 
             // Create editor session manager (API server is started later in setupAllServices)
             let editorManager = EditorSessionManager()

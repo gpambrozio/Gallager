@@ -9,8 +9,6 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingTmuxInstallGuide: Bool
-    @State private var pluginSetupCheckTrigger = 0
-    @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
     @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
@@ -45,8 +43,7 @@ struct TmuxPaneMirrorApp: App {
         if CommandLine.arguments.contains("--e2e-test") {
             let prefs = PreferencesService.inMemory()
 
-            // Suppress first-launch dialogs (plugin setup, launch-at-login prompt)
-            prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
+            // Suppress first-launch dialogs (launch-at-login prompt)
             prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
 
             // E2E tests expect manual resize by default; disable auto-resize so scenarios
@@ -310,7 +307,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.windowManager.paneStreamManager)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(coordinator.editorSessionManager)
                 .environment(coordinator.remoteEditorContentStore)
                 .environment(coordinator.markdownOpenSuggestionStore)
@@ -322,8 +318,8 @@ struct TmuxPaneMirrorApp: App {
                     }
                 }
                 .sheet(isPresented: $showingTmuxInstallGuide, onDismiss: {
-                    // After tmux is found, proceed with the plugin setup chain
-                    pluginSetupCheckTrigger += 1
+                    // After tmux is found, proceed with launch-at-login prompt
+                    Task { await checkForLaunchAtLoginPrompt() }
                 }) {
                     TmuxInstallationGuideView { foundPath in
                         coordinator.settings.tmuxPath = foundPath
@@ -332,19 +328,7 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     // Only run first-launch dialogs if tmux is already installed
                     guard !showingTmuxInstallGuide else { return }
-                    pluginSetupCheckTrigger += 1
-                }
-                .task(id: pluginSetupCheckTrigger) {
-                    guard pluginSetupCheckTrigger > 0 else { return }
-                    await checkForPluginSetup()
-                }
-                .sheet(isPresented: $showingPluginSetup, onDismiss: {
-                    // After plugin setup is dismissed, check for launch at login prompt
-                    Task { await checkForLaunchAtLoginPrompt() }
-                }) {
-                    PluginSetupView()
-                        .environment(coordinator.settings)
-                        .environment(coordinator.pluginService)
+                    await checkForLaunchAtLoginPrompt()
                 }
                 .sheet(isPresented: $showingLaunchAtLoginPrompt) {
                     LaunchAtLoginPromptView()
@@ -458,7 +442,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
 
@@ -488,33 +471,8 @@ struct TmuxPaneMirrorApp: App {
         return localCount + remoteCount
     }
 
-    /// Checks if we should show the plugin setup on first launch.
-    /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
-    private func checkForPluginSetup() async {
-        if !coordinator.settings.hasCompletedPluginSetup {
-            // If claude isn't installed, jump straight to the setup sheet so
-            // the user can follow the install flow.
-            if let path = await coordinator.pluginService.findClaude() {
-                coordinator.settings.claudeCommandPath = path
-                await coordinator.pluginService.checkInstallation()
-            } else {
-                showingPluginSetup = true
-                return
-            }
-
-            if case .notInstalled = coordinator.pluginService.state {
-                showingPluginSetup = true
-            } else if case .installed = coordinator.pluginService.state {
-                coordinator.settings.hasCompletedPluginSetup = true
-                await checkForLaunchAtLoginPrompt()
-            }
-        } else {
-            await checkForLaunchAtLoginPrompt()
-        }
-    }
-
     /// Checks if we should show the launch at login prompt.
-    /// Called after plugin setup is complete or skipped.
+    /// Called after tmux setup is complete.
     private func checkForLaunchAtLoginPrompt() async {
         // Only show if user hasn't been asked yet
         guard !coordinator.settings.hasAskedAboutLaunchAtLogin else { return }
