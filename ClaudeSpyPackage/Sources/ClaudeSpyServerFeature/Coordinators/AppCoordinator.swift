@@ -390,12 +390,13 @@
 
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
-                onStatus: { [weak self] pluginID, sessionID, working, attention, tmuxPane, projectPath in
+                onStatus: { [weak self] pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
                     await self?.handlePluginStatus(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         working: working,
                         attention: attention,
+                        opensBlockingForm: opensBlockingForm,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     )
@@ -924,6 +925,7 @@
             sessionID: String,
             working: Bool?,
             attention: Bool,
+            opensBlockingForm: Bool,
             tmuxPane: String?,
             projectPath: String?
         ) async {
@@ -932,6 +934,7 @@
                 sessionID: sessionID,
                 working: working,
                 attention: attention,
+                opensBlockingForm: opensBlockingForm,
                 tmuxPane: tmuxPane,
                 projectPath: projectPath
             )

@@ -26,7 +26,7 @@
 
         private func makeDispatcher(_ collector: EventCollector) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onStatus: { pluginID, sessionID, working, attention, tmuxPane, projectPath in
+                onStatus: { pluginID, sessionID, working, attention, _, tmuxPane, projectPath in
                     await collector.record(PluginEvent(
                         pluginID: pluginID,
                         sessionID: sessionID,

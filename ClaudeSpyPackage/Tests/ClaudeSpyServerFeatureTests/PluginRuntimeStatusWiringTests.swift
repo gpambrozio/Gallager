@@ -47,12 +47,13 @@
         /// wires its status sink (the other sinks are irrelevant here).
         private func makeDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onStatus: { pluginID, sessionID, working, attention, tmuxPane, projectPath in
+                onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
                     await windowManager.applyPluginStatus(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         working: working,
                         attention: attention,
+                        opensBlockingForm: opensBlockingForm,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     )
@@ -174,6 +175,55 @@
             )
             #expect(windowManager.paneStates["%7"]?.agentSession != nil)
             #expect(windowManager.paneStates["%7"]?.agentSession?.isWorking == false)
+        }
+
+        @Test("a blocking-form attention survives mark-handled-on-view; a Stop-like one clears")
+        func blockingFormGuardsAttentionAgainstViewing() {
+            let windowManager = makeWindowManager()
+
+            // AskUserQuestion / permission / plan: working + attention + opensBlockingForm.
+            // The guard must be set atomically here so a later view/mark-handled can't clear it.
+            windowManager.applyPluginStatus(
+                pluginID: "echo",
+                sessionID: "ask",
+                working: true,
+                attention: true,
+                opensBlockingForm: true,
+                tmuxPane: "%1",
+                projectPath: nil
+            )
+            #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == true)
+            // Viewing the session would mark it handled — the open form must keep attention.
+            windowManager.markSessionHandled(paneId: "%1")
+            #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == true)
+
+            // Stop-like: attention with NO blocking form → viewing clears it (matches legacy).
+            windowManager.applyPluginStatus(
+                pluginID: "echo",
+                sessionID: "stop",
+                working: false,
+                attention: true,
+                opensBlockingForm: false,
+                tmuxPane: "%2",
+                projectPath: nil
+            )
+            #expect(windowManager.paneStates["%2"]?.agentSession?.needsAttention == true)
+            windowManager.markSessionHandled(paneId: "%2")
+            #expect(windowManager.paneStates["%2"]?.agentSession?.needsAttention == false)
+
+            // The agent advances past the question (plain working event, no form): guard lifts,
+            // so a subsequent mark-handled can clear attention again.
+            windowManager.applyPluginStatus(
+                pluginID: "echo",
+                sessionID: "ask",
+                working: true,
+                attention: true,
+                opensBlockingForm: false,
+                tmuxPane: "%1",
+                projectPath: nil
+            )
+            windowManager.markSessionHandled(paneId: "%1")
+            #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == false)
         }
 
         @Test("status with no tmuxPane is dropped")

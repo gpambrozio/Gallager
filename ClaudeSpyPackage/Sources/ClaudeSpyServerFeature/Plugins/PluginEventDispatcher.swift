@@ -27,6 +27,7 @@
             _ sessionID: String,
             _ working: Bool?,
             _ attention: Bool,
+            _ opensBlockingForm: Bool,
             _ tmuxPane: String?,
             _ projectPath: String?
         ) async -> Void
@@ -81,7 +82,7 @@
         // MARK: - Initialization
 
         public init(
-            onStatus: @escaping StatusSink = { _, _, _, _, _, _ in },
+            onStatus: @escaping StatusSink = { _, _, _, _, _, _, _ in },
             onNotification: @escaping NotificationSink = { _, _, _ in },
             onOpenResponseRequest: @escaping OpenResponseRequestSink = { _, _, _, _ in },
             onRetractResponseRequest: @escaping RetractResponseRequestSink = { _, _, _ in },
@@ -122,6 +123,13 @@
             let attentionChanged = lastAttention[key] != effectiveAttention
             lastAttention[key] = effectiveAttention
 
+            // Whether this event leaves a blocking form (permission / question /
+            // plan approval) open. The status sink sets the "don't auto-clear on
+            // view" guard atomically with the attention bit, so a viewer marking
+            // the session handled can't race ahead of the form and clear it
+            // (#…). Suppressed under a yolo auto-approve — no form is shown.
+            let opensBlockingForm = !isYoloAutoApprove && (event.responseRequest?.request?.isBlocking == true)
+
             // Status: fire when working has an opinion OR attention changed.
             if event.working != nil || attentionChanged {
                 await onStatus(
@@ -129,6 +137,7 @@
                     event.sessionID,
                     event.working,
                     effectiveAttention,
+                    opensBlockingForm,
                     event.tmuxPane,
                     event.projectPath
                 )

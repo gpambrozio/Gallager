@@ -13,6 +13,7 @@
             let sessionID: String
             let working: Bool?
             let attention: Bool
+            let opensBlockingForm: Bool
             let tmuxPane: String?
             let projectPath: String?
         }
@@ -67,12 +68,13 @@
 
     private func makeDispatcher(_ recorder: DispatchRecorder) -> PluginEventDispatcher {
         PluginEventDispatcher(
-            onStatus: { pluginID, sessionID, working, attention, tmuxPane, projectPath in
+            onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
                 await recorder.recordStatus(.init(
                     pluginID: pluginID,
                     sessionID: sessionID,
                     working: working,
                     attention: attention,
+                    opensBlockingForm: opensBlockingForm,
                     tmuxPane: tmuxPane,
                     projectPath: projectPath
                 ))
@@ -117,7 +119,10 @@
 
             let statuses = await recorder.statuses
             #expect(statuses == [
-                .init(pluginID: "echo", sessionID: "s1", working: true, attention: false, tmuxPane: "%3", projectPath: "/tmp/proj"),
+                .init(
+                    pluginID: "echo", sessionID: "s1", working: true, attention: false,
+                    opensBlockingForm: false, tmuxPane: "%3", projectPath: "/tmp/proj"
+                ),
             ])
         }
 
@@ -190,6 +195,46 @@
             #expect(opens == [.init(pluginID: "echo", sessionID: "s1", requestID: "r1")])
             #expect(openedRequests == [request])
             #expect(retracts.isEmpty)
+        }
+
+        @Test("a blocking request surfaces opensBlockingForm=true; a non-blocking one does not")
+        func blockingFormSurfacedToStatus() async {
+            // Blocking (askUserQuestion) paired with working+attention, as the real
+            // translator emits for AskUserQuestion → status sink sees opensBlockingForm=true.
+            let recorder = DispatchRecorder()
+            let dispatcher = makeDispatcher(recorder)
+            await dispatcher.dispatch(PluginEvent(
+                pluginID: "echo",
+                sessionID: "s1",
+                working: true,
+                attention: true,
+                responseRequest: ResponseRequestPayload(
+                    requestID: "r1",
+                    request: .askUserQuestion(AskUserQuestionRequest(questions: []))
+                ),
+                tmuxPane: "%5"
+            ))
+            let statuses = await recorder.statuses
+            #expect(statuses.count == 1)
+            #expect(statuses.first?.opensBlockingForm == true)
+
+            // Non-blocking (prompt) must NOT set the guard.
+            let recorder2 = DispatchRecorder()
+            let dispatcher2 = makeDispatcher(recorder2)
+            await dispatcher2.dispatch(PluginEvent(
+                pluginID: "echo",
+                sessionID: "s2",
+                working: false,
+                attention: true,
+                responseRequest: ResponseRequestPayload(
+                    requestID: "r2",
+                    request: .prompt(PromptRequest(title: "Ask"))
+                ),
+                tmuxPane: "%6"
+            ))
+            let statuses2 = await recorder2.statuses
+            #expect(statuses2.count == 1)
+            #expect(statuses2.first?.opensBlockingForm == false)
         }
 
         @Test("responseRequest with nil request retracts the form")

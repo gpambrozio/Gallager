@@ -192,6 +192,7 @@ final public class MirrorWindowManager {
         sessionID: String,
         working: Bool?,
         attention: Bool,
+        opensBlockingForm: Bool = false,
         tmuxPane: String?,
         projectPath: String?
     ) {
@@ -217,10 +218,18 @@ final public class MirrorWindowManager {
             session.needsAttention = attention
         }
 
-        // When the agent advances past a pending form (goes busy), the blocking
-        // form is stale — drop it so a later mark-handled isn't wrongly blocked,
-        // and a stale pending approval can't be re-fired.
-        if working == true {
+        // Blocking-form guard, maintained ATOMICALLY with the status set above —
+        // this whole method runs in one MainActor turn, *before* SwiftUI's
+        // `pendingSessionCount` onChange (which auto-marks the viewed session
+        // handled) can fire. So opening a permission / question / plan form
+        // registers the guard in the same beat attention is raised, and a viewer
+        // looking at the session can't race ahead and clear an attention that
+        // still needs a response. A plain working event — the agent advancing
+        // past a form with no form of its own — lifts the guard and drops any
+        // stale pending approval.
+        if opensBlockingForm {
+            panesWithBlockingForm.insert(paneId)
+        } else if working == true {
             panesWithBlockingForm.remove(paneId)
             pendingApprovalByPane.removeValue(forKey: paneId)
         }
