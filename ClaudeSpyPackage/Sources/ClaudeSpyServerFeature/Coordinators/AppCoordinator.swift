@@ -1014,11 +1014,25 @@
             case let .sessionEnded(sessionID, closePaneEligible):
                 // `sessionID` carries the pane id in the plugin path. A session end
                 // (any reason) resets the pane's session-scoped Mac state so a fresh
-                // session doesn't inherit it. Yolo is per-pane app state the core
-                // never sees — clear it here. Context compaction sends no SessionEnd,
-                // so yolo correctly survives a compaction restart (issue #193).
+                // session doesn't inherit it.
+                var sessionStateChanged = false
+                // Yolo is per-pane app state the core never sees — clear it here.
+                // Context compaction sends no SessionEnd, so yolo correctly survives
+                // a compaction restart (issue #193).
                 if windowManager.isYoloModeEnabled(for: sessionID) {
                     windowManager.setYoloMode(enabled: false, for: sessionID)
+                    sessionStateChanged = true
+                }
+                // Remove the agent session so the pane reverts from the idle moon
+                // glyph to a plain terminal (the legacy `claudeSession = nil` on
+                // SessionEnd). The status path set working=false earlier in this
+                // same envelope; dispatch fans status out before app actions, so
+                // this clear is the last write and wins. Process detection re-adds
+                // sessions only at startup, so it won't resurrect this one.
+                if windowManager.endAgentSession(forPane: sessionID) {
+                    sessionStateChanged = true
+                }
+                if sessionStateChanged {
                     await connectedViewerManager?.pushSessionStateToAll()
                 }
                 // Close the pane when the core signals eligibility (the core folds

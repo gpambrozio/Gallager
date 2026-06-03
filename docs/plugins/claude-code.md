@@ -63,8 +63,13 @@ so even a subagent event lacking an `agent_id` cannot drive the main session.
   - `postToolUse` Write to `.md`/`.markdown` → `.openFileSuggestion(isPlan:)` (plan
     detection per the legacy `MarkdownOpenSuggestionStore`).
   - `userPromptSubmit` → `.dismissFileSuggestions`.
-  - `sessionEnd` (any reason) → `.sessionEnded(closePaneEligible: reason == .promptInputExit)`
-    (resets the pane's yolo; close-eligible only on a clean prompt exit).
+  - `sessionEnd` (any reason) → `.sessionEnded(closePaneEligible: reason == .promptInputExit)`.
+    The app **removes the pane's `AgentSession`** (the row reverts from the idle moon
+    glyph to a plain terminal — the legacy `claudeSession = nil`), resets the pane's
+    yolo, and closes the pane only on a clean prompt exit. Note `sessionEnd` also maps
+    `working == false`, but status fans out before app actions, so the removal wins —
+    a `Stop` (also `working == false`) keeps the session alive and idle; only the
+    `.sessionEnded` app action removes it.
 
 Events producing none of the above are dropped (`handleIngress` returns `nil`).
 

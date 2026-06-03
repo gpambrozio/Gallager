@@ -165,6 +165,26 @@ final public class MirrorWindowManager {
         }
     }
 
+    /// Ends the agent session on a pane: removes its `AgentSession` so the sidebar
+    /// row reverts from the idle/working status indicator to the plain terminal
+    /// glyph, and drops the pane's session-scoped guard state. This is the
+    /// agent-blind equivalent of the legacy `claudeSession = nil` on `SessionEnd`;
+    /// it's driven by the `.sessionEnded` app action (Claude's hook, or Codex's
+    /// process-exit monitor), NOT by a `working == false` status (a `Stop` leaves
+    /// the session alive and idle — only an end removes it). The pane state itself
+    /// is kept (the terminal is still open); it's reclaimed separately when the
+    /// pane closes.
+    /// - Returns: whether a session was actually removed (so the caller can push
+    ///   updated state to viewers only when something changed).
+    @discardableResult
+    public func endAgentSession(forPane paneId: String) -> Bool {
+        guard paneStates[paneId]?.agentSession != nil else { return false }
+        paneStates[paneId]?.agentSession = nil
+        panesWithBlockingForm.remove(paneId)
+        pendingApprovalByPane.removeValue(forKey: paneId)
+        return true
+    }
+
     // MARK: - Plugin Status (in-process plugin runtime)
 
     /// Applies a session-status update produced by the in-process plugin runtime

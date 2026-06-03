@@ -61,6 +61,32 @@
             )
         }
 
+        /// The dispatcher wired with BOTH the status and app-action sinks the way
+        /// `AppCoordinator.setupPluginRuntime` does — the status sink updates the
+        /// session, the app-action sink ends it on `.sessionEnded`. Lets a test
+        /// drive a full SessionEnd envelope and assert the status-then-app-action
+        /// ordering clears the session rather than leaving it resurrected.
+        private func makeStatusAndAppActionDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
+            PluginEventDispatcher(
+                onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
+                    await windowManager.applyPluginStatus(
+                        pluginID: pluginID,
+                        sessionID: sessionID,
+                        working: working,
+                        attention: attention,
+                        opensBlockingForm: opensBlockingForm,
+                        tmuxPane: tmuxPane,
+                        projectPath: projectPath
+                    )
+                },
+                onAppAction: { action in
+                    if case let .sessionEnded(sessionID, _) = action {
+                        await windowManager.endAgentSession(forPane: sessionID)
+                    }
+                }
+            )
+        }
+
         private func makeSocketPath() -> String {
             "\(NSTemporaryDirectory())gsw-\(UUID().uuidString.prefix(8)).sock"
         }
@@ -224,6 +250,65 @@
             )
             windowManager.markSessionHandled(paneId: "%1")
             #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == false)
+        }
+
+        // MARK: - Session end
+
+        @Test("endAgentSession removes the session and no-ops when there is none")
+        func endAgentSessionDirect() {
+            let windowManager = makeWindowManager()
+
+            // An idle session on the pane (SessionEnd maps working=false).
+            windowManager.applyPluginStatus(
+                pluginID: "echo",
+                sessionID: "s1",
+                working: false,
+                attention: false,
+                tmuxPane: "%5",
+                projectPath: nil
+            )
+            #expect(windowManager.paneStates["%5"]?.agentSession != nil)
+
+            #expect(windowManager.endAgentSession(forPane: "%5") == true)
+            #expect(windowManager.paneStates["%5"]?.agentSession == nil)
+            #expect(!windowManager.activeSessionPaneIds.contains("%5"))
+
+            // Already cleared, and an unknown pane → no change.
+            #expect(windowManager.endAgentSession(forPane: "%5") == false)
+            #expect(windowManager.endAgentSession(forPane: "%nope") == false)
+        }
+
+        @Test("a SessionEnd envelope (working=false + .sessionEnded) clears the session → terminal glyph")
+        func sessionEndClearsSessionEndToEnd() async {
+            let windowManager = makeWindowManager()
+            let dispatcher = makeStatusAndAppActionDispatcher(windowManager)
+
+            // A live session exists on the pane.
+            windowManager.applyPluginStatus(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                working: true,
+                attention: false,
+                tmuxPane: "%5",
+                projectPath: "/tmp/p"
+            )
+            #expect(windowManager.paneStates["%5"]?.agentSession != nil)
+
+            // The real SessionEnd envelope: status working=false (idle) carried in
+            // the SAME event as the `.sessionEnded` app action. Status fans out
+            // before app actions, so the appAction's clear must be the last write.
+            await dispatcher.dispatch(PluginEvent(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                working: false,
+                appActions: [.sessionEnded(sessionID: "%5", closePaneEligible: false)],
+                tmuxPane: "%5"
+            ))
+
+            // Session gone → the row renders the plain terminal glyph, not the
+            // idle moon. (Regression: previously the idle session lingered.)
+            #expect(windowManager.paneStates["%5"]?.agentSession == nil)
+            #expect(!windowManager.activeSessionPaneIds.contains("%5"))
         }
 
         @Test("status with no tmuxPane is dropped")

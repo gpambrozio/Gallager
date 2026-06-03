@@ -58,7 +58,8 @@ hook when a session ends. Instead it runs a **process-exit monitor**: a ~5s poll
 plugin) and compares against the recorded sessions (`CodexSessionCorrelation.allPanes()`).
 When a recorded pane's process has exited, the core `host.emit`s the same
 `.sessionEnded(closePaneEligible: closePaneOnSessionEnd)` the hook path would have produced,
-reusing the app's yolo-reset + poll/grace/`killPane` handling. The `ps`-walking
+reusing the app's session-removal (row reverts to the terminal glyph) + yolo-reset +
+poll/grace/`killPane` handling. The `ps`-walking
 `agentPanes()` is only called while there are recorded sessions. On its first tick the
 monitor reconciles correlation files left from a prior app run (process already gone) by
 dropping them silently rather than reporting a stale end. Because an end is emitted only
