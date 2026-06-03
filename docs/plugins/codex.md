@@ -48,6 +48,23 @@ differences:
 - `tmuxPane` is resolved via the frame, falling back to the correlation file by `session_id`.
 - `contextProjectDir` comes from `CODEX_PROJECT_DIR` when present, else the payload `cwd`.
 
+## Session end (no `SessionEnd` hook)
+Codex CLI exposes no `SessionEnd` hook event (verified absent from the 0.136 binary;
+its hook vocabulary is SessionStart, UserPromptSubmit, Pre/PostToolUse, PermissionRequest,
+Pre/PostCompact, SubagentStart/Stop, Stop, Notification). So the core can't learn from a
+hook when a session ends. Instead it runs a **process-exit monitor**: a ~5s poll
+(`CodexPluginCore.pollSessionEnds`, macOS only) that asks the host which panes still run a
+`codex` process (`PluginHost.agentPanes()` → `TmuxService.detectAgentPanes` scoped to the
+plugin) and compares against the recorded sessions (`CodexSessionCorrelation.allPanes()`).
+When a recorded pane's process has exited, the core `host.emit`s the same
+`.sessionEnded(closePaneEligible: closePaneOnSessionEnd)` the hook path would have produced,
+reusing the app's yolo-reset + poll/grace/`killPane` handling. The `ps`-walking
+`agentPanes()` is only called while there are recorded sessions. On its first tick the
+monitor reconciles correlation files left from a prior app run (process already gone) by
+dropping them silently rather than reporting a stale end. Because an end is emitted only
+once the process is genuinely gone, that *is* the clean-exit condition, so `closePaneEligible`
+folds in the pref exactly as the hook path does.
+
 ## Response delivery
 Identical keystroke mapping to Claude Code (`deliverResponse` → `sendText`/`sendKeys`,
 including the AskUserQuestion arrow-navigation builder).

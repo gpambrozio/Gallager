@@ -36,6 +36,18 @@ public actor CodexPluginCore: PluginCore {
 
     #if os(macOS)
         private var watchers: [CodexSessionsWatcher] = []
+
+        /// Panes confirmed running a `codex` process on the previous monitor tick.
+        /// A recorded pane dropping out of this set means its Codex process exited.
+        private var previouslyAlivePanes: Set<String> = []
+        /// On its first tick the monitor reconciles correlation files left over
+        /// from a prior app run instead of reporting them as fresh session ends.
+        private var didReconcileOrphans = false
+        private var sessionEndMonitor: Task<Void, Never>?
+
+        /// How often to poll for Codex process exits (seconds). Codex CLI emits no
+        /// `SessionEnd` hook, so this poll is the only end signal.
+        private static let sessionEndPollSeconds: Double = 5
     #endif
 
     public init() {
@@ -59,12 +71,14 @@ public actor CodexPluginCore: PluginCore {
         await refreshProjects()
         #if os(macOS)
             startWatchers()
+            startSessionEndMonitor()
         #endif
     }
 
     public func shutdown() async {
         #if os(macOS)
             stopWatchers()
+            stopSessionEndMonitor()
         #endif
         host = nil
     }
@@ -232,7 +246,80 @@ public actor CodexPluginCore: PluginCore {
         }
     }
 
+    // MARK: - Session-end monitor (no Codex `SessionEnd` hook)
+
     #if os(macOS)
+        /// Codex CLI emits no `SessionEnd` event, so the core can't learn from a
+        /// hook when a session ends. Instead poll which panes still run a `codex`
+        /// process and synthesize a `.sessionEnded` (via `host.emit`) for any
+        /// recorded session whose process has exited — reusing the app's existing
+        /// yolo-reset + pane-close handling. The `ps`-walking `host.agentPanes()`
+        /// is only called while there are recorded sessions to watch.
+        private func startSessionEndMonitor() {
+            guard sessionEndMonitor == nil else { return }
+            sessionEndMonitor = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(CodexPluginCore.sessionEndPollSeconds))
+                    if Task.isCancelled { return }
+                    await self?.pollSessionEnds()
+                }
+            }
+        }
+
+        private func stopSessionEndMonitor() {
+            sessionEndMonitor?.cancel()
+            sessionEndMonitor = nil
+        }
+
+        /// One monitor tick. Internal (not `private`) so tests can drive it
+        /// deterministically instead of waiting on the timer.
+        func pollSessionEnds() async {
+            guard let host else { return }
+            let known = correlation.allPanes()
+            // Nothing recorded and nothing was live → skip the ps walk entirely.
+            guard !known.isEmpty || !previouslyAlivePanes.isEmpty else { return }
+
+            let alive = Set(await host.agentPanes()).intersection(known)
+
+            // First tick after launch: a recorded pane whose process is already
+            // gone is an orphan from a previous run (its session ended while we
+            // were down). Drop the stale file silently — a late pane-kill now would
+            // be useless and could target an unrelated, reused pane.
+            if !didReconcileOrphans {
+                didReconcileOrphans = true
+                for orphan in known.subtracting(alive) {
+                    correlation.remove(pane: orphan)
+                }
+                previouslyAlivePanes = alive
+                return
+            }
+
+            let ended = previouslyAlivePanes.subtracting(alive)
+            for pane in ended {
+                await emitSessionEnded(pane: pane)
+                correlation.remove(pane: pane)
+            }
+            previouslyAlivePanes = alive
+        }
+
+        /// Synthesize the `.sessionEnded` the missing Codex `SessionEnd` hook would
+        /// have produced. `closePaneEligible` folds in the per-agent pref the same
+        /// way `CodexTranslator` does for the hook path; we only emit once the
+        /// process is actually gone, which is the clean-exit condition.
+        private func emitSessionEnded(pane: String) async {
+            guard let host else { return }
+            await log(.debug, "Codex process exited; synthesizing session end for pane \(pane)")
+            await host.emit(PluginEvent(
+                pluginID: CodexPluginCore.pluginID,
+                sessionID: pane,
+                appActions: [.sessionEnded(
+                    sessionID: pane,
+                    closePaneEligible: settings.closePaneOnSessionEnd
+                )],
+                tmuxPane: pane
+            ))
+        }
+
         private func startWatchers() {
             guard watchers.isEmpty else { return }
             for root in codexHomeRoots() {

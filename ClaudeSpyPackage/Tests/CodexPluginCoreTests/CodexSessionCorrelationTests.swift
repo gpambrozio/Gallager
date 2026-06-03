@@ -86,4 +86,35 @@ struct CodexSessionCorrelationTests {
         // Scanning for a session id must skip the malformed file, not trap.
         #expect(store.pane(forSessionID: "anything") == nil)
     }
+
+    @Test("allPanes lists every recorded pane and is empty when none")
+    func allPanesListsRecorded() {
+        let (store, root) = makeStore()
+        defer { try? fileManager.removeItem(at: root) }
+
+        #expect(store.allPanes().isEmpty)
+
+        store.record(sessionID: "sess-A", tmuxPane: "%1", cwd: nil)
+        store.record(sessionID: "sess-B", tmuxPane: "%2", cwd: nil)
+
+        #expect(store.allPanes() == ["%1", "%2"])
+    }
+
+    @Test("remove deletes a pane's correlation file")
+    func removeDeletesFile() {
+        let (store, root) = makeStore()
+        defer { try? fileManager.removeItem(at: root) }
+
+        store.record(sessionID: "sess-A", tmuxPane: "%1", cwd: nil)
+        store.record(sessionID: "sess-B", tmuxPane: "%2", cwd: nil)
+
+        store.remove(pane: "%1")
+
+        #expect(store.allPanes() == ["%2"])
+        #expect(store.record(forPane: "%1") == nil)
+        // Removing an absent pane (or empty id) is a harmless no-op.
+        store.remove(pane: "%1")
+        store.remove(pane: "")
+        #expect(store.allPanes() == ["%2"])
+    }
 }

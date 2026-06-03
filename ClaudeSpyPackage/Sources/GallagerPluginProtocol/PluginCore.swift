@@ -80,7 +80,20 @@ public protocol PluginHost: Sendable {
     /// Used to drive in-terminal menus (AskUserQuestion, permission prompts).
     func sendKeys(sessionID: String, _ keys: [PluginTmuxKey]) async
 
+    /// The tmux pane ids currently running THIS plugin's agent process (matched
+    /// against the manifest's `process_names`). Lets a core detect when its agent
+    /// has exited a pane without a lifecycle hook — e.g. Codex CLI emits no
+    /// `SessionEnd`, so its core polls this to synthesize one. Empty when the host
+    /// can't introspect panes (non-macOS / tests).
+    func agentPanes() async -> [String]
+
     /// Structured log line, appended to the plugin's log file and surfaced in
     /// Settings → View Logs.
     func log(_ line: LogLine) async
+}
+
+public extension PluginHost {
+    /// Default: the host exposes no pane introspection (non-macOS, or a test
+    /// double that doesn't model panes). The live macOS host overrides this.
+    func agentPanes() async -> [String] { [] }
 }

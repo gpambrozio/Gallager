@@ -12,12 +12,15 @@ import Foundation
 /// Trap-free per spec §13: all reads/decodes tolerate missing or malformed
 /// files. The root is injected so the write/read round-trip is unit-testable
 /// against a temp directory.
-struct CodexSessionCorrelation {
+struct CodexSessionCorrelation: Sendable {
     /// Directory holding the per-pane correlation files. Defaults to
     /// `~/.claudespy/codex-sessions/`.
     let root: URL
 
-    private let fileManager = FileManager.default
+    /// `FileManager.default` is used inline (not stored) so the value stays a
+    /// trivially-`Sendable` immutable struct — it's handed to the core actor and
+    /// also held by the test, so it must cross isolation safely.
+    private var fileManager: FileManager { .default }
 
     /// The default store rooted at `~/.claudespy/codex-sessions/`.
     static func live(
@@ -82,6 +85,25 @@ struct CodexSessionCorrelation {
         return try? decoder.decode(Record.self, from: data)
     }
 
+    /// Every pane id that currently has a correlation file — i.e. a Codex session
+    /// the core has recorded. Used by the session-end monitor to know which panes
+    /// to watch for process exit. Returns the on-disk (sanitized) pane ids; tmux
+    /// pane ids (`%N`) contain no path separators so they round-trip unchanged.
+    func allPanes() -> Set<String> {
+        guard
+            let files = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        else { return [] }
+        return Set(
+            files
+                .filter { $0.pathExtension == "json" }
+                .map { $0.deletingPathExtension().lastPathComponent }
+        )
+    }
+
     /// Resolves the tmux pane that owns a Codex session id, scanning the stored
     /// correlation files. `nil` when no file maps to that session id.
     func pane(forSessionID sessionID: String) -> String? {
@@ -105,6 +127,15 @@ struct CodexSessionCorrelation {
             return url.deletingPathExtension().lastPathComponent
         }
         return nil
+    }
+
+    // MARK: - Delete
+
+    /// Deletes the correlation file for a pane (best-effort; called when the
+    /// session ends so a future pane reuse starts clean). Never throws.
+    func remove(pane tmuxPane: String) {
+        guard !tmuxPane.isEmpty else { return }
+        try? fileManager.removeItem(at: fileURL(for: tmuxPane))
     }
 
     // MARK: - Helpers

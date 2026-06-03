@@ -12,6 +12,18 @@ actor MockPluginHost: PluginHost {
     private(set) var sentKeys: [(sessionID: String, keys: [PluginTmuxKey])] = []
     private(set) var logLines: [LogLine] = []
 
+    /// Panes the mock reports as running the agent process — drives the Codex
+    /// session-end monitor in tests. Settable via `setAgentPanes`.
+    private var agentPanesValue: [String] = []
+
+    func setAgentPanes(_ panes: [String]) {
+        agentPanesValue = panes
+    }
+
+    func agentPanes() async -> [String] {
+        agentPanesValue
+    }
+
     func setProjects(_ projects: [AgentProject]) async {
         projectsCalls.append(projects)
     }

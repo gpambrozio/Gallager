@@ -22,12 +22,15 @@
         public typealias SendTextSink = @Sendable (_ pluginID: String, _ sessionID: String, _ text: String) async -> Void
         /// Send a key sequence to the pane backing a session.
         public typealias SendKeysSink = @Sendable (_ pluginID: String, _ sessionID: String, _ keys: [PluginTmuxKey]) async -> Void
+        /// Resolve the panes currently running this plugin's agent process.
+        public typealias AgentPanesSink = @Sendable (_ pluginID: String) async -> [String]
 
         private let dispatcher: PluginEventDispatcher
         private let logSink: PluginLogSink
         private let onSetProjects: SetProjectsSink
         private let onSendText: SendTextSink
         private let onSendKeys: SendKeysSink
+        private let onAgentPanes: AgentPanesSink
 
         public init(
             pluginID: String,
@@ -35,7 +38,8 @@
             logSink: PluginLogSink,
             onSetProjects: @escaping SetProjectsSink = { _, _ in },
             onSendText: @escaping SendTextSink = { _, _, _ in },
-            onSendKeys: @escaping SendKeysSink = { _, _, _ in }
+            onSendKeys: @escaping SendKeysSink = { _, _, _ in },
+            onAgentPanes: @escaping AgentPanesSink = { _ in [] }
         ) {
             self.pluginID = pluginID
             self.dispatcher = dispatcher
@@ -43,6 +47,7 @@
             self.onSetProjects = onSetProjects
             self.onSendText = onSendText
             self.onSendKeys = onSendKeys
+            self.onAgentPanes = onAgentPanes
         }
 
         // MARK: - PluginHost
@@ -61,6 +66,10 @@
 
         public func sendKeys(sessionID: String, _ keys: [PluginTmuxKey]) async {
             await onSendKeys(pluginID, sessionID, keys)
+        }
+
+        public func agentPanes() async -> [String] {
+            await onAgentPanes(pluginID)
         }
 
         public func log(_ line: LogLine) async {

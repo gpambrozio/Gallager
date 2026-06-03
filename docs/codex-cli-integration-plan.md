@@ -69,7 +69,7 @@ Mapping to Claude Code:
 | `Stop` / `SubagentStop` | `Stop` / `SubagentStop` | identical |
 | `PreCompact` | `PreCompact` **+** `PostCompact` | Codex adds a post-compact event |
 | `Notification` | **none** — closest is `PermissionRequest` | semantic gap, see §5 |
-| `SessionEnd` | **none** | semantic gap, see §5 |
+| `SessionEnd` | **none** | semantic gap — now synthesized by a process-exit monitor (`CodexPluginCore.pollSessionEnds`), see §5 |
 | — | `SubagentStart` | new in Codex |
 
 **Wire format:** JSON over stdin, `snake_case` keys, includes `hook_event_name`, `session_id`, `tool_name`, `tool_input`, `transcript_path`, `cwd`, `permission_mode`, `model`. Output JSON also mirrors Claude Code: `hookSpecificOutput.permissionDecision = allow|deny|ask`, exit code 2 + stderr to block, etc.
@@ -111,7 +111,7 @@ Only `type = "command"` runs today; `type = "prompt"` and `type = "agent"` parse
 | Gap | Impact | Mitigation |
 |---|---|---|
 | No `Notification` event | "Claude has X questions" badge logic in `ClaudeSession.needsAttention` doesn't fire | Treat `PermissionRequest` as the equivalent; rule needs an agent-aware branch |
-| No `SessionEnd` event | `SessionStore` can't know cleanly when a Codex pane went quiet | Detect via process death or rollout-file quiescence; acceptable degradation |
+| No `SessionEnd` event | `SessionStore` can't know cleanly when a Codex pane went quiet | **Resolved:** `CodexPluginCore` runs a ~5s process-exit monitor that polls `host.agentPanes()` and emits a synthetic `.sessionEnded` when a recorded pane's `codex` process exits (yolo-reset + opt-in pane-close) |
 | No `CODEX_SESSION_ID` in pane env | Can't directly correlate a tmux pane to a `session_id` | Have our `SessionStart` hook write a sidecar keyed by `$TMUX_PANE` (or parent PID) |
 | Project hooks require explicit trust | First launch in a repo prompts the user; hook-config changes re-prompt | Install at the **global** layer (`~/.codex/hooks.json`) to keep it one-time; document in onboarding |
 | `async = true` / `prompt` / `agent` hook types not functional | Can't use async hooks for non-blocking observation | Live with synchronous command hooks for now; revisit when Codex ships these |
