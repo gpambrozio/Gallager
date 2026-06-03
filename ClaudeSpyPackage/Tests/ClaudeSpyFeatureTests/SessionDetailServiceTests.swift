@@ -142,6 +142,65 @@ struct SessionDetailServiceTests {
         #expect(service.responseState?.requestID == "%1:PermissionRequest")
     }
 
+    @Test("A stopped (doneWorking) session offers a reply box carrying the summary")
+    func responseStateOffersReplyBoxWhenDone() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "All done."))
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form for doneWorking")
+            return
+        }
+        #expect(reply.summary == "All done.")
+    }
+
+    @Test("An idle session offers an empty reply box")
+    func responseStateOffersReplyBoxWhenIdle() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form for idle")
+            return
+        }
+        #expect(reply.summary == nil)
+    }
+
+    @Test("A working session shows no reply box")
+    func responseStateNilWhenWorking() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        #expect(service.responseState == nil)
+    }
+
     // MARK: - Snapshot Catch-Up Tests (offline-then-connect)
 
     @Test("A form that opened while offline renders from the connect snapshot")

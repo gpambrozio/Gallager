@@ -115,6 +115,48 @@ struct ClaudeCodeKeystrokesTests {
         #expect(keys.map(\.keys) == [[.text("2")], [.enter]])
     }
 
+    @Test("denyWithFeedback on a request WITH suggestions sends 3 (not 2), even when no suggestion was applied")
+    func permissionDenyWithFeedbackWithSuggestions() async throws {
+        let (core, host) = try await makeCore()
+        // Open a permission request that carries suggestions, so the core retains
+        // `hasSuggestions: true`. iOS's deny-with-feedback path always submits
+        // `appliedSuggestionID: nil`, so the menu option must come from whether
+        // the request HAD suggestions (3), not whether one was applied.
+        let json = """
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "sess-deny-sugg",
+            "tool_name": "Bash",
+            "tool_input": { "command": "git status", "description": "status" },
+            "permission_suggestions": [
+                {
+                    "type": "addRules",
+                    "destination": "session",
+                    "behavior": "allow",
+                    "rules": [ { "toolName": "Bash", "ruleContent": "git status" } ]
+                }
+            ]
+        }
+        """
+        let frame = IngressFrame(
+            pluginID: ClaudeCodePluginCore.pluginID,
+            context: ["TMUX_PANE": "%1"],
+            payload: Data(json.utf8)
+        )
+        let event = try #require(await core.handleIngress(frame))
+        let requestID = try #require(event.state?.openForm?.requestID)
+
+        await core.deliverResponse(
+            sessionID: "sess-deny-sugg", requestID: requestID,
+            .permission(decision: .denyWithFeedback("use tabs"), appliedSuggestionID: nil)
+        )
+
+        let texts = await host.sentText
+        let keys = await host.sentKeys
+        #expect(texts.map(\.text) == ["use tabs"])
+        #expect(keys.map(\.keys) == [[.text("3")], [.enter]])
+    }
+
     // MARK: - Plan
 
     @Test("approvePlan approve sends 3")

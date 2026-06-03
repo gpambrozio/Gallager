@@ -107,28 +107,75 @@ final public class SessionDetailService {
         }
     }
 
-    /// Updates response state from the session's `state`, whose `awaiting*` cases
-    /// carry the open response form (spec §5/§7.2). A non-awaiting state has no
-    /// `openForm`, so the form is cleared.
+    /// Stable request id for the synthesized reply-after-stop box (see
+    /// `updateResponseState`). Keyed per `(host, pane)` so it survives the brief
+    /// `doneWorking → idle` flip that viewing triggers — keeping the reply field,
+    /// its summary, and any typed text in place — and resets only when the agent
+    /// resumes working.
+    private var replyAfterStopRequestID: String {
+        "\(hostId):\(paneId):reply-after-stop"
+    }
+
+    /// Updates response state from the session's `state`. Blocking forms ride the
+    /// `awaiting*` cases' `openForm` (spec §5/§7.2). When the agent is stopped
+    /// (`doneWorking`) or idle at the prompt, we synthesize a non-blocking
+    /// reply-after-stop box so a remote user can reply or send a prompt — this is
+    /// iOS-side only and deliberately does NOT ride `openForm`, which is reserved
+    /// for blocking forms that gate host-side attention.
     private func updateResponseState() {
         let session = sessionStore.session(for: paneId, hostId: hostId)
         if let open = session?.state.openForm {
-            if open.requestID != lastProcessedRequestID {
-                lastProcessedRequestID = open.requestID
-                // Pass sessionStore so ResponseState can persist/restore responses.
-                // The pluginID comes from the session that owns the form.
-                responseState = ResponseState(
-                    request: open.request,
-                    pluginID: session?.pluginID ?? "",
-                    requestID: open.requestID,
-                    sessionStore: sessionStore
-                )
-            }
-        } else if lastProcessedRequestID != nil {
-            // The form was retracted (the agent advanced, or answered Mac-side).
-            lastProcessedRequestID = nil
-            responseState = nil
+            applyForm(open.request, requestID: open.requestID, pluginID: session?.pluginID ?? "")
+        } else if let session, let reply = Self.replyForm(for: session.state) {
+            applyForm(.replyAfterStop(reply), requestID: replyAfterStopRequestID, pluginID: session.pluginID)
+        } else {
+            clearResponseState()
         }
+    }
+
+    /// Builds the reply-after-stop box for the states that wait at the prompt.
+    /// `doneWorking` carries the agent's last-message summary; a plain `idle`
+    /// session (fresh, or one that was viewed after stopping) has none. Working
+    /// and blocking-form states get no reply box.
+    private static func replyForm(for state: AgentState) -> ReplyAfterStopRequest? {
+        switch state {
+        case let .doneWorking(summary):
+            return ReplyAfterStopRequest(title: "Reply", summary: summary)
+        case .idle:
+            return ReplyAfterStopRequest(title: "Reply")
+        case .working,
+             .awaitingPlanApproval,
+             .awaitingPermission,
+             .awaitingReplies:
+            return nil
+        }
+    }
+
+    /// Builds `ResponseState` for a form, but only when the request id changes so
+    /// the view (and its per-request `@State`) is preserved across no-op updates.
+    private func applyForm(_ request: AgentResponseRequest, requestID: String, pluginID: String) {
+        guard requestID != lastProcessedRequestID else { return }
+        lastProcessedRequestID = requestID
+        // Pass sessionStore so ResponseState can persist/restore responses.
+        responseState = ResponseState(
+            request: request,
+            pluginID: pluginID,
+            requestID: requestID,
+            sessionStore: sessionStore
+        )
+    }
+
+    /// Clears the open form (the agent advanced to `working`, or the session is
+    /// gone). Also drops any persisted reply for the synthesized box so the next
+    /// stop starts with a fresh, empty reply field rather than the prior "sent"
+    /// state.
+    private func clearResponseState() {
+        guard lastProcessedRequestID != nil else { return }
+        #if os(iOS)
+            sessionStore.setResponse(nil, forRequestID: replyAfterStopRequestID)
+        #endif
+        lastProcessedRequestID = nil
+        responseState = nil
     }
 
     // MARK: - Actions

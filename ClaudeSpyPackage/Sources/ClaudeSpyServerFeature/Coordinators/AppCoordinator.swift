@@ -934,7 +934,10 @@
                 title: notification.title,
                 body: notification.body
             )
-            terminalNotificationService.showNotification("system", macNotification)
+            // Stamp the real pane id so tapping the banner navigates to the
+            // originating session; fall back to "system" only when the event
+            // carries no pane (e.g. a gallager-cli notify with no target).
+            terminalNotificationService.showNotification(paneId ?? "system", macNotification)
             await connectedViewerManager?.sendCustomPushNotificationToAll(
                 title: notification.title,
                 body: notification.body,
@@ -945,12 +948,15 @@
         /// AppActionSink → drive the matching agent-blind Mac feature (spec §6).
         private func handlePluginAppAction(_ action: AppAction) async {
             switch action {
-            case let .openFileSuggestion(sessionID, path, displayName, isPlan):
+            case let .openFileSuggestion(sessionID, path, displayName, isPlan, projectDir):
                 // `sessionID` is the plugin's opaque session id; resolve it to a
                 // tmux session name when it names a known pane, otherwise use it
                 // verbatim (the markdown store keys purely by name).
                 let sessionName = resolveSessionName(forPaneId: sessionID) ?? sessionID
-                let directoryPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
+                // Root the opened file tab at the project dir when the core knew
+                // it (so the tree / relative-path header use the project root);
+                // otherwise fall back to the file's immediate parent.
+                let directoryPath = projectDir ?? URL(fileURLWithPath: path).deletingLastPathComponent().path
                 markdownOpenSuggestionStore.suggest(MarkdownOpenSuggestion(
                     filePath: path,
                     directoryPath: directoryPath,

@@ -326,7 +326,7 @@ struct CodexTranslatorTests {
         """
         let event = try #require(await core.handleIngress(frame(json)))
         let action = try #require(event.appActions.first)
-        guard case let .openFileSuggestion(sessionID, path, displayName, isPlan) = action else {
+        guard case let .openFileSuggestion(sessionID, path, displayName, isPlan, projectDir) = action else {
             Issue.record("expected .openFileSuggestion, got \(action)")
             return
         }
@@ -335,6 +335,9 @@ struct CodexTranslatorTests {
         #expect(path == "/tmp/notes/summary.md")
         #expect(displayName == "summary.md")
         #expect(isPlan == false)
+        // The project dir (here the payload cwd) rides the action so the opened
+        // tab roots at the project, not the file's immediate folder.
+        #expect(projectDir == "/Users/test/MyProject")
     }
 
     @Test("PostToolUse Write of a plan file marks isPlan true")
@@ -351,7 +354,7 @@ struct CodexTranslatorTests {
         """
         let event = try #require(await core.handleIngress(frame(json)))
         let action = try #require(event.appActions.first)
-        guard case let .openFileSuggestion(_, _, _, isPlan) = action else {
+        guard case let .openFileSuggestion(_, _, _, isPlan, _) = action else {
             Issue.record("expected .openFileSuggestion")
             return
         }

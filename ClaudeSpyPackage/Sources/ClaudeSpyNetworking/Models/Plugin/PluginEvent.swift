@@ -67,8 +67,10 @@ public struct NotificationSpec: Codable, Sendable, Equatable {
 /// fire (spec §6). The app owns the behavior; the core only states intent.
 public enum AppAction: Codable, Sendable, Equatable {
     /// The core saw a write to a `.md`/`.markdown` path; surface an "open this
-    /// file?" prompt.
-    case openFileSuggestion(sessionID: String, path: String, displayName: String, isPlan: Bool)
+    /// file?" prompt. `projectDir`, when known, is the project root the file
+    /// belongs to — the app roots the opened file tab there (so the tree and the
+    /// relative-path header use the project, not the file's immediate folder).
+    case openFileSuggestion(sessionID: String, path: String, displayName: String, isPlan: Bool, projectDir: String?)
 
     /// Clear outstanding file suggestions (e.g. on prompt submit).
     case dismissFileSuggestions(sessionID: String)

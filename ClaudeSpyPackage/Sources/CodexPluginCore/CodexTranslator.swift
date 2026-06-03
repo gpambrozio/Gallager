@@ -18,8 +18,11 @@ enum PendingRequest: Equatable {
     case askUserQuestion(AskUserQuestionParameters)
     /// ExitPlanMode plan approval.
     case approvePlan
-    /// A plain tool-use permission prompt.
-    case permission
+    /// A plain tool-use permission prompt. Retains whether the request carried
+    /// permission suggestions, because that decides the in-terminal menu's
+    /// custom-feedback option number (3 with suggestions, 2 without) — the
+    /// suggestion list itself is dropped by delivery time.
+    case permission(hasSuggestions: Bool)
     /// Free-text prompt (sessionStart).
     case prompt
     /// Reply offered after the agent stopped.
@@ -214,7 +217,11 @@ enum CodexTranslator {
                 return (.awaitingPlanApproval(plan, requestID: id), .approvePlan)
 
             default:
-                return (.awaitingPermission(permissionRequest(from: body), requestID: id), .permission)
+                let hasSuggestions = !(body.permissionSuggestions?.isEmpty ?? true)
+                return (
+                    .awaitingPermission(permissionRequest(from: body), requestID: id),
+                    .permission(hasSuggestions: hasSuggestions)
+                )
             }
 
         case let .stop(body):
@@ -339,7 +346,8 @@ enum CodexTranslator {
                 sessionID: sessionID,
                 path: params.filePath,
                 displayName: URL(fileURLWithPath: params.filePath).lastPathComponent,
-                isPlan: MarkdownPath.isPlan(params.filePath, projectPath: projectPath)
+                isPlan: MarkdownPath.isPlan(params.filePath, projectPath: projectPath),
+                projectDir: projectPath
             )]
 
         case .userPromptSubmit:

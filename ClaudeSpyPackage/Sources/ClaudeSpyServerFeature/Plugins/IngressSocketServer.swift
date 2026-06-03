@@ -185,41 +185,70 @@
         // MARK: - Accept loop
 
         private func acceptLoop() async {
-            while !Task.isCancelled, isRunning {
-                let clientFd = await withCheckedContinuation { continuation in
+            acceptLoop: while !Task.isCancelled, isRunning {
+                let (clientFd, acceptErrno): (Int32, Int32) = await withCheckedContinuation { continuation in
                     DispatchQueue.global().async { [serverFd] in
                         let fd = accept(serverFd, nil, nil)
-                        continuation.resume(returning: fd)
+                        // Capture errno on the same thread as the failing syscall;
+                        // it is thread-local and would be stale once we resume.
+                        continuation.resume(returning: (fd, fd < 0 ? errno : 0))
                     }
                 }
 
                 guard clientFd >= 0 else {
-                    if isRunning {
-                        logger.debug("accept() failed, stopping ingress server")
+                    // During shutdown the listening fd is closed out from under
+                    // accept(); just exit quietly.
+                    guard isRunning else { break }
+                    switch acceptErrno {
+                    case EINTR,
+                         ECONNABORTED,
+                         EAGAIN:
+                        // A signal interrupted accept(), or the client aborted
+                        // between connect() and accept(). Recoverable — retry.
+                        continue
+                    case EMFILE,
+                         ENFILE,
+                         ENOBUFS,
+                         ENOMEM:
+                        // Resource pressure (fd / memory limit). Back off briefly
+                        // so we don't busy-spin, then keep serving — ingress must
+                        // survive a transient spike rather than die for the rest of
+                        // the app's lifetime.
+                        logger.error("Ingress accept() hit a resource limit (errno \(acceptErrno)); backing off")
+                        try? await Task.sleep(for: .milliseconds(100))
+                        continue
+                    default:
+                        // Genuinely fatal (e.g. the listening socket is gone).
+                        logger.error("Ingress accept() failed fatally (errno \(acceptErrno)); stopping ingress server")
+                        break acceptLoop
                     }
-                    break
                 }
 
                 // Bound each blocking read so a stalled client (e.g. a large
                 // length prefix then silence) can't park a thread + fd
-                // indefinitely; the per-connection task then completes on the
-                // timeout instead of outliving stop(). The bridge writes its
-                // frame immediately, so 30s is far more than any real client needs.
+                // indefinitely; the read completes on the timeout instead. The
+                // bridge writes its frame immediately, so 30s is far more than any
+                // real client needs.
                 var readTimeout = timeval(tv_sec: 30, tv_usec: 0)
                 setsockopt(
                     clientFd, SOL_SOCKET, SO_RCVTIMEO,
                     &readTimeout, socklen_t(MemoryLayout<timeval>.size)
                 )
 
-                // Each connection's frames are READ in their own task (so a slow or
-                // stalled client can't head-of-line-block others), but the decoded
-                // frames are yielded into the serial consumer above, which processes
-                // them one at a time in arrival order. The bridge writes one (or a
-                // few) frames and disconnects.
                 guard let continuation = frameContinuation else {
                     close(clientFd)
                     continue
                 }
+
+                // Each connection's frames are READ in their own task so a slow or
+                // stalled client (one that connects but holds the socket open) can't
+                // head-of-line-block others, but the decoded frames are yielded into
+                // the serial consumer above, which processes them one at a time. For
+                // ordering across connections the ingress relies on agent hooks being
+                // synchronous (one connection at a time — Claude/Codex wait for each
+                // hook process to exit before firing the next), so a same-session
+                // frame can't race a later one; frames from different sessions don't
+                // need a relative order. The bridge writes one frame and disconnects.
                 let logger = logger
                 Task {
                     await Self.readFrames(clientFd, into: continuation, logger: logger)

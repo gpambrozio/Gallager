@@ -40,7 +40,19 @@ enum CodexKeystrokes {
             return promptDeliveries(text: text, allowEmptyInterrupt: true)
 
         case let .permission(decision, appliedSuggestionID):
-            return permissionDeliveries(decision: decision, appliedSuggestionID: appliedSuggestionID)
+            // The in-terminal menu gains an "Accept with Rule" row when the
+            // request carried suggestions, which shifts the custom-feedback
+            // option from 2 to 3. Recover that from the retained pending context;
+            // an applied suggestion id also implies suggestions were present.
+            var hasSuggestions = appliedSuggestionID != nil
+            if case let .permission(pendingHasSuggestions) = pending {
+                hasSuggestions = hasSuggestions || pendingHasSuggestions
+            }
+            return permissionDeliveries(
+                decision: decision,
+                appliedSuggestionID: appliedSuggestionID,
+                hasSuggestions: hasSuggestions
+            )
 
         case let .approvePlan(decision, _):
             // "3" approves, Escape rejects. iOS never submits an edited plan
@@ -72,11 +84,13 @@ enum CodexKeystrokes {
     // MARK: - Permission
 
     /// Accept sends "1". Applying a suggestion uses the "Accept with Rule" option
-    /// ("2"). `denyWithFeedback` prefixes the option number (2 with no suggestion,
-    /// 3 with one) then the text then Enter. Plain deny sends Escape.
+    /// ("2"). `denyWithFeedback` prefixes the custom-feedback option number — 3
+    /// when the request carried suggestions (the extra "Accept with Rule" row) and
+    /// 2 otherwise — then the text then Enter. Plain deny sends Escape.
     private static func permissionDeliveries(
         decision: PermissionDecision,
-        appliedSuggestionID: String?
+        appliedSuggestionID: String?,
+        hasSuggestions: Bool
     ) -> [Delivery] {
         switch decision {
         case .allow:
@@ -90,7 +104,7 @@ enum CodexKeystrokes {
 
         case let .denyWithFeedback(feedback):
             let trimmed = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-            let optionNumber = appliedSuggestionID == nil ? "2" : "3"
+            let optionNumber = hasSuggestions ? "3" : "2"
             if trimmed.isEmpty {
                 return [.keys([.escape])]
             }

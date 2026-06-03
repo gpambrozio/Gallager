@@ -194,10 +194,15 @@ struct PluginLogsCommand: ParsableCommand {
         let response = try pluginRequest(method: "plugin.logs", params: params, options: options)
 
         if options.json {
+            // Emit the single JSON-RPC envelope and stop. `-f` is intentionally
+            // ignored in `--json` mode: tailing would append bare (non-JSON) log
+            // lines after the envelope and break the machine-readable contract.
             printResponse(response, json: true)
-            // `--json -f` would interleave repeated JSON envelopes; the follow
-            // loop below only runs for human output.
-            if follow { followLoop(printedSoFar: extractLines(from: response).count) }
+            if follow {
+                FileHandle.standardError.write(
+                    Data("note: --follow is ignored with --json (tailing would corrupt the JSON stream)\n".utf8)
+                )
+            }
             return
         }
 

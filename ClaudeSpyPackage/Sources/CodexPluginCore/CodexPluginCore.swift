@@ -342,6 +342,9 @@ public actor CodexPluginCore: PluginCore {
     #endif
 
     private func log(_ level: LogLevel, _ message: String) async {
+        // Honor the per-plugin "Log level" setting (Settings → Agents): drop lines
+        // below the configured threshold instead of writing every line.
+        guard level >= settings.logLevel else { return }
         await host?.log(LogLine(level: level, message: message))
     }
 }

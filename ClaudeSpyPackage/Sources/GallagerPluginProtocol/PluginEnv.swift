@@ -77,12 +77,21 @@ public struct LogLine: Sendable {
 }
 
 /// Severity for `LogLine` and per-plugin settings. Codable so a core's typed
-/// settings struct can persist it.
-public enum LogLevel: String, Sendable, Codable, CaseIterable {
+/// settings struct can persist it. `Comparable` (debug < info < warn < error) so
+/// a core / sink can drop lines below a configured threshold.
+public enum LogLevel: String, Sendable, Codable, CaseIterable, Comparable {
     case debug
     case info
     case warn
     case error
+
+    public static func < (lhs: LogLevel, rhs: LogLevel) -> Bool {
+        guard
+            let lhsIndex = allCases.firstIndex(of: lhs),
+            let rhsIndex = allCases.firstIndex(of: rhs)
+        else { return false }
+        return lhsIndex < rhsIndex
+    }
 }
 
 /// The closed key vocabulary a core emits via `PluginHost.sendKeys`. Aliased to

@@ -488,18 +488,26 @@ final public class TmuxService {
             let tree = try await processTree()
             guard let tree else { return [:] }
 
-            // Walk the subtree of each pane shell, looking for a descendant whose
-            // process name a plugin claims. The first descendant that matches any
-            // plugin's process name wins for that pane.
+            // Walk the subtree of each pane shell, collecting every descendant
+            // whose process name a plugin claims. A pane can match more than one
+            // plugin (e.g. one agent launched from inside another's pane), so we
+            // can't break on the first hit: `descendants(of:)` order depends on
+            // the `ps`/PID snapshot, which would make the winner flip between
+            // runs. Pick the lexicographically smallest matching pluginID so
+            // attribution is deterministic (this also keeps "claude-code" winning
+            // over "codex", matching the previous behavior).
             var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
+                var matchedPluginIDs: Set<String> = []
                 for pid in descendants {
                     guard let name = tree.processName(for: pid) else { continue }
                     if let pluginID = pluginByProcessName[name] {
-                        detected[paneId] = DetectedAgentPane(path: info.path, pluginID: pluginID)
-                        break
+                        matchedPluginIDs.insert(pluginID)
                     }
+                }
+                if let winner = matchedPluginIDs.min() {
+                    detected[paneId] = DetectedAgentPane(path: info.path, pluginID: winner)
                 }
             }
 

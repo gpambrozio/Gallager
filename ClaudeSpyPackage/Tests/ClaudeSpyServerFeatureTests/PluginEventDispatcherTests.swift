@@ -206,7 +206,7 @@
             let dispatcher = makeDispatcher(recorder)
 
             let actions: [AppAction] = [
-                .openFileSuggestion(sessionID: "s1", path: "/tmp/PLAN.md", displayName: "PLAN.md", isPlan: true),
+                .openFileSuggestion(sessionID: "s1", path: "/tmp/PLAN.md", displayName: "PLAN.md", isPlan: true, projectDir: nil),
                 .dismissFileSuggestions(sessionID: "s1"),
                 .sessionEnded(sessionID: "s1", closePaneEligible: true),
             ]

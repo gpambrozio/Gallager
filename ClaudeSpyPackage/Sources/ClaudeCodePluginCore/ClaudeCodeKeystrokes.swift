@@ -36,7 +36,19 @@ enum ClaudeCodeKeystrokes {
             return promptDeliveries(text: text, allowEmptyInterrupt: true)
 
         case let .permission(decision, appliedSuggestionID):
-            return permissionDeliveries(decision: decision, appliedSuggestionID: appliedSuggestionID)
+            // The in-terminal menu gains an "Accept with Rule" row when the
+            // request carried suggestions, which shifts the custom-feedback
+            // option from 2 to 3. Recover that from the retained pending context;
+            // an applied suggestion id also implies suggestions were present.
+            var hasSuggestions = appliedSuggestionID != nil
+            if case let .permission(pendingHasSuggestions) = pending {
+                hasSuggestions = hasSuggestions || pendingHasSuggestions
+            }
+            return permissionDeliveries(
+                decision: decision,
+                appliedSuggestionID: appliedSuggestionID,
+                hasSuggestions: hasSuggestions
+            )
 
         case let .approvePlan(decision, _):
             // ExitPlanModeResponseView: "3" approves, Escape rejects. iOS never
@@ -70,13 +82,14 @@ enum ClaudeCodeKeystrokes {
 
     /// `PermissionRequestResponseView`. Accept sends "1". Applying a suggestion
     /// uses the "Accept with Rule" option, which the legacy view maps to "2".
-    /// `denyWithFeedback` ports `sendCustomInstructions`: the option number is 2
-    /// when there are no suggestions and 3 when there are — but the contract
-    /// drops the suggestion list by delivery time, so we use the worst-case 3
-    /// only when a suggestion was applied, else 2. Plain deny sends Escape.
+    /// `denyWithFeedback` ports `sendCustomInstructions`: the custom-feedback
+    /// option is 3 when the request carried suggestions (the menu has the extra
+    /// "Accept with Rule" row) and 2 when it didn't — matching the legacy
+    /// `suggestions.isEmpty ? 2 : 3`. Plain deny sends Escape.
     private static func permissionDeliveries(
         decision: PermissionDecision,
-        appliedSuggestionID: String?
+        appliedSuggestionID: String?,
+        hasSuggestions: Bool
     ) -> [Delivery] {
         switch decision {
         case .allow:
@@ -91,10 +104,9 @@ enum ClaudeCodeKeystrokes {
 
         case let .denyWithFeedback(feedback):
             let trimmed = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Mirror sendCustomInstructions: prefix with the option number, then
-            // the text, then Enter. With an applied suggestion the menu has an
-            // extra row so the custom option is 3; otherwise 2.
-            let optionNumber = appliedSuggestionID == nil ? "2" : "3"
+            // The custom-feedback row is 3 when suggestions are present (the menu
+            // shows Accept / Accept-with-Rule / No+feedback) and 2 otherwise.
+            let optionNumber = hasSuggestions ? "3" : "2"
             if trimmed.isEmpty {
                 // Nothing to say — fall back to a plain deny.
                 return [.keys([.escape])]

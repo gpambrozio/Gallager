@@ -181,9 +181,12 @@ extension ProcessRunner: DependencyKey {
                     let timeoutTask: Task<Void, Never>?
                     if let timeout {
                         @Dependency(\.continuousClock) var clock
-                        timeoutTask = Task { [clock] in
+                        timeoutTask = Task { [clock, outputCollector] in
                             try? await clock.sleep(for: .seconds(timeout))
                             if process.isRunning {
+                                // Record that the kill was a timeout so the caller
+                                // gets `.timeout`, not a generic non-zero failure.
+                                outputCollector.markTimedOut()
                                 process.terminate()
                             }
                         }
@@ -191,7 +194,7 @@ extension ProcessRunner: DependencyKey {
                         timeoutTask = nil
                     }
 
-                    return await withCheckedContinuation { continuation in
+                    return try await withCheckedThrowingContinuation { continuation in
                         process.terminationHandler = { [outputCollector, timeoutTask] _ in
                             // Cancel the timeout sleep eagerly so it doesn't sit on a
                             // virtual deadline after the process has already exited.
@@ -210,6 +213,14 @@ extension ProcessRunner: DependencyKey {
                             }
                             if !remainingStderr.isEmpty {
                                 outputCollector.appendStderr(remainingStderr)
+                            }
+
+                            // A timed-out process was killed by us, so its non-zero
+                            // termination status is meaningless — surface `.timeout`
+                            // so callers can distinguish it from a real failure.
+                            if outputCollector.timedOut {
+                                continuation.resume(throwing: ProcessRunnerError.timeout)
+                                return
                             }
 
                             let result = ProcessResult(
@@ -241,6 +252,7 @@ extension ProcessRunner: DependencyKey {
         private let lock = NSLock()
         private var _stdout = Data()
         private var _stderr = Data()
+        private var _timedOut = false
 
         var stdout: Data {
             lock.withLock { _stdout }
@@ -250,12 +262,22 @@ extension ProcessRunner: DependencyKey {
             lock.withLock { _stderr }
         }
 
+        /// Set when the timeout task terminated the process, so the termination
+        /// handler can distinguish a timeout from a genuine non-zero exit.
+        var timedOut: Bool {
+            lock.withLock { _timedOut }
+        }
+
         func appendStdout(_ data: Data) {
             lock.withLock { _stdout.append(data) }
         }
 
         func appendStderr(_ data: Data) {
             lock.withLock { _stderr.append(data) }
+        }
+
+        func markTimedOut() {
+            lock.withLock { _timedOut = true }
         }
     }
 #endif

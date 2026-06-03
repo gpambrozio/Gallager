@@ -28,12 +28,23 @@ struct ProcessRunnerTests {
             try await waitForSleeperToRegister(on: clock)
 
             // Cross the virtual deadline: the timeout task fires
-            // `process.terminate()`, the OS kills /bin/sleep, and the
-            // continuation resumes with the resulting non-zero exit code.
+            // `process.terminate()`, the OS kills /bin/sleep, and the runner
+            // surfaces the kill as `ProcessRunnerError.timeout` (not a generic
+            // non-zero result) so callers can tell a timeout apart from a real
+            // failure.
             await clock.advance(by: .seconds(2))
 
-            let outcome = try await result
-            #expect(outcome.isSuccess == false)
+            do {
+                _ = try await result
+                Issue.record("expected ProcessRunnerError.timeout to be thrown")
+            } catch let error as ProcessRunnerError {
+                guard case .timeout = error else {
+                    Issue.record("expected .timeout, got \(error)")
+                    return
+                }
+            } catch {
+                Issue.record("expected ProcessRunnerError.timeout, got \(error)")
+            }
         }
     }
 
