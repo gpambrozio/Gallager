@@ -31,17 +31,27 @@ public struct SessionStateMessage: Codable, Sendable {
     public let agentProjects: [AgentProject]?
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
+    /// Every response form currently open on the host, so a viewer that connects
+    /// (or reconnects) *after* a form opened still renders it. The live
+    /// `agent_response_request` push only reaches viewers connected at the
+    /// instant it fired; the snapshot makes open forms part of catch-up state
+    /// (the same role `paneStates` plays for attention). `nil` from an older
+    /// host that doesn't send the field — viewers then leave their open forms to
+    /// the live channel; an empty array is authoritative ("no forms open").
+    public let openResponseRequests: [PaneOpenResponseRequest]?
 
     public init(
         pairId: String,
         paneStates: [String: PaneState],
         agentProjects: [AgentProject]? = nil,
-        homeDirectory: String = ""
+        homeDirectory: String = "",
+        openResponseRequests: [PaneOpenResponseRequest]? = nil
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
         self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
+        self.openResponseRequests = openResponseRequests
     }
 
     /// Returns a copy with the `pairId` replaced. Centralises the per-connection
@@ -53,8 +63,29 @@ public struct SessionStateMessage: Codable, Sendable {
             pairId: pairId,
             paneStates: paneStates,
             agentProjects: agentProjects,
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            openResponseRequests: openResponseRequests
         )
+    }
+}
+
+/// One open response form carried in a `SessionStateMessage` snapshot. Mirrors
+/// the per-pane form the host retains; iOS full-replaces its open forms for the
+/// host from this list. Like `AgentResponseRequestMessage` but without the
+/// per-connection `pairId` (the snapshot stamps it) and with a non-optional
+/// `request` (only *open* forms are listed — a retract is simply absence).
+public struct PaneOpenResponseRequest: Codable, Sendable, Equatable {
+    /// The pane id the form targets (iOS keys open forms by pane).
+    public let sessionId: String
+    public let pluginId: String
+    public let requestId: String
+    public let request: AgentResponseRequest
+
+    public init(sessionId: String, pluginId: String, requestId: String, request: AgentResponseRequest) {
+        self.sessionId = sessionId
+        self.pluginId = pluginId
+        self.requestId = requestId
+        self.request = request
     }
 }
 

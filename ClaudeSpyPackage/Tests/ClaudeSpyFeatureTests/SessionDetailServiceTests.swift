@@ -124,6 +124,118 @@ struct SessionDetailServiceTests {
         #expect(service.responseState?.requestID == "%1:SessionStart")
     }
 
+    // MARK: - Snapshot Catch-Up Tests (offline-then-connect)
+
+    /// Build a session-state snapshot carrying open forms, the way the host does
+    /// when a viewer connects. `openResponseRequests == nil` models an older host
+    /// that doesn't send the field.
+    private func snapshot(
+        pairId: String,
+        openResponseRequests: [PaneOpenResponseRequest]?
+    ) -> SessionStateMessage {
+        SessionStateMessage(
+            pairId: pairId,
+            paneStates: [:],
+            openResponseRequests: openResponseRequests
+        )
+    }
+
+    @Test("A form that opened while offline renders from the connect snapshot")
+    func snapshotSeedsOpenFormOnConnect() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        // The app was NOT running when the question arrived, so it never saw the
+        // live `agentResponseRequest` push — its only knowledge is the snapshot
+        // fetched on connect.
+        sessionStore.handleStateUpdate(snapshot(
+            pairId: "test-pair",
+            openResponseRequests: [
+                PaneOpenResponseRequest(
+                    sessionId: "%1",
+                    pluginId: "claude-code",
+                    requestId: "%1:AskUserQuestion",
+                    request: .askUserQuestion(AskUserQuestionRequest(questions: [
+                        .init(
+                            id: "q1",
+                            question: "Which?",
+                            header: "Pick",
+                            options: [.init(id: "a", label: "A", description: "first")],
+                            multiSelect: false
+                        ),
+                    ]))
+                ),
+            ]
+        ))
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        #expect(service.responseState != nil)
+        #expect(service.responseState?.requestID == "%1:AskUserQuestion")
+    }
+
+    @Test("A snapshot with an empty array retracts a form the host no longer has")
+    func snapshotEmptyArrayClearsStaleForm() {
+        let sessionStore = SessionStore()
+
+        // A form is open locally (e.g. seen live before a brief disconnect)...
+        openRequest(
+            sessionStore,
+            pairId: "test-pair",
+            sessionId: "%1",
+            requestId: "%1:PermissionRequest",
+            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
+        )
+        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") != nil)
+
+        // ...but the reconnect snapshot says no forms are open → it's retracted.
+        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", openResponseRequests: []))
+
+        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") == nil)
+    }
+
+    @Test("A snapshot from an older host (nil field) leaves live forms untouched")
+    func snapshotNilFieldPreservesLiveForm() {
+        let sessionStore = SessionStore()
+
+        openRequest(
+            sessionStore,
+            pairId: "test-pair",
+            sessionId: "%1",
+            requestId: "%1:PermissionRequest",
+            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
+        )
+
+        // Older host omits the field — the live channel stays authoritative.
+        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", openResponseRequests: nil))
+
+        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") != nil)
+    }
+
+    @Test("Snapshot reconcile is scoped to the snapshot's host")
+    func snapshotReconcileIsHostScoped() {
+        let sessionStore = SessionStore()
+
+        // host-b has a live form open.
+        openRequest(
+            sessionStore,
+            pairId: "host-b",
+            sessionId: "%1",
+            requestId: "host-b:r1",
+            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
+        )
+
+        // host-a sends an (empty) snapshot — it must not touch host-b's form.
+        sessionStore.handleStateUpdate(snapshot(pairId: "host-a", openResponseRequests: []))
+
+        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "host-b") != nil)
+    }
+
     // MARK: - Cross-Host Pane Isolation Tests
 
     @Test("Same paneId from two hosts produces two distinct sessions")

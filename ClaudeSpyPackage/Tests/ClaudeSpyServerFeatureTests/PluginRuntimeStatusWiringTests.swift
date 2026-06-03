@@ -278,6 +278,86 @@
             #expect(windowManager.endAgentSession(forPane: "%nope") == false)
         }
 
+        @Test("the host retains open response forms for the connect snapshot, and clears them")
+        func retainsOpenResponseFormsForSnapshot() {
+            let windowManager = makeWindowManager()
+
+            // A live session on the pane (so endAgentSession has something to end).
+            windowManager.applyPluginStatus(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                working: true,
+                attention: false,
+                tmuxPane: "%5",
+                projectPath: "/tmp/p"
+            )
+
+            let form = PaneOpenResponseRequest(
+                sessionId: "%5",
+                pluginId: "claude-code",
+                requestId: "%5:AskUserQuestion",
+                request: .askUserQuestion(AskUserQuestionRequest(questions: [
+                    .init(
+                        id: "q1",
+                        question: "Which?",
+                        header: "Pick",
+                        options: [.init(id: "a", label: "A", description: "first")],
+                        multiSelect: false
+                    ),
+                ]))
+            )
+
+            // Open: the form is exposed for the catch-up snapshot.
+            windowManager.setOpenResponseRequest(form, for: "%5")
+            #expect(windowManager.openResponseRequests == [form])
+
+            // Retract: it stops riding the snapshot.
+            windowManager.setOpenResponseRequest(nil, for: "%5")
+            #expect(windowManager.openResponseRequests.isEmpty)
+
+            // A session end also drops any still-open form (the form is moot once
+            // the agent is gone).
+            windowManager.setOpenResponseRequest(form, for: "%5")
+            #expect(windowManager.endAgentSession(forPane: "%5") == true)
+            #expect(windowManager.openResponseRequests.isEmpty)
+        }
+
+        @Test("a working tick drops a retained form so the snapshot can't resurrect it")
+        func workingStatusClearsRetainedForm() {
+            let windowManager = makeWindowManager()
+
+            windowManager.applyPluginStatus(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                working: false,
+                attention: true,
+                tmuxPane: "%5",
+                projectPath: "/tmp/p"
+            )
+            windowManager.setOpenResponseRequest(
+                PaneOpenResponseRequest(
+                    sessionId: "%5",
+                    pluginId: "claude-code",
+                    requestId: "%5:r1",
+                    request: .prompt(PromptRequest(title: "Reply"))
+                ),
+                for: "%5"
+            )
+            #expect(windowManager.openResponseRequests.count == 1)
+
+            // The agent advances (working, no new form) — the retained form is
+            // dropped, matching iOS's working-clears-form rule.
+            windowManager.applyPluginStatus(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                working: true,
+                attention: false,
+                tmuxPane: "%5",
+                projectPath: nil
+            )
+            #expect(windowManager.openResponseRequests.isEmpty)
+        }
+
         @Test("a SessionEnd envelope (working=false + .sessionEnded) clears the session → terminal glyph")
         func sessionEndClearsSessionEndToEnd() async {
             let windowManager = makeWindowManager()

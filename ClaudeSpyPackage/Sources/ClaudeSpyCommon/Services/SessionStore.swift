@@ -202,6 +202,25 @@ final public class SessionStore {
         agentProjectsByHost[hostId] = state.agentProjects ?? []
         homeDirectoryByHost[hostId] = state.homeDirectory
         hostsWithReceivedState.insert(hostId)
+
+        // Reconcile this host's open response forms from the snapshot so a form
+        // that opened while we were disconnected (we missed its live push) still
+        // renders on connect — and one retracted while away disappears. The
+        // snapshot is authoritative for the host, exactly like `paneStates`
+        // above. `nil` means an older host that doesn't carry the field — leave
+        // open forms to the live `agent_response_request` channel instead of
+        // wiping them; an empty array is authoritative ("no forms open").
+        if let snapshotRequests = state.openResponseRequests {
+            var newOpenRequests = openResponseRequests.filter { $0.key.pairId != hostId }
+            for form in snapshotRequests {
+                newOpenRequests[PaneKey(pairId: hostId, paneId: form.sessionId)] = OpenResponseRequest(
+                    pluginID: form.pluginId,
+                    requestID: form.requestId,
+                    request: form.request
+                )
+            }
+            openResponseRequests = newOpenRequests
+        }
     }
 
     /// Clear all sessions and panes for a specific host

@@ -427,6 +427,18 @@
                     // the pane's attention non-clearable until answered (the host's
                     // own mark-handled must respect this too, not just viewers).
                     await self.windowManager.setBlockingResponseForm(open: request.isBlocking, for: sessionID)
+                    // Retain the form so a viewer that connects after it opened can
+                    // render it from the session-state snapshot (the live push below
+                    // only reaches already-connected viewers).
+                    await self.windowManager.setOpenResponseRequest(
+                        PaneOpenResponseRequest(
+                            sessionId: sessionID,
+                            pluginId: pluginID,
+                            requestId: requestID,
+                            request: request
+                        ),
+                        for: sessionID
+                    )
                     // Remember an auto-approvable permission shown without yolo so
                     // enabling yolo later can approve it immediately (#315).
                     let pending: MirrorWindowManager.PendingApproval? = {
@@ -446,6 +458,8 @@
                 },
                 onRetractResponseRequest: { [weak self] pluginID, sessionID, requestID in
                     await self?.windowManager.setBlockingResponseForm(open: false, for: sessionID)
+                    // Drop the retained form so the snapshot stops replaying it.
+                    await self?.windowManager.setOpenResponseRequest(nil, for: sessionID)
                     // Forward to iOS: retract the open form (request == nil).
                     await self?.connectedViewerManager?.sendAgentResponseRequestToAll(
                         sessionId: sessionID,
@@ -2192,12 +2206,17 @@
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []
 
+                // Open response forms ride the snapshot so a viewer connecting
+                // after a form opened still renders it (it missed the live push).
+                let openResponseRequests = await windowManager.openResponseRequests
+
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
                     pairId: "",
                     paneStates: paneStates,
                     agentProjects: agentProjects,
-                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                    openResponseRequests: openResponseRequests
                 )
             }
 

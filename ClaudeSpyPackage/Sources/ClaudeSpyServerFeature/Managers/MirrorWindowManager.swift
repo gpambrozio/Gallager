@@ -182,6 +182,7 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.agentSession = nil
         panesWithBlockingForm.remove(paneId)
         pendingApprovalByPane.removeValue(forKey: paneId)
+        openResponseRequestByPane.removeValue(forKey: paneId)
         return true
     }
 
@@ -252,6 +253,14 @@ final public class MirrorWindowManager {
         } else if working == true {
             panesWithBlockingForm.remove(paneId)
             pendingApprovalByPane.removeValue(forKey: paneId)
+            // The agent advanced past its form, so drop the retained open request
+            // too — otherwise the authoritative session-state snapshot would
+            // resurrect a form the viewer already closed on this working tick
+            // (iOS clears it the same way in `SessionStore.handleAgentStatus`).
+            // The dispatcher fans status out *before* the response-request sink,
+            // so an open form arriving in this same envelope is re-set after this
+            // clear and survives.
+            openResponseRequestByPane.removeValue(forKey: paneId)
         }
 
         // Record arrival order for the "most recent activity" sort.
@@ -348,6 +357,14 @@ final public class MirrorWindowManager {
     /// The pending auto-approvable permission per pane (see `PendingApproval`).
     private var pendingApprovalByPane: [String: PendingApproval] = [:]
 
+    /// The full open response form per pane, retained so a viewer that connects
+    /// after the form opened can still render it (the live `agentResponseRequest`
+    /// push only reaches already-connected viewers). Read when building the
+    /// `SessionStateMessage` snapshot; set/cleared by the open/retract sinks and
+    /// dropped when the session ends. Covers *all* open forms (not just blocking
+    /// ones) since iOS shows a form for any open request.
+    private var openResponseRequestByPane: [String: PaneOpenResponseRequest] = [:]
+
     /// Records whether a pane currently has an open blocking response form.
     /// - Parameters:
     ///   - open: `true` to mark the pane as awaiting an explicit response.
@@ -374,6 +391,22 @@ final public class MirrorWindowManager {
     /// The pane's pending auto-approvable permission, if one is open.
     public func pendingApproval(for paneId: String) -> PendingApproval? {
         pendingApprovalByPane[paneId]
+    }
+
+    /// Records (or clears, with `nil`) the pane's open response form so it can be
+    /// replayed to a viewer that connects after it opened, via the
+    /// `SessionStateMessage` snapshot.
+    public func setOpenResponseRequest(_ request: PaneOpenResponseRequest?, for paneId: String) {
+        if let request {
+            openResponseRequestByPane[paneId] = request
+        } else {
+            openResponseRequestByPane.removeValue(forKey: paneId)
+        }
+    }
+
+    /// Every open response form across panes, for the catch-up snapshot.
+    public var openResponseRequests: [PaneOpenResponseRequest] {
+        Array(openResponseRequestByPane.values)
     }
 
     /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag.
