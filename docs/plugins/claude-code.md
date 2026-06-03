@@ -35,6 +35,15 @@ session (Gallager-launched or manual). `isInstalled`/`uninstall` manage that ent
 Parsing reuses `HookAction.from(jsonData:)`. `sessionID` = the hook `session_id`;
 `tmuxPane` = frame `TMUX_PANE`; `projectPath` = `CLAUDE_PROJECT_DIR` (fallback `cwd`).
 
+**Subagent drop (shared, pre-parse):** `handleIngress` first drops any frame whose
+payload carries an `agent_id` — a `Task` subagent's lifecycle event — *except*
+`PermissionRequest` (a subagent's prompt still needs a user response). A trailing
+`SubagentStop` fires seconds after the main `Stop`, and applying it would flip the
+just-stopped session back to "Working". This filter is shared with Codex via
+`CommonHookFields.droppableSubagentEventName(payload:)` so neither core can drift.
+As defense-in-depth, `.subagentStart`/`.subagentStop` also map `isWorking` to `nil`,
+so even a subagent event lacking an `agent_id` cannot drive the main session.
+
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,
   `nil` (no opinion) for neutral events.

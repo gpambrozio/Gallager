@@ -39,7 +39,10 @@ in `plugin_id=codex` + the socket path. The bridge harvests `cwd` from the paylo
 ## Raw hook → `PluginEvent`
 Codex routes through the same `HookAction.from` parse as Claude, so the mapping table is
 identical to `docs/plugins/claude-code.md` (working/attention/notification/responseRequest/
-appActions), with these differences:
+appActions) — including the shared pre-parse subagent drop
+(`CommonHookFields.droppableSubagentEventName`): Codex's bridge forwards
+SubagentStart/SubagentStop, so the same `agent_id` filter applies here. With these
+differences:
 - The reused `HookEventMessage.buildNotification()` is fed `agent: .codex`, so notification
   copy reads "Codex …".
 - `tmuxPane` is resolved via the frame, falling back to the correlation file by `session_id`.

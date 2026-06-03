@@ -82,6 +82,23 @@ struct ClaudeCodeTranslatorTests {
         #expect(event.working == false)
     }
 
+    @Test("a top-level SubagentStop without agent_id never flips the session to working")
+    func topLevelSubagentStopDoesNotWork() async throws {
+        let (core, _) = try await makeCore()
+
+        // Defense-in-depth for the case the agent_id drop can't see: a SubagentStop
+        // with no agent_id. The .subagentStart/.subagentStop cases map to
+        // isWorking=nil, so the event carries no state change and the translator
+        // drops it — it can never flip the main session back to "Working".
+        let subagentStop = """
+        {
+            "hook_event_name": "SubagentStop",
+            "session_id": "sess-1"
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
     // MARK: - Plain permission request
 
     @Test("plain permissionRequest opens a .permission form and needs attention")

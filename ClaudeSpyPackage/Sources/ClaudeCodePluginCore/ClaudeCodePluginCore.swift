@@ -68,17 +68,14 @@ public actor ClaudeCodePluginCore: PluginCore {
     /// notification (additive phase — those types still live in networking).
     public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {
         // Drop subagent (`Task`) hook events — those carrying an `agent_id` — the
-        // way the legacy `HookServerService` did. They describe a subagent's
-        // lifecycle, not the main agent's, and must not drive the main session's
-        // status: a trailing `SubagentStop` fires ~seconds AFTER the main `Stop`
-        // and (mapping to isWorking=true) would flip the just-stopped session back
-        // to "Working". `PermissionRequest` is the sole exception — a subagent's
-        // permission prompt still needs a user response.
-        if
-            let common = try? JSONDecoder().decode(CommonHookFields.self, from: frame.payload),
-            common.agentId != nil,
-            common.hookEventName != CommonHookFields.permissionRequestEventName {
-            await log(.debug, "Ignoring subagent hook event: \(common.hookEventName)")
+        // way the legacy shared `HookServerService` did for every agent. They
+        // describe a subagent's lifecycle, not the main agent's, and must not drive
+        // the main session's status: a trailing `SubagentStop` fires ~seconds AFTER
+        // the main `Stop` and would flip the just-stopped session back to "Working".
+        // `PermissionRequest` is the sole exception. Shared with Codex so neither
+        // core can drift (see `CommonHookFields.droppableSubagentEventName`).
+        if let dropped = CommonHookFields.droppableSubagentEventName(payload: frame.payload) {
+            await log(.debug, "Ignoring subagent hook event: \(dropped)")
             return nil
         }
 

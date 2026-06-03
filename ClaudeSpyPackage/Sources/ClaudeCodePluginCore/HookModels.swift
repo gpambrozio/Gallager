@@ -61,8 +61,6 @@ public struct HookEvent: Identifiable, Sendable, Equatable {
              .postToolUse,
              .postToolUseFailure,
              .postToolBatch,
-             .subagentStart,
-             .subagentStop,
              .taskCreated,
              .taskCompleted,
              .elicitation,
@@ -79,6 +77,13 @@ public struct HookEvent: Identifiable, Sendable, Equatable {
              .setup,
              .notification,
              .teammateIdle,
+             // Subagent (`Task`) lifecycle events describe a subagent, not the main
+             // agent. `handleIngress` already drops the ones carrying an `agent_id`;
+             // mapping these to `nil` is defense-in-depth so even a stray
+             // SubagentStop without an `agent_id` can never flip the main session
+             // back to "Working" (the main agent's own hooks drive its status).
+             .subagentStart,
+             .subagentStop,
              .preCompact,
              .postCompact,
              .instructionsLoaded,
@@ -111,6 +116,33 @@ public protocol HookBodyProtocol: Codable, Sendable {
 /// Fields common to all hook payloads from Claude Code
 public struct CommonHookFields: HookBodyProtocol {
     public static let permissionRequestEventName = "PermissionRequest"
+
+    /// Whether a raw hook payload is a subagent (`Task`) lifecycle event that must
+    /// be dropped before it can drive the main session's status.
+    ///
+    /// A subagent event carries an `agent_id` and describes a `Task` subagent's
+    /// lifecycle, not the main agent's. Applying it would corrupt the main
+    /// session's status — e.g. a trailing `SubagentStop` fires ~seconds AFTER the
+    /// main `Stop` and (mapping to `isWorking == true`) would flip the just-stopped
+    /// session back to "Working". `PermissionRequest` is the sole exception: a
+    /// subagent's permission prompt still needs a user response.
+    ///
+    /// The legacy shared `HookServerService` applied this filter to EVERY agent
+    /// before routing. Keeping it shared here means neither per-agent core (Claude
+    /// Code, Codex) can silently drift back to the buggy behavior.
+    ///
+    /// - Returns: the dropped event's `hook_event_name` (for logging) when the
+    ///   payload is a droppable subagent event, otherwise `nil`.
+    public static func droppableSubagentEventName(payload: Data) -> String? {
+        guard
+            let common = try? JSONDecoder().decode(CommonHookFields.self, from: payload),
+            common.agentId != nil,
+            common.hookEventName != permissionRequestEventName
+        else {
+            return nil
+        }
+        return common.hookEventName
+    }
 
     public let sessionId: String
     public let transcriptPath: String?

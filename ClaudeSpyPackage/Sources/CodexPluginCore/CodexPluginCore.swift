@@ -77,6 +77,17 @@ public actor CodexPluginCore: PluginCore {
     /// and the durable `HookEvent` / `HookEventMessage` semantics as Claude
     /// Code, so the parser is reused (additive phase).
     public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {
+        // Drop subagent (`Task`) hook events the way the legacy shared
+        // `HookServerService` did for every agent. Codex's bridge forwards
+        // SubagentStart/SubagentStop, and a trailing SubagentStop after the main
+        // `Stop` would otherwise flip a just-stopped session back to "Working".
+        // `PermissionRequest` is the sole exception. Shared with Claude Code so
+        // neither core can drift (see `CommonHookFields.droppableSubagentEventName`).
+        if let dropped = CommonHookFields.droppableSubagentEventName(payload: frame.payload) {
+            await log(.debug, "Ignoring subagent hook event: \(dropped)")
+            return nil
+        }
+
         let action: HookAction
         do {
             action = try HookAction.from(jsonData: frame.payload)
