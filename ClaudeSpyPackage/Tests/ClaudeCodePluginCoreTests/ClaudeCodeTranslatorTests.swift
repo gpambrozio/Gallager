@@ -6,8 +6,8 @@ import Testing
 
 /// Drives the raw Claude hook payload → `PluginEvent` translation through the
 /// real `ClaudeCodePluginCore.handleIngress`, using realistic hook JSON shapes
-/// copied from the E2E scenarios. Asserts the working / attention / notification
-/// / responseRequest / appActions fields the dispatcher fans out.
+/// copied from the E2E scenarios. Asserts the `state` (incl. the open form) /
+/// notification / appActions fields the dispatcher fans out.
 @Suite("ClaudeCodeTranslator")
 struct ClaudeCodeTranslatorTests {
     // MARK: - Helpers
@@ -71,7 +71,7 @@ struct ClaudeCodeTranslatorTests {
         """
         #expect(await core.handleIngress(frame(subagentPermission)) != nil)
 
-        // A main-agent Stop (no agent_id) is processed normally → not working.
+        // A main-agent Stop (no agent_id) is processed normally → doneWorking.
         let mainStop = """
         {
             "hook_event_name": "Stop",
@@ -79,7 +79,7 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(mainStop)))
-        #expect(event.working == false)
+        #expect(event.state == .doneWorking(summary: nil))
     }
 
     @Test("a top-level SubagentStop without agent_id never flips the session to working")
@@ -115,14 +115,15 @@ struct ClaudeCodeTranslatorTests {
         let event = try #require(await core.handleIngress(frame(json)))
 
         #expect(event.sessionID == "sess-1")
-        #expect(event.working == true) // permissionRequest enters the agent loop
-        #expect(event.attention == true)
+        // A permission request awaits the user (needsAttention derives true).
+        #expect(event.state?.needsAttention == true)
+        #expect(event.state?.isActiveWorking == false)
         #expect(event.tmuxPane == "%1")
         #expect(event.projectPath == "/Users/test/MyProject")
 
-        let request = try #require(event.responseRequest?.request)
-        guard case let .permission(permission) = request else {
-            Issue.record("expected .permission, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .permission(permission) = form.request else {
+            Issue.record("expected .permission, got \(form.request)")
             return
         }
         // Title is the friendly action verb (Bash → "Run Command"), formatted
@@ -134,7 +135,7 @@ struct ClaudeCodeTranslatorTests {
         #expect(permission.isAutoApprovable == true)
         // requestID is `<session>:<event>:<timestamp>` (timestamp makes repeated
         // events of the same type unique); this payload has no timestamp.
-        #expect(event.responseRequest?.requestID.hasPrefix("sess-1:PermissionRequest") == true)
+        #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
     }
 
     @Test("permissionRequest maps permission_suggestions to chips")
@@ -157,7 +158,7 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        guard case let .permission(permission)? = event.responseRequest?.request else {
+        guard case let .permission(permission)? = event.state?.openForm?.request else {
             Issue.record("expected .permission")
             return
         }
@@ -193,11 +194,11 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.attention == true)
+        #expect(event.state?.needsAttention == true)
 
-        let request = try #require(event.responseRequest?.request)
-        guard case let .askUserQuestion(aq) = request else {
-            Issue.record("expected .askUserQuestion, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .askUserQuestion(aq) = form.request else {
+            Issue.record("expected .askUserQuestion, got \(form.request)")
             return
         }
         #expect(aq.questions.count == 1)
@@ -251,9 +252,9 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        let request = try #require(event.responseRequest?.request)
-        guard case let .approvePlan(plan) = request else {
-            Issue.record("expected .approvePlan, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .approvePlan(plan) = form.request else {
+            Issue.record("expected .approvePlan, got \(form.request)")
             return
         }
         #expect(plan.plan == "# My Plan\n1. Do the thing")
@@ -263,7 +264,7 @@ struct ClaudeCodeTranslatorTests {
 
     // MARK: - Stop
 
-    @Test("stop leaves the loop, needs attention, and offers replyAfterStop")
+    @Test("stop leaves the loop and is doneWorking with the assistant message as summary")
     func stop() async throws {
         let (core, _) = try await makeCore()
         let json = """
@@ -274,15 +275,9 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.working == false)
-        #expect(event.attention == true)
-
-        let request = try #require(event.responseRequest?.request)
-        guard case let .replyAfterStop(reply) = request else {
-            Issue.record("expected .replyAfterStop, got \(request)")
-            return
-        }
-        #expect(reply.summary == "All done with the refactor.")
+        #expect(event.state == .doneWorking(summary: "All done with the refactor."))
+        #expect(event.state?.needsAttention == true)
+        #expect(event.state?.isActiveWorking == false)
 
         let notification = try #require(event.notification)
         #expect(notification.body.contains("All done with the refactor."))
@@ -290,7 +285,7 @@ struct ClaudeCodeTranslatorTests {
 
     // MARK: - SessionStart
 
-    @Test("sessionStart offers a prompt form and a notification")
+    @Test("sessionStart maps to idle and still fires a notification")
     func sessionStart() async throws {
         let (core, _) = try await makeCore()
         let json = """
@@ -301,15 +296,10 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        // sessionStart is neutral for working state.
-        #expect(event.working == nil)
-        #expect(event.attention == true)
-
-        let request = try #require(event.responseRequest?.request)
-        guard case .prompt = request else {
-            Issue.record("expected .prompt, got \(request)")
-            return
-        }
+        // SessionStart → idle (the "session started" push still fires; no bell).
+        #expect(event.state == .idle)
+        #expect(event.state?.needsAttention == false)
+        #expect(event.state?.openForm == nil)
     }
 
     // MARK: - PostToolUse Write markdown
@@ -373,7 +363,7 @@ struct ClaudeCodeTranslatorTests {
         // no app action.
         let event = try #require(await core.handleIngress(frame(json)))
         #expect(event.appActions.isEmpty)
-        #expect(event.working == true)
+        #expect(event.state == .working)
     }
 
     // MARK: - UserPromptSubmit
@@ -395,7 +385,7 @@ struct ClaudeCodeTranslatorTests {
             return
         }
         #expect(sessionID == "%1") // appAction keyed by pane
-        #expect(event.working == true)
+        #expect(event.state == .working)
     }
 
     // MARK: - SessionEnd
@@ -442,7 +432,7 @@ struct ClaudeCodeTranslatorTests {
         #expect(closePaneEligible == false)
     }
 
-    @Test("sessionEnd marks the session idle (working=false)")
+    @Test("sessionEnd carries no state opinion and signals .sessionEnded")
     func sessionEndMarksIdle() async throws {
         let (core, _) = try await makeCore()
         let json = """
@@ -452,12 +442,12 @@ struct ClaudeCodeTranslatorTests {
             "reason": "clear"
         }
         """
-        // SessionEnd: the agent has ended, so the session is no longer working —
-        // it goes idle (working=false), not dropped. It signals `.sessionEnded` for
-        // every reason (so the app resets the pane's yolo); a non-prompt-exit reason
-        // is not close-eligible.
+        // SessionEnd carries no state opinion (working=false → nil); the
+        // `.sessionEnded` app action removes the session (so the row reverts to a
+        // terminal glyph). It signals `.sessionEnded` for every reason (so the app
+        // resets the pane's yolo); a non-prompt-exit reason is not close-eligible.
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.working == false)
+        #expect(event.state == nil)
         #expect(event.appActions == [.sessionEnded(sessionID: "%1", closePaneEligible: false)])
     }
 
@@ -572,10 +562,10 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.working == true)
-        #expect(event.attention == false)
+        #expect(event.state == .working)
+        #expect(event.state?.needsAttention == false)
+        #expect(event.state?.openForm == nil)
         #expect(event.notification == nil)
-        #expect(event.responseRequest == nil)
         #expect(event.appActions.isEmpty)
     }
 

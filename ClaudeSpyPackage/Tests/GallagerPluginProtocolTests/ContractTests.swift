@@ -91,19 +91,17 @@ struct PluginWireModelTests {
         let event = PluginEvent(
             pluginID: "claude-code",
             sessionID: "s1",
-            working: true,
-            attention: false,
-            notification: NotificationSpec(title: "T", body: "B"),
-            responseRequest: ResponseRequestPayload(
-                requestID: "r1",
-                request: .permission(PermissionRequest(
+            state: .awaitingPermission(
+                PermissionRequest(
                     title: "Bash",
                     description: "npm install",
                     isAutoApprovable: true,
                     suggestions: [PermissionSuggestionOption(id: "s1", label: "Always allow")],
                     allowsCustomInstructions: true
-                ))
+                ),
+                requestID: "r1"
             ),
+            notification: NotificationSpec(title: "T", body: "B"),
             appActions: [.dismissFileSuggestions(sessionID: "s1")],
             tmuxPane: "%2",
             projectPath: "/work/app"
@@ -111,10 +109,16 @@ struct PluginWireModelTests {
         #expect(try roundTrip(event) == event)
     }
 
-    @Test("response-request retraction encodes a null request")
-    func retraction() throws {
-        let payload = ResponseRequestPayload(requestID: "r1", request: nil)
-        #expect(try roundTrip(payload) == payload)
+    @Test("a no-opinion PluginEvent (state nil) survives a round-trip")
+    func pluginEventNoState() throws {
+        let event = PluginEvent(
+            pluginID: "claude-code",
+            sessionID: "s1",
+            notification: NotificationSpec(title: "Done", body: "B"),
+            tmuxPane: "%2"
+        )
+        #expect(event.state == nil)
+        #expect(try roundTrip(event) == event)
     }
 
     @Test("each AgentResponse case survives a round-trip")
@@ -148,13 +152,8 @@ struct EchoPluginCoreTests {
 
         let directive = EchoDirective(
             sessionID: "sess-1",
-            working: false,
-            attention: true,
-            notification: NotificationSpec(title: "Done", body: "waiting"),
-            responseRequest: ResponseRequestPayload(
-                requestID: "req-1",
-                request: .prompt(PromptRequest(title: "Reply"))
-            )
+            state: .awaitingReplies(AskUserQuestionRequest(questions: []), requestID: "req-1"),
+            notification: NotificationSpec(title: "Done", body: "waiting")
         )
         let frame = try IngressFrame(
             pluginID: EchoPluginCore.pluginID,
@@ -165,11 +164,10 @@ struct EchoPluginCoreTests {
         let event = await core.handleIngress(frame)
         #expect(event?.pluginID == "echo")
         #expect(event?.sessionID == "sess-1")
-        #expect(event?.working == false)
-        #expect(event?.attention == true)
+        #expect(event?.state?.needsAttention == true)
         #expect(event?.notification?.title == "Done")
         #expect(event?.tmuxPane == "%9")
-        #expect(event?.responseRequest?.requestID == "req-1")
+        #expect(event?.state?.openForm?.requestID == "req-1")
     }
 
     @Test("deliverResponse drives sendText for a prompt reply")

@@ -8,12 +8,12 @@
     import Testing
     @testable import ClaudeSpyServerFeature
 
-    /// Proves the status-sink wiring that `AppCoordinator.setupPluginRuntime()`
-    /// installs: a `PluginEvent`'s working/attention fields, fanned out by
-    /// `PluginEventDispatcher.onStatus`, land on a pane's `AgentSession` /
-    /// `cliSessionState` via `MirrorWindowManager.applyPluginStatus`. The second
-    /// test drives the full ingress path (socket → `EchoPluginCore` → dispatcher
-    /// → sink) so the exact closure shape the coordinator uses is exercised.
+    /// Proves the state-sink wiring that `AppCoordinator.setupPluginRuntime()`
+    /// installs: a `PluginEvent.state`, fanned out by
+    /// `PluginEventDispatcher.onState`, lands on a pane's `AgentSession.state` /
+    /// `cliSessionState` via `MirrorWindowManager.applyState`. The last test
+    /// drives the full ingress path (socket → `EchoPluginCore` → dispatcher →
+    /// sink) so the exact closure shape the coordinator uses is exercised.
     @MainActor
     @Suite("PluginRuntimeStatusWiring")
     struct PluginRuntimeStatusWiringTests {
@@ -44,16 +44,14 @@
         }
 
         /// The dispatcher wired exactly as `AppCoordinator.setupPluginRuntime`
-        /// wires its status sink (the other sinks are irrelevant here).
+        /// wires its state sink (the other sinks are irrelevant here).
         private func makeDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
-                    await windowManager.applyPluginStatus(
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                    await windowManager.applyState(
                         pluginID: pluginID,
                         sessionID: sessionID,
-                        working: working,
-                        attention: attention,
-                        opensBlockingForm: opensBlockingForm,
+                        state: state,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     )
@@ -61,20 +59,18 @@
             )
         }
 
-        /// The dispatcher wired with BOTH the status and app-action sinks the way
-        /// `AppCoordinator.setupPluginRuntime` does — the status sink updates the
+        /// The dispatcher wired with BOTH the state and app-action sinks the way
+        /// `AppCoordinator.setupPluginRuntime` does — the state sink updates the
         /// session, the app-action sink ends it on `.sessionEnded`. Lets a test
-        /// drive a full SessionEnd envelope and assert the status-then-app-action
+        /// drive a full SessionEnd envelope and assert the state-then-app-action
         /// ordering clears the session rather than leaving it resurrected.
-        private func makeStatusAndAppActionDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
+        private func makeStateAndAppActionDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
-                    await windowManager.applyPluginStatus(
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                    await windowManager.applyState(
                         pluginID: pluginID,
                         sessionID: sessionID,
-                        working: working,
-                        attention: attention,
-                        opensBlockingForm: opensBlockingForm,
+                        state: state,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     )
@@ -148,88 +144,74 @@
 
         // MARK: - Direct mapping
 
-        @Test("working/attention set the session status Bools directly; attention wins")
-        func applyPluginStatusMapping() {
+        @Test("applyState sets the session state directly; the Bools derive from it")
+        func applyStateMapping() {
             let windowManager = makeWindowManager()
 
-            // working=true → session created, isWorking=true
-            windowManager.applyPluginStatus(
+            // .working → session created, isWorking=true
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: true,
-                attention: false,
+                state: .working,
                 tmuxPane: "%7",
                 projectPath: "/tmp/proj"
             )
             #expect(windowManager.paneStates["%7"]?.agentSession != nil)
+            #expect(windowManager.paneStates["%7"]?.agentSession?.state == .working)
             #expect(windowManager.paneStates["%7"]?.agentSession?.isWorking == true)
             #expect(windowManager.paneStates["%7"]?.agentSession?.needsAttention == false)
             #expect(windowManager.paneStates["%7"]?.agentSession?.detectedProjectPath == "/tmp/proj")
             #expect(windowManager.paneStates["%7"]?.agentSession?.pluginID == "echo")
 
-            // attention=true → needsAttention set (working still true here)
-            windowManager.applyPluginStatus(
+            // .doneWorking → needsAttention derives true
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: true,
-                attention: true,
+                state: .doneWorking(summary: "all done"),
                 tmuxPane: "%7",
                 projectPath: nil
             )
             #expect(windowManager.paneStates["%7"]?.agentSession?.needsAttention == true)
-
-            // working=false, no attention → isWorking false, attention cleared
-            windowManager.applyPluginStatus(
-                pluginID: "echo",
-                sessionID: "s1",
-                working: false,
-                attention: false,
-                tmuxPane: "%7",
-                projectPath: nil
-            )
             #expect(windowManager.paneStates["%7"]?.agentSession?.isWorking == false)
-            #expect(windowManager.paneStates["%7"]?.agentSession?.needsAttention == false)
 
-            // no opinion (working nil) → isWorking left unchanged, session kept
-            windowManager.applyPluginStatus(
+            // .idle → neither working nor attention, session kept
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: nil,
-                attention: false,
+                state: .idle,
                 tmuxPane: "%7",
                 projectPath: nil
             )
             #expect(windowManager.paneStates["%7"]?.agentSession != nil)
             #expect(windowManager.paneStates["%7"]?.agentSession?.isWorking == false)
+            #expect(windowManager.paneStates["%7"]?.agentSession?.needsAttention == false)
         }
 
-        @Test("a blocking-form attention survives mark-handled-on-view; a Stop-like one clears")
+        @Test("a blocking-form state survives mark-handled-on-view; a doneWorking one clears")
         func blockingFormGuardsAttentionAgainstViewing() {
             let windowManager = makeWindowManager()
 
-            // AskUserQuestion / permission / plan: working + attention + opensBlockingForm.
-            // The guard must be set atomically here so a later view/mark-handled can't clear it.
-            windowManager.applyPluginStatus(
+            // An awaiting* state (permission / question / plan) is owed an explicit
+            // response — viewing/marking-handled must not clear it (the guard now
+            // lives inside AgentSession.markHandled: only doneWorking → idle).
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "ask",
-                working: true,
-                attention: true,
-                opensBlockingForm: true,
+                state: .awaitingPermission(
+                    PermissionRequest(title: "Bash", description: "ls"), requestID: "r1"
+                ),
                 tmuxPane: "%1",
                 projectPath: nil
             )
             #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == true)
-            // Viewing the session would mark it handled — the open form must keep attention.
             windowManager.markSessionHandled(paneId: "%1")
             #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == true)
 
-            // Stop-like: attention with NO blocking form → viewing clears it (matches legacy).
-            windowManager.applyPluginStatus(
+            // doneWorking: attention with NO blocking form → viewing clears it.
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "stop",
-                working: false,
-                attention: true,
-                opensBlockingForm: false,
+                state: .doneWorking(summary: nil),
                 tmuxPane: "%2",
                 projectPath: nil
             )
@@ -237,19 +219,56 @@
             windowManager.markSessionHandled(paneId: "%2")
             #expect(windowManager.paneStates["%2"]?.agentSession?.needsAttention == false)
 
-            // The agent advances past the question (plain working event, no form): guard lifts,
-            // so a subsequent mark-handled can clear attention again.
-            windowManager.applyPluginStatus(
+            // The agent advances past the question (plain working state): no form,
+            // so a subsequent mark-handled is a no-op (already non-attention).
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "ask",
-                working: true,
-                attention: true,
-                opensBlockingForm: false,
+                state: .working,
                 tmuxPane: "%1",
                 projectPath: nil
             )
             windowManager.markSessionHandled(paneId: "%1")
             #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == false)
+        }
+
+        // MARK: - Open form rides the session state
+
+        @Test("an awaiting state exposes the open form on the session; a working state clears it")
+        func openFormRidesSessionState() {
+            let windowManager = makeWindowManager()
+
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                state: .awaitingReplies(
+                    AskUserQuestionRequest(questions: [
+                        .init(
+                            id: "q1",
+                            question: "Which?",
+                            header: "Pick",
+                            options: [.init(id: "a", label: "A", description: "first")],
+                            multiSelect: false
+                        ),
+                    ]),
+                    requestID: "%5:AskUserQuestion"
+                ),
+                tmuxPane: "%5",
+                projectPath: "/tmp/p"
+            )
+            // The form rides the state → in the snapshot for free.
+            #expect(windowManager.paneStates["%5"]?.agentSession?.state.openForm != nil)
+            #expect(windowManager.paneStates["%5"]?.agentSession?.state.openForm?.requestID == "%5:AskUserQuestion")
+
+            // The agent advances (working, no form) — the open form is gone.
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                state: .working,
+                tmuxPane: "%5",
+                projectPath: nil
+            )
+            #expect(windowManager.paneStates["%5"]?.agentSession?.state.openForm == nil)
         }
 
         // MARK: - Session end
@@ -258,12 +277,12 @@
         func endAgentSessionDirect() {
             let windowManager = makeWindowManager()
 
-            // An idle session on the pane (SessionEnd maps working=false).
-            windowManager.applyPluginStatus(
+            // An idle session on the pane (SessionEnd maps to working=false → no
+            // state opinion in the translator; the state sink here sets .idle).
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: false,
-                attention: false,
+                state: .idle,
                 tmuxPane: "%5",
                 projectPath: nil
             )
@@ -278,109 +297,28 @@
             #expect(windowManager.endAgentSession(forPane: "%nope") == false)
         }
 
-        @Test("the host retains open response forms for the connect snapshot, and clears them")
-        func retainsOpenResponseFormsForSnapshot() {
-            let windowManager = makeWindowManager()
-
-            // A live session on the pane (so endAgentSession has something to end).
-            windowManager.applyPluginStatus(
-                pluginID: "claude-code",
-                sessionID: "s1",
-                working: true,
-                attention: false,
-                tmuxPane: "%5",
-                projectPath: "/tmp/p"
-            )
-
-            let form = PaneOpenResponseRequest(
-                sessionId: "%5",
-                pluginId: "claude-code",
-                requestId: "%5:AskUserQuestion",
-                request: .askUserQuestion(AskUserQuestionRequest(questions: [
-                    .init(
-                        id: "q1",
-                        question: "Which?",
-                        header: "Pick",
-                        options: [.init(id: "a", label: "A", description: "first")],
-                        multiSelect: false
-                    ),
-                ]))
-            )
-
-            // Open: the form is exposed for the catch-up snapshot.
-            windowManager.setOpenResponseRequest(form, for: "%5")
-            #expect(windowManager.openResponseRequests == [form])
-
-            // Retract: it stops riding the snapshot.
-            windowManager.setOpenResponseRequest(nil, for: "%5")
-            #expect(windowManager.openResponseRequests.isEmpty)
-
-            // A session end also drops any still-open form (the form is moot once
-            // the agent is gone).
-            windowManager.setOpenResponseRequest(form, for: "%5")
-            #expect(windowManager.endAgentSession(forPane: "%5") == true)
-            #expect(windowManager.openResponseRequests.isEmpty)
-        }
-
-        @Test("a working tick drops a retained form so the snapshot can't resurrect it")
-        func workingStatusClearsRetainedForm() {
-            let windowManager = makeWindowManager()
-
-            windowManager.applyPluginStatus(
-                pluginID: "claude-code",
-                sessionID: "s1",
-                working: false,
-                attention: true,
-                tmuxPane: "%5",
-                projectPath: "/tmp/p"
-            )
-            windowManager.setOpenResponseRequest(
-                PaneOpenResponseRequest(
-                    sessionId: "%5",
-                    pluginId: "claude-code",
-                    requestId: "%5:r1",
-                    request: .prompt(PromptRequest(title: "Reply"))
-                ),
-                for: "%5"
-            )
-            #expect(windowManager.openResponseRequests.count == 1)
-
-            // The agent advances (working, no new form) — the retained form is
-            // dropped, matching iOS's working-clears-form rule.
-            windowManager.applyPluginStatus(
-                pluginID: "claude-code",
-                sessionID: "s1",
-                working: true,
-                attention: false,
-                tmuxPane: "%5",
-                projectPath: nil
-            )
-            #expect(windowManager.openResponseRequests.isEmpty)
-        }
-
-        @Test("a SessionEnd envelope (working=false + .sessionEnded) clears the session → terminal glyph")
+        @Test("a SessionEnd envelope (working state + .sessionEnded) clears the session → terminal glyph")
         func sessionEndClearsSessionEndToEnd() async {
             let windowManager = makeWindowManager()
-            let dispatcher = makeStatusAndAppActionDispatcher(windowManager)
+            let dispatcher = makeStateAndAppActionDispatcher(windowManager)
 
             // A live session exists on the pane.
-            windowManager.applyPluginStatus(
+            windowManager.applyState(
                 pluginID: "claude-code",
                 sessionID: "s1",
-                working: true,
-                attention: false,
+                state: .working,
                 tmuxPane: "%5",
                 projectPath: "/tmp/p"
             )
             #expect(windowManager.paneStates["%5"]?.agentSession != nil)
 
-            // The real SessionEnd envelope: status working=false (idle) carried in
-            // the SAME event as the `.sessionEnded` app action. Status fans out
-            // before app actions, so the appAction's clear must be the last write.
+            // The real SessionEnd envelope: SessionEnd carries no state opinion
+            // (working=false → nil), so this models the trailing tick that arrives
+            // with the `.sessionEnded` app action. The appAction's clear is the
+            // last write, so the session is removed.
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "claude-code",
                 sessionID: "s1",
-                working: false,
                 appActions: [.sessionEnded(sessionID: "%5", closePaneEligible: false)],
                 tmuxPane: "%5"
             ))
@@ -391,14 +329,13 @@
             #expect(!windowManager.activeSessionPaneIds.contains("%5"))
         }
 
-        @Test("status with no tmuxPane is dropped")
-        func applyPluginStatusNoPaneDropped() {
+        @Test("state with no tmuxPane is dropped")
+        func applyStateNoPaneDropped() {
             let windowManager = makeWindowManager()
-            windowManager.applyPluginStatus(
+            windowManager.applyState(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: true,
-                attention: false,
+                state: .working,
                 tmuxPane: nil,
                 projectPath: nil
             )
@@ -424,8 +361,8 @@
             let fd = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
             defer { close(fd) }
 
-            // Drive a working=true status onto pane %9 via the socket.
-            let directive = EchoDirective(sessionID: "sess-9", working: true, attention: true)
+            // Drive a doneWorking state onto pane %9 via the socket.
+            let directive = EchoDirective(sessionID: "sess-9", state: .doneWorking(summary: "done"))
             let payload = try JSONEncoder().encode(directive)
             let frame = IngressFrame(
                 pluginID: EchoPluginCore.pluginID,
@@ -436,9 +373,10 @@
 
             let state = await waitForSession(windowManager, paneId: "%9")
             #expect(state?.agentSession != nil)
-            // working=true + attention=true → both status Bools set on the session.
-            #expect(state?.agentSession?.isWorking == true)
+            // doneWorking → isWorking false, needsAttention true (derived).
+            #expect(state?.agentSession?.isWorking == false)
             #expect(state?.agentSession?.needsAttention == true)
+            #expect(state?.agentSession?.state == .doneWorking(summary: "done"))
 
             await server.stop()
         }

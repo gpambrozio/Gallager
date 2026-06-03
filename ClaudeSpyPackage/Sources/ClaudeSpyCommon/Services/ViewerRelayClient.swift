@@ -140,11 +140,8 @@ final public class ViewerRelayClient {
 
     // MARK: - Callbacks
 
-    /// Called when a per-session working/attention status update arrives.
+    /// Called when a per-session state update arrives (carries the open form).
     public var onAgentSessionStatus: (@Sendable (AgentSessionStatusMessage) -> Void)?
-
-    /// Called when the host opens (or retracts, with `request == nil`) a response form.
-    public var onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)?
 
     /// Called when the host pushes the complete enabled-plugin presentation set.
     public var onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)?
@@ -688,10 +685,6 @@ final public class ViewerRelayClient {
         case let .agentSessionStatus(status):
             logger.trace("Received agent session status from host")
             onAgentSessionStatus?(status)
-
-        case let .agentResponseRequest(request):
-            logger.info("Received agent response request from host")
-            onAgentResponseRequest?(request)
 
         case let .pluginPresentations(presentations):
             logger.info("Received plugin presentations from host")

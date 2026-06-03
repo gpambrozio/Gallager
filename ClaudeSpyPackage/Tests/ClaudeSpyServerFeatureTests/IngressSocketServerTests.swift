@@ -26,12 +26,11 @@
 
         private func makeDispatcher(_ collector: EventCollector) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onStatus: { pluginID, sessionID, working, attention, _, tmuxPane, projectPath in
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
                     await collector.record(PluginEvent(
                         pluginID: pluginID,
                         sessionID: sessionID,
-                        working: working,
-                        attention: attention,
+                        state: state,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     ))
@@ -118,7 +117,7 @@
             let fd = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
             defer { close(fd) }
 
-            let directive = EchoDirective(sessionID: "sess-1", working: true)
+            let directive = EchoDirective(sessionID: "sess-1", state: .working)
             let frameData = try echoFrameData(directive: directive, context: ["TMUX_PANE": "%1"])
             #expect(writeAll(fd, frameData))
 
@@ -127,7 +126,7 @@
             let event = try #require(events.first)
             #expect(event.pluginID == EchoPluginCore.pluginID)
             #expect(event.sessionID == "sess-1")
-            #expect(event.working == true)
+            #expect(event.state == .working)
             // tmuxPane bootstrapped from the frame context (echo falls back to it).
             #expect(event.tmuxPane == "%1")
 
@@ -160,14 +159,14 @@
             #expect(writeAll(fd, malformed))
 
             // 2) A good frame on the same connection should still land.
-            let directive = EchoDirective(sessionID: "sess-2", working: false, attention: true)
+            let directive = EchoDirective(sessionID: "sess-2", state: .doneWorking(summary: nil))
             let good = try echoFrameData(directive: directive, context: ["TMUX_PANE": "%2"])
             #expect(writeAll(fd, good))
 
             let events = await waitForEvents(collector, atLeast: 1)
             #expect(events.count == 1)
             #expect(events.first?.sessionID == "sess-2")
-            #expect(events.first?.attention == true)
+            #expect(events.first?.state?.needsAttention == true)
 
             await server.stop()
         }
@@ -191,14 +190,14 @@
             defer { close(fd) }
 
             // Frame for a plugin the lookup doesn't know.
-            let payload = try JSONEncoder().encode(EchoDirective(sessionID: "x", working: true))
+            let payload = try JSONEncoder().encode(EchoDirective(sessionID: "x", state: .working))
             let ghost = IngressFrame(pluginID: "ghost", context: [:], payload: payload)
             #expect(try writeAll(fd, ghost.encodeFrame()))
 
             // Follow with a known-good echo frame to prove the socket is still alive
             // and to give the collector something to wait on deterministically.
             let good = try echoFrameData(
-                directive: EchoDirective(sessionID: "sess-known", working: true),
+                directive: EchoDirective(sessionID: "sess-known", state: .working),
                 context: [:]
             )
             #expect(writeAll(fd, good))
@@ -229,7 +228,7 @@
             let fdA = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
             defer { close(fdA) }
             let frameA = try echoFrameData(
-                directive: EchoDirective(sessionID: "A", working: true, tmuxPane: "%1", delayMs: 400),
+                directive: EchoDirective(sessionID: "A", state: .working, tmuxPane: "%1", delayMs: 400),
                 context: [:]
             )
             #expect(writeAll(fdA, frameA))
@@ -243,7 +242,7 @@
             let fdB = try #require(connectClient(to: path, deadline: Date().addingTimeInterval(5)))
             defer { close(fdB) }
             let frameB = try echoFrameData(
-                directive: EchoDirective(sessionID: "B", working: true, tmuxPane: "%2", delayMs: 0),
+                directive: EchoDirective(sessionID: "B", state: .working, tmuxPane: "%2", delayMs: 0),
                 context: [:]
             )
             #expect(writeAll(fdB, frameB))

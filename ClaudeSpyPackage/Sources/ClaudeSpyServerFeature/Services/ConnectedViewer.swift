@@ -282,15 +282,15 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Sending Messages
 
-    /// Send a high-frequency per-session working/attention badge update to this
-    /// viewer (encrypted, spec §7.2).
+    /// Send a high-frequency per-session state update to this viewer (encrypted,
+    /// spec §7.2). The `AgentState` carries the open response form, so this is the
+    /// single per-session push.
     public func sendAgentSessionStatus(
         sessionId: String,
         pluginId: String,
-        working: Bool,
-        attention: Bool
+        state: AgentState
     ) async {
-        guard state.isConnected else {
+        guard self.state.isConnected else {
             logger.debug("Not connected to \(viewerName), cannot send agent session status")
             return
         }
@@ -299,8 +299,7 @@ final public class ConnectedViewer: Identifiable {
                 pairId: id,
                 sessionId: sessionId,
                 pluginId: pluginId,
-                working: working,
-                attention: attention,
+                state: state,
                 timestamp: Date()
             )
         )
@@ -461,33 +460,6 @@ final public class ConnectedViewer: Identifiable {
         let sessionState = await onSessionStateRequest().withPairId(id)
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
-    }
-
-    /// Open or retract an iOS response form for a plugin (encrypted). A non-nil
-    /// `request` opens the form; `request == nil` retracts the open form with
-    /// `requestId`. Mirrors `sendHookEvent`/`pushSessionState`: E2EE, ordered on
-    /// the same serial send chain.
-    public func sendAgentResponseRequest(
-        sessionId: String,
-        pluginId: String,
-        requestId: String,
-        request: AgentResponseRequest?
-    ) async {
-        guard state.isConnected else {
-            logger.debug("Not connected to \(viewerName), cannot send agent response request")
-            return
-        }
-
-        let message = WebSocketMessage.agentResponseRequest(
-            AgentResponseRequestMessage(
-                pairId: id,
-                sessionId: sessionId,
-                pluginId: pluginId,
-                requestId: requestId,
-                request: request
-            )
-        )
-        await sendEncrypted(message)
     }
 
     /// Push the complete enabled-plugin presentation set to this viewer

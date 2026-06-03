@@ -49,8 +49,8 @@ enum CodexTranslator {
     /// The result of translating one ingress frame.
     struct Output: Equatable {
         var event: PluginEvent
-        /// Context to retain under `event.responseRequest?.requestID`, if the
-        /// event opened a form. `nil` when no form (or a retraction).
+        /// Context to retain under the `awaiting*` state's `requestID`, if the
+        /// event opened a form. `nil` when no form.
         var pending: PendingRequest?
     }
 
@@ -80,15 +80,11 @@ enum CodexTranslator {
             tmuxPane: tmuxPane
         )
 
-        let working = hookEvent.isWorking
-        let attention = hookEvent.wouldTriggerNotification(
-            agentDisplayName: Self.agentDisplayName,
-            agentShortName: Self.agentShortName
-        )
         let notification = Self.notification(for: hookEvent)
-        let (responseRequest, pending) = Self.responseRequest(
+        let (state, pending) = Self.state(
             for: action,
-            sessionID: sessionID
+            sessionID: sessionID,
+            hookEvent: hookEvent
         )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
@@ -102,10 +98,8 @@ enum CodexTranslator {
         // Drop frames that produce no state change at all, so the dispatcher
         // no-ops (spec §5 — `handleIngress` returns nil for log-and-ignore).
         if
-            working == nil,
-            !attention,
+            state == nil,
             notification == nil,
-            responseRequest == nil,
             appActions.isEmpty {
             return nil
         }
@@ -113,10 +107,8 @@ enum CodexTranslator {
         let event = PluginEvent(
             pluginID: pluginID,
             sessionID: sessionID,
-            working: working,
-            attention: attention,
+            state: state,
             notification: notification,
-            responseRequest: responseRequest,
             appActions: appActions,
             tmuxPane: tmuxPane,
             projectPath: projectPath
@@ -185,38 +177,54 @@ enum CodexTranslator {
         return NotificationSpec(title: title, body: body)
     }
 
-    // MARK: - Response form selection
+    // MARK: - State selection
 
-    /// Which of the five contract forms (if any) an event opens, and the
-    /// `PendingRequest` to retain for delivery. Identical to the Claude core's.
+    /// Maps one hook into the session's `AgentState` (spec §"Translator mapping")
+    /// and the `PendingRequest` to retain for an opened form. Identical to the
+    /// Claude core's rule (Codex shares `HookAction` and `HookEvent.isWorking`).
+    /// Priority order: blocking forms (permission / question / plan) win; then
+    /// Stop / StopFailure → `.doneWorking`; SessionStart → `.idle`; otherwise the
+    /// working bit (`true → .working`, `false`/`nil → nil` "no opinion").
     ///
     /// `requestID` is stable per (session, event) so a Mac-side answer and an iOS
-    /// answer can't double-fire: `"\(sessionID):\(eventName)"`.
-    private static func responseRequest(
+    /// answer can't double-fire: `"\(sessionID):\(eventName):\(timestamp)"`.
+    private static func state(
         for action: HookAction,
-        sessionID: String
-    ) -> (ResponseRequestPayload?, PendingRequest?) {
+        sessionID: String,
+        hookEvent: HookEvent
+    ) -> (AgentState?, PendingRequest?) {
         switch action {
-        case .sessionStart:
-            // Offer a free-text prompt on sessionStart.
-            let request = AgentResponseRequest.prompt(
-                PromptRequest(title: "Send a message to Codex", placeholder: "Send a message to Codex")
-            )
-            return (payload(action: action, sessionID: sessionID, request: request), .prompt)
+        case let .permissionRequest(body):
+            let id = requestID(sessionID: sessionID, action: action)
+            switch body.toolInput {
+            case let .askUserQuestion(params):
+                return (
+                    .awaitingReplies(askUserQuestionRequest(from: params), requestID: id),
+                    .askUserQuestion(params)
+                )
+
+            case let .exitPlanMode(params):
+                let plan = ApprovePlanRequest(
+                    title: "Plan Approval",
+                    plan: params.plan ?? "",
+                    // iOS sends "3" to approve / Escape to reject — it never
+                    // submits an edited plan.
+                    allowsEdit: false
+                )
+                return (.awaitingPlanApproval(plan, requestID: id), .approvePlan)
+
+            default:
+                return (.awaitingPermission(permissionRequest(from: body), requestID: id), .permission)
+            }
 
         case let .stop(body):
-            // Summary (last assistant message) + a prompt to reply or interrupt.
-            let request = AgentResponseRequest.replyAfterStop(
-                ReplyAfterStopRequest(
-                    title: "Codex is waiting",
-                    summary: body.lastAssistantMessage,
-                    placeholder: "Reply to Codex"
-                )
-            )
-            return (payload(action: action, sessionID: sessionID, request: request), .replyAfterStop)
+            return (.doneWorking(summary: body.lastAssistantMessage), nil)
 
-        case let .permissionRequest(body):
-            return permissionResponseRequest(body: body, action: action, sessionID: sessionID)
+        case let .stopFailure(body):
+            return (.doneWorking(summary: body.errorType), nil)
+
+        case .sessionStart:
+            return (.idle, nil)
 
         case .setup,
              .sessionEnd,
@@ -228,7 +236,6 @@ enum CodexTranslator {
              .notification,
              .userPromptSubmit,
              .userPromptExpansion,
-             .stopFailure,
              .subagentStart,
              .subagentStop,
              .teammateIdle,
@@ -245,41 +252,7 @@ enum CodexTranslator {
              .worktreeCreate,
              .worktreeRemove,
              .unknown:
-            return (nil, nil)
-        }
-    }
-
-    /// Permission requests fork into three forms by tool input, matching the
-    /// Claude core: AskUserQuestion, ExitPlanMode plan approval, or a plain
-    /// permission prompt.
-    private static func permissionResponseRequest(
-        body: PermissionRequestBody,
-        action: HookAction,
-        sessionID: String
-    ) -> (ResponseRequestPayload?, PendingRequest?) {
-        switch body.toolInput {
-        case let .askUserQuestion(params):
-            let request = AgentResponseRequest.askUserQuestion(askUserQuestionRequest(from: params))
-            return (
-                payload(action: action, sessionID: sessionID, request: request),
-                .askUserQuestion(params)
-            )
-
-        case let .exitPlanMode(params):
-            let request = AgentResponseRequest.approvePlan(
-                ApprovePlanRequest(
-                    title: "Plan Approval",
-                    plan: params.plan ?? "",
-                    // iOS sends "3" to approve / Escape to reject — it never
-                    // submits an edited plan.
-                    allowsEdit: false
-                )
-            )
-            return (payload(action: action, sessionID: sessionID, request: request), .approvePlan)
-
-        default:
-            let request = AgentResponseRequest.permission(permissionRequest(from: body))
-            return (payload(action: action, sessionID: sessionID, request: request), .permission)
+            return (hookEvent.isWorking == true ? .working : nil, nil)
         }
     }
 
@@ -336,14 +309,6 @@ enum CodexTranslator {
             )
         }
         return AskUserQuestionRequest(questions: questions)
-    }
-
-    private static func payload(
-        action: HookAction,
-        sessionID: String,
-        request: AgentResponseRequest
-    ) -> ResponseRequestPayload {
-        ResponseRequestPayload(requestID: requestID(sessionID: sessionID, action: action), request: request)
     }
 
     /// Stable, occurrence-unique request id: `"\(sessionID):\(eventName):\(timestamp)"`.

@@ -97,11 +97,9 @@ public enum WebSocketMessage: Codable, Sendable {
 
     // MARK: - Plugin system (agent-blind)
 
-    /// Host pushes a per-session working/attention badge update (high-frequency).
+    /// Host pushes a per-session state update (high-frequency). Carries the
+    /// `AgentState`, including the open response form.
     case agentSessionStatus(AgentSessionStatusMessage)
-
-    /// Host opens (or, with `request == nil`, retracts) an iOS response form.
-    case agentResponseRequest(AgentResponseRequestMessage)
 
     /// Viewer submits a structured response for a previously-emitted request.
     case agentResponseSubmission(AgentResponseSubmissionMessage)
@@ -192,7 +190,6 @@ public extension WebSocketMessage {
         case encrypted
         case encryptedPush
         case agentSessionStatus
-        case agentResponseRequest
         case agentResponseSubmission
         case pluginPresentations
         case agentNotification
@@ -266,9 +263,6 @@ public extension WebSocketMessage {
         case .agentSessionStatus:
             let payload = try container.decode(AgentSessionStatusMessage.self, forKey: .payload)
             self = .agentSessionStatus(payload)
-        case .agentResponseRequest:
-            let payload = try container.decode(AgentResponseRequestMessage.self, forKey: .payload)
-            self = .agentResponseRequest(payload)
         case .agentResponseSubmission:
             let payload = try container.decode(AgentResponseSubmissionMessage.self, forKey: .payload)
             self = .agentResponseSubmission(payload)
@@ -348,9 +342,6 @@ public extension WebSocketMessage {
         case let .agentSessionStatus(payload):
             try container.encode(MessageType.agentSessionStatus, forKey: .type)
             try container.encode(payload, forKey: .payload)
-        case let .agentResponseRequest(payload):
-            try container.encode(MessageType.agentResponseRequest, forKey: .type)
-            try container.encode(payload, forKey: .payload)
         case let .agentResponseSubmission(payload):
             try container.encode(MessageType.agentResponseSubmission, forKey: .type)
             try container.encode(payload, forKey: .payload)
@@ -389,7 +380,6 @@ public extension WebSocketMessage {
         case .encrypted: MessageType.encrypted.rawValue
         case .encryptedPush: MessageType.encryptedPush.rawValue
         case .agentSessionStatus: MessageType.agentSessionStatus.rawValue
-        case .agentResponseRequest: MessageType.agentResponseRequest.rawValue
         case .agentResponseSubmission: MessageType.agentResponseSubmission.rawValue
         case .pluginPresentations: MessageType.pluginPresentations.rawValue
         case .agentNotification: MessageType.agentNotification.rawValue
@@ -409,7 +399,6 @@ public extension WebSocketMessage {
              .terminalStream,
              .peerHello,
              .agentSessionStatus,
-             .agentResponseRequest,
              .agentResponseSubmission,
              .pluginPresentations,
              .agentNotification:

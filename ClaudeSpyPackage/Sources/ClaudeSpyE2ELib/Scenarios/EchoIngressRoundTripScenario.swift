@@ -22,15 +22,15 @@ public enum EchoIngressRoundTripScenario {
         ClaudeSessionsShowScenario.scenario
 
         // 1. Drive the echo core: bind pane 1 to an echo session that needs
-        //    attention, with a project path the sidebar renders as "EchoLab".
-        //    `working`/`attention`/`projectPath` map straight onto the PluginEvent.
+        //    attention, with a project path the sidebar renders as "EchoLab". The
+        //    `state` (a `doneWorking` AgentState here) maps straight onto the
+        //    PluginEvent; `doneWorking` derives `needsAttention == true`.
         TestStep.macSendHookEvent(
             pluginID: "echo",
             json: """
             {
                 "sessionID": "e2e-echo-session-1",
-                "working": false,
-                "attention": true,
+                "state": { "doneWorking": { "summary": null } },
                 "projectPath": "/Users/test/EchoLab"
             }
             """,
@@ -50,8 +50,7 @@ public enum EchoIngressRoundTripScenario {
             json: """
             {
                 "sessionID": "e2e-echo-session-1",
-                "working": true,
-                "attention": false,
+                "state": { "working": {} },
                 "projectPath": "/Users/test/EchoLab"
             }
             """,

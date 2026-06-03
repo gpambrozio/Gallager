@@ -537,23 +537,25 @@ struct AgentProjectTests {
 
 @Suite("AgentSession Cross-Version Decoding")
 struct AgentSessionCrossVersionTests {
-    @Test("Decodes AgentSession with status Bools")
+    @Test("Round-trips an AgentSession carrying its AgentState")
     func decodesAgentSession() throws {
-        let json = """
-        {
-            "paneId": "%0",
-            "pluginID": "claude-code",
-            "detectedProjectPath": "/Users/test/Proj",
-            "isWorking": true,
-            "needsAttention": false
-        }
-        """
+        // The state enum's JSON shape is synthesized, so encode a real session
+        // rather than hand-writing it, then confirm the derived bits.
+        let original = AgentSession(
+            paneId: "%0",
+            pluginID: "claude-code",
+            detectedProjectPath: "/Users/test/Proj",
+            state: .working
+        )
 
-        let decoded = try JSONDecoder().decode(AgentSession.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(
+            AgentSession.self, from: JSONEncoder().encode(original)
+        )
 
         #expect(decoded.paneId == "%0")
         #expect(decoded.pluginID == "claude-code")
         #expect(decoded.detectedProjectPath == "/Users/test/Proj")
+        #expect(decoded.state == .working)
         #expect(decoded.isWorking == true)
         #expect(decoded.needsAttention == false)
     }

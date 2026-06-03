@@ -172,7 +172,7 @@ struct ClaudeCodeKeystrokesTests {
             payload: Data(json.utf8)
         )
         let event = try #require(await core.handleIngress(frame))
-        let requestID = try #require(event.responseRequest?.requestID)
+        let requestID = try #require(event.state?.openForm?.requestID)
 
         // Answer: choose "Cherry" (index 2).
         await core.deliverResponse(
@@ -215,7 +215,7 @@ struct ClaudeCodeKeystrokesTests {
             payload: Data(json.utf8)
         )
         let event = try #require(await core.handleIngress(frame))
-        let requestID = try #require(event.responseRequest?.requestID)
+        let requestID = try #require(event.state?.openForm?.requestID)
 
         await core.deliverResponse(
             sessionID: "sess-aq3", requestID: requestID,

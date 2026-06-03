@@ -127,14 +127,13 @@ public actor CodexPluginCore: PluginCore {
             return nil
         }
 
-        // Retain (or retract) the per-request context keyed by requestID so a
-        // later `deliverResponse` can build the right keystrokes.
-        if let payload = output.event.responseRequest {
-            if payload.request == nil {
-                pendingRequests.removeValue(forKey: payload.requestID)
-            } else {
-                pendingRequests[payload.requestID] = output.pending
-            }
+        // Retain the per-request context keyed by requestID so a later
+        // `deliverResponse` can build the right keystrokes. The open form rides
+        // the state's `awaiting*` case; `deliverResponse` clears the entry once
+        // answered (a non-awaiting state simply opens no form, so nothing to
+        // retract here).
+        if let form = output.event.state?.openForm, let pending = output.pending {
+            pendingRequests[form.requestID] = pending
         }
 
         return output.event

@@ -2,29 +2,27 @@ import Foundation
 
 // MARK: - Plugin wire messages (Mac ↔ iOS)
 
-/// High-frequency session-status badge update (spec §7.2). No tool name, no
-/// card — just the working/attention bits for a session, tagged by plugin.
+/// High-frequency session-status update (spec §7.2). Carries the session's
+/// `AgentState`, tagged by plugin — including the open response form (a permission
+/// fires ONE message, not a status plus a separate form message).
 public struct AgentSessionStatusMessage: Codable, Sendable, Equatable {
     public let pairId: String
     public let sessionId: String
     public let pluginId: String
-    public let working: Bool
-    public let attention: Bool
+    public let state: AgentState
     public let timestamp: Date
 
     public init(
         pairId: String,
         sessionId: String,
         pluginId: String,
-        working: Bool,
-        attention: Bool,
+        state: AgentState,
         timestamp: Date
     ) {
         self.pairId = pairId
         self.sessionId = sessionId
         self.pluginId = pluginId
-        self.working = working
-        self.attention = attention
+        self.state = state
         self.timestamp = timestamp
     }
 
@@ -34,43 +32,8 @@ public struct AgentSessionStatusMessage: Codable, Sendable, Equatable {
             pairId: pairId,
             sessionId: sessionId,
             pluginId: pluginId,
-            working: working,
-            attention: attention,
+            state: state,
             timestamp: timestamp
-        )
-    }
-}
-
-/// Open or retract an iOS response form. `request == nil` retracts the open form
-/// with `requestId` (spec §7.2).
-public struct AgentResponseRequestMessage: Codable, Sendable, Equatable {
-    public let pairId: String
-    public let sessionId: String
-    public let pluginId: String
-    public let requestId: String
-    public let request: AgentResponseRequest?
-
-    public init(
-        pairId: String,
-        sessionId: String,
-        pluginId: String,
-        requestId: String,
-        request: AgentResponseRequest?
-    ) {
-        self.pairId = pairId
-        self.sessionId = sessionId
-        self.pluginId = pluginId
-        self.requestId = requestId
-        self.request = request
-    }
-
-    public func withPairId(_ pairId: String) -> AgentResponseRequestMessage {
-        AgentResponseRequestMessage(
-            pairId: pairId,
-            sessionId: sessionId,
-            pluginId: pluginId,
-            requestId: requestId,
-            request: request
         )
     }
 }

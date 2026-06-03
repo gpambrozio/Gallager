@@ -31,11 +31,8 @@ final public class ViewerConnectionManager {
 
     // MARK: - Public Callbacks
 
-    /// Called when a per-session status update is received from any host
+    /// Called when a per-session state update is received from any host
     public var onAgentSessionStatus: ((AgentSessionStatusMessage) -> Void)?
-
-    /// Called when a response form is opened/retracted by any host
-    public var onAgentResponseRequest: ((AgentResponseRequestMessage) -> Void)?
 
     /// Called when a host pushes its plugin presentation set
     public var onPluginPresentations: ((PluginPresentationsMessage) -> Void)?
@@ -328,11 +325,6 @@ final public class ViewerConnectionManager {
             onAgentSessionStatus: { [weak self] status in
                 Task { @MainActor [weak self] in
                     self?.onAgentSessionStatus?(status)
-                }
-            },
-            onAgentResponseRequest: { [weak self] request in
-                Task { @MainActor [weak self] in
-                    self?.onAgentResponseRequest?(request)
                 }
             },
             onPluginPresentations: { [weak self] presentations in

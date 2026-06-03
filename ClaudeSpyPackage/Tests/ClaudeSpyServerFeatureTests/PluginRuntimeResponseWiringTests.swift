@@ -5,102 +5,90 @@
     import Testing
     @testable import ClaudeSpyServerFeature
 
-    /// Proves the Mac↔iOS response-request wiring that
+    /// Proves the Mac↔iOS response wiring that
     /// `AppCoordinator.setupPluginRuntime()` / `setupConnectedViewerManager()`
     /// install:
     ///
-    /// 1. A `PluginEvent.responseRequest` fanned out by the dispatcher's
-    ///    `onOpenResponseRequest` / `onRetractResponseRequest` sinks reaches the
-    ///    coordinator's `connectedViewerManager.sendAgentResponseRequestToAll`
-    ///    forward (open carries the request; retract carries `nil`).
+    /// 1. An `awaiting*` `PluginEvent.state` reaches the dispatcher's single
+    ///    `onState` sink (which the coordinator wires to `applyState` + the
+    ///    `agent_session_status` forward, so the open form rides the snapshot).
+    ///    An auto-approvable permission on a yolo pane instead reaches
+    ///    `onAutoApprove` and the session is kept `.working`.
     /// 2. An inbound `AgentResponseSubmissionMessage` routes through the manager
     ///    callback into the owning core's `deliverResponse(sessionID:requestID:_:)`,
     ///    which drives delivery back to the host agent.
-    ///
-    /// Both use the exact closure shapes the coordinator wires, with recording
-    /// stand-ins for the WebSocket send / host agent (`ConnectedViewer` itself
-    /// needs a live relay + E2EE, so it isn't unit-testable in isolation).
     @Suite("PluginRuntimeResponseWiring")
     struct PluginRuntimeResponseWiringTests {
-        // MARK: - Open / retract → iOS forward
+        // MARK: - State / auto-approve sinks
 
-        /// Stands in for `ConnectedViewerManager.sendAgentResponseRequestToAll`:
-        /// records every (sessionId, pluginId, requestId, request) the dispatcher
-        /// sinks would push to viewers. `request == nil` is a retract.
-        private actor SendRecorder {
-            struct Sent: Equatable {
-                let sessionId: String
-                let pluginId: String
-                let requestId: String
-                let request: AgentResponseRequest?
+        /// Records the (sessionID, state) every `onState` fan-out and the
+        /// (sessionID, requestID) of every `onAutoApprove` so a test can assert
+        /// the single-sink + yolo path.
+        private actor StateRecorder {
+            private(set) var states: [(sid: String, state: AgentState)] = []
+            private(set) var approvals: [(sid: String, rid: String)] = []
+
+            func recordState(_ sid: String, _ state: AgentState) {
+                states.append((sid, state))
             }
 
-            private(set) var sent: [Sent] = []
+            func recordApproval(_ sid: String, _ rid: String) {
+                approvals.append((sid, rid))
+            }
 
-            func record(_ item: Sent) {
-                sent.append(item)
+            func lastState(for sid: String) -> AgentState? {
+                states.last(where: { $0.sid == sid })?.state
             }
         }
 
-        /// The dispatcher wired exactly as the coordinator wires its
-        /// open/retract sinks — but the iOS forward is the recorder's
-        /// `record(...)` (which is what `sendAgentResponseRequestToAll` does on
-        /// the wire). Mirrors `setupPluginRuntime()`'s closure shape, including
-        /// the `request: nil` retract.
-        private func makeDispatcher(_ recorder: SendRecorder) -> PluginEventDispatcher {
+        private func makeDispatcher(_ recorder: StateRecorder, yolo: Bool) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onOpenResponseRequest: { pluginID, sessionID, requestID, request in
-                    await recorder.record(.init(
-                        sessionId: sessionID,
-                        pluginId: pluginID,
-                        requestId: requestID,
-                        request: request
-                    ))
-                },
-                onRetractResponseRequest: { pluginID, sessionID, requestID in
-                    await recorder.record(.init(
-                        sessionId: sessionID,
-                        pluginId: pluginID,
-                        requestId: requestID,
-                        request: nil
-                    ))
-                }
+                onState: { _, sid, state, _, _ in await recorder.recordState(sid, state) },
+                onAutoApprove: { _, sid, rid in await recorder.recordApproval(sid, rid) },
+                isYoloModeEnabled: { _ in yolo }
             )
         }
 
-        @Test("a responseRequest with a request forwards an open to viewers")
-        func openResponseRequestForwards() async {
-            let recorder = SendRecorder()
-            let dispatcher = makeDispatcher(recorder)
+        @Test("an awaiting state reaches onState")
+        func awaitingStateReachesOnState() async {
+            let recorder = StateRecorder()
+            let dispatcher = makeDispatcher(recorder, yolo: false)
 
-            let request = AgentResponseRequest.prompt(PromptRequest(title: "Ask"))
+            let state = AgentState.awaitingReplies(
+                AskUserQuestionRequest(questions: []), requestID: "r1"
+            )
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "echo",
                 sessionID: "s1",
-                responseRequest: ResponseRequestPayload(requestID: "r1", request: request)
+                state: state,
+                tmuxPane: "%1"
             ))
 
-            let sent = await recorder.sent
-            #expect(sent == [
-                .init(sessionId: "s1", pluginId: "echo", requestId: "r1", request: request),
-            ])
+            #expect(await recorder.lastState(for: "s1") == state)
+            #expect(await recorder.approvals.isEmpty)
         }
 
-        @Test("a responseRequest with nil request forwards a retract (request == nil)")
-        func retractResponseRequestForwards() async {
-            let recorder = SendRecorder()
-            let dispatcher = makeDispatcher(recorder)
+        @Test("a yolo permission auto-approves and stays working")
+        func yoloPermissionAutoApprovesStaysWorking() async {
+            let recorder = StateRecorder()
+            let dispatcher = makeDispatcher(recorder, yolo: true)
 
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "echo",
                 sessionID: "s1",
-                responseRequest: ResponseRequestPayload(requestID: "r1", request: nil)
+                state: .awaitingPermission(
+                    PermissionRequest(title: "Bash", description: "ls", isAutoApprovable: true),
+                    requestID: "r1"
+                ),
+                tmuxPane: "%1"
             ))
 
-            let sent = await recorder.sent
-            #expect(sent == [
-                .init(sessionId: "s1", pluginId: "echo", requestId: "r1", request: nil),
-            ])
+            // Auto-approve fired keyed by the pane; the session was kept working.
+            let approvals = await recorder.approvals
+            #expect(approvals.count == 1)
+            #expect(approvals.first?.sid == "%1")
+            #expect(approvals.first?.rid == "r1")
+            #expect(await recorder.lastState(for: "s1") == .working)
         }
 
         // MARK: - Inbound submission → core.deliverResponse

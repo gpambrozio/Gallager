@@ -93,9 +93,8 @@ final public class SessionDetailService {
             guard let self else { return }
 
             withObservationTracking {
-                // Observe both the session and the open response form for this pane.
+                // Observe the session; its `state` carries the open response form.
                 _ = self.sessionStore.session(for: self.paneId, hostId: self.hostId)
-                _ = self.sessionStore.openResponseRequest(for: self.paneId, hostId: self.hostId)
             } onChange: {
                 // Schedule update on main actor when store changes
                 Task { @MainActor [weak self] in
@@ -108,16 +107,19 @@ final public class SessionDetailService {
         }
     }
 
-    /// Updates response state based on the currently-open response form (if any)
-    /// for this pane (spec §5/§7.2).
+    /// Updates response state from the session's `state`, whose `awaiting*` cases
+    /// carry the open response form (spec §5/§7.2). A non-awaiting state has no
+    /// `openForm`, so the form is cleared.
     private func updateResponseState() {
-        if let open = sessionStore.openResponseRequest(for: paneId, hostId: hostId) {
+        let session = sessionStore.session(for: paneId, hostId: hostId)
+        if let open = session?.state.openForm {
             if open.requestID != lastProcessedRequestID {
                 lastProcessedRequestID = open.requestID
                 // Pass sessionStore so ResponseState can persist/restore responses.
+                // The pluginID comes from the session that owns the form.
                 responseState = ResponseState(
                     request: open.request,
-                    pluginID: open.pluginID,
+                    pluginID: session?.pluginID ?? "",
                     requestID: open.requestID,
                     sessionStore: sessionStore
                 )

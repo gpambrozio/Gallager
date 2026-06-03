@@ -158,8 +158,7 @@ final public class ViewerConnection: Identifiable {
     /// Configure callbacks for this connection.
     ///
     /// - Parameters:
-    ///   - onAgentSessionStatus: Called when a session status update arrives
-    ///   - onAgentResponseRequest: Called when a response form is opened/retracted
+    ///   - onAgentSessionStatus: Called when a session state update arrives
     ///   - onPluginPresentations: Called when the plugin presentation set arrives
     ///   - onAgentNotification: Called when a pre-baked notification arrives over the live socket
     ///   - onSessionState: Called when session state is received
@@ -168,7 +167,6 @@ final public class ViewerConnection: Identifiable {
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
         onAgentSessionStatus: (@Sendable (AgentSessionStatusMessage) -> Void)? = nil,
-        onAgentResponseRequest: (@Sendable (AgentResponseRequestMessage) -> Void)? = nil,
         onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)? = nil,
         onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
@@ -177,7 +175,6 @@ final public class ViewerConnection: Identifiable {
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
         relayClient.onAgentSessionStatus = onAgentSessionStatus
-        relayClient.onAgentResponseRequest = onAgentResponseRequest
         relayClient.onPluginPresentations = onPluginPresentations
         relayClient.onAgentNotification = onAgentNotification
         relayClient.onSessionState = onSessionState

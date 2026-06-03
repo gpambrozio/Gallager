@@ -5,23 +5,19 @@ import Foundation
 /// The single carrier for everything a plugin wants to change about app state.
 /// There is no second mechanism. A core returns one from `handleIngress` or
 /// pushes one via `host.emit`; a single dispatcher fans its fields out to the
-/// session-status, notification, response-request, and app-action sinks (spec §5).
+/// state, notification, and app-action sinks (spec §5).
 public struct PluginEvent: Codable, Sendable, Equatable {
     public let pluginID: String
     public let sessionID: String
 
-    /// Drives `AgentSession.isWorking`. `nil` means "no opinion, leave state
-    /// alone" (the event neither enters nor leaves the agent loop).
-    public let working: Bool?
-
-    /// Drives `AgentSession.needsAttention` for this event.
-    public let attention: Bool
+    /// The session's new state, or `nil` for "no opinion, leave it unchanged".
+    /// Replaces the former working/attention/responseRequest trio (spec §3); the
+    /// open response form, when any, rides the `awaiting*` cases. A `nil`-state
+    /// event still flows for its `notification` / `appActions`.
+    public let state: AgentState?
 
     /// A pre-baked Mac notification + iOS push (strings formatted by the core).
     public let notification: NotificationSpec?
-
-    /// Opens / retracts an iOS response form (see `ResponseRequestPayload`).
-    public let responseRequest: ResponseRequestPayload?
 
     /// Discrete agent-blind Mac-side triggers (markdown suggestion, pane close…).
     public let appActions: [AppAction]
@@ -35,20 +31,16 @@ public struct PluginEvent: Codable, Sendable, Equatable {
     public init(
         pluginID: String,
         sessionID: String,
-        working: Bool? = nil,
-        attention: Bool = false,
+        state: AgentState? = nil,
         notification: NotificationSpec? = nil,
-        responseRequest: ResponseRequestPayload? = nil,
         appActions: [AppAction] = [],
         tmuxPane: String? = nil,
         projectPath: String? = nil
     ) {
         self.pluginID = pluginID
         self.sessionID = sessionID
-        self.working = working
-        self.attention = attention
+        self.state = state
         self.notification = notification
-        self.responseRequest = responseRequest
         self.appActions = appActions
         self.tmuxPane = tmuxPane
         self.projectPath = projectPath
@@ -66,22 +58,6 @@ public struct NotificationSpec: Codable, Sendable, Equatable {
     public init(title: String, body: String) {
         self.title = title
         self.body = body
-    }
-}
-
-// MARK: - ResponseRequestPayload
-
-/// Open or retract an iOS response form for a `requestID`. The `request` is
-/// optional: non-`nil` opens the form, `nil` retracts it (the agent advanced on
-/// its own, or the user answered Mac-side first). This keeps retraction on the
-/// single envelope — there is no separate dismiss callback (spec §5).
-public struct ResponseRequestPayload: Codable, Sendable, Equatable {
-    public let requestID: String
-    public let request: AgentResponseRequest?
-
-    public init(requestID: String, request: AgentResponseRequest?) {
-        self.requestID = requestID
-        self.request = request
     }
 }
 

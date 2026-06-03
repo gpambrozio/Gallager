@@ -238,13 +238,12 @@ final public class ConnectedViewerManager {
 
     // MARK: - Broadcasting
 
-    /// Send a per-session working/attention status update to all connected
-    /// viewers (the high-frequency badge path — spec §7.2).
+    /// Send a per-session state update to all connected viewers (the
+    /// high-frequency path — spec §7.2). The `AgentState` carries the open form.
     public func sendAgentSessionStatusToAll(
         sessionId: String,
         pluginId: String,
-        working: Bool,
-        attention: Bool
+        state: AgentState
     ) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
@@ -252,8 +251,7 @@ final public class ConnectedViewerManager {
                     await connection.sendAgentSessionStatus(
                         sessionId: sessionId,
                         pluginId: pluginId,
-                        working: working,
-                        attention: attention
+                        state: state
                     )
                 }
             }
@@ -306,28 +304,6 @@ final public class ConnectedViewerManager {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
                 group.addTask { await connection.sendBadgeUpdate(badge: badge) }
-            }
-        }
-    }
-
-    /// Open or retract an iOS response form on all connected viewers. A non-nil
-    /// `request` opens; `request == nil` retracts (spec §7.2).
-    public func sendAgentResponseRequestToAll(
-        sessionId: String,
-        pluginId: String,
-        requestId: String,
-        request: AgentResponseRequest?
-    ) async {
-        await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected {
-                group.addTask {
-                    await connection.sendAgentResponseRequest(
-                        sessionId: sessionId,
-                        pluginId: pluginId,
-                        requestId: requestId,
-                        request: request
-                    )
-                }
             }
         }
     }

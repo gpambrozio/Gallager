@@ -154,31 +154,24 @@ final public class SessionStore {
 
     // MARK: - State Management
 
-    /// Handle a per-session working/attention status update from a host (the
-    /// agent-blind plugin status message — replaces the old hook-event path).
+    /// Handle a per-session state update from a host (the agent-blind plugin
+    /// status message — replaces the old hook-event path). The `AgentState`
+    /// carries the open response form via its `awaiting*` cases, so moving to any
+    /// non-awaiting state retracts the form automatically.
     public func handleAgentStatus(_ status: AgentSessionStatusMessage) {
         let hostId = status.pairId
         let paneId = status.sessionId
         let key = PaneKey(pairId: hostId, paneId: paneId)
 
-        // Upsert the agent session within the pane state, setting the Bools.
+        // Upsert the agent session within the pane state, setting its state.
         var session = paneStates[key]?.agentSession ?? AgentSession(paneId: paneId, pluginID: status.pluginId)
         session.pluginID = status.pluginId
-        session.isWorking = status.working
-        session.needsAttention = status.attention
+        session.state = status.state
 
         if paneStates[key] != nil {
             paneStates[key]?.agentSession = session
         } else {
             paneStates[key] = PaneState(paneId: paneId, agentSession: session)
-        }
-
-        // When the agent becomes busy it has advanced past any pending response
-        // form for this pane (e.g. a yolo auto-approve handled Mac-side, or the
-        // agent moved on) — retract the now-stale form so it doesn't linger.
-        // A form means "agent waiting for input"; "working" means it no longer is.
-        if status.working == true {
-            openResponseRequests.removeValue(forKey: key)
         }
     }
 
@@ -203,24 +196,9 @@ final public class SessionStore {
         homeDirectoryByHost[hostId] = state.homeDirectory
         hostsWithReceivedState.insert(hostId)
 
-        // Reconcile this host's open response forms from the snapshot so a form
-        // that opened while we were disconnected (we missed its live push) still
-        // renders on connect — and one retracted while away disappears. The
-        // snapshot is authoritative for the host, exactly like `paneStates`
-        // above. `nil` means an older host that doesn't carry the field — leave
-        // open forms to the live `agent_response_request` channel instead of
-        // wiping them; an empty array is authoritative ("no forms open").
-        if let snapshotRequests = state.openResponseRequests {
-            var newOpenRequests = openResponseRequests.filter { $0.key.pairId != hostId }
-            for form in snapshotRequests {
-                newOpenRequests[PaneKey(pairId: hostId, paneId: form.sessionId)] = OpenResponseRequest(
-                    pluginID: form.pluginId,
-                    requestID: form.requestId,
-                    request: form.request
-                )
-            }
-            openResponseRequests = newOpenRequests
-        }
+        // Open response forms ride `AgentSession.state` inside `paneStates`, so a
+        // form that opened while we were disconnected is replayed for free as part
+        // of the snapshot above — no separate reconcile needed.
     }
 
     /// Clear all sessions and panes for a specific host
@@ -231,7 +209,6 @@ final public class SessionStore {
         agentProjectsByHost.removeValue(forKey: hostId)
         homeDirectoryByHost.removeValue(forKey: hostId)
         hostsWithReceivedState.remove(hostId)
-        openResponseRequests = openResponseRequests.filter { $0.key.pairId != hostId }
 
         logger.info("Cleared all sessions for host: \(hostId)")
     }
@@ -256,14 +233,12 @@ final public class SessionStore {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.yoloMode ?? false
     }
 
-    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag locally.
+    /// Marks a session as handled (user has seen it) locally. Only a finished
+    /// session (`doneWorking`) goes idle; an `awaiting*` form is owed an explicit
+    /// response so it survives viewing — the guard now lives inside
+    /// `AgentSession.markHandled`.
     public func markSessionHandled(paneId: String, hostId: String) {
         let key = PaneKey(pairId: hostId, paneId: paneId)
-        guard paneStates[key]?.agentSession?.needsAttention == true else { return }
-        // A blocking response form (permission / question / plan approval) requires
-        // an explicit response — merely viewing the session must not clear its
-        // attention. Optional affordances (prompt / reply-after-stop) still clear.
-        if openResponseRequests[key]?.request.isBlocking == true { return }
         paneStates[key]?.agentSession?.markHandled()
     }
 
@@ -281,46 +256,6 @@ final public class SessionStore {
     /// The presentation for a plugin id, if cached.
     public func presentation(forPluginID pluginID: String) -> PluginPresentation? {
         presentationsByPluginID[pluginID]
-    }
-
-    // MARK: - Response Requests
-
-    /// An open response form for a session, with the context needed to submit
-    /// the structured `AgentResponse` back to the host.
-    public struct OpenResponseRequest: Sendable, Equatable {
-        public let pluginID: String
-        public let requestID: String
-        public let request: AgentResponseRequest
-
-        public init(pluginID: String, requestID: String, request: AgentResponseRequest) {
-            self.pluginID = pluginID
-            self.requestID = requestID
-            self.request = request
-        }
-    }
-
-    /// The currently-open response form per session (keyed by `(pairId, sessionId)`).
-    /// Each `agent_response_request` push opens or retracts exactly one session's form.
-    public private(set) var openResponseRequests: [PaneKey: OpenResponseRequest] = [:]
-
-    /// Apply an `agent_response_request` message: open the form when `request` is
-    /// non-nil, retract it when `request == nil` (spec §5/§7.2).
-    public func handleAgentResponseRequest(_ message: AgentResponseRequestMessage) {
-        let key = PaneKey(pairId: message.pairId, paneId: message.sessionId)
-        if let request = message.request {
-            openResponseRequests[key] = OpenResponseRequest(
-                pluginID: message.pluginId,
-                requestID: message.requestId,
-                request: request
-            )
-        } else {
-            openResponseRequests.removeValue(forKey: key)
-        }
-    }
-
-    /// The open response form for a session, if any.
-    public func openResponseRequest(for paneId: String, hostId: String) -> OpenResponseRequest? {
-        openResponseRequests[PaneKey(pairId: hostId, paneId: paneId)]
     }
 
     // MARK: - Response Storage (iOS only)

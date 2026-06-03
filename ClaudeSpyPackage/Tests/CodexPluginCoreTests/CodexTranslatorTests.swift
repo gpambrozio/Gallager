@@ -86,7 +86,7 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(mainStop)))
-        #expect(event.working == false)
+        #expect(event.state == .doneWorking(summary: nil))
     }
 
     @Test("a top-level SubagentStop without agent_id never flips the session to working")
@@ -123,14 +123,15 @@ struct CodexTranslatorTests {
         let event = try #require(await core.handleIngress(frame(json)))
 
         #expect(event.sessionID == "sess-1")
-        #expect(event.working == true) // permissionRequest enters the agent loop
-        #expect(event.attention == true)
+        // A permission request awaits the user (needsAttention derives true).
+        #expect(event.state?.needsAttention == true)
+        #expect(event.state?.isActiveWorking == false)
         #expect(event.tmuxPane == "%1")
         #expect(event.projectPath == "/Users/test/MyProject")
 
-        let request = try #require(event.responseRequest?.request)
-        guard case let .permission(permission) = request else {
-            Issue.record("expected .permission, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .permission(permission) = form.request else {
+            Issue.record("expected .permission, got \(form.request)")
             return
         }
         #expect(permission.title == "Bash")
@@ -138,7 +139,7 @@ struct CodexTranslatorTests {
         #expect(permission.allowsCustomInstructions == true)
         #expect(permission.isAutoApprovable == true)
         // requestID is `<session>:<event>:<timestamp>`; this payload has no timestamp.
-        #expect(event.responseRequest?.requestID.hasPrefix("sess-1:PermissionRequest") == true)
+        #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
     }
 
     @Test("permissionRequest maps permission_suggestions to chips")
@@ -161,7 +162,7 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        guard case let .permission(permission)? = event.responseRequest?.request else {
+        guard case let .permission(permission)? = event.state?.openForm?.request else {
             Issue.record("expected .permission")
             return
         }
@@ -197,11 +198,11 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.attention == true)
+        #expect(event.state?.needsAttention == true)
 
-        let request = try #require(event.responseRequest?.request)
-        guard case let .askUserQuestion(aq) = request else {
-            Issue.record("expected .askUserQuestion, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .askUserQuestion(aq) = form.request else {
+            Issue.record("expected .askUserQuestion, got \(form.request)")
             return
         }
         #expect(aq.questions.count == 1)
@@ -256,9 +257,9 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        let request = try #require(event.responseRequest?.request)
-        guard case let .approvePlan(plan) = request else {
-            Issue.record("expected .approvePlan, got \(request)")
+        let form = try #require(event.state?.openForm)
+        guard case let .approvePlan(plan) = form.request else {
+            Issue.record("expected .approvePlan, got \(form.request)")
             return
         }
         #expect(plan.plan == "# My Plan\n1. Do the thing")
@@ -268,7 +269,7 @@ struct CodexTranslatorTests {
 
     // MARK: - Stop
 
-    @Test("stop leaves the loop, needs attention, and offers replyAfterStop")
+    @Test("stop leaves the loop and is doneWorking with the assistant message as summary")
     func stop() async throws {
         let (core, _) = try await makeCore()
         let json = """
@@ -279,16 +280,9 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.working == false)
-        #expect(event.attention == true)
-
-        let request = try #require(event.responseRequest?.request)
-        guard case let .replyAfterStop(reply) = request else {
-            Issue.record("expected .replyAfterStop, got \(request)")
-            return
-        }
-        #expect(reply.title == "Codex is waiting")
-        #expect(reply.summary == "All done with the refactor.")
+        #expect(event.state == .doneWorking(summary: "All done with the refactor."))
+        #expect(event.state?.needsAttention == true)
+        #expect(event.state?.isActiveWorking == false)
 
         let notification = try #require(event.notification)
         #expect(notification.body.contains("All done with the refactor."))
@@ -296,7 +290,7 @@ struct CodexTranslatorTests {
 
     // MARK: - SessionStart
 
-    @Test("sessionStart offers a prompt form and a Codex-flavored notification")
+    @Test("sessionStart maps to idle and fires a Codex-flavored notification")
     func sessionStart() async throws {
         let (core, _) = try await makeCore()
         let json = """
@@ -307,16 +301,10 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        // sessionStart is neutral for working state.
-        #expect(event.working == nil)
-        #expect(event.attention == true)
-
-        let request = try #require(event.responseRequest?.request)
-        guard case let .prompt(prompt) = request else {
-            Issue.record("expected .prompt, got \(request)")
-            return
-        }
-        #expect(prompt.title == "Send a message to Codex")
+        // SessionStart → idle (the "session started" push still fires; no bell).
+        #expect(event.state == .idle)
+        #expect(event.state?.needsAttention == false)
+        #expect(event.state?.openForm == nil)
 
         let notification = try #require(event.notification)
         #expect(notification.body.contains("Codex session started"))
@@ -385,7 +373,7 @@ struct CodexTranslatorTests {
         // no app action.
         let event = try #require(await core.handleIngress(frame(json)))
         #expect(event.appActions.isEmpty)
-        #expect(event.working == true)
+        #expect(event.state == .working)
     }
 
     // MARK: - UserPromptSubmit
@@ -407,7 +395,7 @@ struct CodexTranslatorTests {
             return
         }
         #expect(sessionID == "%1") // appAction keyed by pane
-        #expect(event.working == true)
+        #expect(event.state == .working)
     }
 
     // MARK: - SessionEnd
@@ -431,7 +419,8 @@ struct CodexTranslatorTests {
         #expect(sessionID == "%1")
         // default pref (off) → not eligible even on clean exit
         #expect(closePaneEligible == false)
-        #expect(event.working == false)
+        // SessionEnd carries no state opinion (working=false → nil).
+        #expect(event.state == nil)
     }
 
     // MARK: - SessionEnd × closePaneOnSessionEnd pref
@@ -530,10 +519,10 @@ struct CodexTranslatorTests {
         }
         """
         let event = try #require(await core.handleIngress(frame(json)))
-        #expect(event.working == true)
-        #expect(event.attention == false)
+        #expect(event.state == .working)
+        #expect(event.state?.needsAttention == false)
+        #expect(event.state?.openForm == nil)
         #expect(event.notification == nil)
-        #expect(event.responseRequest == nil)
         #expect(event.appActions.isEmpty)
     }
 

@@ -64,8 +64,8 @@ public actor ClaudeCodePluginCore: PluginCore {
     /// Parse the raw Claude hook payload and translate it into a `PluginEvent`.
     /// Returns `nil` to drop frames that produce no state change (the dispatcher
     /// no-ops). Reuses `HookAction.from(jsonData:)` for the 30-case parse and the
-    /// durable `HookEvent` / `HookEventMessage` semantics for working/attention/
-    /// notification (additive phase — those types still live in networking).
+    /// durable `HookEvent` / `HookEventMessage` semantics for working state and
+    /// notification copy (additive phase — those types still live in networking).
     public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {
         // Drop subagent (`Task`) hook events — those carrying an `agent_id` — the
         // way the legacy shared `HookServerService` did for every agent. They
@@ -99,14 +99,13 @@ public actor ClaudeCodePluginCore: PluginCore {
             return nil
         }
 
-        // Retain (or retract) the per-request context keyed by requestID so a
-        // later `deliverResponse` can build the right keystrokes.
-        if let payload = output.event.responseRequest {
-            if payload.request == nil {
-                pendingRequests.removeValue(forKey: payload.requestID)
-            } else {
-                pendingRequests[payload.requestID] = output.pending
-            }
+        // Retain the per-request context keyed by requestID so a later
+        // `deliverResponse` can build the right keystrokes. The open form rides
+        // the state's `awaiting*` case; `deliverResponse` clears the entry once
+        // answered (a non-awaiting state simply opens no form, so nothing to
+        // retract here).
+        if let form = output.event.state?.openForm, let pending = output.pending {
+            pendingRequests[form.requestID] = pending
         }
 
         return output.event

@@ -82,12 +82,4 @@ public extension HookEvent {
         }
         return (title: action.title, body: body)
     }
-
-    /// Whether this event would surface a notification for the given agent copy.
-    func wouldTriggerNotification(
-        agentDisplayName: String,
-        agentShortName: String
-    ) -> Bool {
-        buildNotification(agentDisplayName: agentDisplayName, agentShortName: agentShortName) != nil
-    }
 }

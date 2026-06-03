@@ -39,10 +39,8 @@
             return PluginEvent(
                 pluginID: frame.pluginID,
                 sessionID: directive.sessionID,
-                working: directive.working,
-                attention: directive.attention ?? false,
+                state: directive.state,
                 notification: directive.notification,
-                responseRequest: directive.responseRequest,
                 appActions: directive.appActions ?? [],
                 tmuxPane: directive.tmuxPane ?? frame.tmuxPane,
                 projectPath: directive.projectPath
@@ -111,10 +109,9 @@
     /// `PluginEvent` fields a test wants produced.
     public struct EchoDirective: Codable, Sendable, Equatable {
         public let sessionID: String
-        public let working: Bool?
-        public let attention: Bool?
+        /// The session state the produced `PluginEvent` carries (`nil` = no opinion).
+        public let state: AgentState?
         public let notification: NotificationSpec?
-        public let responseRequest: ResponseRequestPayload?
         public let appActions: [AppAction]?
         public let tmuxPane: String?
         public let projectPath: String?
@@ -123,20 +120,16 @@
 
         public init(
             sessionID: String,
-            working: Bool? = nil,
-            attention: Bool? = nil,
+            state: AgentState? = nil,
             notification: NotificationSpec? = nil,
-            responseRequest: ResponseRequestPayload? = nil,
             appActions: [AppAction]? = nil,
             tmuxPane: String? = nil,
             projectPath: String? = nil,
             delayMs: Int? = nil
         ) {
             self.sessionID = sessionID
-            self.working = working
-            self.attention = attention
+            self.state = state
             self.notification = notification
-            self.responseRequest = responseRequest
             self.appActions = appActions
             self.tmuxPane = tmuxPane
             self.projectPath = projectPath

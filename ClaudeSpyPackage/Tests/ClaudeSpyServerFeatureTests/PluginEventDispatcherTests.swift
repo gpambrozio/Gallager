@@ -8,12 +8,10 @@
     /// fanned out for a given `PluginEvent`. An `actor` so the dispatcher's
     /// `@Sendable` closures can mutate it across isolation domains.
     private actor DispatchRecorder {
-        struct Status: Equatable {
+        struct State: Equatable {
             let pluginID: String
             let sessionID: String
-            let working: Bool?
-            let attention: Bool
-            let opensBlockingForm: Bool
+            let state: AgentState
             let tmuxPane: String?
             let projectPath: String?
         }
@@ -25,40 +23,27 @@
             let body: String
         }
 
-        struct OpenRequest: Equatable {
+        struct AutoApprove: Equatable {
             let pluginID: String
             let sessionID: String
             let requestID: String
         }
 
-        struct RetractRequest: Equatable {
-            let pluginID: String
-            let sessionID: String
-            let requestID: String
-        }
-
-        private(set) var statuses: [Status] = []
+        private(set) var states: [State] = []
         private(set) var notifications: [Notification] = []
-        private(set) var opens: [OpenRequest] = []
-        private(set) var retracts: [RetractRequest] = []
-        private(set) var openedRequests: [AgentResponseRequest] = []
+        private(set) var autoApprovals: [AutoApprove] = []
         private(set) var actions: [AppAction] = []
 
-        func recordStatus(_ status: Status) {
-            statuses.append(status)
+        func recordState(_ state: State) {
+            states.append(state)
         }
 
         func recordNotification(_ notification: Notification) {
             notifications.append(notification)
         }
 
-        func recordOpen(_ open: OpenRequest, request: AgentResponseRequest) {
-            opens.append(open)
-            openedRequests.append(request)
-        }
-
-        func recordRetract(_ retract: RetractRequest) {
-            retracts.append(retract)
+        func recordAutoApprove(_ approve: AutoApprove) {
+            autoApprovals.append(approve)
         }
 
         func recordAction(_ action: AppAction) {
@@ -66,15 +51,16 @@
         }
     }
 
-    private func makeDispatcher(_ recorder: DispatchRecorder) -> PluginEventDispatcher {
+    private func makeDispatcher(
+        _ recorder: DispatchRecorder,
+        yolo: Bool = false
+    ) -> PluginEventDispatcher {
         PluginEventDispatcher(
-            onStatus: { pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
-                await recorder.recordStatus(.init(
+            onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                await recorder.recordState(.init(
                     pluginID: pluginID,
                     sessionID: sessionID,
-                    working: working,
-                    attention: attention,
-                    opensBlockingForm: opensBlockingForm,
+                    state: state,
                     tmuxPane: tmuxPane,
                     projectPath: projectPath
                 ))
@@ -87,81 +73,46 @@
                     body: notification.body
                 ))
             },
-            onOpenResponseRequest: { pluginID, sessionID, requestID, request in
-                await recorder.recordOpen(
-                    .init(pluginID: pluginID, sessionID: sessionID, requestID: requestID),
-                    request: request
-                )
-            },
-            onRetractResponseRequest: { pluginID, sessionID, requestID in
-                await recorder.recordRetract(.init(pluginID: pluginID, sessionID: sessionID, requestID: requestID))
+            onAutoApprove: { pluginID, sessionID, requestID in
+                await recorder.recordAutoApprove(.init(
+                    pluginID: pluginID,
+                    sessionID: sessionID,
+                    requestID: requestID
+                ))
             },
             onAppAction: { action in
                 await recorder.recordAction(action)
-            }
+            },
+            isYoloModeEnabled: { _ in yolo }
         )
     }
 
     @Suite("PluginEventDispatcher")
     struct PluginEventDispatcherTests {
-        @Test("working set fires the status sink with the working value and bootstrap fields")
-        func workingFiresStatus() async {
+        @Test("a state opinion fires the state sink with bootstrap fields")
+        func stateFiresSink() async {
             let recorder = DispatchRecorder()
             let dispatcher = makeDispatcher(recorder)
 
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "echo",
                 sessionID: "s1",
-                working: true,
+                state: .working,
                 tmuxPane: "%3",
                 projectPath: "/tmp/proj"
             ))
 
-            let statuses = await recorder.statuses
-            #expect(statuses == [
+            let states = await recorder.states
+            #expect(states == [
                 .init(
-                    pluginID: "echo", sessionID: "s1", working: true, attention: false,
-                    opensBlockingForm: false, tmuxPane: "%3", projectPath: "/tmp/proj"
+                    pluginID: "echo", sessionID: "s1", state: .working,
+                    tmuxPane: "%3", projectPath: "/tmp/proj"
                 ),
             ])
         }
 
-        @Test("attention change fires status even when working is nil")
-        func attentionChangeFiresStatus() async {
-            let recorder = DispatchRecorder()
-            let dispatcher = makeDispatcher(recorder)
-
-            // First event: attention true, no working opinion → status fires (change from default false).
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1", attention: true))
-            // Second event: attention still true, no working → NO status (no change).
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1", attention: true))
-            // Third event: attention false, no working → status fires (change back).
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1", attention: false))
-
-            let statuses = await recorder.statuses
-            #expect(statuses.count == 2)
-            #expect(statuses.first?.attention == true)
-            #expect(statuses.last?.attention == false)
-        }
-
-        @Test("event with no working opinion and unchanged attention does not fire status")
-        func noOpinionNoChangeIsSilent() async {
-            let recorder = DispatchRecorder()
-            let dispatcher = makeDispatcher(recorder)
-
-            // attention defaults to false; first event establishes false; a second
-            // identical event should not re-fire status (working nil, attention unchanged).
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1", working: false))
-            let afterFirst = await recorder.statuses.count
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1"))
-            let afterSecond = await recorder.statuses.count
-
-            #expect(afterFirst == 1)
-            #expect(afterSecond == 1)
-        }
-
-        @Test("notification fires the notification sink")
-        func notificationFires() async {
+        @Test("a nil-state event fires no state sink but still pushes its notification")
+        func nilStateNotificationOnly() async {
             let recorder = DispatchRecorder()
             let dispatcher = makeDispatcher(recorder)
 
@@ -171,100 +122,82 @@
                 notification: NotificationSpec(title: "Done", body: "Build finished")
             ))
 
+            let states = await recorder.states
             let notifications = await recorder.notifications
+            #expect(states.isEmpty)
             #expect(notifications == [
                 .init(pluginID: "echo", sessionID: "s1", title: "Done", body: "Build finished"),
             ])
         }
 
-        @Test("responseRequest with a request opens the form")
-        func responseRequestOpens() async {
+        @Test("an awaiting state reaches the state sink (opening the form) plus its notification")
+        func awaitingStateOpensForm() async {
             let recorder = DispatchRecorder()
             let dispatcher = makeDispatcher(recorder)
 
-            let request = AgentResponseRequest.prompt(PromptRequest(title: "Ask"))
+            let state = AgentState.awaitingReplies(
+                AskUserQuestionRequest(questions: []), requestID: "r1"
+            )
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "echo",
                 sessionID: "s1",
-                responseRequest: ResponseRequestPayload(requestID: "r1", request: request)
-            ))
-
-            let opens = await recorder.opens
-            let openedRequests = await recorder.openedRequests
-            let retracts = await recorder.retracts
-            #expect(opens == [.init(pluginID: "echo", sessionID: "s1", requestID: "r1")])
-            #expect(openedRequests == [request])
-            #expect(retracts.isEmpty)
-        }
-
-        @Test("a blocking request surfaces opensBlockingForm=true; a non-blocking one does not")
-        func blockingFormSurfacedToStatus() async {
-            // Blocking (askUserQuestion) paired with working+attention, as the real
-            // translator emits for AskUserQuestion → status sink sees opensBlockingForm=true.
-            let recorder = DispatchRecorder()
-            let dispatcher = makeDispatcher(recorder)
-            await dispatcher.dispatch(PluginEvent(
-                pluginID: "echo",
-                sessionID: "s1",
-                working: true,
-                attention: true,
-                responseRequest: ResponseRequestPayload(
-                    requestID: "r1",
-                    request: .askUserQuestion(AskUserQuestionRequest(questions: []))
-                ),
+                state: state,
+                notification: NotificationSpec(title: "Q", body: "answer me"),
                 tmuxPane: "%5"
             ))
-            let statuses = await recorder.statuses
-            #expect(statuses.count == 1)
-            #expect(statuses.first?.opensBlockingForm == true)
 
-            // Non-blocking (prompt) must NOT set the guard.
-            let recorder2 = DispatchRecorder()
-            let dispatcher2 = makeDispatcher(recorder2)
-            await dispatcher2.dispatch(PluginEvent(
-                pluginID: "echo",
-                sessionID: "s2",
-                working: false,
-                attention: true,
-                responseRequest: ResponseRequestPayload(
-                    requestID: "r2",
-                    request: .prompt(PromptRequest(title: "Ask"))
-                ),
-                tmuxPane: "%6"
-            ))
-            let statuses2 = await recorder2.statuses
-            #expect(statuses2.count == 1)
-            #expect(statuses2.first?.opensBlockingForm == false)
+            let states = await recorder.states
+            let notifications = await recorder.notifications
+            #expect(states.count == 1)
+            #expect(states.first?.state == state)
+            #expect(states.first?.state.openForm?.requestID == "r1")
+            #expect(notifications.count == 1)
         }
 
-        @Test("responseRequest with nil request retracts the form")
-        func responseRequestRetracts() async {
+        @Test("an auto-approvable permission under yolo auto-approves and stays working, suppressing the push")
+        func yoloPermissionAutoApproves() async {
             let recorder = DispatchRecorder()
-            let dispatcher = makeDispatcher(recorder)
+            let dispatcher = makeDispatcher(recorder, yolo: true)
 
             await dispatcher.dispatch(PluginEvent(
                 pluginID: "echo",
                 sessionID: "s1",
-                responseRequest: ResponseRequestPayload(requestID: "r1", request: nil)
+                state: .awaitingPermission(
+                    PermissionRequest(title: "Bash", description: "ls", isAutoApprovable: true),
+                    requestID: "r1"
+                ),
+                notification: NotificationSpec(title: "Perm", body: "approve?"),
+                tmuxPane: "%1"
             ))
 
-            let opens = await recorder.opens
-            let retracts = await recorder.retracts
-            #expect(opens.isEmpty)
-            #expect(retracts == [.init(pluginID: "echo", sessionID: "s1", requestID: "r1")])
+            let approvals = await recorder.autoApprovals
+            let states = await recorder.states
+            let notifications = await recorder.notifications
+            #expect(approvals == [.init(pluginID: "echo", sessionID: "%1", requestID: "r1")])
+            // Yolo kept the session working (the awaiting transition was dropped).
+            #expect(states.count == 1)
+            #expect(states.first?.state == .working)
+            // The notification is suppressed for the silent approval.
+            #expect(notifications.isEmpty)
         }
 
-        @Test("nil responseRequest produces no response activity")
-        func nilResponseRequestIsSilent() async {
+        @Test("an auto-approvable permission WITHOUT yolo opens the form and does not auto-approve")
+        func nonYoloPermissionOpensForm() async {
             let recorder = DispatchRecorder()
-            let dispatcher = makeDispatcher(recorder)
+            let dispatcher = makeDispatcher(recorder, yolo: false)
 
-            await dispatcher.dispatch(PluginEvent(pluginID: "echo", sessionID: "s1", working: true))
+            let permission = PermissionRequest(title: "Bash", description: "ls", isAutoApprovable: true)
+            await dispatcher.dispatch(PluginEvent(
+                pluginID: "echo",
+                sessionID: "s1",
+                state: .awaitingPermission(permission, requestID: "r1"),
+                tmuxPane: "%1"
+            ))
 
-            let opens = await recorder.opens
-            let retracts = await recorder.retracts
-            #expect(opens.isEmpty)
-            #expect(retracts.isEmpty)
+            let approvals = await recorder.autoApprovals
+            let states = await recorder.states
+            #expect(approvals.isEmpty)
+            #expect(states.first?.state == .awaitingPermission(permission, requestID: "r1"))
         }
 
         @Test("each app action fires the app-action sink in order")

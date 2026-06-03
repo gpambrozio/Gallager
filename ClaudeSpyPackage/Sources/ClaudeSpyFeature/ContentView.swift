@@ -106,17 +106,11 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
-            // High-frequency per-session status updates drive the sidebar badges.
+            // High-frequency per-session state updates drive the sidebar badges.
+            // The `AgentState` carries the open response form (no separate channel).
             connectionManager.onAgentSessionStatus = { [sessionStore] status in
                 Task { @MainActor in
                     sessionStore.handleAgentStatus(status)
-                }
-            }
-
-            // Open/retract a response form for a session (spec §5/§7.2).
-            connectionManager.onAgentResponseRequest = { [sessionStore] request in
-                Task { @MainActor in
-                    sessionStore.handleAgentResponseRequest(request)
                 }
             }
 

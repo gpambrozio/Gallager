@@ -9,40 +9,56 @@ import Testing
 struct SessionDetailServiceTests {
     // MARK: - Helpers
 
-    /// Push a session status (the plugin-path replacement for hook events) so a
+    /// Push a session state (the plugin-path replacement for hook events) so a
     /// pane registers an `AgentSession` in the store.
-    private func pushStatus(
+    private func pushState(
         _ store: SessionStore,
         pairId: String,
         sessionId: String,
-        working: Bool = false,
-        attention: Bool = false
+        state: AgentState
     ) {
         store.handleAgentStatus(AgentSessionStatusMessage(
             pairId: pairId,
             sessionId: sessionId,
             pluginId: "claude-code",
-            working: working,
-            attention: attention,
+            state: state,
             timestamp: Date()
         ))
     }
 
-    /// Open (or, with `request == nil`, retract) a response form for a pane.
-    private func openRequest(
+    /// A connect snapshot carrying the given panes, each with an `AgentState`.
+    /// The open response form rides `AgentSession.state`, so a form present here
+    /// is delivered to a connecting viewer for free.
+    private func snapshot(pairId: String, panes: [String: AgentState]) -> SessionStateMessage {
+        var paneStates: [String: PaneState] = [:]
+        for (paneId, state) in panes {
+            paneStates[paneId] = PaneState(
+                paneId: paneId,
+                agentSession: AgentSession(paneId: paneId, pluginID: "claude-code", state: state)
+            )
+        }
+        return SessionStateMessage(pairId: pairId, paneStates: paneStates)
+    }
+
+    /// The open form retained for a pane in the store, if any.
+    private func openForm(
         _ store: SessionStore,
-        pairId: String,
         sessionId: String,
-        requestId: String,
-        request: AgentResponseRequest?
-    ) {
-        store.handleAgentResponseRequest(AgentResponseRequestMessage(
-            pairId: pairId,
-            sessionId: sessionId,
-            pluginId: "claude-code",
-            requestId: requestId,
-            request: request
-        ))
+        hostId: String
+    ) -> (request: AgentResponseRequest, requestID: String)? {
+        store.session(for: sessionId, hostId: hostId)?.state.openForm
+    }
+
+    private func askUserQuestion() -> AskUserQuestionRequest {
+        AskUserQuestionRequest(questions: [
+            .init(
+                id: "q1",
+                question: "Which?",
+                header: "Pick",
+                options: [.init(id: "a", label: "A", description: "first")],
+                multiSelect: false
+            ),
+        ])
     }
 
     // MARK: - Initialization Tests
@@ -69,7 +85,7 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        pushStatus(sessionStore, pairId: "test-pair", sessionId: "%1", working: true)
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -99,17 +115,19 @@ struct SessionDetailServiceTests {
         #expect(service.responseState == nil)
     }
 
-    @Test("Response state is created for an open request")
+    @Test("Response state is created for an awaiting (blocking) state")
     func responseStateCreatedForOpenRequest() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        openRequest(
+        pushState(
             sessionStore,
             pairId: "test-pair",
             sessionId: "%1",
-            requestId: "%1:SessionStart",
-            request: .prompt(PromptRequest(title: "Send a message"))
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "%1:PermissionRequest"
+            )
         )
 
         let service = SessionDetailService(
@@ -121,51 +139,22 @@ struct SessionDetailServiceTests {
 
         // Response state is updated during init via withObservationTracking.
         #expect(service.responseState != nil)
-        #expect(service.responseState?.requestID == "%1:SessionStart")
+        #expect(service.responseState?.requestID == "%1:PermissionRequest")
     }
 
     // MARK: - Snapshot Catch-Up Tests (offline-then-connect)
-
-    /// Build a session-state snapshot carrying open forms, the way the host does
-    /// when a viewer connects. `openResponseRequests == nil` models an older host
-    /// that doesn't send the field.
-    private func snapshot(
-        pairId: String,
-        openResponseRequests: [PaneOpenResponseRequest]?
-    ) -> SessionStateMessage {
-        SessionStateMessage(
-            pairId: pairId,
-            paneStates: [:],
-            openResponseRequests: openResponseRequests
-        )
-    }
 
     @Test("A form that opened while offline renders from the connect snapshot")
     func snapshotSeedsOpenFormOnConnect() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // The app was NOT running when the question arrived, so it never saw the
-        // live `agentResponseRequest` push — its only knowledge is the snapshot
-        // fetched on connect.
+        // The app was NOT running when the question arrived. Its only knowledge
+        // is the snapshot fetched on connect — and the form rides the pane's
+        // AgentSession.state, so the snapshot carries it.
         sessionStore.handleStateUpdate(snapshot(
             pairId: "test-pair",
-            openResponseRequests: [
-                PaneOpenResponseRequest(
-                    sessionId: "%1",
-                    pluginId: "claude-code",
-                    requestId: "%1:AskUserQuestion",
-                    request: .askUserQuestion(AskUserQuestionRequest(questions: [
-                        .init(
-                            id: "q1",
-                            question: "Which?",
-                            header: "Pick",
-                            options: [.init(id: "a", label: "A", description: "first")],
-                            multiSelect: false
-                        ),
-                    ]))
-                ),
-            ]
+            panes: ["%1": .awaitingReplies(askUserQuestion(), requestID: "%1:AskUserQuestion")]
         ))
 
         let service = SessionDetailService(
@@ -179,42 +168,26 @@ struct SessionDetailServiceTests {
         #expect(service.responseState?.requestID == "%1:AskUserQuestion")
     }
 
-    @Test("A snapshot with an empty array retracts a form the host no longer has")
-    func snapshotEmptyArrayClearsStaleForm() {
+    @Test("A snapshot whose pane has advanced clears a stale form")
+    func snapshotClearsStaleFormWhenStateAdvances() {
         let sessionStore = SessionStore()
 
-        // A form is open locally (e.g. seen live before a brief disconnect)...
-        openRequest(
+        // A form is open locally (seen live before a brief disconnect)...
+        pushState(
             sessionStore,
             pairId: "test-pair",
             sessionId: "%1",
-            requestId: "%1:PermissionRequest",
-            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "%1:PermissionRequest"
+            )
         )
-        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") != nil)
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "test-pair") != nil)
 
-        // ...but the reconnect snapshot says no forms are open → it's retracted.
-        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", openResponseRequests: []))
+        // ...but the reconnect snapshot shows the agent has moved on → no form.
+        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", panes: ["%1": .working]))
 
-        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") == nil)
-    }
-
-    @Test("A snapshot from an older host (nil field) leaves live forms untouched")
-    func snapshotNilFieldPreservesLiveForm() {
-        let sessionStore = SessionStore()
-
-        openRequest(
-            sessionStore,
-            pairId: "test-pair",
-            sessionId: "%1",
-            requestId: "%1:PermissionRequest",
-            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
-        )
-
-        // Older host omits the field — the live channel stays authoritative.
-        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", openResponseRequests: nil))
-
-        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "test-pair") != nil)
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "test-pair") == nil)
     }
 
     @Test("Snapshot reconcile is scoped to the snapshot's host")
@@ -222,18 +195,20 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
 
         // host-b has a live form open.
-        openRequest(
+        pushState(
             sessionStore,
             pairId: "host-b",
             sessionId: "%1",
-            requestId: "host-b:r1",
-            request: .permission(PermissionRequest(title: "Bash", description: "ls"))
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "host-b:r1"
+            )
         )
 
-        // host-a sends an (empty) snapshot — it must not touch host-b's form.
-        sessionStore.handleStateUpdate(snapshot(pairId: "host-a", openResponseRequests: []))
+        // host-a sends a snapshot — it must not touch host-b's form.
+        sessionStore.handleStateUpdate(snapshot(pairId: "host-a", panes: [:]))
 
-        #expect(sessionStore.openResponseRequest(for: "%1", hostId: "host-b") != nil)
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "host-b") != nil)
     }
 
     // MARK: - Cross-Host Pane Isolation Tests
@@ -243,9 +218,9 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Two hosts emit status for the same tmux pane id (`%0`).
-        pushStatus(sessionStore, pairId: "host-a", sessionId: "%0", working: true)
-        pushStatus(sessionStore, pairId: "host-b", sessionId: "%0", attention: true)
+        // Two hosts emit state for the same tmux pane id (`%0`).
+        pushState(sessionStore, pairId: "host-a", sessionId: "%0", state: .working)
+        pushState(sessionStore, pairId: "host-b", sessionId: "%0", state: .doneWorking(summary: nil))
 
         // Store keeps both panes separately rather than collapsing them.
         #expect(sessionStore.paneStates.count == 2)
@@ -292,19 +267,25 @@ struct SessionDetailServiceTests {
     // which are only available on iOS.
 
     #if os(iOS)
+        private func openPermission(_ store: SessionStore, requestId: String) {
+            pushState(
+                store,
+                pairId: "test-pair",
+                sessionId: "%1",
+                state: .awaitingPermission(
+                    PermissionRequest(title: "Bash", description: "ls"),
+                    requestID: requestId
+                )
+            )
+        }
+
         @Test("Response is persisted to SessionStore when set")
         func responsePersistsToStore() {
             let sessionStore = SessionStore()
             let relayClient = ViewerRelayClient()
 
             let requestId = "%1:PermissionRequest"
-            openRequest(
-                sessionStore,
-                pairId: "test-pair",
-                sessionId: "%1",
-                requestId: requestId,
-                request: .permission(PermissionRequest(title: "Bash", description: "ls"))
-            )
+            openPermission(sessionStore, requestId: requestId)
 
             let service = SessionDetailService(
                 paneId: "%1",
@@ -326,13 +307,7 @@ struct SessionDetailServiceTests {
             let relayClient = ViewerRelayClient()
 
             let requestId = "%1:PermissionRequest"
-            openRequest(
-                sessionStore,
-                pairId: "test-pair",
-                sessionId: "%1",
-                requestId: requestId,
-                request: .permission(PermissionRequest(title: "Bash", description: "ls"))
-            )
+            openPermission(sessionStore, requestId: requestId)
 
             // First service - set a response
             let service1 = SessionDetailService(
@@ -361,13 +336,7 @@ struct SessionDetailServiceTests {
             let relayClient = ViewerRelayClient()
 
             let requestId = "%1:PermissionRequest"
-            openRequest(
-                sessionStore,
-                pairId: "test-pair",
-                sessionId: "%1",
-                requestId: requestId,
-                request: .permission(PermissionRequest(title: "Bash", description: "ls"))
-            )
+            openPermission(sessionStore, requestId: requestId)
 
             let service = SessionDetailService(
                 paneId: "%1",

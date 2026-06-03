@@ -369,16 +369,16 @@
         /// so there is no double-processing; the new path is exercised only by
         /// E2E/tests writing to the socket.
         ///
-        /// Wires the dispatcher's local sinks (status → `MirrorWindowManager`,
-        /// notification → `TerminalNotificationService`, app actions → markdown
-        /// suggestions / pane close) and the host's send sinks (text/keys →
-        /// `TmuxService`, projects → `pluginProjects`). The response-request
-        /// sinks (open/retract) forward to iOS via
-        /// `ConnectedViewerManager.sendAgentResponseRequestToAll`; the inbound
+        /// Wires the dispatcher's local sinks (state → `MirrorWindowManager`,
+        /// notification → `TerminalNotificationService`, auto-approve → the owning
+        /// core's `deliverResponse`, app actions → markdown suggestions / pane
+        /// close) and the host's send sinks (text/keys → `TmuxService`, projects →
+        /// `pluginProjects`). The open response form rides `AgentSession.state`, so
+        /// it travels in the `agent_session_status` push and the `SessionStateMessage`
+        /// snapshot automatically — there is no separate form transport. The inbound
         /// `agent_response_submission` routes back to the owning core's
-        /// `deliverResponse` (wired in `setupConnectedViewerManager`). Status
-        /// forwards as `agent_session_status` and notifications forward to the
-        /// iOS push path; plugin status also rides the existing `SessionStateMessage`.
+        /// `deliverResponse` (wired in `setupConnectedViewerManager`). State forwards
+        /// as `agent_session_status` and notifications forward to the iOS push path.
         private func setupPluginRuntime() async {
             let paths = GallagerPaths(stateRootOverride: Self.parseGallagerStateRoot())
             paths.ensureBaseDirectories()
@@ -390,82 +390,30 @@
 
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
-                onStatus: { [weak self] pluginID, sessionID, working, attention, opensBlockingForm, tmuxPane, projectPath in
-                    await self?.handlePluginStatus(
+                onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath in
+                    await self?.handlePluginState(
                         pluginID: pluginID,
                         sessionID: sessionID,
-                        working: working,
-                        attention: attention,
-                        opensBlockingForm: opensBlockingForm,
+                        state: state,
                         tmuxPane: tmuxPane,
                         projectPath: projectPath
                     )
-                    // (handlePluginStatus also forwards agent_session_status to iOS.)
+                    // (handlePluginState also forwards agent_session_status to iOS;
+                    // the open form rides AgentSession.state so it's in the snapshot.)
                 },
                 onNotification: { [weak self] _, paneID, notification in
                     await self?.handlePluginNotification(notification, paneId: paneID)
                     // (handlePluginNotification also forwards the push to iOS.)
                 },
-                onOpenResponseRequest: { [weak self] pluginID, sessionID, requestID, request in
-                    guard let self else { return }
-                    // Yolo auto-approve (spec §6): for a permission request the
-                    // core marked auto-approvable, when the pane is in yolo mode
-                    // the app immediately delivers `.permission(.allow)` to the
-                    // core instead of showing an iOS form.
-                    if
-                        case let .permission(permission) = request,
-                        permission.isAutoApprovable,
-                        await self.windowManager.isYoloModeEnabled(for: sessionID) {
-                        await self.pluginRegistry?.core(pluginID)?.deliverResponse(
-                            sessionID: sessionID,
-                            requestID: requestID,
-                            .permission(decision: .allow, appliedSuggestionID: nil)
-                        )
-                        return
-                    }
-                    // A blocking form (permission / question / plan approval) keeps
-                    // the pane's attention non-clearable until answered (the host's
-                    // own mark-handled must respect this too, not just viewers).
-                    await self.windowManager.setBlockingResponseForm(open: request.isBlocking, for: sessionID)
-                    // Retain the form so a viewer that connects after it opened can
-                    // render it from the session-state snapshot (the live push below
-                    // only reaches already-connected viewers).
-                    await self.windowManager.setOpenResponseRequest(
-                        PaneOpenResponseRequest(
-                            sessionId: sessionID,
-                            pluginId: pluginID,
-                            requestId: requestID,
-                            request: request
-                        ),
-                        for: sessionID
-                    )
-                    // Remember an auto-approvable permission shown without yolo so
-                    // enabling yolo later can approve it immediately (#315).
-                    let pending: MirrorWindowManager.PendingApproval? = {
-                        if case let .permission(permission) = request, permission.isAutoApprovable {
-                            return .init(pluginID: pluginID, requestID: requestID)
-                        }
-                        return nil
-                    }()
-                    await self.windowManager.setPendingApproval(pending, for: sessionID)
-                    // Otherwise forward to iOS: open the response form on every viewer.
-                    await self.connectedViewerManager?.sendAgentResponseRequestToAll(
-                        sessionId: sessionID,
-                        pluginId: pluginID,
-                        requestId: requestID,
-                        request: request
-                    )
-                },
-                onRetractResponseRequest: { [weak self] pluginID, sessionID, requestID in
-                    await self?.windowManager.setBlockingResponseForm(open: false, for: sessionID)
-                    // Drop the retained form so the snapshot stops replaying it.
-                    await self?.windowManager.setOpenResponseRequest(nil, for: sessionID)
-                    // Forward to iOS: retract the open form (request == nil).
-                    await self?.connectedViewerManager?.sendAgentResponseRequestToAll(
-                        sessionId: sessionID,
-                        pluginId: pluginID,
-                        requestId: requestID,
-                        request: nil
+                onAutoApprove: { [weak self] pluginID, sessionID, requestID in
+                    // Yolo auto-approve (spec §6): the dispatcher already decided the
+                    // permission is auto-approvable on a yolo pane, kept the session
+                    // working, and suppressed the notification. Deliver the approval
+                    // to the owning core.
+                    await self?.pluginRegistry?.core(pluginID)?.deliverResponse(
+                        sessionID: sessionID,
+                        requestID: requestID,
+                        .permission(decision: .allow, appliedSuggestionID: nil)
                     )
                 },
                 onAppAction: { [weak self] action in
@@ -945,41 +893,34 @@
 
         // MARK: - Plugin Runtime Local Sinks
 
-        /// StatusSink → reflect plugin working/attention onto the pane's session
-        /// (the sole status driver), then forward a high-frequency
+        /// StateSink → reflect the plugin's `AgentState` onto the pane's session
+        /// (the sole state driver), then forward a high-frequency
         /// `agent_session_status` push to iOS and refresh the full session state.
-        private func handlePluginStatus(
+        /// The open response form rides `state`, so it travels in both pushes
+        /// without a separate transport.
+        private func handlePluginState(
             pluginID: String,
             sessionID: String,
-            working: Bool?,
-            attention: Bool,
-            opensBlockingForm: Bool,
+            state: AgentState,
             tmuxPane: String?,
             projectPath: String?
         ) async {
-            windowManager.applyPluginStatus(
+            windowManager.applyState(
                 pluginID: pluginID,
                 sessionID: sessionID,
-                working: working,
-                attention: attention,
-                opensBlockingForm: opensBlockingForm,
+                state: state,
                 tmuxPane: tmuxPane,
                 projectPath: projectPath
             )
             updateSleepPrevention()
 
-            // High-frequency badge update to iOS (spec §7.2). Keyed by the pane,
-            // matching how the session is keyed locally. `working == nil` is "no
-            // opinion"; resolve it to the current session's flag for the push.
+            // High-frequency per-session update to iOS (spec §7.2). Keyed by the
+            // pane, matching how the session is keyed locally.
             if let paneId = tmuxPane, !paneId.isEmpty {
-                let resolvedWorking = working
-                    ?? windowManager.paneStates[paneId]?.agentSession?.isWorking
-                    ?? false
                 await connectedViewerManager?.sendAgentSessionStatusToAll(
                     sessionId: paneId,
                     pluginId: pluginID,
-                    working: resolvedWorking,
-                    attention: attention
+                    state: state
                 )
             }
             await connectedViewerManager?.pushSessionStateToAll()
@@ -1996,20 +1937,27 @@
                 if case let .setYoloMode(spec) = command.command {
                     winManager.setYoloMode(enabled: spec.enabled, for: command.paneId)
                     // #315: enabling yolo immediately approves a permission form that
-                    // was already open (it arrived before yolo was on). Deliver the
-                    // approval to the owning core and retract the now-answered form.
-                    if spec.enabled, let pending = winManager.pendingApproval(for: command.paneId) {
-                        winManager.setBlockingResponseForm(open: false, for: command.paneId)
-                        await self?.pluginRegistry?.core(pending.pluginID)?.deliverResponse(
+                    // was already open (it arrived before yolo was on). The pending
+                    // approval is read from the session's `state` — an
+                    // `awaitingPermission` that's auto-approvable. Deliver the
+                    // approval to the owning core and move the session to `.working`,
+                    // which retracts the form (a non-awaiting state IS the retract).
+                    if
+                        spec.enabled,
+                        let session = winManager.paneStates[command.paneId]?.agentSession,
+                        case let .awaitingPermission(permission, requestID) = session.state,
+                        permission.isAutoApprovable {
+                        await self?.pluginRegistry?.core(session.pluginID)?.deliverResponse(
                             sessionID: command.paneId,
-                            requestID: pending.requestID,
+                            requestID: requestID,
                             .permission(decision: .allow, appliedSuggestionID: nil)
                         )
-                        await connectionManager?.sendAgentResponseRequestToAll(
-                            sessionId: command.paneId,
-                            pluginId: pending.pluginID,
-                            requestId: pending.requestID,
-                            request: nil
+                        winManager.applyState(
+                            pluginID: session.pluginID,
+                            sessionID: command.paneId,
+                            state: .working,
+                            tmuxPane: command.paneId,
+                            projectPath: nil
                         )
                     }
                     await connectionManager?.pushSessionStateToAll()
@@ -2206,17 +2154,15 @@
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []
 
-                // Open response forms ride the snapshot so a viewer connecting
-                // after a form opened still renders it (it missed the live push).
-                let openResponseRequests = await windowManager.openResponseRequests
-
+                // Open response forms ride `AgentSession.state` in `paneStates`, so a
+                // viewer connecting after a form opened still renders it from the
+                // snapshot — no separate form field is needed.
                 // Note: pairId in SessionStateMessage is per-connection, will be set by individual connections
                 return SessionStateMessage(
                     pairId: "",
                     paneStates: paneStates,
                     agentProjects: agentProjects,
-                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-                    openResponseRequests: openResponseRequests
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
                 )
             }
 
