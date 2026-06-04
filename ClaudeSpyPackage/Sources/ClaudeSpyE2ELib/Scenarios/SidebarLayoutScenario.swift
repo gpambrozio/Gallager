@@ -29,8 +29,11 @@ public enum SidebarLayoutScenario {
 
         // ── Simulate different Claude states ──────────────────────
 
-        // Alpha: Done (SessionStart → UserPromptSubmit → Stop ends at `doneWorking`,
-        // which still needs attention)
+        // Alpha: Working (SessionStart → UserPromptSubmit). Alpha is the first
+        // session to appear, so the app auto-selects its window. A *working*
+        // selected session is untouched by markHandled-on-view, so it stays
+        // "Working" — and stays selected, which the window-title checks below
+        // rely on. (The "Done" session is Beta, which is never selected.)
         TestStep.macSendHookEvent(
             json: """
             {
@@ -55,21 +58,11 @@ public enum SidebarLayoutScenario {
             projectPath: "/Users/test/AlphaProject"
         )
         TestStep.wait(seconds: 1)
-        TestStep.macSendHookEvent(
-            json: """
-            {
-                "hook_event_name": "Stop",
-                "session_id": "alpha-session",
-                "timestamp": "2026-02-14T10:00:02.000000Z",
-                "last_assistant_message": "Done with alpha task"
-            }
-            """,
-            tmuxPane: "${paneAlpha}",
-            projectPath: "/Users/test/AlphaProject"
-        )
-        TestStep.wait(seconds: 1)
 
-        // Beta: Working (SessionStart + UserPromptSubmit)
+        // Beta: Done (SessionStart → UserPromptSubmit → Stop ends at `doneWorking`,
+        // which still needs attention). Beta is never the selected session, so the
+        // "auto-clear attention for the session you're viewing" path leaves it
+        // alone and it keeps rendering "Done".
         TestStep.macSendHookEvent(
             json: """
             {
@@ -88,6 +81,19 @@ public enum SidebarLayoutScenario {
                 "hook_event_name": "UserPromptSubmit",
                 "session_id": "beta-session",
                 "timestamp": "2026-02-14T10:01:01.000000Z"
+            }
+            """,
+            tmuxPane: "${paneBeta}",
+            projectPath: "/Users/test/BetaProject"
+        )
+        TestStep.wait(seconds: 1)
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "Stop",
+                "session_id": "beta-session",
+                "timestamp": "2026-02-14T10:01:02.000000Z",
+                "last_assistant_message": "Done with beta task"
             }
             """,
             tmuxPane: "${paneBeta}",
@@ -117,7 +123,10 @@ public enum SidebarLayoutScenario {
 
         // Verify session states via accessibility labels. In the AgentState model a
         // stopped session is `doneWorking` ("Done", still needs attention) — there is
-        // no "Attention" status label anymore.
+        // no "Attention" status label anymore. Mapping: Beta="Done", Alpha="Working",
+        // Gamma="Idle". The "Done" session is deliberately *not* the selected one —
+        // the app auto-clears attention for the session you're currently viewing
+        // (markHandled → idle), so a selected doneWorking session would flip to Idle.
         TestStep.macWaitForElement(titled: "Done", timeout: 10)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
         TestStep.macWaitForElement(titled: "Idle", timeout: 5)
@@ -304,15 +313,15 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 1)
 
         // ── Phase 5: Test all sort modes ──────────────────────────
-        // Current states: Alpha=Attention, Beta=Working, Gamma=Idle, Delta=plain terminal
+        // Current states: Alpha=Working (selected), Beta=Done (attention), Gamma=Idle, Delta=plain terminal
         // Session names alphabetically: alpha < beta < delta < gamma
         // Status priority (idle first): Attention(0) < Idle(1) < Working(2) < NoSession(3)
         // Status priority: Attention(0) < Working(1) < Idle(2) < NoSession(3)
-        // Recent activity: Gamma(10:02) > Beta(10:01:01) > Alpha(10:00:02) > Delta(none)
+        // Recent activity (by arrival order): Gamma > Beta > Alpha > Delta(none)
 
         // Sort mode 1: Status Priority Idle First (default)
         TestStep.log("Phase 5a: Sort by Status Priority (idle first, default)")
-        // Already default — order: alpha(attention), gamma(idle), beta(working), delta(terminal)
+        // Already default — order: beta(attention/done), gamma(idle), alpha(working), delta(terminal)
         TestStep.macScreenshot(label: "sort-status-priority-idle-first")
 
         // Sort mode 2: Status Priority (working first)
@@ -323,7 +332,7 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
-        // Order: alpha(attention), beta(working), gamma(idle), delta(terminal)
+        // Order: beta(attention/done), alpha(working), gamma(idle), delta(terminal)
         TestStep.macScreenshot(label: "sort-status-priority")
 
         // Sort mode 3: Alphabetical
@@ -356,7 +365,7 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macCloseWindow(titled: "Sidebar")
         TestStep.wait(seconds: 1)
-        // Order: gamma(10:02), beta(10:01:01), alpha(10:00:02), delta(no timestamp)
+        // Order (by arrival): gamma (newest), beta, alpha, delta (no activity)
         TestStep.macScreenshot(label: "sort-recent-activity")
 
         // Sort mode 6: Session name
