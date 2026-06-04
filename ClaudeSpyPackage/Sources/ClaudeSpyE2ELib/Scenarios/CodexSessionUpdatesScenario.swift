@@ -6,8 +6,9 @@ import Foundation
 /// Drives the Codex plugin core via codex-tagged ingress frames: SessionStart
 /// shows the session (named from the payload `cwd`, since Codex has no
 /// project-dir env var), UserPromptSubmit flips it to Working, and SessionEnd
-/// settles it to Idle. Exercises `CodexTranslator` + the pane↔session pipeline
-/// that the Claude-only session scenarios don't cover.
+/// removes the session so the pane reverts to a plain terminal. Exercises
+/// `CodexTranslator` + the pane↔session pipeline that the Claude-only session
+/// scenarios don't cover.
 public enum CodexSessionUpdatesScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Codex Session Updates",
@@ -51,7 +52,10 @@ public enum CodexSessionUpdatesScenario {
         )
         TestStep.iosWaitForElement(.labelContains("Working"), timeout: 10)
 
-        // 4. SessionEnd → Idle (the badge is retained, agent-blind).
+        // 4. SessionEnd → the agent session is removed and the pane reverts to a
+        //    plain terminal (commit 9a8c2683; Codex emits the same `.sessionEnded`
+        //    app action). The "MyCodexApp" badge disappears and the pane shows as
+        //    the plain "codex-session" terminal again.
         TestStep.macSendHookEvent(
             pluginID: "codex",
             json: """
@@ -65,6 +69,7 @@ public enum CodexSessionUpdatesScenario {
             """,
             tmuxPane: "${codexPane}"
         )
-        TestStep.iosWaitForElement(.labelContains("Idle"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("MyCodexApp"), timeout: 10)
+        TestStep.iosWaitForElement(.labelContains("codex-session"), timeout: 5)
     }
 }

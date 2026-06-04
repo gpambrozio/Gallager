@@ -29,7 +29,8 @@ public enum SidebarLayoutScenario {
 
         // ── Simulate different Claude states ──────────────────────
 
-        // Alpha: Attention (SessionStart + Stop = triggers notification)
+        // Alpha: Done (SessionStart → UserPromptSubmit → Stop ends at `doneWorking`,
+        // which still needs attention)
         TestStep.macSendHookEvent(
             json: """
             {
@@ -114,8 +115,10 @@ public enum SidebarLayoutScenario {
 
         TestStep.log("Phase 1: Default fields — Custom Description, Project Name, Current Path, Latest Event")
 
-        // Verify session states via accessibility labels
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
+        // Verify session states via accessibility labels. In the AgentState model a
+        // stopped session is `doneWorking` ("Done", still needs attention) — there is
+        // no "Attention" status label anymore.
+        TestStep.macWaitForElement(titled: "Done", timeout: 10)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
         TestStep.macWaitForElement(titled: "Idle", timeout: 5)
 

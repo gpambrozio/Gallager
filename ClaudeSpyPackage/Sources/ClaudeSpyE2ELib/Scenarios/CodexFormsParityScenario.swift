@@ -38,7 +38,9 @@ public enum CodexFormsParityScenario {
         )
         TestStep.iosWaitForElement(.labelContains("CodexForms"), timeout: 10)
         TestStep.iosTap(.labelContains("CodexForms"))
-        TestStep.iosWaitForElement(.labelContains("Send a message to Codex"), timeout: 10)
+        // The idle session renders the agent-blind reply box ("Reply to the
+        // agent…"), not a Codex-named prompt box.
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
 
         // ── Phase 1: permission → deny-with-feedback ─────────────────
         TestStep.macSendHookEvent(

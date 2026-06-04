@@ -38,10 +38,12 @@ public enum YoloModeContextCompactionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/CompactionProject"
         )
-        TestStep.wait(seconds: 3)
-
-        // Select the pane in sidebar to see yolo button
-        TestStep.macClickButton(titled: "yolo-compact")
+        // Wait for the SessionStart → idle agent session to register, then select
+        // it. The sidebar row is labelled by the project name ("CompactionProject");
+        // the yolo toggle only appears when the selected window has an agent session,
+        // so we wait for and select the session row rather than the bare terminal.
+        TestStep.macWaitForElement(titled: "CompactionProject", timeout: 15)
+        TestStep.macClickButton(titled: "CompactionProject")
 
         // Verify yolo mode starts disabled
         TestStep.macWaitForElement(
@@ -98,15 +100,13 @@ public enum YoloModeContextCompactionScenario {
             projectPath: "/Users/test/CompactionProject"
         )
 
-        // Session ended. The agent-blind model keeps the session badge (now Idle) —
-        // a badge is reclaimed by pane detection, not the end hook — but a clean
-        // session end resets the pane's yolo state, so the toolbar button reverts
-        // to "Enable yolo mode". Verify that directly (the actual cleared-yolo flow).
-        TestStep.macWaitForElement(
-            titled: "Enable yolo mode to auto-approve permissions",
-            timeout: 10
-        )
-        TestStep.macScreenshot(label: "mac-session-ended-yolo-cleared")
+        // A clean SessionEnd removes the agent session (commit 9a8c2683): the pane
+        // reverts to the plain "yolo-compact" terminal and its yolo state is reset
+        // with it. The yolo toggle disappears along with the session — Phase 5 proves
+        // a fresh session starts with yolo off, so nothing leaked.
+        TestStep.macWaitForElementToDisappear(titled: "CompactionProject", timeout: 10)
+        TestStep.macWaitForElement(titled: "yolo-compact", timeout: 10)
+        TestStep.macScreenshot(label: "mac-session-ended")
 
         // ── Phase 5: New session starts without yolo leaked ─────
 
@@ -122,10 +122,9 @@ public enum YoloModeContextCompactionScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/CompactionProject"
         )
-        TestStep.wait(seconds: 3)
-
-        // Select the pane again
-        TestStep.macClickButton(titled: "yolo-compact")
+        // Wait for the fresh agent session to register, then select it.
+        TestStep.macWaitForElement(titled: "CompactionProject", timeout: 15)
+        TestStep.macClickButton(titled: "CompactionProject")
 
         // Yolo mode should be disabled on the fresh session
         TestStep.macWaitForElement(

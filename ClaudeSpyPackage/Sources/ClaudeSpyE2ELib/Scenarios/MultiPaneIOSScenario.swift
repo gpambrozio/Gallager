@@ -100,8 +100,8 @@ public enum MultiPaneIOSScenario {
         // Dismiss menu
         TestStep.iosTapCoordinate(x: 200, y: 500)
 
-        // The prompt text field should be visible (full width above the layout)
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
+        // The agent-blind reply field should be visible (full width above the layout)
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-claude-ui-active-pane")
 
         // 10. Tap on the plain terminal pane (pane 1, right side) to switch back
@@ -112,7 +112,7 @@ public enum MultiPaneIOSScenario {
 
         // 11. Verify Claude session UI disappears (Commands menu gone = no Yolo Mode)
         TestStep.log("Verify Claude session UI is hidden for plain terminal pane")
-        TestStep.iosWaitForElementToDisappear(.labelContains("Send a message to Claude"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Reply to the agent"), timeout: 5)
         TestStep.iosWaitForElementToDisappear(.labelContains("Commands"), timeout: 5)
 
         // The keyboard button should still be visible (always present)
@@ -125,7 +125,7 @@ public enum MultiPaneIOSScenario {
         TestStep.wait(seconds: 2)
 
         Shortcut.iosVerifyCommandsMenuItem("Yolo Mode", timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-claude-ui-restored")
     }
 }

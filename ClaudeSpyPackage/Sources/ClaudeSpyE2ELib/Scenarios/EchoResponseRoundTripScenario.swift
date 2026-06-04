@@ -1,18 +1,24 @@
 import Foundation
 
 /// E2E scenario: the response-form round-trip via the reference `EchoPluginCore`
-/// (spec §17.3). Asserts the full loop:
+/// (spec §17.3). Drives a blocking permission form end-to-end and proves the core
+/// delivered the answer:
 ///
-///   echo `prompt` responseRequest frame → app forwards `agent_response_request`
-///   to iOS → iOS renders the closed `PromptView` → user types + taps Send → iOS
-///   submits a structured `AgentResponse.prompt(text)` → Mac matches the request id
-///   and calls `EchoPluginCore.deliverResponse` → echo's `.prompt` branch calls
+///   echo `awaitingPermission` state → app forwards the open form to iOS → iOS
+///   renders `PermissionRequestResponseView` → user types deny-with-feedback + Send
+///   → iOS submits a structured `AgentResponse.permission(.denyWithFeedback)` keyed
+///   by `requestID` → Mac matches the request id and calls
+///   `EchoPluginCore.deliverResponse` → echo's `.denyWithFeedback` branch calls
 ///   `host.sendText` → the text lands in the bound tmux pane.
 ///
-/// The echo `sessionID` is the tmux pane id, so the host's `sendText` resolves
-/// the session straight back to that pane (`resolvePluginPaneTarget`) and the
-/// submitted text is observable via `capture-pane`. This proves `deliverResponse`
-/// reached the core AND that the core drove delivery (the spec's requirement).
+/// In the agent-blind `AgentState` model the open form rides the `awaiting*` cases
+/// (there is no standalone `.prompt` state), so this exercises the structured
+/// `deliverResponse` path rather than the free-text reply-after-stop keystroke
+/// pipeline. The echo `sessionID` is the tmux pane id, so the host's `sendText`
+/// resolves the session straight back to that pane (`resolvePluginPaneTarget`) and
+/// the submitted text is observable via `capture-pane`. This proves
+/// `deliverResponse` reached the core AND that the core drove delivery (the spec's
+/// requirement).
 public enum EchoResponseRoundTripScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Echo Response Round Trip",
@@ -21,15 +27,14 @@ public enum EchoResponseRoundTripScenario {
         // Fresh pairing + two tmux panes (stores ${pane1Id} / ${pane2Id}).
         ClaudeSessionsShowScenario.scenario
 
-        // 1. Bind pane 1 to an echo session. Use the pane id AS the session id so
-        //    the host's later sendText resolves the session back to this pane.
+        // 1. Bind pane 1 to a working echo session. Use the pane id AS the session
+        //    id so the host's later sendText resolves the session back to this pane.
         TestStep.macSendHookEvent(
             pluginID: "echo",
             json: """
             {
                 "sessionID": "${pane1Id}",
-                "working": true,
-                "attention": false,
+                "state": { "working": {} },
                 "projectPath": "/Users/test/EchoLab"
             }
             """,
@@ -41,51 +46,53 @@ public enum EchoResponseRoundTripScenario {
         TestStep.iosTap(.labelContains("EchoLab"))
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
-        // 3. Drive a prompt response request through the echo core. The nested
-        //    `request` is the synthesized `AgentResponseRequest.prompt` encoding
-        //    (`{ "prompt": { "_0": { ... } } }`). `requestID` is what the Mac
-        //    correlates the iOS submission against.
+        // 3. Drive a blocking permission form through the echo core. The open form
+        //    rides the `awaitingPermission` AgentState — the synthesized enum
+        //    encoding nests the `PermissionRequest` under `_0` and the correlation
+        //    id under `requestID`. `allowsCustomInstructions` enables the
+        //    deny-with-feedback free-text field.
         TestStep.macSendHookEvent(
             pluginID: "echo",
             json: """
             {
                 "sessionID": "${pane1Id}",
-                "working": false,
-                "attention": true,
-                "projectPath": "/Users/test/EchoLab",
-                "responseRequest": {
-                    "requestID": "echo-prompt-req-1",
-                    "request": {
-                        "prompt": {
-                            "_0": {
-                                "title": "Send a message to Echo",
-                                "placeholder": "Type a message for echo"
-                            }
-                        }
+                "state": {
+                    "awaitingPermission": {
+                        "_0": {
+                            "title": "Echo wants to run a command",
+                            "description": "echo round-trip",
+                            "isAutoApprovable": false,
+                            "suggestions": [],
+                            "allowsCustomInstructions": true
+                        },
+                        "requestID": "echo-perm-req-1"
                     }
-                }
+                },
+                "projectPath": "/Users/test/EchoLab"
             }
             """,
             tmuxPane: "${pane1Id}"
         )
 
-        // 4. iOS renders the PromptView (its placeholder is the TextField's a11y
-        //    label) — confirming the request reached the viewer.
-        TestStep.iosWaitForElement(.labelContains("Type a message for echo"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-echo-prompt-form")
+        // 4. iOS renders the permission form: the Accept button and the
+        //    deny-with-feedback field (its stable identifier) confirm the open form
+        //    reached the viewer.
+        TestStep.iosWaitForElement(.labelContains("Accept"), timeout: 10)
+        TestStep.iosWaitForElement(.identifier("permission-custom-instructions"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-echo-permission-form")
 
-        // 5. Type the message and Send. iOS submits AgentResponse.prompt(text);
-        //    the Mac routes it to EchoPluginCore.deliverResponse → host.sendText.
-        TestStep.iosTap(.labelContains("Type a message for echo"))
+        // 5. Type the marker into the deny-with-feedback field and Send. iOS submits
+        //    AgentResponse.permission(.denyWithFeedback(text)); the Mac routes it to
+        //    EchoPluginCore.deliverResponse → host.sendText.
+        TestStep.iosTap(.identifier("permission-custom-instructions"))
         TestStep.iosType(text: "echo-roundtrip-marker")
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.label("Send"))
 
-        // 6. The echo core's sendText lands the literal text in pane 1. Capture
-        //    the pane and assert the marker arrived — the delivery half of the
-        //    round-trip.
+        // 6. The echo core's sendText lands the literal text in pane 1. Capture the
+        //    pane and assert the marker arrived — the delivery half of the round-trip.
         TestStep.wait(seconds: 5)
-        TestStep.iosScreenshot(label: "ios-echo-prompt-sent")
+        TestStep.iosScreenshot(label: "ios-echo-permission-sent", compare: false)
         TestStep.tmuxCapturePaneContent(target: "${pane1Id}", storeAs: "echoPaneContent")
         TestStep.assertStoredContains(
             key: "echoPaneContent",

@@ -87,8 +87,9 @@ public enum YoloModeAutoApproveScenario {
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterYolo")
         TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "Permission: Bash|${pane1Id}")
 
-        // Session should NOT be in "Attention" state — yolo auto-approved it (#338)
-        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        // Session should NOT show the "Permission" form — yolo auto-approved it and
+        // kept the session `.working` (the awaiting* transition is dropped) (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // ══════════════════════════════════════════════════════════════
@@ -233,8 +234,9 @@ public enum YoloModeAutoApproveScenario {
         )
         TestStep.macScreenshot(label: "mac-yolo-pending-auto-approved")
 
-        // Session should NOT be in "Attention" state — yolo auto-approved the pending request (#338)
-        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        // Session should NOT show the "Permission" form — yolo auto-approved the
+        // pending request and kept the session `.working` (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // Yolo mode should now show enabled on both platforms

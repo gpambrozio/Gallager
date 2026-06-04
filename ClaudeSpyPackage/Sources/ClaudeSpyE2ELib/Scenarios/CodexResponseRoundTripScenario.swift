@@ -32,7 +32,8 @@ public enum CodexResponseRoundTripScenario {
         )
         TestStep.iosWaitForElement(.labelContains("CodexReplyApp"), timeout: 10)
 
-        // 3. Codex Stop → the session needs attention + a reply form opens.
+        // 3. Codex Stop → the session is "Done" (doneWorking needs attention) and
+        //    a reply form opens.
         TestStep.macSendHookEvent(
             pluginID: "codex",
             json: """
@@ -46,17 +47,17 @@ public enum CodexResponseRoundTripScenario {
             """,
             tmuxPane: "${codexReplyPane}"
         )
-        TestStep.iosWaitForElement(.labelContains("Attention"), timeout: 10)
+        TestStep.iosWaitForElement(.labelContains("Done"), timeout: 10)
 
-        // 4. Open the session → the reply-after-stop form (placeholder names the
-        //    agent: "Reply to Codex").
+        // 4. Open the session → the agent-blind reply-after-stop form (its
+        //    placeholder is "Reply to the agent…", not Codex-specific).
         TestStep.iosTap(.labelContains("CodexReplyApp"))
-        TestStep.iosWaitForElement(.labelContains("Reply to Codex"), timeout: 10)
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-codex-reply-form")
 
         // 5. Type a distinctive reply and send it. The reply text + Enter are
         //    delivered to the pane; capture the pane to prove the bytes landed.
-        TestStep.iosTap(.labelContains("Reply to Codex"))
+        TestStep.iosTap(.labelContains("Reply to the agent"))
         TestStep.iosType(text: "codexreplymarker")
         TestStep.iosTap(.label("Send"))
         TestStep.wait(seconds: 6)

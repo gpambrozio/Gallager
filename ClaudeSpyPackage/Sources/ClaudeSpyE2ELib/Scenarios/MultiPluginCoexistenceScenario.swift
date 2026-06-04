@@ -57,22 +57,22 @@ public enum MultiPluginCoexistenceScenario {
         TestStep.iosWaitForElement(.labelContains("CoexistCodex"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-both-sessions")
 
-        // 5. Open the Claude session → its prompt form names Claude. Submit a
+        // 5. Open the Claude session → its agent-blind reply form. Submit a
         //    Claude-only marker; it must land in the Claude pane.
         TestStep.iosTap(.labelContains("CoexistClaude"))
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 10)
-        TestStep.iosTap(.labelContains("Send a message to Claude"))
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
+        TestStep.iosTap(.labelContains("Reply to the agent"))
         TestStep.iosType(text: "alphaclaudekey")
         TestStep.iosTap(.label("Send"))
         TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
 
-        // 6. Back to the list, open the Codex session → its prompt form names
-        //    Codex. Submit a Codex-only marker; it must land in the Codex pane.
+        // 6. Back to the list, open the Codex session → the same agent-blind reply
+        //    form. Submit a Codex-only marker; it must land in the Codex pane.
         TestStep.iosTap(.label("Sessions"))
         TestStep.iosWaitForElement(.labelContains("CoexistCodex"), timeout: 10)
         TestStep.iosTap(.labelContains("CoexistCodex"))
-        TestStep.iosWaitForElement(.labelContains("Send a message to Codex"), timeout: 10)
-        TestStep.iosTap(.labelContains("Send a message to Codex"))
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
+        TestStep.iosTap(.labelContains("Reply to the agent"))
         TestStep.iosType(text: "betacodexkey")
         TestStep.iosTap(.label("Send"))
         TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
