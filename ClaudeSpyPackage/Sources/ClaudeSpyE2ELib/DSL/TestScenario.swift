@@ -196,6 +196,11 @@ public enum TestStep: Sendable {
     /// Activate the macOS app instance so it becomes frontmost with its key window.
     /// Use before steps that depend on `NSApp.isActive` or `window.isKeyWindow`.
     case macActivate(instance: Int = 0)
+    /// Make the macOS app resign active by bringing Finder to the front, so
+    /// `NSApp.isActive` becomes false. Use to exercise focus-dependent behavior
+    /// (e.g. attention that should only auto-clear while the app is frontmost).
+    /// Pair with `macActivate` to bring the app back to the foreground.
+    case macDeactivate(instance: Int = 0)
     /// Open Settings window
     case macOpenSettings(instance: Int = 0)
     /// Close a window by title via its close button

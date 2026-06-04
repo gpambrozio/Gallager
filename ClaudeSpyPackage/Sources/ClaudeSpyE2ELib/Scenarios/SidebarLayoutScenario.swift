@@ -378,5 +378,58 @@ public enum SidebarLayoutScenario {
         TestStep.wait(seconds: 1)
         // Order: alpha-project, beta-project, delta-terminal, gamma-project
         TestStep.macScreenshot(label: "sort-session-name")
+
+        // ── Phase 6: Selected session finishing while unfocused stays Done ──
+        // The app auto-clears a viewed session's attention only while it is
+        // frontmost (`markSelectedSessionsHandledIfActive` is gated on
+        // `NSApp.isActive`). So a *selected* session that finishes while the app
+        // is in the background must stay "Done", and should only transition to
+        // "Idle" once the app regains focus.
+        //
+        // Alpha is the selected session here (Working). Beta is currently "Done";
+        // flip it back to Working first so the generic "Done" status label
+        // uniquely tracks Alpha for this phase (sending a hook to Beta doesn't
+        // change which session is selected).
+        TestStep.log("Phase 6: Selected session that finishes while unfocused stays Done until refocus")
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "beta-session",
+                "timestamp": "2026-02-14T10:03:00.000000Z"
+            }
+            """,
+            tmuxPane: "${paneBeta}",
+            projectPath: "/Users/test/BetaProject"
+        )
+        // No session is "Done" now (Alpha=Working, Beta=Working, Gamma=Idle).
+        TestStep.macWaitForElementToDisappear(titled: "Done", timeout: 5)
+
+        // Drop focus: bring Finder to the front so the app resigns active.
+        TestStep.macDeactivate()
+        TestStep.wait(seconds: 1)
+
+        // Finish the selected session (Alpha) while the app is unfocused. Because
+        // `NSApp.isActive` is false, the auto-clear path returns early and Alpha
+        // keeps its doneWorking state instead of flipping to idle.
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "Stop",
+                "session_id": "alpha-session",
+                "timestamp": "2026-02-14T10:03:01.000000Z",
+                "last_assistant_message": "Done with alpha task"
+            }
+            """,
+            tmuxPane: "${paneAlpha}",
+            projectPath: "/Users/test/AlphaProject"
+        )
+        // The selected-but-unfocused session stays "Done".
+        TestStep.macWaitForElement(titled: "Done", timeout: 5)
+
+        // Regain focus: `didBecomeActive` fires the auto-clear, which now sees the
+        // selected doneWorking session and transitions it to idle.
+        TestStep.macActivate()
+        TestStep.macWaitForElementToDisappear(titled: "Done", timeout: 5)
     }
 }

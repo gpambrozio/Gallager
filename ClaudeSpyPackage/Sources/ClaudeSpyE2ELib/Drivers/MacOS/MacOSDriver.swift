@@ -110,6 +110,30 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
+    /// Make the app resign active by bringing Finder to the front. After this
+    /// the app is no longer frontmost, so `NSApp.isActive` reads false. Pair with
+    /// `activate()` to bring the app back. Used to test focus-dependent behavior
+    /// such as attention that should only auto-clear while the app is frontmost.
+    public func deactivate() async throws {
+        // Require a launched app so deactivation is meaningful (and consistent
+        // with `activate()`), even though bringing Finder forward is global.
+        _ = try requirePID()
+        logger.info("Deactivating app by bringing Finder to the front")
+        // Drive Finder via System Events (already-granted automation), mirroring
+        // `activate()`, instead of `tell application "Finder"` which would need a
+        // separate automation consent. Finder is always running, so this reliably
+        // resigns the app active without hiding its windows (AX reads still work).
+        let script = """
+        tell application "System Events"
+            tell (first process whose name is "Finder")
+                set frontmost to true
+            end tell
+        end tell
+        delay 0.3
+        """
+        try await runAppleScript(script)
+    }
+
     // MARK: - Settings Navigation
 
     /// Open the Settings window via the status item menu

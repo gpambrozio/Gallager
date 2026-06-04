@@ -620,6 +620,9 @@ public actor TestOrchestrator {
         case let .macActivate(instance):
             try await macDriver(for: instance).activate()
 
+        case let .macDeactivate(instance):
+            try await macDriver(for: instance).deactivate()
+
         case let .macOpenSettings(instance):
             try await macDriver(for: instance).openSettings()
 
