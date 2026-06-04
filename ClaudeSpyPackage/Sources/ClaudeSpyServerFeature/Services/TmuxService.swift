@@ -1,3 +1,4 @@
+import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Dependencies
 import Foundation
@@ -65,11 +66,22 @@ private func isConnectionError(_ stderr: String) -> Bool {
 final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
     /// Includes Claude Code rendering config and oh-my-zsh update suppression.
-    private static let baseEnvironmentVars = [
-        "CLAUDE_CODE_NO_FLICKER=1",
-        "DISABLE_AUTO_UPDATE=true",
-        "DISABLE_UPDATE_PROMPT=true",
-    ]
+    private static let baseEnvironmentVars: [String] = {
+        var vars = [
+            "CLAUDE_CODE_NO_FLICKER=1",
+            "DISABLE_AUTO_UPDATE=true",
+            "DISABLE_UPDATE_PROMPT=true",
+        ]
+        // Pin spawned panes to the app's own TMPDIR so tooling that resolves
+        // `$TMPDIR/<file>` sees the same temp dir the app does. In production this
+        // equals the value panes already inherit from the app-owned tmux server (a
+        // no-op); under the E2E harness the app's TMPDIR is pinned to the test
+        // runner's temp dir, so injected `$TMPDIR/<script>` invocations resolve.
+        if let tmp = ProcessInfo.processInfo.environment["TMPDIR"], !tmp.isEmpty {
+            vars.append("TMPDIR=\(tmp)")
+        }
+        return vars
+    }()
 
     /// Absolute path to the user's login shell. Mirrors tmux's own resolution
     /// chain: `$SHELL` → passwd entry's `pw_shell` → POSIX-guaranteed `/bin/sh`.
@@ -418,22 +430,41 @@ final public class TmuxService {
         )
     }
 
-    /// Detects tmux panes that have a running Claude Code process as a descendant.
+    /// Detects tmux panes that have a running coding-agent process as a descendant.
     ///
     /// Metadata for an agent process detected in a pane.
     public struct DetectedAgentPane: Sendable {
         public let path: String
-        public let agent: CodingAgent
+        /// Id of the plugin whose `process_names` matched (spec §6).
+        public let pluginID: String
     }
 
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
-    /// from `ps` output to find any descendant process named `claude` or `codex`. This
-    /// handles cases where the agent CLI is launched through shell wrappers or scripts
-    /// (not a direct child of the pane shell).
+    /// from `ps` output to find any descendant process whose name is one of an enabled
+    /// plugin's manifest `process_names`. This handles cases where the agent CLI is
+    /// launched through shell wrappers or scripts (not a direct child of the pane shell).
     ///
-    /// Returns a mapping of pane ID (e.g., `%0`) to the detected agent and the pane's
-    /// current working directory.
-    public func detectClaudePanes() async -> [String: DetectedAgentPane] {
+    /// - Parameter processNamesByPlugin: Map of pluginID → its manifest
+    ///   `process_names` (from `PluginRegistry.processNamesByPlugin`). Pane
+    ///   detection is purely manifest-driven and agent-blind (spec §6).
+    /// - Returns: A mapping of pane ID (e.g., `%0`) to the detected plugin and the
+    ///   pane's current working directory.
+    public func detectAgentPanes(
+        processNamesByPlugin: [String: [String]]
+    ) async -> [String: DetectedAgentPane] {
+        guard !processNamesByPlugin.isEmpty else { return [:] }
+
+        // Invert to processName → pluginID for O(1) lookup while walking the tree.
+        // When two plugins claim the same process name, the lexicographically
+        // smaller pluginID wins so detection is deterministic.
+        var pluginByProcessName: [String: String] = [:]
+        for (pluginID, names) in processNamesByPlugin.sorted(by: { $0.key < $1.key }) {
+            for name in names where pluginByProcessName[name] == nil {
+                pluginByProcessName[name] = pluginID
+            }
+        }
+        guard !pluginByProcessName.isEmpty else { return [:] }
+
         do {
             // Get pane IDs, shell PIDs, and current paths in one tmux call.
             // Joined with U+001F so a `|` in a working-directory path can't
@@ -457,32 +488,32 @@ final public class TmuxService {
             let tree = try await processTree()
             guard let tree else { return [:] }
 
-            // Walk the subtree of each pane shell, looking for a "claude" or "codex" descendant.
-            // Tie-break rule: Claude wins. If a pane has both processes running (including
-            // when one was launched as a child of the other), the pane reports as Claude.
-            // This favors the older / more common integration; a future refinement could
-            // pick the deepest match instead.
+            // Walk the subtree of each pane shell, collecting every descendant
+            // whose process name a plugin claims. A pane can match more than one
+            // plugin (e.g. one agent launched from inside another's pane), so we
+            // can't break on the first hit: `descendants(of:)` order depends on
+            // the `ps`/PID snapshot, which would make the winner flip between
+            // runs. Pick the lexicographically smallest matching pluginID so
+            // attribution is deterministic (this also keeps "claude-code" winning
+            // over "codex", matching the previous behavior).
             var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
-                var match: CodingAgent?
+                var matchedPluginIDs: Set<String> = []
                 for pid in descendants {
-                    let name = tree.processName(for: pid)
-                    if name == "claude" {
-                        match = .claudeCode
-                        break
-                    } else if name == "codex", match == nil {
-                        match = .codex
+                    guard let name = tree.processName(for: pid) else { continue }
+                    if let pluginID = pluginByProcessName[name] {
+                        matchedPluginIDs.insert(pluginID)
                     }
                 }
-                if let agent = match {
-                    detected[paneId] = DetectedAgentPane(path: info.path, agent: agent)
+                if let winner = matchedPluginIDs.min() {
+                    detected[paneId] = DetectedAgentPane(path: info.path, pluginID: winner)
                 }
             }
 
             return detected
         } catch {
-            logger.warning("detectClaudePanes failed: \(error)")
+            logger.warning("detectAgentPanes failed: \(error)")
             return [:]
         }
     }
@@ -1545,6 +1576,44 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+    }
+
+    /// Sends a `TmuxKey` sequence to a pane, batching consecutive keys by
+    /// literal mode to minimize tmux subprocess spawns: literal text is
+    /// concatenated into a single `send-keys -l`, runs of named keys go through
+    /// `sendBatchKeys`, and a `.delay` flushes the current batch then sleeps.
+    /// Shared by the keystroke-command path and the plugin `sendKeys` sink.
+    public func sendKeystrokes(_ target: String, keys: [TmuxKey]) async throws {
+        var batch: [TmuxKey] = []
+        var batchIsLiteral = false
+
+        for key in keys {
+            if case let .delay(milliseconds) = key {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+                batchIsLiteral = false
+                try await Task.sleep(for: .milliseconds(milliseconds))
+                continue
+            }
+
+            let isLiteral = key.requiresLiteralMode
+            if !batch.isEmpty, isLiteral != batchIsLiteral {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+            }
+            batchIsLiteral = isLiteral
+            batch.append(key)
+        }
+
+        try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+    }
+
+    private func flushKeystrokeBatch(_ target: String, keys: inout [TmuxKey], literal: Bool) async throws {
+        guard !keys.isEmpty else { return }
+        if literal {
+            try await sendKeys(target, keys: keys.map(\.tmuxKeyName).joined(), literal: true)
+        } else {
+            try await sendBatchKeys(target, keys: keys.map(\.tmuxKeyName))
+        }
+        keys.removeAll()
     }
 
     /// Tmux strips a trailing ";" from the last argv entry, treating it

@@ -31,9 +31,9 @@ public struct TmuxWindow: Identifiable, Sendable {
         panes.first(where: \.isActive) ?? panes.first
     }
 
-    /// Whether any pane in this window has a Claude session
+    /// Whether any pane in this window has an agent session
     public var hasClaude: Bool {
-        panes.contains { $0.claudeSession != nil }
+        panes.contains { $0.agentSession != nil }
     }
 
     /// The custom description for this window.

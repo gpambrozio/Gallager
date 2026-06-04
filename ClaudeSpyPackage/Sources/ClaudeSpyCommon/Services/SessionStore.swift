@@ -33,8 +33,14 @@ final public class SessionStore {
     /// whose IDs collide across hosts.
     public private(set) var paneStates: [PaneKey: PaneState] = [:]
 
-    /// Claude projects grouped by source host's pairId
-    public private(set) var claudeProjectsByHost: [String: [ClaudeProjectInfo]] = [:]
+    /// Agent projects grouped by source host's pairId
+    public private(set) var agentProjectsByHost: [String: [AgentProject]] = [:]
+
+    /// Plugin presentations keyed by plugin id, full-replaced on each
+    /// `plugin_presentations` push (spec §7.3). In-memory only — the host
+    /// re-pushes the complete set on every viewer connect. The sidebar reads
+    /// the icon/name/color for a session's `pluginID` from here.
+    public private(set) var presentationsByPluginID: [String: PluginPresentation] = [:]
 
     /// Home directory path for each host, keyed by pairId
     public private(set) var homeDirectoryByHost: [String: String] = [:]
@@ -49,14 +55,14 @@ final public class SessionStore {
         Array(paneStates.values)
     }
 
-    /// All Claude projects combined from all hosts
-    public var claudeProjects: [ClaudeProjectInfo] {
-        claudeProjectsByHost.values.flatMap { $0 }
+    /// All agent projects combined from all hosts
+    public var agentProjects: [AgentProject] {
+        agentProjectsByHost.values.flatMap { $0 }
     }
 
-    /// Panes without Claude sessions (plain terminals)
+    /// Panes without agent sessions (plain terminals)
     public var plainTerminalPanes: [PaneState] {
-        paneStates.values.filter { $0.claudeSession == nil }
+        paneStates.values.filter { $0.agentSession == nil }
     }
 
     /// Whether there are any sessions or panes to display
@@ -64,9 +70,9 @@ final public class SessionStore {
         !paneStates.isEmpty
     }
 
-    /// Total number of Claude sessions
+    /// Total number of agent sessions
     public var sessionCount: Int {
-        paneStates.values.filter { $0.claudeSession != nil }.count
+        paneStates.values.filter { $0.agentSession != nil }.count
     }
 
     /// Total number of items to display (Claude sessions + plain terminals)
@@ -76,25 +82,23 @@ final public class SessionStore {
 
     // MARK: - Per-Host Computed Properties
 
-    /// Get Claude sessions for a specific host, sorted by most recent event
-    public func claudeSessions(for hostId: String) -> [(paneId: String, session: ClaudeSession)] {
+    /// Get agent sessions for a specific host, sorted by display name.
+    public func agentSessions(for hostId: String) -> [(paneId: String, session: AgentSession)] {
         paneStates
             .filter { $0.key.pairId == hostId }
-            .compactMap { key, state -> (paneId: String, session: ClaudeSession)? in
-                guard let session = state.claudeSession else { return nil }
+            .compactMap { key, state -> (paneId: String, session: AgentSession)? in
+                guard let session = state.agentSession else { return nil }
                 return (paneId: key.paneId, session: session)
             }
             .sorted { lhs, rhs in
-                let lhsTime = lhs.session.latestEvent?.timestamp ?? .distantPast
-                let rhsTime = rhs.session.latestEvent?.timestamp ?? .distantPast
-                return lhsTime > rhsTime
+                lhs.session.displayName.localizedCaseInsensitiveCompare(rhs.session.displayName) == .orderedAscending
             }
     }
 
-    /// Get plain terminal panes (no Claude session) for a specific host
+    /// Get plain terminal panes (no agent session) for a specific host
     public func panes(for hostId: String) -> [PaneState] {
         paneStates
-            .filter { $0.key.pairId == hostId && $0.value.claudeSession == nil }
+            .filter { $0.key.pairId == hostId && $0.value.agentSession == nil }
             .map(\.value)
     }
 
@@ -129,9 +133,9 @@ final public class SessionStore {
         )
     }
 
-    /// Get Claude projects for a specific host
-    public func projects(for hostId: String) -> [ClaudeProjectInfo] {
-        claudeProjectsByHost[hostId] ?? []
+    /// Get agent projects for a specific host
+    public func projects(for hostId: String) -> [AgentProject] {
+        agentProjectsByHost[hostId] ?? []
     }
 
     /// Check if a host has any sessions or panes
@@ -150,68 +154,24 @@ final public class SessionStore {
 
     // MARK: - State Management
 
-    /// Handle a hook event from a host
-    public func handleEvent(_ eventMessage: HookEventMessage) {
-        let event = eventMessage.event
-        let hostId = eventMessage.pairId
-        let paneId = event.tmuxPane ?? event.action.sessionId
+    /// Handle a per-session state update from a host (the agent-blind plugin
+    /// status message — replaces the old hook-event path). The `AgentState`
+    /// carries the open response form via its `awaiting*` cases, so moving to any
+    /// non-awaiting state retracts the form automatically.
+    public func handleAgentStatus(_ status: AgentSessionStatusMessage) {
+        let hostId = status.pairId
+        let paneId = status.sessionId
         let key = PaneKey(pairId: hostId, paneId: paneId)
 
-        logger.info("Handling hook event: \(event.action.eventName) for pane: \(paneId) from host: \(hostId)")
-
-        // Get or create session within pane state
-        var session = paneStates[key]?.claudeSession ?? ClaudeSession(paneId: paneId)
-        session.addEvent(event)
+        // Upsert the agent session within the pane state, setting its state.
+        var session = paneStates[key]?.agentSession ?? AgentSession(paneId: paneId, pluginID: status.pluginId)
+        session.pluginID = status.pluginId
+        session.state = status.state
 
         if paneStates[key] != nil {
-            paneStates[key]?.claudeSession = session
+            paneStates[key]?.agentSession = session
         } else {
-            paneStates[key] = PaneState(paneId: paneId, claudeSession: session)
-        }
-
-        // Handle session lifecycle
-        switch event.action {
-        case .sessionStart:
-            logger.info("Session started for pane: \(paneId)")
-
-        case .sessionEnd:
-            paneStates[key]?.claudeSession = nil
-            paneStates[key]?.yoloMode = false
-            // Remove pane state entirely if it has no meaningful data
-            if paneStates[key]?.target.isEmpty == true {
-                paneStates.removeValue(forKey: key)
-            }
-            logger.info("Session ended for pane: \(paneId)")
-
-        case .setup,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .postToolBatch,
-             .permissionRequest,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .userPromptExpansion,
-             .stop,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            break
+            paneStates[key] = PaneState(paneId: paneId, agentSession: session)
         }
     }
 
@@ -220,7 +180,7 @@ final public class SessionStore {
         let hostId = state.pairId
 
         logger.info(
-            "Received full session state from host \(hostId): \(state.paneStates.count) panes, \(state.claudeProjects?.count ?? 0) projects"
+            "Received full session state from host \(hostId): \(state.paneStates.count) panes, \(state.agentProjects?.count ?? 0) projects"
         )
 
         // Build new state atomically to avoid UI flicker from clear-then-repopulate.
@@ -232,9 +192,13 @@ final public class SessionStore {
         }
 
         paneStates = newPaneStates
-        claudeProjectsByHost[hostId] = state.claudeProjects ?? []
+        agentProjectsByHost[hostId] = state.agentProjects ?? []
         homeDirectoryByHost[hostId] = state.homeDirectory
         hostsWithReceivedState.insert(hostId)
+
+        // Open response forms ride `AgentSession.state` inside `paneStates`, so a
+        // form that opened while we were disconnected is replayed for free as part
+        // of the snapshot above — no separate reconcile needed.
     }
 
     /// Clear all sessions and panes for a specific host
@@ -242,7 +206,7 @@ final public class SessionStore {
         paneStates = paneStates.filter { $0.key.pairId != hostId }
 
         // Clear stored projects
-        claudeProjectsByHost.removeValue(forKey: hostId)
+        agentProjectsByHost.removeValue(forKey: hostId)
         homeDirectoryByHost.removeValue(forKey: hostId)
         hostsWithReceivedState.remove(hostId)
 
@@ -250,8 +214,8 @@ final public class SessionStore {
     }
 
     /// Get a session by host and pane ID
-    public func session(for paneId: String, hostId: String) -> ClaudeSession? {
-        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession
+    public func session(for paneId: String, hostId: String) -> AgentSession? {
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.agentSession
     }
 
     /// Get the pane state by host and pane ID
@@ -259,9 +223,9 @@ final public class SessionStore {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]
     }
 
-    /// Check if a pane is currently active (has a Claude session)
+    /// Check if a pane is currently active (has an agent session)
     public func isPaneActive(paneId: String, hostId: String) -> Bool {
-        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.claudeSession != nil
+        paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.agentSession != nil
     }
 
     /// Check if yolo mode is enabled for a pane (as reported by the host)
@@ -269,31 +233,50 @@ final public class SessionStore {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]?.yoloMode ?? false
     }
 
-    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag locally.
+    /// Marks a session as handled (user has seen it) locally. Only a finished
+    /// session (`doneWorking`) goes idle; an `awaiting*` form is owed an explicit
+    /// response so it survives viewing — the guard now lives inside
+    /// `AgentSession.markHandled`.
     public func markSessionHandled(paneId: String, hostId: String) {
         let key = PaneKey(pairId: hostId, paneId: paneId)
-        guard paneStates[key]?.claudeSession?.needsAttention == true else { return }
-        paneStates[key]?.claudeSession?.markHandled()
+        paneStates[key]?.agentSession?.markHandled()
     }
 
-    // MARK: - Event Response Storage (iOS only)
+    // MARK: - Plugin Presentations
+
+    /// Full-replace the plugin presentation cache from a `plugin_presentations`
+    /// push. Always the complete enabled set (spec §7.2/§7.3).
+    public func handlePluginPresentations(_ message: PluginPresentationsMessage) {
+        presentationsByPluginID = Dictionary(
+            message.presentations.map { ($0.id, $0) },
+            uniquingKeysWith: { _, last in last }
+        )
+    }
+
+    /// The presentation for a plugin id, if cached.
+    public func presentation(forPluginID pluginID: String) -> PluginPresentation? {
+        presentationsByPluginID[pluginID]
+    }
+
+    // MARK: - Response Storage (iOS only)
 
     #if os(iOS)
-        /// Stored responses for interactive events (permission requests, prompts, etc.)
-        /// This is iOS-only because only the iOS app has the interactive response flow.
-        private var eventResponses: [UUID: ResponseType] = [:]
+        /// Stored responses for interactive response requests, keyed by the
+        /// request id of the originating `AgentResponseRequest`. iOS-only because
+        /// only the iOS app has the interactive response flow.
+        private var requestResponses: [String: ResponseType] = [:]
 
-        /// Get the stored response for an event, if any
-        public func response(for eventId: UUID) -> ResponseType? {
-            eventResponses[eventId]
+        /// Get the stored response for a request id, if any.
+        public func response(forRequestID requestID: String) -> ResponseType? {
+            requestResponses[requestID]
         }
 
-        /// Store a response for an event
-        public func setResponse(_ response: ResponseType?, for eventId: UUID) {
+        /// Store a response for a request id.
+        public func setResponse(_ response: ResponseType?, forRequestID requestID: String) {
             if let response {
-                eventResponses[eventId] = response
+                requestResponses[requestID] = response
             } else {
-                eventResponses.removeValue(forKey: eventId)
+                requestResponses.removeValue(forKey: requestID)
             }
         }
     #endif

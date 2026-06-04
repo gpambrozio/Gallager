@@ -4,12 +4,12 @@ import Dependencies
 import Foundation
 import Logging
 
-/// Manages pane state, hook events, and session tracking.
+/// Manages pane state, agent session status, and session tracking.
 @Observable
 @MainActor
 final public class MirrorWindowManager {
     /// Unified per-pane state keyed by pane ID.
-    /// Contains tmux metadata, Claude session, terminal title, and yolo mode.
+    /// Contains tmux metadata, agent session, terminal title, and yolo mode.
     public private(set) var paneStates: [String: PaneState] = [:]
 
     /// Task for periodic session validation
@@ -65,7 +65,7 @@ final public class MirrorWindowManager {
         if panes.isEmpty && !paneStates.isEmpty {
             logger.warning("updatePaneStates clearing non-empty state from empty panes", metadata: [
                 "existingPaneCount": "\(paneStates.count)",
-                "existingClaudeSessionCount": "\(paneStates.values.filter { $0.claudeSession != nil }.count)",
+                "existingAgentSessionCount": "\(paneStates.values.filter { $0.agentSession != nil }.count)",
             ])
         }
 
@@ -81,10 +81,11 @@ final public class MirrorWindowManager {
             }
         }
 
-        // Remove stale entries — but skip hook-only minimal states. `handleHookEvent`
-        // creates a `PaneState(paneId:claudeSession:)` with default-empty `sessionName`
-        // when a hook arrives for a pane the windowManager hasn't yet observed; the
-        // first refresh that sees the pane fills in metadata. A refresh whose
+        // Remove stale entries — but skip status-only minimal states.
+        // `applyState` creates a `PaneState(paneId:agentSession:)` with
+        // default-empty `sessionName` when a state arrives for a pane the
+        // windowManager hasn't yet observed; the first refresh that sees the pane
+        // fills in metadata. A refresh whose
         // `list-panes` snapshot was taken BEFORE the hook arrived (the subprocess
         // ran while MainActor was suspended) won't include that pane, and removing
         // the entry here would silently drop the SessionStart and lose the project
@@ -135,134 +136,113 @@ final public class MirrorWindowManager {
 
     // MARK: - Session Management
 
-    /// Updates the Claude session for the given pane ID, creating pane state if needed.
+    /// Updates the agent session for the given pane ID, creating pane state if needed.
     /// Encapsulates the copy-mutate-reassign pattern for struct values in dictionaries.
     /// - Parameters:
     ///   - paneId: The tmux pane ID
     ///   - update: A closure that mutates the session
-    private func updateSession(paneId: String, _ update: (inout ClaudeSession) -> Void) {
-        var session = paneStates[paneId]?.claudeSession ?? ClaudeSession(paneId: paneId)
+    private func updateSession(paneId: String, _ update: (inout AgentSession) -> Void) {
+        var session = paneStates[paneId]?.agentSession ?? AgentSession(paneId: paneId)
         update(&session)
         if paneStates[paneId] != nil {
-            paneStates[paneId]?.claudeSession = session
+            paneStates[paneId]?.agentSession = session
         } else {
             // Pane not yet known from tmux refresh — create minimal state
-            paneStates[paneId] = PaneState(paneId: paneId, claudeSession: session)
+            paneStates[paneId] = PaneState(paneId: paneId, agentSession: session)
         }
     }
 
-    /// Marks panes as Claude sessions based on process detection at startup.
-    /// Only creates sessions for panes that don't already have one (hook-based
-    /// detection takes precedence).
-    /// - Parameter panes: Mapping of pane ID to the detected agent and cwd.
-    public func markDetectedClaudeSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
-        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.claudeSession == nil {
+    /// Marks panes as agent sessions based on process detection at startup.
+    /// Only creates sessions for panes that don't already have one (the plugin
+    /// status path takes precedence).
+    /// - Parameter panes: Mapping of pane ID to the detected plugin id and cwd.
+    public func markDetectedAgentSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
+        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.agentSession == nil {
             updateSession(paneId: paneId) { session in
                 session.detectedProjectPath = info.path
-                session.agent = info.agent
+                session.pluginID = info.pluginID
             }
         }
     }
 
-    // MARK: - Hook Event Handling
+    /// Ends the agent session on a pane: removes its `AgentSession` so the sidebar
+    /// row reverts from the idle/working status indicator to the plain terminal
+    /// glyph, and drops the pane's session-scoped guard state. This is the
+    /// agent-blind equivalent of the legacy `claudeSession = nil` on `SessionEnd`;
+    /// it's driven by the `.sessionEnded` app action (Claude's hook, or Codex's
+    /// process-exit monitor), NOT by a `working == false` status (a `Stop` leaves
+    /// the session alive and idle — only an end removes it). The pane state itself
+    /// is kept (the terminal is still open); it's reclaimed separately when the
+    /// pane closes.
+    /// - Returns: whether a session was actually removed (so the caller can push
+    ///   updated state to viewers only when something changed).
+    @discardableResult
+    public func endAgentSession(forPane paneId: String) -> Bool {
+        guard paneStates[paneId]?.agentSession != nil else { return false }
+        paneStates[paneId]?.agentSession = nil
+        return true
+    }
 
-    /// Handles incoming hook events - tracks active sessions
-    /// - Parameter event: The hook event to process
-    public func handleHookEvent(_ event: HookEvent) async {
-        guard let paneId = event.tmuxPane else { return }
+    // MARK: - Plugin State (in-process plugin runtime)
 
-        // A hook event that updates working/notification state wins over any
-        // CLI-driven override so subsequent hook activity is reflected. The
-        // sidebar aggregates state across every pane in the session, so clear
-        // the override on every sibling pane — not just the one this event
-        // targeted — otherwise the row keeps reading from a stale sibling.
-        if event.isWorking != nil || event.wouldTriggerNotification {
-            let sessionName = paneStates[paneId]?.sessionName
-            if let sessionName, !sessionName.isEmpty {
-                for (otherId, state) in paneStates where state.sessionName == sessionName {
-                    paneStates[otherId]?.cliSessionState = nil
-                }
-            } else {
-                paneStates[paneId]?.cliSessionState = nil
-            }
+    /// Applies a session-state update produced by the in-process plugin runtime
+    /// (spec §5, `PluginEvent.state`). This is the SOLE state driver: it ensures
+    /// the pane has an `AgentSession` (so the pane registers as an active session
+    /// and counts toward attention/sleep-prevention), then sets the session's
+    /// `state` directly. `isWorking` / `needsAttention` are derived from it, and
+    /// the open response form (if any) rides the `awaiting*` cases — so opening or
+    /// retracting a form is just "the state changed", with no separate map.
+    ///
+    /// The pane is keyed by `tmuxPane`. Setting any state also clears a stale CLI
+    /// override on this pane and its session siblings so plugin activity wins over
+    /// a prior `session.set_state` from the CLI.
+    ///
+    /// - Parameters:
+    ///   - pluginID: The plugin that produced the state (owns the session).
+    ///   - sessionID: The plugin's opaque session id (informational here).
+    ///   - state: The session's new `AgentState`.
+    ///   - tmuxPane: The pane this state targets (the session key).
+    ///   - projectPath: Optional project path, recorded on the session so the
+    ///     sidebar can render a name before any tmux refresh tick.
+    public func applyState(
+        pluginID: String,
+        sessionID: String,
+        state: AgentState,
+        tmuxPane: String?,
+        projectPath: String?
+    ) {
+        guard let paneId = tmuxPane, !paneId.isEmpty else {
+            logger.debug("Dropping plugin state with no tmuxPane", metadata: [
+                "pluginID": "\(pluginID)",
+                "sessionID": "\(sessionID)",
+            ])
+            return
         }
 
-        // Track active session based on event type
-        switch event.action {
-        case let .sessionEnd(body):
-            // Add the final event before removing the session
-            updateSession(paneId: paneId) { $0.addEvent(event) }
-            paneStates[paneId]?.claudeSession = nil
-            paneStates[paneId]?.yoloMode = false
-            // Drop the CLI override too — the session it was decorating is gone.
-            // Mirror the working/notification path above and clear every sibling
-            // pane in the same tmux session, since `session.set_state --session`
-            // can stamp the override across all of them. Otherwise siblings keep
-            // a stale override after Claude exits in one pane and no further
-            // hook events arrive to clear them.
-            let sessionName = paneStates[paneId]?.sessionName
-            if let sessionName, !sessionName.isEmpty {
-                for (otherId, state) in paneStates where state.sessionName == sessionName {
-                    paneStates[otherId]?.cliSessionState = nil
-                }
-            } else {
-                paneStates[paneId]?.cliSessionState = nil
+        // Ensure a session exists for this pane and set the state directly. Record
+        // the project path so the sidebar has a name before the next tmux refresh
+        // confirms the pane.
+        updateSession(paneId: paneId) { session in
+            session.pluginID = pluginID
+            if let projectPath, !projectPath.isEmpty {
+                session.detectedProjectPath = projectPath
             }
+            session.state = state
+        }
 
-            // Close the pane when Claude exits normally (user quit at prompt)
-            if settings.closePaneOnSessionEnd && body.reason == .promptInputExit {
-                closePaneWhenClaudeExits(paneId: paneId)
+        // Record arrival order for the "most recent activity" sort.
+        lastActivityByPane[paneId] = Date()
+
+        // A definitive state wins over any CLI-driven override so subsequent
+        // plugin activity is reflected. The sidebar aggregates state across every
+        // pane in the session, so clear the override on every sibling pane.
+        let sessionName = paneStates[paneId]?.sessionName
+        if let sessionName, !sessionName.isEmpty {
+            for (otherId, paneState) in paneStates where paneState.sessionName == sessionName {
+                paneStates[otherId]?.cliSessionState = nil
             }
-
-        case .sessionStart:
-            // Yolo mode is NOT reset here — context compaction restarts
-            // send sessionStart without a preceding sessionEnd, so yolo
-            // must carry over. Normal session endings already clear yolo
-            // via the sessionEnd handler above.
-            updateSession(paneId: paneId) { $0.addEvent(event) }
-
-        case let .permissionRequest(body) where isYoloModeEnabled(for: paneId) && body.isYoloAutoApprovable:
-            // Yolo mode: auto-approve by sending Enter after a short delay
-            updateSession(paneId: paneId) {
-                $0.addEvent(event)
-                $0.markAutoApproved()
-            }
-            do {
-                try await Task.sleep(for: .milliseconds(500))
-                try await tmuxService.sendKeys(paneId, keys: "Enter")
-            } catch {
-                // If auto-approve fails, fall through to normal flow
-            }
-
-        case .setup,
-             .permissionRequest,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .postToolBatch,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .userPromptExpansion,
-             .stop,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            updateSession(paneId: paneId) { $0.addEvent(event) }
+        } else {
+            paneStates[paneId]?.cliSessionState = nil
         }
     }
 
@@ -288,20 +268,20 @@ final public class MirrorWindowManager {
         return true
     }
 
-    /// Set of pane IDs that have active Claude sessions
+    /// Set of pane IDs that have active agent sessions
     public var activeSessionPaneIds: Set<String> {
-        Set(paneStates.filter { $0.value.claudeSession != nil }.keys)
+        Set(paneStates.filter { $0.value.agentSession != nil }.keys)
     }
 
     /// Number of sessions that need user attention
     public var pendingSessionCount: Int {
-        paneStates.values.filter { $0.claudeSession?.needsAttention == true }.count
+        paneStates.values.filter { $0.agentSession?.needsAttention == true }.count
     }
 
     /// All sessions sorted with attention-needing sessions first
-    public var sortedSessions: [ClaudeSession] {
+    public var sortedSessions: [AgentSession] {
         paneStates.values
-            .compactMap(\.claudeSession)
+            .compactMap(\.agentSession)
             .sorted {
                 if $0.needsAttention != $1.needsAttention {
                     return $0.needsAttention
@@ -312,11 +292,24 @@ final public class MirrorWindowManager {
 
     // MARK: - Mark Handled
 
-    /// Marks a session as handled (user has seen it), clearing the `needsAttention` flag.
+    /// When each pane last received a plugin state update, used for the
+    /// "most recent activity" sidebar sort. The agent-blind `PluginEvent` carries
+    /// no event timestamp (the trailing-event buffer was dropped, spec §16), so
+    /// recency is sourced from state-arrival order instead — which matches the
+    /// order the host received the events in.
+    private var lastActivityByPane: [String: Date] = [:]
+
+    /// The most recent plugin-state arrival time for a pane, if any.
+    public func lastActivity(for paneId: String) -> Date? {
+        lastActivityByPane[paneId]
+    }
+
+    /// Marks a session as handled (user has seen it). Only a finished session
+    /// (`doneWorking`) goes idle; an `awaiting*` form is owed an explicit response
+    /// so it survives viewing — the guard now lives inside `AgentSession.markHandled`.
     /// - Parameter paneId: The pane ID whose session should be marked handled
     public func markSessionHandled(paneId: String) {
-        guard paneStates[paneId]?.claudeSession?.needsAttention == true else { return }
-        paneStates[paneId]?.claudeSession?.markHandled()
+        paneStates[paneId]?.agentSession?.markHandled()
     }
 
     // MARK: - CLI Session State Override
@@ -340,9 +333,11 @@ final public class MirrorWindowManager {
 
     // MARK: - Yolo Mode
 
-    /// Sets yolo mode for a pane's Claude session.
-    /// When enabled, permission requests are auto-approved by sending Enter keystroke.
-    /// If there's already a pending auto-approvable permission request, it is approved immediately.
+    /// Sets yolo mode for a pane's agent session.
+    /// When enabled, auto-approvable permission requests are approved by the
+    /// plugin path (the app calls `deliverResponse(.permission(.allow))` for an
+    /// `isAutoApprovable` request on a yolo pane — spec §6), so this method only
+    /// records the flag.
     /// - Parameters:
     ///   - enabled: Whether to enable or disable yolo mode
     ///   - paneId: The pane ID to set yolo mode for
@@ -352,26 +347,6 @@ final public class MirrorWindowManager {
         } else {
             // Create minimal state if needed
             paneStates[paneId] = PaneState(paneId: paneId, yoloMode: enabled)
-        }
-
-        // When enabling, auto-approve any pending permission request
-        if
-            enabled,
-            let latestEvent = paneStates[paneId]?.claudeSession?.latestEvent,
-            case let .permissionRequest(body) = latestEvent.action,
-            body.isYoloAutoApprovable {
-            paneStates[paneId]?.claudeSession?.markAutoApproved()
-            let eventId = latestEvent.id
-            Task { [tmuxService] in
-                do {
-                    try await Task.sleep(for: .milliseconds(500))
-                    // Verify the event hasn't been superseded to avoid a double-Enter
-                    guard self.paneStates[paneId]?.claudeSession?.latestEvent?.id == eventId else { return }
-                    try await tmuxService.sendKeys(paneId, keys: "Enter")
-                } catch {
-                    // If auto-approve fails, the user can still approve manually
-                }
-            }
         }
     }
 
@@ -451,25 +426,6 @@ final public class MirrorWindowManager {
                 ])
             }
             await onSessionMetadataChanged?()
-        }
-    }
-
-    // MARK: - Auto-Close Pane
-
-    /// Polls until the Claude process exits from the pane, then closes the pane after a short delay.
-    private func closePaneWhenClaudeExits(paneId: String) {
-        Task { [tmuxService] in
-            // Poll until Claude is no longer running in this pane (up to 30 seconds)
-            for _ in 0..<30 {
-                try? await Task.sleep(for: .seconds(1))
-                let claudePanes = await tmuxService.detectClaudePanes()
-                if claudePanes[paneId] == nil {
-                    // Claude process has exited — wait 1 second then close the pane
-                    try? await Task.sleep(for: .seconds(1))
-                    try? await tmuxService.killPane(paneId)
-                    return
-                }
-            }
         }
     }
 

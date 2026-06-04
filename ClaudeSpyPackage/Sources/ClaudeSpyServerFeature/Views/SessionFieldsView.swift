@@ -91,7 +91,7 @@ struct SessionSortData {
     let latestEventTimestamp: Date?
 
     /// Status priority: lower = higher priority (attention > working > idle)
-    static func statusPriority(for claudeSession: ClaudeSession?) -> Int {
+    static func statusPriority(for claudeSession: AgentSession?) -> Int {
         guard let session = claudeSession else { return 3 }
         if session.needsAttention { return 0 }
         if session.isWorking { return 1 }
@@ -99,7 +99,7 @@ struct SessionSortData {
     }
 
     /// Status priority with idle before working (attention > idle > working)
-    static func statusPriorityIdleFirst(for claudeSession: ClaudeSession?) -> Int {
+    static func statusPriorityIdleFirst(for claudeSession: AgentSession?) -> Int {
         guard let session = claudeSession else { return 3 }
         if session.needsAttention { return 0 }
         if !session.isWorking { return 1 }
@@ -144,7 +144,7 @@ struct SessionSortData {
         sidebarTerminalFields: [SidebarField],
         homeDirectory: String?
     ) -> SessionSortData {
-        let claudeSession = session.windows.flatMap(\.panes).compactMap(\.claudeSession).first
+        let claudeSession = session.windows.flatMap(\.panes).compactMap(\.agentSession).first
         let activePane = session.activeWindow?.activePane
         let terminalTitle = session.windows.flatMap(\.panes).compactMap(\.terminalTitle).first { !$0.isEmpty }
         let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
@@ -165,7 +165,9 @@ struct SessionSortData {
             hasClaude: claudeSession != nil,
             statusPriority: statusPriority(for: claudeSession),
             statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: claudeSession?.latestEvent?.timestamp
+            // The plugin model dropped the per-event timestamp buffer (spec §16);
+            // recency sort by last event is no longer available.
+            latestEventTimestamp: nil
         )
     }
 }

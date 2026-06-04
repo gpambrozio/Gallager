@@ -2,17 +2,17 @@ import Foundation
 
 /// E2E scenario: Session state sync across host and multiple viewers
 ///
-/// Verifies that session status (Attention/Working/Idle) is correctly displayed
-/// and synchronized across all three platforms:
-/// 1. SessionStart triggers "Attention" on host, iOS viewer, and Mac viewer
-/// 2. iOS viewer marks handled → state becomes "Idle" (SessionStart is clearable)
+/// Verifies that session status (Idle/Working/Done/Permission) is correctly
+/// displayed and synchronized across all three platforms, and that the
+/// "viewed → idle" transition (`markHandled`) only clears a finished session:
+/// 1. SessionStart settles to "Idle" on host, iOS viewer, and Mac viewer
+/// 2. iOS viewer opens the idle session → markHandled is a no-op → stays "Idle"
 /// 3. UserPromptSubmit transitions to "Working" on all platforms
-/// 4. Stop event transitions to "Attention" on all platforms (triggers notification)
-/// 5. Mac viewer selects session → marks handled → "Idle" (Stop is clearable)
-/// 6. PermissionRequest re-raises "Attention" on all platforms
-/// 7. iOS taps session → "Attention" persists (PermissionRequest is NOT clearable)
+/// 4. Stop event transitions to "Done" (doneWorking, needs attention) on all
+/// 5. Mac viewer selects session → doneWorking IS clearable → "Idle"
+/// 6. PermissionRequest opens the "Permission" form on all platforms
+/// 7. iOS taps session → an awaiting* form is NOT clearable → "Permission" persists
 /// 8. A subsequent working event (UserPromptSubmit) naturally moves to "Working"
-/// 9. Host selection marks handled on non-attention state → stays at current state
 public enum MarkHandledScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Mark Handled",
@@ -51,45 +51,46 @@ public enum MarkHandledScenario {
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macWaitForElement(titled: "StateProject", timeout: 30, instance: 1)
 
-        // ── Phase 3: Verify "Attention" on all three platforms ────────────
+        // ── Phase 3: Verify "Idle" on all three platforms ─────────────────
         //
-        // SessionStart triggers a notification → needsAttention = true
+        // SessionStart settles to `.idle` (the "session started" push still fires,
+        // but a just-started session no longer needs attention).
 
-        TestStep.log("Verifying Attention state on all platforms")
+        TestStep.log("Verifying Idle state on all platforms")
 
         // Host sidebar: accessibilityValue includes session status
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
-        TestStep.macScreenshot(label: "host-attention")
+        TestStep.macWaitForElement(titled: "Idle", timeout: 10)
+        TestStep.macScreenshot(label: "host-idle-after-start")
 
         // Mac viewer sidebar
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-attention", instance: 1)
+        TestStep.macWaitForElement(titled: "Idle", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-idle-after-start", instance: 1)
 
         // iOS: accessibilityValue on the session row
-        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 15)
-        TestStep.iosScreenshot(label: "ios-attention")
+        TestStep.iosWaitForElement(.valueContains("Idle"), timeout: 15)
+        TestStep.iosScreenshot(label: "ios-idle-after-start")
 
-        // ── Phase 4: iOS marks handled → SessionStart IS clearable → "Idle" ─
+        // ── Phase 4: iOS opens an idle session → markHandled is a no-op ───
         //
-        // Opening the session on iOS marks it as handled.
-        // SessionStart is clearable, so after handling → "Idle"
+        // Opening a session only clears a `doneWorking` state. An idle session has
+        // no attention to clear, so viewing it leaves it "Idle".
 
-        TestStep.log("iOS tapping session to mark as handled (SessionStart is clearable)")
+        TestStep.log("iOS opening idle session (markHandled is a no-op on idle)")
         TestStep.iosTap(.labelContains("StateProject"))
         TestStep.wait(seconds: 3)
 
-        // Go back to session list to see updated indicator
+        // Go back to session list to see the indicator
         TestStep.iosTap(.label("Sessions"))
 
-        // All platforms should now show "Idle" (SessionStart → not working, cleared)
+        // All platforms still show "Idle"
         TestStep.iosWaitForElement(.valueContains("Idle"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-idle-after-handle")
+        TestStep.iosScreenshot(label: "ios-idle-after-view")
 
         TestStep.macWaitForElement(titled: "Idle", timeout: 10)
-        TestStep.macScreenshot(label: "host-idle-after-ios-handle")
+        TestStep.macScreenshot(label: "host-idle-after-ios-view")
 
         TestStep.macWaitForElement(titled: "Idle", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-idle-after-ios-handle", instance: 1)
+        TestStep.macScreenshot(label: "viewer-idle-after-ios-view", instance: 1)
 
         // ── Phase 5: UserPromptSubmit transitions to "Working" ─────────────
 
@@ -117,9 +118,9 @@ public enum MarkHandledScenario {
         TestStep.macWaitForElement(titled: "Working", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-working", instance: 1)
 
-        // ── Phase 6: Stop event → "Attention" (stop triggers notification) ─
+        // ── Phase 6: Stop event → "Done" (doneWorking, needs attention) ───
 
-        TestStep.log("Sending Stop event — session becomes idle/attention")
+        TestStep.log("Sending Stop event — session becomes doneWorking (Done)")
         TestStep.macSendHookEvent(
             json: """
             {
@@ -133,22 +134,22 @@ public enum MarkHandledScenario {
             projectPath: "/Users/test/StateProject"
         )
 
-        // Stop triggers notification → needsAttention = true → "Attention"
-        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-attention-after-stop")
+        // Stop → doneWorking → needsAttention = true → "Done"
+        TestStep.iosWaitForElement(.valueContains("Done"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-done-after-stop")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
-        TestStep.macScreenshot(label: "host-attention-after-stop")
+        TestStep.macWaitForElement(titled: "Done", timeout: 10)
+        TestStep.macScreenshot(label: "host-done-after-stop")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-attention-after-stop", instance: 1)
+        TestStep.macWaitForElement(titled: "Done", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-done-after-stop", instance: 1)
 
-        // ── Phase 7: Mac viewer selects session → Stop IS clearable → "Idle" ─
+        // ── Phase 7: Mac viewer selects session → doneWorking IS clearable ─
         //
-        // Clicking the session on Mac viewer clears attention.
-        // Stop event has isWorking = false, so after handling → "Idle"
+        // Clicking the session on the Mac viewer clears attention. `doneWorking`
+        // is the only state `markHandled` clears, so after handling → "Idle".
 
-        TestStep.log("Mac viewer selecting session to mark as handled (Stop is clearable)")
+        TestStep.log("Mac viewer selecting session to mark as handled (Done is clearable)")
         TestStep.macClickButton(titled: "StateProject", instance: 1)
 
         // All platforms should now show "Idle"
@@ -161,9 +162,9 @@ public enum MarkHandledScenario {
         TestStep.iosWaitForElement(.valueContains("Idle"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-idle-after-viewer-handle")
 
-        // ── Phase 8: PermissionRequest re-raises "Attention" ──────────────
+        // ── Phase 8: PermissionRequest opens the "Permission" form ────────
 
-        TestStep.log("Sending PermissionRequest — re-raises attention")
+        TestStep.log("Sending PermissionRequest — opens the Permission form")
         TestStep.macSendHookEvent(
             json: """
             {
@@ -177,60 +178,61 @@ public enum MarkHandledScenario {
             projectPath: "/Users/test/StateProject"
         )
 
-        // All platforms show "Attention" again
-        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10, instance: 1)
-        TestStep.iosScreenshot(label: "ios-attention-permission")
-        TestStep.macScreenshot(label: "host-attention-permission")
-        TestStep.macScreenshot(label: "viewer-attention-permission", instance: 1)
+        // All platforms show "Permission"
+        TestStep.iosWaitForElement(.valueContains("Permission"), timeout: 10)
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10)
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10, instance: 1)
+        TestStep.iosScreenshot(label: "ios-permission")
+        TestStep.macScreenshot(label: "host-permission")
+        TestStep.macScreenshot(label: "viewer-permission", instance: 1)
 
-        // ── Phase 9: iOS taps session → PermissionRequest is NOT clearable ─
+        // ── Phase 9: iOS taps session → an awaiting* form is NOT clearable ─
         //
-        // PermissionRequest requires explicit user action (approve/deny).
-        // markHandled should NOT clear it — "Attention" must persist.
+        // A permission requires an explicit answer (approve/deny). markHandled only
+        // clears `doneWorking`, so an `awaitingPermission` state survives a view —
+        // "Permission" must persist.
 
-        TestStep.log("iOS tapping session — PermissionRequest should NOT be cleared")
+        TestStep.log("iOS tapping session — the Permission form should NOT be cleared")
         TestStep.iosTap(.labelContains("StateProject"))
         TestStep.wait(seconds: 3)
 
         // Go back to session list
         TestStep.iosTap(.label("Sessions"))
 
-        // Attention should STILL be shown — PermissionRequest was not cleared
-        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
+        // "Permission" should STILL be shown — the awaiting form was not cleared
+        TestStep.iosWaitForElement(.valueContains("Permission"), timeout: 10)
         // Settle wait for the session-list back-navigation animation.
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "ios-still-attention-after-permission-handle")
+        TestStep.iosScreenshot(label: "ios-still-permission-after-view")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
-        TestStep.macScreenshot(label: "host-still-attention-after-permission-handle")
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10)
+        TestStep.macScreenshot(label: "host-still-permission-after-view")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-still-attention-after-permission-handle", instance: 1)
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-still-permission-after-view", instance: 1)
 
         // ── Phase 10: Host selects session → also NOT clearable ─────────
         //
-        // Even the host selecting the session should not clear PermissionRequest.
+        // Even the host selecting the session should not clear the awaiting form.
 
-        TestStep.log("Host selecting session — PermissionRequest still NOT cleared")
+        TestStep.log("Host selecting session — Permission still NOT cleared")
         TestStep.macClickButton(titled: "e2e-state")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10)
-        TestStep.macScreenshot(label: "host-still-attention-after-host-select")
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10)
+        TestStep.macScreenshot(label: "host-still-permission-after-host-select")
 
-        TestStep.macWaitForElement(titled: "Attention", timeout: 10, instance: 1)
-        TestStep.macScreenshot(label: "viewer-still-attention-after-host-select", instance: 1)
+        TestStep.macWaitForElement(titled: "Permission", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "viewer-still-permission-after-host-select", instance: 1)
 
-        TestStep.iosWaitForElement(.valueContains("Attention"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-still-attention-after-host-select")
+        TestStep.iosWaitForElement(.valueContains("Permission"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-still-permission-after-host-select")
 
         // ── Phase 11: Working event naturally clears attention ──────────
         //
         // A UserPromptSubmit event means the user sent a new prompt, which moves
-        // the session to "Working" — naturally superseding the attention state.
+        // the session to "Working" — naturally superseding the awaiting form.
 
-        TestStep.log("Sending UserPromptSubmit — naturally moves from Attention to Working")
+        TestStep.log("Sending UserPromptSubmit — naturally moves from Permission to Working")
         TestStep.macSendHookEvent(
             json: """
             {
@@ -244,7 +246,7 @@ public enum MarkHandledScenario {
             projectPath: "/Users/test/StateProject"
         )
 
-        // All platforms show "Working" — attention is gone
+        // All platforms show "Working" — the awaiting form is gone
         TestStep.iosWaitForElement(.valueContains("Working"), timeout: 10)
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macWaitForElement(titled: "Working", timeout: 10, instance: 1)

@@ -2,22 +2,58 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Response view for stop events that shows Claude's last assistant message
-/// as a summary above the prompt input.
+/// Response view for the "agent stopped" case. Shows the agent's last message as
+/// a collapsible summary above a reply field. Submits `AgentResponse.replyAfterStop`
+/// (an empty reply means "send nothing, just interrupt" — spec §7.1).
 struct StopResponseView: View {
-    let lastAssistantMessage: String?
+    let request: ReplyAfterStopRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
+    let submit: ResponseSender
     let state: ResponseState
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let message = lastAssistantMessage {
-                summarySection(message: message)
-            }
+    @State private var inputText = ""
+    @FocusState private var isTextFieldFocused: Bool
 
-            PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
+    private var placeholder: String {
+        request.placeholder ?? "Reply to the agent..."
+    }
+
+    var body: some View {
+        if let response = state.response {
+            responseFeedback(response)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                if let message = request.summary {
+                    summarySection(message: message)
+                }
+                replyField
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    if state.isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button("Send") {
+                            sendReply()
+                        }
+                        .disabled(!isConnected)
+                    }
+                }
+            }
         }
+    }
+
+    private var replyField: some View {
+        TextField(placeholder, text: $inputText, axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineLimit(3...6)
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.1)))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.3), lineWidth: 1))
+            .focused($isTextFieldFocused)
+            .disabled(state.isSending || !isConnected)
+            .accessibilityLabel(placeholder)
     }
 
     private func summarySection(message: String) -> some View {
@@ -58,55 +94,54 @@ struct StopResponseView: View {
                 .accessibilityIdentifier("summary-text")
         }
     }
+
+    private func responseFeedback(_ response: ResponseType) -> some View {
+        HStack {
+            (
+                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
+            )
+            .foregroundStyle(response.feedbackColor)
+            Text(response.feedbackMessage)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
+    }
+
+    private func sendReply() {
+        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        state.isSending = true
+        Task {
+            await submit(.replyAfterStop(text: trimmed))
+            inputText = ""
+            state.isSending = false
+            state.response = .promptSubmitted
+        }
+    }
 }
 
 // MARK: - Preview
 
 #Preview("Stop with summary") {
-    let event = HookEvent(
-        action: .stop(StopBody(
-            sessionId: "test",
-            hookEventName: "Stop",
-            lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully."
-        )),
-        projectPath: nil,
-        tmuxPane: nil
+    let request = ReplyAfterStopRequest(
+        title: "Claude is waiting",
+        summary: "I've completed the refactoring of the authentication module."
     )
-    let state = ResponseState(event: event)
+    let state = ResponseState(
+        request: .replyAfterStop(request),
+        pluginID: "claude-code",
+        requestID: "test:stop"
+    )
 
     return NavigationStack {
         List {
             Section("Response") {
                 StopResponseView(
-                    lastAssistantMessage: "I've completed the refactoring of the authentication module. The changes include updating the JWT validation logic, adding refresh token support, and migrating the session store to use async/await patterns. All existing tests have been updated to reflect the new architecture and are passing successfully.",
+                    request: request,
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
-                )
-            }
-        }
-    }
-}
-
-#Preview("Stop without summary") {
-    let event = HookEvent(
-        action: .stop(StopBody(
-            sessionId: "test",
-            hookEventName: "Stop",
-            lastAssistantMessage: nil
-        )),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
-        List {
-            Section("Response") {
-                StopResponseView(
-                    lastAssistantMessage: nil,
-                    isConnected: true,
-                    sendCommand: { _ in },
+                    submit: { _ in },
                     state: state
                 )
             }

@@ -12,14 +12,14 @@ public struct MenuBarExtraView: View {
 
     public init() { }
 
-    private var localSessions: [ClaudeSession] {
+    private var localSessions: [AgentSession] {
         windowManager.sortedSessions
     }
 
-    private var remoteSessionsByHost: [(host: PairedHost, sessions: [ClaudeSession])] {
+    private var remoteSessionsByHost: [(host: PairedHost, sessions: [AgentSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
-            let sessions = sessionStore.claudeSessions(for: host.id).map(\.session)
+            let sessions = sessionStore.agentSessions(for: host.id).map(\.session)
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
         }
@@ -88,7 +88,8 @@ public struct MenuBarExtraView: View {
     /// context, so we load the asset-catalog color via `Bundle.main`.
     @MainActor
     private static let attentionIconImage: NSImage? = {
-        let renderer = ImageRenderer(content:
+        let renderer = ImageRenderer(
+            content:
             Symbols.handsAndSparklesFill.image
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color("AccentColor", bundle: .main))
@@ -115,7 +116,7 @@ public struct MenuBarExtraView: View {
 
     // MARK: - Session Buttons
 
-    private func localSessionButton(for session: ClaudeSession) -> some View {
+    private func localSessionButton(for session: AgentSession) -> some View {
         Button {
             coordinator.pendingMenuBarSelection = .local(paneId: session.paneId)
             NSApp.setActivationPolicy(.regular)
@@ -126,7 +127,7 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    private func remoteSessionButton(for session: ClaudeSession, host: PairedHost) -> some View {
+    private func remoteSessionButton(for session: AgentSession, host: PairedHost) -> some View {
         Button {
             coordinator.pendingMenuBarSelection = .remote(
                 hostId: host.id,
@@ -142,12 +143,10 @@ public struct MenuBarExtraView: View {
     }
 
     @ViewBuilder
-    private func sessionLabel(for session: ClaudeSession) -> some View {
-        let title = if let latestEvent = session.latestEvent {
-            "\(session.displayName) • \(latestEvent.action.title)"
-        } else {
-            session.displayName
-        }
+    private func sessionLabel(for session: AgentSession) -> some View {
+        // The plugin model dropped the per-event buffer (spec §16); the menu label
+        // is just the session display name now.
+        let title = session.displayName
 
         // Menu items can't render ProgressView, so use SF Symbols for all states
         if session.needsAttention {

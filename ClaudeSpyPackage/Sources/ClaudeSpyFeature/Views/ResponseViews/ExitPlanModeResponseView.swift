@@ -2,27 +2,22 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-// MARK: - Exit Plan Mode Response View
+// MARK: - Approve Plan Response View
 
-/// Response view for ExitPlanMode that displays the plan and requested permissions.
+/// Response view for a plan-approval request. Displays the plan (markdown,
+/// collapsible) and Approve / Reject actions, submitting a structured
+/// `AgentResponse.approvePlan` (spec §7.1). The plan text is formatted Mac-side.
 struct ExitPlanModeResponseView: View {
-    let params: ExitPlanModeParameters
+    let request: ApprovePlanRequest
     let isConnected: Bool
-    let sendCommand: CommandSender
+    let submit: ResponseSender
     let state: ResponseState
 
     @State private var isPlanExpanded = true
 
     var body: some View {
         if let response = state.response {
-            if case .rejected = response {
-                VStack(spacing: 12) {
-                    responseFeedback(response)
-                    PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state)
-                }
-            } else {
-                responseFeedback(response)
-            }
+            responseFeedback(response)
         } else {
             planContent
         }
@@ -32,9 +27,11 @@ struct ExitPlanModeResponseView: View {
 
     private func responseFeedback(_ response: ResponseType) -> some View {
         HStack {
-            (response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image)
-                .foregroundStyle(response.feedbackColor)
+            (
+                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
+                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
+            )
+            .foregroundStyle(response.feedbackColor)
             Text(response.feedbackMessage)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -51,19 +48,14 @@ struct ExitPlanModeResponseView: View {
             HStack {
                 Symbols.listBulletClipboard.image
                     .foregroundStyle(.blue)
-                Text("Plan Approval")
+                Text(request.title)
                     .font(.headline)
                 Spacer()
             }
 
-            // Allowed Prompts section
-            if let prompts = params.allowedPrompts, !prompts.isEmpty {
-                allowedPromptsSection(prompts)
-            }
-
             // Plan section (collapsible)
-            if let plan = params.plan, !plan.isEmpty {
-                planSection(plan)
+            if !request.plan.isEmpty {
+                planSection(request.plan)
             }
 
             // Action buttons
@@ -82,39 +74,6 @@ struct ExitPlanModeResponseView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    // MARK: - Allowed Prompts
-
-    private func allowedPromptsSection(_ prompts: [ExitPlanModeParameters.AllowedPrompt]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Requested Permissions")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ForEach(Array(prompts.enumerated()), id: \.offset) { _, prompt in
-                promptRow(prompt)
-            }
-        }
-    }
-
-    private func promptRow(_ prompt: ExitPlanModeParameters.AllowedPrompt) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(prompt.tool)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(.orange))
-
-            Text(prompt.prompt)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-
-            Spacer()
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.1)))
     }
 
     // MARK: - Plan Section
@@ -162,7 +121,7 @@ struct ExitPlanModeResponseView: View {
             // Reject button
             Button {
                 Task {
-                    await rejectPlan()
+                    await respond(.reject)
                 }
             } label: {
                 Label("Reject", symbol: .xmarkCircleFill)
@@ -176,7 +135,7 @@ struct ExitPlanModeResponseView: View {
             // Approve button
             Button {
                 Task {
-                    await approvePlan()
+                    await respond(.approve)
                 }
             } label: {
                 Label("Approve", symbol: .checkmarkCircleFill)
@@ -191,115 +150,40 @@ struct ExitPlanModeResponseView: View {
 
     // MARK: - Actions
 
-    private func approvePlan() async {
+    private func respond(_ decision: PlanDecision) async {
         state.isSending = true
-        // Send "3" to approve the plan
-        await sendCommand(.sendKeystroke([.text("3")]))
+        await submit(.approvePlan(decision: decision, editedPlan: nil))
         state.isSending = false
-        state.response = .accepted
-    }
-
-    private func rejectPlan() async {
-        state.isSending = true
-        // Send Escape to reject
-        await sendCommand(.sendKeystroke([.escape]))
-        state.isSending = false
-        state.response = .rejected
-    }
-}
-
-// MARK: - Preview Helpers
-
-extension ExitPlanModeParameters {
-    static var preview: ExitPlanModeParameters {
-        ExitPlanModeParameters(
-            plan: """
-            # Implementation Plan
-
-            ## Summary
-            Implement a new feature for user authentication.
-
-            ## Steps
-            1. Add login screen
-            2. Implement OAuth flow
-            3. Store tokens securely
-            4. Add logout functionality
-
-            ## Files to modify
-            - `AuthService.swift`
-            - `LoginView.swift`
-            - `AppCoordinator.swift`
-            """,
-            allowedPrompts: [
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "build iOS target"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "run tests"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "install dependencies"),
-            ]
-        )
-    }
-
-    static var previewPromptsOnly: ExitPlanModeParameters {
-        ExitPlanModeParameters(
-            plan: nil,
-            allowedPrompts: [
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "build the project"),
-                ExitPlanModeParameters.AllowedPrompt(tool: "Bash", prompt: "run unit tests"),
-            ]
-        )
+        state.response = decision == .approve ? .accepted : .rejected
     }
 }
 
 // MARK: - Previews
 
-#Preview("Exit Plan Mode") {
-    let params = ExitPlanModeParameters.preview
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "ExitPlanMode",
-            toolInput: .exitPlanMode(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
+#Preview("Approve Plan") {
+    let request = ApprovePlanRequest(
+        title: "Plan Approval",
+        plan: """
+        # Implementation Plan
+
+        ## Steps
+        1. Add login screen
+        2. Implement OAuth flow
+        """
     )
-    let state = ResponseState(event: event)
+    let state = ResponseState(
+        request: .approvePlan(request),
+        pluginID: "claude-code",
+        requestID: "test:plan"
+    )
 
     return NavigationStack {
         List {
             Section("Plan Approval") {
                 ExitPlanModeResponseView(
-                    params: params,
+                    request: request,
                     isConnected: true,
-                    sendCommand: { _ in },
-                    state: state
-                )
-            }
-        }
-    }
-}
-
-#Preview("Exit Plan Mode - Prompts Only") {
-    let params = ExitPlanModeParameters.previewPromptsOnly
-    let event = HookEvent(
-        action: .permissionRequest(PermissionRequestBody(
-            sessionId: "test-session",
-            hookEventName: "PermissionRequest",
-            toolName: "ExitPlanMode",
-            toolInput: .exitPlanMode(params)
-        )),
-        projectPath: nil,
-        tmuxPane: nil
-    )
-    let state = ResponseState(event: event)
-
-    return NavigationStack {
-        List {
-            Section("Plan Approval") {
-                ExitPlanModeResponseView(
-                    params: params,
-                    isConnected: true,
-                    sendCommand: { _ in },
+                    submit: { _ in },
                     state: state
                 )
             }

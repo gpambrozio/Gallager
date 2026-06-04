@@ -32,6 +32,16 @@ public enum TabReorderScenario {
         TestStep.tmuxCommand(arguments: ["rename-window", "-t", "tabreorder:0", "winA"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "tabreorder", "-n", "winB"])
         TestStep.tmuxCommand(arguments: ["new-window", "-t", "tabreorder", "-n", "winC"])
+        // `new-session` pins winA to $HOME (`-c`), but `new-window` inherits the
+        // tmux *server's* working directory — the e2e binary's checkout/worktree
+        // dir on CI, the repo root locally. That folder name would otherwise leak
+        // into winB/winC's terminal prompt, the file-browser breadcrumb (Phase 8),
+        // and the sidebar current-path line, making the screenshots differ between
+        // checkout locations. Reset both to $HOME so every cwd the app surfaces is
+        // stable regardless of where the suite runs. (The app-created "terminal 1"
+        // already inherits winA's $HOME, so it needs no reset.)
+        Shortcut.tmuxRunCommand(target: "tabreorder:winB", command: "cd; clear")
+        Shortcut.tmuxRunCommand(target: "tabreorder:winC", command: "cd; clear")
         // Re-select winA so the sidebar click lands on a known tab.
         TestStep.tmuxCommand(arguments: ["select-window", "-t", "tabreorder:0"])
         TestStep.wait(seconds: 1)
@@ -41,9 +51,22 @@ public enum TabReorderScenario {
         TestStep.tmuxCreateSession(name: "tabreorder-other", width: 100, height: 30)
         TestStep.wait(seconds: 1)
 
+        // Give both sessions a stable custom title — same mechanism the CLI uses
+        // (`gallager set-title` / `new-session --title`), persisted as the
+        // `@gallager-description` tmux user option. This drives the window title
+        // bar and the sidebar primary label, so neither falls back to the
+        // working-directory path (which varies by checkout folder). Set before
+        // the app launches so the first session read already sees the titles.
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder:", "@gallager-description", "Tab Reorder"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder-other:", "@gallager-description", "Tab Reorder Other"])
+
         // ── Launch app ────────────────────────────────────────────────
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_300, height: 700)
+        // Re-pin the sidebar after this second resize: `.balanced` NavigationSplitView
+        // reflows column widths on resize, so without this the sidebar width is
+        // non-deterministic across runs and the screenshots flake.
+        TestStep.macSetSidebarWidth(250)
 
         TestStep.macWaitForElement(titled: "tabreorder", timeout: 10)
         TestStep.macClickButton(titled: "tabreorder")

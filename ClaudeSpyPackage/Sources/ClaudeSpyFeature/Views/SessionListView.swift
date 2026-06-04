@@ -182,7 +182,7 @@
 
         // MARK: - New Session Creation
 
-        private func createNewSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+        private func createNewSession(on host: PairedHost, inProject project: AgentProject?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -196,8 +196,8 @@
                 width: settings.newSessionWidth,
                 height: settings.newSessionHeight,
                 workingDirectory: project?.path,
-                claudeConfigDir: project?.claudeConfigDir,
-                agent: project?.agent ?? .claudeCode
+                configDir: project?.configDir,
+                pluginID: project?.pluginID ?? "claude-code"
             )
 
             // paneId is not used for session creation, pass empty string
@@ -298,7 +298,7 @@
             let activeWindow = session.activeWindow
             let activePaneInSession = activeWindow?.activePane ?? activeWindow?.panes.first
             // Find the first pane with a Claude session (may differ from the active pane)
-            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
+            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
             // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
@@ -306,7 +306,7 @@
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
                 VStack(spacing: 0) {
-                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
+                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.agentSession {
                         SessionRowView(
                             paneId: claudePane.paneId,
                             session: claudeSession,
@@ -352,7 +352,7 @@
                         .padding(.leading, 16)
                 }
             }
-            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.claudeSession?.statusLabel ?? "")
+            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.agentSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
@@ -522,7 +522,7 @@
 
     struct SessionRowView: View {
         let paneId: String
-        let session: ClaudeSession
+        let session: AgentSession
         var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
@@ -583,26 +583,11 @@
                         }
                     }
 
-                    // Latest event summary
-                    if let latestEvent = session.latestEvent {
-                        HStack {
-                            Text(latestEvent.action.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-
-                            Spacer()
-
-                            Text(DateFormatters.relativeTime(for: latestEvent.timestamp))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-
-                    // Event count
-                    Text("\(session.events.count) recent events")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    // Status label (the plugin model dropped the per-event buffer,
+                    // so the row shows the live status rather than an event feed).
+                    Text(session.statusLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -729,7 +714,7 @@
         let host: PairedHost
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
-        let onSelect: (ClaudeProjectInfo?) -> Void
+        let onSelect: (AgentProject?) -> Void
 
         @Environment(\.dismiss) private var dismiss
         @Environment(SessionStore.self) private var sessionStore
@@ -740,13 +725,19 @@
         }
 
         /// Projects for this host, read from SessionStore to auto-update when state arrives
-        private var projects: [ClaudeProjectInfo] {
+        private var projects: [AgentProject] {
             sessionStore.projects(for: host.id)
         }
 
-        private var filteredProjects: [ClaudeProjectInfo] {
+        private var filteredProjects: [AgentProject] {
             guard !searchText.isEmpty else { return projects }
             return projects.filter { $0.name.fuzzyMatches(searchText) }
+        }
+
+        /// Short display name for a plugin, from the presentation cache (spec §7.3);
+        /// falls back to the plugin id when no presentation has been pushed yet.
+        private func presentationShortName(for pluginID: String) -> String {
+            sessionStore.presentation(forPluginID: pluginID)?.shortName ?? pluginID
         }
 
         var body: some View {
@@ -800,8 +791,8 @@
                                                 Text(project.name)
                                                     .foregroundStyle(.primary)
 
-                                                if project.agent != .claudeCode {
-                                                    Text(project.agent.shortName)
+                                                if project.pluginID != "claude-code" {
+                                                    Text(presentationShortName(for: project.pluginID))
                                                         .font(.caption2.weight(.semibold))
                                                         .padding(.horizontal, 6)
                                                         .padding(.vertical, 2)
@@ -912,7 +903,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .blue,
-                        claudeSession: ClaudeSession(
+                        agentSession: AgentSession(
                             paneId: "%1",
                             detectedProjectPath: "/Users/preview/AlphaProject"
                         )
@@ -925,7 +916,7 @@
                         isActive: true,
                         isWindowActive: true,
                         customColor: .red,
-                        claudeSession: ClaudeSession(
+                        agentSession: AgentSession(
                             paneId: "%2",
                             detectedProjectPath: "/Users/preview/BravoProject"
                         ),

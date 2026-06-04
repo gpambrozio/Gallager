@@ -76,6 +76,9 @@
         /// When returning to foreground, we immediately attempt reconnection to avoid
         /// waiting for exponential backoff timers.
         private func handleScenePhaseChange(_ phase: ScenePhase) {
+            // Keep the notification service's foreground flag in sync so the
+            // backgrounded-only local-notification fallback fires correctly.
+            pushService.setAppActive(phase == .active)
             switch phase {
             case .background:
                 // Only start background task if we have any active connections
@@ -103,23 +106,34 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
-            connectionManager.onHookEvent = { [sessionStore] event in
+            // High-frequency per-session state updates drive the sidebar badges.
+            // The `AgentState` carries the open response form (no separate channel).
+            connectionManager.onAgentSessionStatus = { [sessionStore] status in
                 Task { @MainActor in
-                    sessionStore.handleEvent(event)
+                    sessionStore.handleAgentStatus(status)
+                }
+            }
 
-                    // If app is backgrounded, show a local notification.
-                    // The server won't send a push since we're "connected" via WebSocket,
-                    // but the user can't see the app, so we need to alert them.
-                    if scenePhase != .active {
-                        if let notification = event.buildNotification() {
-                            PushNotificationService.shared.scheduleLocalNotification(
-                                title: notification.title,
-                                body: notification.body,
-                                paneId: event.event.tmuxPane,
-                                hostId: event.pairId
-                            )
-                        }
-                    }
+            // The complete enabled-plugin presentation set (icons/names/colors).
+            connectionManager.onPluginPresentations = { [sessionStore] presentations in
+                Task { @MainActor in
+                    sessionStore.handlePluginPresentations(presentations)
+                }
+            }
+
+            // Backgrounded fallback: the relay drops the APNs push while we're
+            // WS-connected, so a host's live-socket notification is the only
+            // alert during the backgrounded-but-connected window. When active,
+            // the in-app UI already reflects the event, so we suppress it.
+            connectionManager.onAgentNotification = { [pushService] notification in
+                Task { @MainActor in
+                    guard !pushService.isAppActive else { return }
+                    pushService.scheduleLocalNotification(
+                        title: notification.title,
+                        body: notification.body,
+                        paneId: notification.sessionId,
+                        hostId: notification.pairId
+                    )
                 }
             }
 

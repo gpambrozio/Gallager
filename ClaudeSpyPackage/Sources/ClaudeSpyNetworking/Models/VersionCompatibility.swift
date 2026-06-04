@@ -9,14 +9,15 @@ public enum VersionCompatibility {
     /// Default minimum viewer version accepted by a host running this build.
     ///
     /// Bump this when the host introduces a protocol change that older viewers
-    /// cannot handle.
-    public static let defaultMinRequiredViewerVersion = "1.23"
+    /// cannot handle. Bumped for the plugin-system flag-day break (the wire
+    /// dropped raw hook events for the agent-blind plugin messages).
+    public static let defaultMinRequiredViewerVersion = "2.0"
 
     /// Default minimum host version accepted by a viewer running this build.
     ///
     /// Bump this when the viewer introduces a protocol change that older hosts
-    /// cannot handle.
-    public static let defaultMinRequiredHostVersion = "1.23"
+    /// cannot handle. Bumped for the plugin-system flag-day break.
+    public static let defaultMinRequiredHostVersion = "2.0"
 
     /// Test-only overrides set from launch arguments during E2E scenarios.
     /// Regular production code should never set these.

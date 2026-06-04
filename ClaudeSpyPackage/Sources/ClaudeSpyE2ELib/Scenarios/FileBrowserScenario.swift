@@ -57,6 +57,10 @@ public enum FileBrowserScenario {
 
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
+        // Re-pin the sidebar after this second resize: `.balanced` NavigationSplitView
+        // reflows column widths on resize, so without this the sidebar width is
+        // non-deterministic across runs and the screenshots flake.
+        TestStep.macSetSidebarWidth(250)
 
         // Select session in sidebar
         TestStep.macWaitForElement(titled: "filebrowse", timeout: 5)
@@ -622,6 +626,9 @@ public enum FileBrowserScenario {
         // `src` and `src/utils` both expanded.
         TestStep.log("Phase 29: Detail pane preserves scroll position across tab and session switches")
         TestStep.macResizeWindow(width: 1_200, height: 800)
+        // Re-pin the sidebar after this resize too (see note above) so the
+        // later-phase screenshots stay deterministic.
+        TestStep.macSetSidebarWidth(250)
         TestStep.wait(seconds: 1)
 
         TestStep.macClickButton(titled: "Files")

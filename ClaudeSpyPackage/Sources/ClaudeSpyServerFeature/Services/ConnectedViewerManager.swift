@@ -52,6 +52,15 @@ final public class ConnectedViewerManager {
     /// APNs badge value.
     public var pendingSessionCountProvider: (@MainActor @Sendable () async -> Int)?
 
+    /// Called when any viewer submits a plugin response (iOS→Mac). The
+    /// coordinator routes it to the owning plugin core's `deliverResponse`.
+    public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmissionMessage) async -> Void)?
+
+    /// Provides the current enabled-plugin presentation set, pushed to each
+    /// viewer on connect. Forwarded to every `ConnectedViewer` via its
+    /// `onViewerConnected` hook (spec §7.2).
+    public var presentationsProvider: (@MainActor @Sendable () async -> [PluginPresentation])?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -229,11 +238,22 @@ final public class ConnectedViewerManager {
 
     // MARK: - Broadcasting
 
-    /// Send a hook event to all connected viewers.
-    public func sendHookEventToAll(_ event: HookEvent, skipPushNotification: Bool = false) async {
+    /// Send a per-session state update to all connected viewers (the
+    /// high-frequency path — spec §7.2). The `AgentState` carries the open form.
+    public func sendAgentSessionStatusToAll(
+        sessionId: String,
+        pluginId: String,
+        state: AgentState
+    ) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
-                group.addTask { await connection.sendHookEvent(event, skipPushNotification: skipPushNotification) }
+                group.addTask {
+                    await connection.sendAgentSessionStatus(
+                        sessionId: sessionId,
+                        pluginId: pluginId,
+                        state: state
+                    )
+                }
             }
         }
     }
@@ -284,6 +304,17 @@ final public class ConnectedViewerManager {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
                 group.addTask { await connection.sendBadgeUpdate(badge: badge) }
+            }
+        }
+    }
+
+    /// Push the complete enabled-plugin presentation set to all connected
+    /// viewers (spec §7.2/§7.3). Used on enable/disable; per-viewer connect
+    /// pushes go through each `ConnectedViewer.onViewerConnected`.
+    public func pushPluginPresentationsToAll(_ presentations: [PluginPresentation]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendPluginPresentations(presentations) }
             }
         }
     }
@@ -345,6 +376,19 @@ final public class ConnectedViewerManager {
 
         connection.onPendingSessionCount = { [weak self] in
             await self?.pendingSessionCountProvider?() ?? 0
+        }
+
+        connection.onAgentResponseSubmission = { [weak self] submission in
+            await self?.onAgentResponseSubmission?(submission)
+        }
+
+        // On connect, push the current plugin presentations to just this
+        // viewer (the full set). Enable/disable re-pushes go through
+        // `pushPluginPresentationsToAll`.
+        connection.onViewerConnected = { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            let presentations = await self.presentationsProvider?() ?? []
+            await connection.sendPluginPresentations(presentations)
         }
     }
 }

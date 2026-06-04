@@ -57,7 +57,7 @@ public enum SettingsTab: String, Sendable {
     case remoteHosts
     case sidebarLayout
     case editors
-    case plugin
+    case agents
     case about
 }
 
@@ -317,41 +317,6 @@ final public class AppSettings {
         didSet { preferences.setString(tmuxPath, Keys.tmuxPath) }
     }
 
-    /// Whether to automatically run a command when creating sessions in project folders
-    public var autoRunClaudeInProjects: Bool = Defaults.autoRunClaudeInProjects {
-        didSet { preferences.setBool(autoRunClaudeInProjects, Keys.autoRunClaudeInProjects) }
-    }
-
-    /// Whether to close the tmux pane when Claude exits normally (user typed /exit or ctrl+c at prompt)
-    public var closePaneOnSessionEnd: Bool = Defaults.closePaneOnSessionEnd {
-        didSet { preferences.setBool(closePaneOnSessionEnd, Keys.closePaneOnSessionEnd) }
-    }
-
-    /// Path to claude command (for auto-run in project folders)
-    public var claudeCommandPath: String = Defaults.claudeCommandPath {
-        didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
-    }
-
-    /// Path to codex command (for auto-run in Codex project folders)
-    public var codexCommandPath: String = Defaults.codexCommandPath {
-        didSet { preferences.setString(codexCommandPath, Keys.codexCommandPath) }
-    }
-
-    /// Whether to automatically run `codex` when creating a session in a
-    /// Codex project folder. Defaults to true; mirrors
-    /// `autoRunClaudeInProjects` so per-session opt-out stays possible.
-    public var autoRunCodexInProjects: Bool = Defaults.autoRunCodexInProjects {
-        didSet { preferences.setBool(autoRunCodexInProjects, Keys.autoRunCodexInProjects) }
-    }
-
-    /// Resolves the command path for a given coding agent.
-    public func commandPath(for agent: CodingAgent) -> String {
-        switch agent {
-        case .claudeCode: claudeCommandPath
-        case .codex: codexCommandPath
-        }
-    }
-
     /// tmux socket path (empty for default)
     public var tmuxSocket: String = Defaults.tmuxSocket {
         didSet { preferences.setString(tmuxSocket, Keys.tmuxSocket) }
@@ -411,13 +376,6 @@ final public class AppSettings {
         didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
     }
 
-    // MARK: - Project Scanning Settings
-
-    /// Additional directories to scan for Claude projects (each should contain .claude.json and .claude/projects/)
-    public var additionalClaudeFolders: [String] = [] {
-        didSet { saveAdditionalClaudeFolders() }
-    }
-
     // MARK: - External Editor Settings
 
     /// External editors the user can pick to open files with.
@@ -433,13 +391,6 @@ final public class AppSettings {
     /// of them.
     public var hasSeededEditors: Bool = Defaults.hasSeededEditors {
         didSet { preferences.setBool(hasSeededEditors, Keys.hasSeededEditors) }
-    }
-
-    // MARK: - Plugin Settings
-
-    /// Whether the user has completed the plugin setup (or dismissed it)
-    public var hasCompletedPluginSetup: Bool = Defaults.hasCompletedPluginSetup {
-        didSet { preferences.setBool(hasCompletedPluginSetup, Keys.hasCompletedPluginSetup) }
     }
 
     // MARK: - Launch at Login Settings
@@ -478,13 +429,6 @@ final public class AppSettings {
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
-
-        // Claude command settings
-        self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
-        self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
-        self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
-        self.codexCommandPath = preferences.string(Keys.codexCommandPath) ?? Defaults.codexCommandPath
-        self.autoRunCodexInProjects = preferences.optionalBool(Keys.autoRunCodexInProjects) ?? Defaults.autoRunCodexInProjects
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
@@ -518,15 +462,9 @@ final public class AppSettings {
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
 
-        // Project Scanning
-        self.additionalClaudeFolders = Self.loadCodable(from: preferences, key: Keys.additionalClaudeFolders)
-
         // External Editors
         self.editors = Self.loadCodable(from: preferences, key: Keys.editors)
         self.hasSeededEditors = preferences.optionalBool(Keys.hasSeededEditors) ?? Defaults.hasSeededEditors
-
-        // Plugin
-        self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
 
         // Launch at Login
         self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
@@ -555,11 +493,6 @@ final public class AppSettings {
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
-        case autoRunClaudeInProjects
-        case claudeCommandPath
-        case codexCommandPath
-        case autoRunCodexInProjects
-        case closePaneOnSessionEnd
         case terminalApp
         case customTerminalPath
         // Remote Access
@@ -572,13 +505,9 @@ final public class AppSettings {
         case sidebarFields
         case sidebarTerminalFields
         case sidebarSortMode
-        /// Project Scanning
-        case additionalClaudeFolders
         /// External Editors
         case editors
         case hasSeededEditors
-        /// Plugin
-        case hasCompletedPluginSetup
         // Launch at Login
         case launchAtLogin
         case hasAskedAboutLaunchAtLogin
@@ -606,11 +535,6 @@ final public class AppSettings {
         static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
-        static let autoRunClaudeInProjects = true
-        static let claudeCommandPath = "claude"
-        static let codexCommandPath = "codex"
-        static let autoRunCodexInProjects = true
-        static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
@@ -618,8 +542,6 @@ final public class AppSettings {
         static let autoConnectToServer = true
         /// External Editors
         static let hasSeededEditors = false
-        /// Plugin
-        static let hasCompletedPluginSetup = false
         // Launch at Login
         static let launchAtLogin = false
         static let hasAskedAboutLaunchAtLogin = false
@@ -665,13 +587,6 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.sidebarFields)
-    }
-
-    private func saveAdditionalClaudeFolders() {
-        guard let data = try? JSONEncoder().encode(additionalClaudeFolders) else {
-            return
-        }
-        preferences.setData(data, Keys.additionalClaudeFolders)
     }
 
     private func saveEditors() {
@@ -804,27 +719,6 @@ final public class AppSettings {
             $0.hostName == host.hostName && $0.id != host.id
         }
         return !matchingNames.isEmpty
-    }
-
-    // MARK: - Claude Folder Management
-
-    /// Add a new folder to scan for Claude projects.
-    ///
-    /// Returns the normalized path that was added (or would have been added if
-    /// it hadn't already been present). Callers that need to act on the
-    /// canonical representation can use this instead of re-normalizing the
-    /// input.
-    @discardableResult
-    public func addClaudeFolder(_ path: String) -> String {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        guard !additionalClaudeFolders.contains(normalized) else { return normalized }
-        additionalClaudeFolders.append(normalized)
-        return normalized
-    }
-
-    /// Remove a Claude folder by its path.
-    public func removeClaudeFolder(_ path: String) {
-        additionalClaudeFolders.removeAll { $0 == path }
     }
 
     // MARK: - Editor Management

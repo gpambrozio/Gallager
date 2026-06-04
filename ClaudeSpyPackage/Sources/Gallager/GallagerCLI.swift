@@ -40,6 +40,8 @@ struct GallagerCLI: ParsableCommand {
             // Projects
             ListProjectsCommand.self,
             StartProjectCommand.self,
+            // Plugins
+            PluginCommand.self,
             // Layouts
             ApplyCommand.self,
             // Utility

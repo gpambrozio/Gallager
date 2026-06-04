@@ -49,7 +49,11 @@ public actor MacOSDriver {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         configuration.arguments = arguments
-        configuration.environment = ["LOG_LEVEL": "debug"]
+        // Pin the app's TMPDIR to the test runner's temp dir so tmux panes the app
+        // creates (e.g. via "New Terminal" → TmuxService) resolve `$TMPDIR/<script>`
+        // to where `injectScript` copies — otherwise scripts run in app-created
+        // panes are "not found" (the app inherits a different sandbox temp dir).
+        configuration.environment = ["LOG_LEVEL": "debug", "TMPDIR": NSTemporaryDirectory()]
 
         let runningApp = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
         appPID = runningApp.processIdentifier
@@ -98,6 +102,30 @@ public actor MacOSDriver {
         let script = """
         tell application "System Events"
             tell (first process whose unix id is \(pid))
+                set frontmost to true
+            end tell
+        end tell
+        delay 0.3
+        """
+        try await runAppleScript(script)
+    }
+
+    /// Make the app resign active by bringing Finder to the front. After this
+    /// the app is no longer frontmost, so `NSApp.isActive` reads false. Pair with
+    /// `activate()` to bring the app back. Used to test focus-dependent behavior
+    /// such as attention that should only auto-clear while the app is frontmost.
+    public func deactivate() async throws {
+        // Require a launched app so deactivation is meaningful (and consistent
+        // with `activate()`), even though bringing Finder forward is global.
+        _ = try requirePID()
+        logger.info("Deactivating app by bringing Finder to the front")
+        // Drive Finder via System Events (already-granted automation), mirroring
+        // `activate()`, instead of `tell application "Finder"` which would need a
+        // separate automation consent. Finder is always running, so this reliably
+        // resigns the app active without hiding its windows (AX reads still work).
+        let script = """
+        tell application "System Events"
+            tell (first process whose name is "Finder")
                 set frontmost to true
             end tell
         end tell
@@ -677,22 +705,42 @@ public actor MacOSDriver {
         }
     }
 
-    // MARK: - Hook Events
+    // MARK: - Hook Events (ingress socket)
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// The hook server port is read from `hookPortFile` (defaults to `~/.claudespy-port`).
-    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws {
-        logger.info("Sending hook event via test server, pane: \(tmuxPane)")
-        let success = try await MacAppHTTPClient.sendHook(
-            json: json,
-            tmuxPane: tmuxPane,
-            projectPath: projectPath,
-            hookPortFile: hookPortFile
-        )
-        if !success {
-            throw MacOSDriverError.hookEventFailed("Hook event POST failed")
+    /// Deliver a hook event to the macOS app by writing one length-prefixed
+    /// `IngressFrame` to the app's ingress socket (spec §8) — the transport that
+    /// replaced the deleted HTTP `HookServerService` path.
+    ///
+    /// `pluginID` routes the frame to the owning core (`"claude-code"` /
+    /// `"codex"` / `"echo"`); `json` is the raw host-agent event the core
+    /// decodes; `tmuxPane`/`projectPath` become the harvested ingress `context`
+    /// (`TMUX_PANE` / `CLAUDE_PROJECT_DIR`). `socketPath` is the per-scenario
+    /// `<gallager-state-root>/ingress.sock`.
+    public func sendHookEvent(
+        pluginID: String,
+        json: String,
+        tmuxPane: String,
+        projectPath: String?,
+        socketPath: String
+    ) async throws {
+        logger.info("Sending ingress frame (plugin_id=\(pluginID)) for pane: \(tmuxPane)")
+        var context = ["TMUX_PANE": tmuxPane]
+        if let projectPath {
+            context["CLAUDE_PROJECT_DIR"] = projectPath
         }
-        logger.info("Hook event sent successfully")
+        do {
+            _ = try await IngressSocketClient.sendFrame(
+                pluginID: pluginID,
+                context: context,
+                payload: Data(json.utf8),
+                socketPath: socketPath
+            )
+        } catch {
+            throw MacOSDriverError.hookEventFailed(
+                "Ingress frame write failed: \(error.localizedDescription)"
+            )
+        }
+        logger.info("Ingress frame written successfully")
     }
 
     // MARK: - Wait for Element

@@ -38,10 +38,10 @@ struct SessionSidebarRow: View {
     }
 
     /// The first Claude session found in any pane of any window, if any
-    private var claudeSession: ClaudeSession? {
+    private var claudeSession: AgentSession? {
         for window in session.windows {
             for pane in window.panes {
-                if let session = windowManager.paneStates[pane.paneId]?.claudeSession {
+                if let session = windowManager.paneStates[pane.paneId]?.agentSession {
                     return session
                 }
             }
@@ -73,13 +73,12 @@ struct SessionSidebarRow: View {
         return nil
     }
 
-    /// The latest event subtitle from the first pane with a Claude session
+    /// The plugin model dropped the per-event buffer (spec §16), so there is no
+    /// "latest event" subtitle to surface; the field renders empty.
     private var sessionSubtitle: String? {
         for window in session.windows {
-            for pane in window.panes {
-                if let subtitle = windowManager.paneStates[pane.paneId]?.claudeSession?.latestEvent?.action.subtitle {
-                    return subtitle
-                }
+            for pane in window.panes where windowManager.paneStates[pane.paneId]?.agentSession != nil {
+                return nil
             }
         }
         return nil

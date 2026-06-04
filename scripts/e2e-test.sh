@@ -437,8 +437,16 @@ XCODEBUILD_FLAGS=(
     -workspace "$WORKSPACE"
     -skipMacroValidation
     -skipPackagePluginValidation
-    -derivedDataPath "$DERIVED_DATA"
 )
+
+# Under the XcodeBuildTools sandbox, the `xcodebuild` wrapper on PATH already
+# injects `-derivedDataPath` (pointing at $SANDBOX_DERIVED_DATA, which
+# DERIVED_DATA resolves to above). Passing it a second time fails with
+# "option '-derivedDataPath' may only be provided once", so only set it
+# ourselves when not running under that sandbox.
+if [ -z "${SANDBOX_DERIVED_DATA:-}" ]; then
+    XCODEBUILD_FLAGS+=(-derivedDataPath "$DERIVED_DATA")
+fi
 
 # =====================================================
 # LIST SCENARIOS (no build needed)

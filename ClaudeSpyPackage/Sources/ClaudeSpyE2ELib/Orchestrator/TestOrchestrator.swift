@@ -21,10 +21,11 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
-    /// Base path for the hook server port file. E2E tests use a separate file
-    /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
-    /// Instance 0 uses this path directly; instance N uses `\(hookPortFile)-\(N)`.
-    private let hookPortFile: String
+    /// Base directory for the per-instance `--gallager-state-root`. Each instance
+    /// gets its own subdirectory so the plugin runtime's ingress socket + state
+    /// is isolated. Instance 0 uses `<base>/0`; instance N uses `<base>/N`. The
+    /// hook-delivery DSL step writes frames to `<stateRoot>/ingress.sock`.
+    private let gallagerStateRootBase: String
     private let skipComparison: Bool
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
@@ -109,7 +110,7 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
-        hookPortFile: String? = nil,
+        gallagerStateRootBase: String? = nil,
         reporter: (any TestProgressReporter)? = nil
     ) {
         self.iosAppPath = iosAppPath
@@ -121,10 +122,8 @@ public actor TestOrchestrator {
         self.e2eRunnerPath = e2eRunnerPath
         self.skipComparison = skipComparison
         self.reporter = reporter
-        self.hookPortFile = hookPortFile ?? {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            return "\(home)/.claudespy-port-test"
-        }()
+        self.gallagerStateRootBase = gallagerStateRootBase
+            ?? (NSTemporaryDirectory() + "claudespy-e2e-gallager")
     }
 
     // MARK: - Run Scenarios
@@ -324,6 +323,10 @@ public actor TestOrchestrator {
             let runner = processRunner
             _ = try? await runner.run("tmux", arguments: ["-S", socket, "kill-server"])
             try? FileManager.default.removeItem(atPath: socket)
+
+            // Remove the instance's `--gallager-state-root` tree (incl. the
+            // stale ingress socket) so the next scenario binds a fresh socket.
+            try? FileManager.default.removeItem(atPath: gallagerStateRootPath(for: idx))
         }
 
         logger.info("=== Cleanup complete ===")
@@ -561,17 +564,31 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
+            // Each instance gets its own `--gallager-state-root` so the plugin
+            // runtime's ingress socket + per-plugin state is isolated per
+            // scenario/instance (replaces the deleted `--hook-port-file`). The
+            // DSL hook-delivery step writes frames to `<stateRoot>/ingress.sock`.
+            let stateRoot = gallagerStateRootPath(for: instance)
+            try? FileManager.default.createDirectory(
+                atPath: stateRoot,
+                withIntermediateDirectories: true
+            )
             var arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
-                "--hook-port-file", hookPortFilePath(for: instance),
+                "--gallager-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
             ]
+            // Seed deterministic projects so project-list / project-search
+            // scenarios see a stable set (the in-memory scanners that used to
+            // do this were deleted in the plugin-system flip). Honoured only in
+            // `--e2e-test` + DEBUG builds.
+            arguments += ["--e2e-seed-projects"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }
@@ -602,6 +619,9 @@ public actor TestOrchestrator {
 
         case let .macActivate(instance):
             try await macDriver(for: instance).activate()
+
+        case let .macDeactivate(instance):
+            try await macDriver(for: instance).deactivate()
 
         case let .macOpenSettings(instance):
             try await macDriver(for: instance).openSettings()
@@ -791,9 +811,14 @@ public actor TestOrchestrator {
             // Use -f /dev/null to ignore user's tmux.conf (avoids base-index/pane-base-index
             // being set to non-zero values which would change pane targets).
             // Set DISABLE_AUTO_UPDATE to suppress oh-my-zsh update prompts that block the shell.
+            // Pin TMPDIR to the runner's temp dir so `injectScript` (which copies to
+            // NSTemporaryDirectory()) and the pane's `$TMPDIR/<script>` references resolve to the
+            // SAME directory. We used to rely on the tmux server inheriting the runner's TMPDIR, but
+            // that breaks when the runner and the tmux server have different temp dirs (e.g. under a
+            // sandbox), leaving injected scripts unfindable.
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
@@ -912,16 +937,17 @@ public actor TestOrchestrator {
                 return !value.isEmpty && value != resolvedNotEqualTo
             }
 
-        // Hook Events
-        case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
+        // Hook Events (ingress socket)
+        case let .macSendHookEvent(pluginID, json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)
             let resolvedPane = context.resolve(tmuxPane)
             let resolvedPath = projectPath.map { context.resolve($0) }
             try await macDriver(for: instance).sendHookEvent(
+                pluginID: pluginID,
                 json: resolvedJson,
                 tmuxPane: resolvedPane,
                 projectPath: resolvedPath,
-                hookPortFile: hookPortFilePath(for: instance)
+                socketPath: ingressSocketPath(for: instance)
             )
 
         // Assertions
@@ -1055,10 +1081,19 @@ public actor TestOrchestrator {
         return driver
     }
 
-    /// Return the hook port file path for the given instance number.
-    /// Instance 0 uses the base `hookPortFile`; instance N uses `hookPortFile-N`.
-    private func hookPortFilePath(for instance: Int) -> String {
-        instance == 0 ? hookPortFile : "\(hookPortFile)-\(instance)"
+    /// Return the `--gallager-state-root` directory for the given instance.
+    /// Each instance gets its own subdirectory so the plugin runtime's ingress
+    /// socket and per-plugin state stay isolated between instances and scenarios.
+    private func gallagerStateRootPath(for instance: Int) -> String {
+        "\(gallagerStateRootBase)/\(instance)"
+    }
+
+    /// Return the ingress socket path for the given instance — the
+    /// `ingress.sock` under that instance's `--gallager-state-root` (mirrors
+    /// `GallagerPaths.ingressSocketPath`). The hook-delivery DSL step connects
+    /// here to write length-prefixed frames.
+    private func ingressSocketPath(for instance: Int) -> String {
+        "\(gallagerStateRootPath(for: instance))/ingress.sock"
     }
 
     /// Return the tmux socket path for the given instance number.

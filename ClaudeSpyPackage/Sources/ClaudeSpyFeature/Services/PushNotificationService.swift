@@ -102,6 +102,17 @@
         /// Current notification permission status
         public private(set) var permissionStatus: UNAuthorizationStatus = .notDetermined
 
+        /// Whether the app is currently foregrounded (`scenePhase == .active`).
+        /// Drives the backgrounded-only local-notification fallback: a host's
+        /// notification pushed over the live socket is only materialized locally
+        /// when the user can't already see the app. Updated from the scene phase.
+        public private(set) var isAppActive = true
+
+        /// Update the foreground/active flag from the app's scene phase.
+        public func setAppActive(_ active: Bool) {
+            isAppActive = active
+        }
+
         /// Deep link info from a tapped notification.
         public var pendingDeepLink: DeepLinkInfo?
 

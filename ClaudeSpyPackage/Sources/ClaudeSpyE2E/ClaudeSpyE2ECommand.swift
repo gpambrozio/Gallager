@@ -48,8 +48,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Write detailed JSON results to this file path")
     var jsonOutput: String?
 
-    @Option(name: .long, help: "Path to the hook server port file (default: ~/.claudespy-port-test)")
-    var hookPortFile: String?
+    @Option(
+        name: .long,
+        help: "Base directory for per-instance --gallager-state-root (plugin ingress socket + state). Default: <tmpdir>/claudespy-e2e-gallager"
+    )
+    var gallagerStateRoot: String?
 
     @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/claudespy-e2e/e2e.log)")
     var logFile: String?
@@ -108,7 +111,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Compare:     \(noCompare ? "disabled" : "enabled")\n", stderr)
         fputs("  Tmux socket: \(tmuxSocket ?? "(default)")\n", stderr)
         fputs("  E2E runner:  \(e2eRunnerPath ?? "(none)")\n", stderr)
-        fputs("  Hook port:   \(hookPortFile ?? "(default: ~/.claudespy-port-test)")\n", stderr)
+        fputs("  State root:  \(gallagerStateRoot ?? "(default: <tmpdir>/claudespy-e2e-gallager)")\n", stderr)
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
         var reporters: [any TestProgressReporter] = [TerminalReporter()]
@@ -137,7 +140,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
             skipComparison: noCompare,
-            hookPortFile: hookPortFile,
+            gallagerStateRootBase: gallagerStateRoot,
             reporter: reporter
         )
 
@@ -316,6 +319,19 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CloseBrowserTabReturnsToParentScenario.scenario,
         TerminalFileLinkStaleCacheScenario.scenario,
         OSCBackgroundProbeScenario.scenario,
+        EchoIngressRoundTripScenario.scenario,
+        EchoResponseRoundTripScenario.scenario,
+        PluginCLIScenario.scenario,
+        PluginEnableDisableScenario.scenario,
+        ClosePaneOnSessionEndScenario.scenario,
+        CodexSessionUpdatesScenario.scenario,
+        CodexResponseRoundTripScenario.scenario,
+        MultiPluginPresentationsScenario.scenario,
+        CreateFromProjectLaunchScenario.scenario,
+        MultiPluginCoexistenceScenario.scenario,
+        CodexFormsParityScenario.scenario,
+        PermissionSuggestionDenyScenario.scenario,
+        AgentsSettingsTabScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

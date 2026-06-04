@@ -56,11 +56,11 @@ public struct SettingsView: View {
                 }
                 .tag(SettingsTab.remoteHosts)
 
-            PluginSettingsView()
+            AgentsSettingsView()
                 .tabItem {
-                    Label("Plugin", symbol: .puzzlepiece)
+                    Label("Agents", symbol: .puzzlepiece)
                 }
-                .tag(SettingsTab.plugin)
+                .tag(SettingsTab.agents)
 
             AboutView()
                 .tabItem {
@@ -80,13 +80,6 @@ struct GeneralSettingsView: View {
     @State private var launchAtLoginEnabled = false
     @State private var showingLoginItemError = false
     @State private var loginItemErrorMessage = ""
-
-    /// Folder whose plugin install prompt is currently being shown, if any.
-    @State private var pluginSetupFolder: ClaudeFolderIdentifier?
-
-    /// Bumped after a custom-folder plugin setup sheet is dismissed so each
-    /// folder row re-checks its plugin installation status.
-    @State private var pluginStatusRefreshID = UUID()
 
     var body: some View {
         @Bindable var settings = settings
@@ -213,78 +206,6 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Claude Code") {
-                Toggle("Auto-run Claude in project folders", isOn: $settings.autoRunClaudeInProjects)
-                    .help("When creating a session in a Claude project folder, automatically run the claude command")
-
-                if settings.autoRunClaudeInProjects {
-                    HStack {
-                        TextField("Command", text: $settings.claudeCommandPath)
-                            .help("Path to the claude command (full path or just 'claude' if in PATH)")
-                            .textFieldStyle(.roundedBorder)
-                        Button("Browse...") {
-                            browseForClaude(settings: settings)
-                        }
-                    }
-                }
-
-                Toggle("Close pane when Claude exits", isOn: $settings.closePaneOnSessionEnd)
-                    .help("Automatically close the tmux pane after Claude Code exits normally")
-            }
-
-            Section("Codex CLI") {
-                Toggle("Auto-run Codex in project folders", isOn: $settings.autoRunCodexInProjects)
-                    .help("When creating a session in a Codex project folder, automatically run the codex command")
-
-                if settings.autoRunCodexInProjects {
-                    HStack {
-                        TextField("Command", text: $settings.codexCommandPath)
-                            .help("Path to the codex command (full path or just 'codex' if in PATH)")
-                            .textFieldStyle(.roundedBorder)
-                        Button("Browse...") {
-                            browseForCodex(settings: settings)
-                        }
-                    }
-                }
-
-                Text(
-                    "Gallager ships as a Codex plugin (codex-gallager). " +
-                        "The first time you start Codex after installing, Codex will ask you " +
-                        "to review and trust the plugin's hook commands — approve them so events flow into Gallager."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                CodexPluginInstallerRow(settings: settings)
-            }
-
-            Section("Project Folders") {
-                Text("Directories containing .claude.json and .claude/ to scan for projects.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                LabeledContent("Default") {
-                    Text("~/.claude")
-                        .foregroundStyle(.secondary)
-                }
-
-                ForEach(settings.additionalClaudeFolders, id: \.self) { folder in
-                    ClaudeFolderRow(
-                        folder: folder,
-                        refreshTrigger: pluginStatusRefreshID
-                    ) { url in
-                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
-                    }
-                }
-
-                Button("Add Folder...") {
-                    if let url = browseForClaudeFolder(settings: settings) {
-                        pluginSetupFolder = ClaudeFolderIdentifier(url: url)
-                    }
-                }
-                .help("Add a directory that contains a .claude.json config and .claude/projects/ session data")
-            }
-
             Section("Updates") {
                 Toggle(
                     "Automatically check for updates",
@@ -319,130 +240,6 @@ struct GeneralSettingsView: View {
         } message: {
             Text(loginItemErrorMessage)
         }
-        .sheet(
-            item: $pluginSetupFolder,
-            onDismiss: {
-                pluginStatusRefreshID = UUID()
-            }
-        ) { folder in
-            CustomFolderPluginSetupView(configDir: folder.url)
-        }
-    }
-}
-
-/// Identifier wrapper so a selected Claude folder URL can drive a
-/// `sheet(item:)` presentation.
-private struct ClaudeFolderIdentifier: Identifiable {
-    let url: URL
-    var id: String {
-        url.path
-    }
-}
-
-/// Row in the custom Claude folders list.
-///
-/// Owns a ``PluginService`` scoped to ``folder`` so the plugin install
-/// status is checked and displayed inline. When the plugin isn't yet
-/// installed, the Install Plugin button asks the parent view to open the
-/// shared ``CustomFolderPluginSetupView`` — the same sheet used when the
-/// user first adds a folder. `refreshTrigger` is bumped by the parent
-/// after that sheet dismisses so each row re-checks its state.
-private struct ClaudeFolderRow: View {
-    let folder: String
-    let refreshTrigger: UUID
-    let onInstallRequested: (URL) -> Void
-
-    @Environment(AppSettings.self) private var settings
-
-    @State private var pluginService: PluginService
-
-    init(
-        folder: String,
-        refreshTrigger: UUID,
-        onInstallRequested: @escaping (URL) -> Void
-    ) {
-        self.folder = folder
-        self.refreshTrigger = refreshTrigger
-        self.onInstallRequested = onInstallRequested
-        self._pluginService = State(
-            initialValue: PluginService(configDir: URL(fileURLWithPath: folder))
-        )
-    }
-
-    var body: some View {
-        HStack {
-            Text(abbreviatePath(folder))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(folder)
-
-            pluginStatusView
-
-            Spacer()
-
-            Button {
-                settings.removeClaudeFolder(folder)
-            } label: {
-                Symbols.minusCircleFill.image
-                    .foregroundStyle(.red)
-            }
-            .buttonStyle(.borderless)
-            .help("Remove this folder")
-        }
-        .task(id: folder + refreshTrigger.uuidString) {
-            await checkPlugin()
-        }
-    }
-
-    @ViewBuilder
-    private var pluginStatusView: some View {
-        switch pluginService.state {
-        case .unknown,
-             .checking,
-             .checkingClaude:
-            ProgressView()
-                .controlSize(.small)
-        case let .installed(version):
-            Label("Plugin installed", symbol: .checkmarkCircleFill)
-                .font(.caption)
-                .foregroundStyle(.green)
-                .help("Gallager plugin v\(version) is installed for this folder")
-        case .notInstalled:
-            Button {
-                onInstallRequested(URL(fileURLWithPath: folder))
-            } label: {
-                Label("Install Plugin", symbol: .arrowDown)
-            }
-            .controlSize(.small)
-        case let .installationFailed(reason):
-            Button {
-                onInstallRequested(URL(fileURLWithPath: folder))
-            } label: {
-                Label("Install Plugin", symbol: .arrowDown)
-            }
-            .controlSize(.small)
-            .help("Previous attempt failed: \(reason)")
-        case .claudeNotInstalled:
-            Label("Claude Code not found", symbol: .exclamationmarkTriangle)
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .help("Install Claude Code to use the plugin in this folder")
-        case .installing:
-            HStack(spacing: 4) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Installing…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func checkPlugin() async {
-        guard await pluginService.findClaude() != nil else {
-            return
-        }
-        await pluginService.checkInstallation()
     }
 }
 
@@ -490,68 +287,6 @@ private func browseForTerminalApp(settings: AppSettings) {
     }
 }
 
-@MainActor
-private func browseForClaude(settings: AppSettings) {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
-    panel.message = "Select the claude executable"
-
-    if panel.runModal() == .OK, let url = panel.url {
-        settings.claudeCommandPath = url.path
-    }
-}
-
-@MainActor
-private func browseForCodex(settings: AppSettings) {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = true
-    panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
-    panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
-    panel.message = "Select the codex executable"
-
-    if panel.runModal() == .OK, let url = panel.url {
-        settings.codexCommandPath = url.path
-    }
-}
-
-/// Presents a folder picker for a new Claude folder, adds it to settings,
-/// and returns the normalized URL when the folder was newly added so the
-/// caller can follow up (e.g. offer to install the plugin for it). Returns
-/// `nil` if the panel was cancelled or the folder was already tracked.
-@MainActor
-private func browseForClaudeFolder(settings: AppSettings) -> URL? {
-    let panel = NSOpenPanel()
-    panel.canChooseFiles = false
-    panel.canChooseDirectories = true
-    panel.allowsMultipleSelection = false
-    panel.showsHiddenFiles = true
-    panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
-    panel.message = "Select a directory containing .claude.json and .claude/"
-    panel.prompt = "Add Folder"
-
-    guard panel.runModal() == .OK, let url = panel.url else {
-        return nil
-    }
-    let normalized = URL(fileURLWithPath: url.path).standardizedFileURL.path
-    guard !settings.additionalClaudeFolders.contains(normalized) else {
-        return nil
-    }
-    settings.addClaudeFolder(url.path)
-    return URL(fileURLWithPath: normalized)
-}
-
-private func abbreviatePath(_ path: String) -> String {
-    let home = FileManager.default.homeDirectoryForCurrentUser.path
-    if path.hasPrefix(home + "/") || path == home {
-        return "~" + path.dropFirst(home.count)
-    }
-    return path
-}
-
 #Preview {
     let settings = AppSettings()
     let e2eeService = E2EEService(keyPair: .generateNew())
@@ -561,6 +296,5 @@ private func abbreviatePath(_ path: String) -> String {
         .environment(AppCoordinator(settings: settings))
         .environment(PairingManager(settings: settings, e2eeService: e2eeService))
         .environment(UpdaterController(startUpdater: false))
-        .environment(PluginService())
         .e2eeService(e2eeService)
 }

@@ -39,12 +39,12 @@ public enum ClaudeSessionsShowScenario {
             projectPath: "/Users/test/MyProject"
         )
 
-        // 6. Verify iOS now shows pane 1 as a Claude Code session
-        //    - The session row should display the project folder name "MyProject"
-        //    - After SessionStart, the indicator is red (needsAttention = true
-        //      because SessionStart triggers a notification)
+        // 6. Verify iOS now shows pane 1 as an agent session named after the
+        //    project folder ("MyProject"). The agent-blind iOS no longer renders
+        //    per-event rows (e.g. a "Session Started" label); the session's
+        //    presence + its attention state (captured by the baseline screenshot
+        //    in step 7) is the same flow.
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 5)
 
         // 7. Verify pane 2 is still shown as a plain terminal
         TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)

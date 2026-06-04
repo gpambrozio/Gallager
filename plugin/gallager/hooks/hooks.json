@@ -5,8 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -16,8 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -27,8 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -38,8 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -49,8 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -60,8 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -71,8 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -82,8 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -93,8 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -104,8 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -115,8 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -126,8 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -137,8 +125,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -148,8 +135,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -159,8 +145,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -170,8 +155,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -181,8 +165,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -192,8 +175,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -203,8 +185,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -214,8 +195,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -225,8 +205,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -236,8 +215,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -247,8 +225,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -258,8 +235,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -269,8 +245,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -280,8 +255,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -291,8 +265,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -302,8 +275,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }
@@ -313,8 +285,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\"",
-            "async": true
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.py\""
           }
         ]
       }

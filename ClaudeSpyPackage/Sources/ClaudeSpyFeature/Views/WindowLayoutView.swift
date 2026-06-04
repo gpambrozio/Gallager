@@ -376,22 +376,24 @@
                 if
                     !isKeyboardActive,
                     let activeService,
-                    let responseState = activeService.responseState,
-                    let responseView = responseState.event.responseView(
-                        isYoloMode: activeService.isYoloModeEnabled,
+                    let responseState = activeService.responseState {
+                    responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
-                        sendCommand: { command in
-                            await activeService.sendCommand(command)
+                        submit: { response in
+                            await activeService.submitResponse(
+                                response,
+                                pluginID: responseState.pluginID,
+                                requestID: responseState.requestID
+                            )
                         },
                         state: responseState
-                    ) {
-                    responseView
-                        .padding()
-                        .background(Color(.systemGroupedBackground))
-                        // Force a fresh view identity per event so per-event
-                        // @State (e.g. AskUserQuestion's collected answers) is
-                        // discarded when a new hook event replaces the prior one.
-                        .id(responseState.event.id)
+                    )
+                    .padding()
+                    .background(Color(.systemGroupedBackground))
+                    // Force a fresh view identity per request so per-request
+                    // @State (e.g. AskUserQuestion's collected answers) is
+                    // discarded when a new request replaces the prior one.
+                    .id(responseState.requestID)
 
                     Divider()
                 }
@@ -519,9 +521,9 @@
                 showKeyboardButton: false,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
-                sendCommand: { command in
-                    await sendCommand(command, paneId: pane.paneId)
-                }
+                // Tiled panes pass `responseState: .constant(nil)`, so no response
+                // form is shown here and the submit closure is never invoked.
+                submitResponse: { _ in }
             )
             .environment(relayClient)
         }
@@ -719,28 +721,17 @@
     // MARK: - Session Info
 
     struct SessionInfoView: View {
-        let session: ClaudeSession?
+        let session: AgentSession?
         let paneId: String
         let isPaneActive: Bool
 
         var body: some View {
             if let session {
                 List {
-                    Section("Recent Events") {
-                        if session.events.isEmpty {
-                            Text("No events yet")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(session.events) { event in
-                                EventRowView(event: event)
-                            }
-                        }
-                    }
-
                     Section("Session Info") {
                         LabeledContent("Pane ID", value: paneId)
 
-                        if let projectPath = session.events.first?.projectPath {
+                        if let projectPath = session.detectedProjectPath, !projectPath.isEmpty {
                             LabeledContent("Project") {
                                 Text(projectPath)
                                     .font(.caption)
@@ -753,7 +744,7 @@
                                 Circle()
                                     .fill(isPaneActive ? Color.green : Color.gray)
                                     .frame(width: 8, height: 8)
-                                Text(isPaneActive ? "Active" : "Inactive")
+                                Text(session.statusLabel)
                             }
                         }
                     }

@@ -22,15 +22,17 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ──────────────────────────────────────────────────────────
-        // Phase 0.5: Verify prompt text box and persistence
+        // Phase 0.5: Verify reply text box and persistence
         // ──────────────────────────────────────────────────────────
 
-        // Verify the prompt text box is shown (PromptView for SessionStart)
-        TestStep.iosWaitForElement(.labelContains("Send a message to Claude"), timeout: 10)
+        // Verify the reply text box is shown. An idle session (here, just after
+        // SessionStart) renders the agent-blind reply-after-stop box whose
+        // placeholder is "Reply to the agent..." — not a Claude-named prompt box.
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("Send"), timeout: 5)
 
         // Enter some text and submit
-        TestStep.iosTap(.labelContains("Send a message to Claude"))
+        TestStep.iosTap(.labelContains("Reply to the agent"))
         TestStep.iosType(text: "Hello from e2e test")
         TestStep.iosScreenshot(label: "ios-prompt-filled")
         TestStep.iosTap(.labelContains("Send"))

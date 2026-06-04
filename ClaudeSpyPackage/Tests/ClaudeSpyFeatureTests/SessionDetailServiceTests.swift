@@ -7,6 +7,60 @@ import Testing
 @MainActor
 @Suite("SessionDetailService Tests")
 struct SessionDetailServiceTests {
+    // MARK: - Helpers
+
+    /// Push a session state (the plugin-path replacement for hook events) so a
+    /// pane registers an `AgentSession` in the store.
+    private func pushState(
+        _ store: SessionStore,
+        pairId: String,
+        sessionId: String,
+        state: AgentState
+    ) {
+        store.handleAgentStatus(AgentSessionStatusMessage(
+            pairId: pairId,
+            sessionId: sessionId,
+            pluginId: "claude-code",
+            state: state,
+            timestamp: Date()
+        ))
+    }
+
+    /// A connect snapshot carrying the given panes, each with an `AgentState`.
+    /// The open response form rides `AgentSession.state`, so a form present here
+    /// is delivered to a connecting viewer for free.
+    private func snapshot(pairId: String, panes: [String: AgentState]) -> SessionStateMessage {
+        var paneStates: [String: PaneState] = [:]
+        for (paneId, state) in panes {
+            paneStates[paneId] = PaneState(
+                paneId: paneId,
+                agentSession: AgentSession(paneId: paneId, pluginID: "claude-code", state: state)
+            )
+        }
+        return SessionStateMessage(pairId: pairId, paneStates: paneStates)
+    }
+
+    /// The open form retained for a pane in the store, if any.
+    private func openForm(
+        _ store: SessionStore,
+        sessionId: String,
+        hostId: String
+    ) -> (request: AgentResponseRequest, requestID: String)? {
+        store.session(for: sessionId, hostId: hostId)?.state.openForm
+    }
+
+    private func askUserQuestion() -> AskUserQuestionRequest {
+        AskUserQuestionRequest(questions: [
+            .init(
+                id: "q1",
+                question: "Which?",
+                header: "Pick",
+                options: [.init(id: "a", label: "A", description: "first")],
+                multiSelect: false
+            ),
+        ])
+    }
+
     // MARK: - Initialization Tests
 
     @Test("Service initializes with correct pane ID")
@@ -31,13 +85,7 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session to the store
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test-session", hookEventName: "SessionStart")),
-            projectPath: "/test/path",
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -52,8 +100,8 @@ struct SessionDetailServiceTests {
 
     // MARK: - Response State Tests
 
-    @Test("Response state is nil when session has no events")
-    func responseStateNilWhenNoEvents() {
+    @Test("Response state is nil when no response form is open")
+    func responseStateNilWhenNoOpenRequest() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
@@ -67,18 +115,20 @@ struct SessionDetailServiceTests {
         #expect(service.responseState == nil)
     }
 
-    @Test("Response state is created for latest event")
-    func responseStateCreatedForLatestEvent() {
+    @Test("Response state is created for an awaiting (blocking) state")
+    func responseStateCreatedForOpenRequest() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session with an event
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
+        pushState(
+            sessionStore,
+            pairId: "test-pair",
+            sessionId: "%1",
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "%1:PermissionRequest"
+            )
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -87,25 +137,17 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        // Response state is now automatically updated during init via withObservationTracking
+        // Response state is updated during init via withObservationTracking.
         #expect(service.responseState != nil)
-        #expect(service.responseState?.event.id == event.id)
+        #expect(service.responseState?.requestID == "%1:PermissionRequest")
     }
 
-    // MARK: - Pane Active Status Tests
-
-    @Test("Pane active status reflects session store state")
-    func paneActiveStatusReflectsStore() {
+    @Test("A stopped (doneWorking) session offers a reply box carrying the summary")
+    func responseStateOffersReplyBoxWhenDone() {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Add a session and mark pane as active
-        let event = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "test", hookEventName: "SessionStart")),
-            projectPath: nil,
-            tmuxPane: "%1"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "All done."))
 
         let service = SessionDetailService(
             paneId: "%1",
@@ -114,18 +156,118 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        #expect(service.isPaneActive == true)
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form for doneWorking")
+            return
+        }
+        #expect(reply.summary == "All done.")
+    }
 
-        // End the session
-        let endEvent = HookEvent(
-            action: .sessionEnd(SessionEndBody(sessionId: "test", hookEventName: "SessionEnd")),
-            projectPath: nil,
-            tmuxPane: "%1"
+    @Test("An idle session offers an empty reply box")
+    func responseStateOffersReplyBoxWhenIdle() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
         )
-        sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: endEvent))
 
-        #expect(service.isPaneActive == false)
-        #expect(service.session == nil) // Session removed on end
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form for idle")
+            return
+        }
+        #expect(reply.summary == nil)
+    }
+
+    @Test("A working session shows no reply box")
+    func responseStateNilWhenWorking() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        #expect(service.responseState == nil)
+    }
+
+    // MARK: - Snapshot Catch-Up Tests (offline-then-connect)
+
+    @Test("A form that opened while offline renders from the connect snapshot")
+    func snapshotSeedsOpenFormOnConnect() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        // The app was NOT running when the question arrived. Its only knowledge
+        // is the snapshot fetched on connect — and the form rides the pane's
+        // AgentSession.state, so the snapshot carries it.
+        sessionStore.handleStateUpdate(snapshot(
+            pairId: "test-pair",
+            panes: ["%1": .awaitingReplies(askUserQuestion(), requestID: "%1:AskUserQuestion")]
+        ))
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        #expect(service.responseState != nil)
+        #expect(service.responseState?.requestID == "%1:AskUserQuestion")
+    }
+
+    @Test("A snapshot whose pane has advanced clears a stale form")
+    func snapshotClearsStaleFormWhenStateAdvances() {
+        let sessionStore = SessionStore()
+
+        // A form is open locally (seen live before a brief disconnect)...
+        pushState(
+            sessionStore,
+            pairId: "test-pair",
+            sessionId: "%1",
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "%1:PermissionRequest"
+            )
+        )
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "test-pair") != nil)
+
+        // ...but the reconnect snapshot shows the agent has moved on → no form.
+        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", panes: ["%1": .working]))
+
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "test-pair") == nil)
+    }
+
+    @Test("Snapshot reconcile is scoped to the snapshot's host")
+    func snapshotReconcileIsHostScoped() {
+        let sessionStore = SessionStore()
+
+        // host-b has a live form open.
+        pushState(
+            sessionStore,
+            pairId: "host-b",
+            sessionId: "%1",
+            state: .awaitingPermission(
+                PermissionRequest(title: "Bash", description: "ls"),
+                requestID: "host-b:r1"
+            )
+        )
+
+        // host-a sends a snapshot — it must not touch host-b's form.
+        sessionStore.handleStateUpdate(snapshot(pairId: "host-a", panes: [:]))
+
+        #expect(openForm(sessionStore, sessionId: "%1", hostId: "host-b") != nil)
     }
 
     // MARK: - Cross-Host Pane Isolation Tests
@@ -135,19 +277,9 @@ struct SessionDetailServiceTests {
         let sessionStore = SessionStore()
         let relayClient = ViewerRelayClient()
 
-        // Two hosts emit events for the same tmux pane id (`%0`).
-        let eventA = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "session-a", hookEventName: "SessionStart")),
-            projectPath: "/host-a/path",
-            tmuxPane: "%0"
-        )
-        let eventB = HookEvent(
-            action: .sessionStart(SessionStartBody(sessionId: "session-b", hookEventName: "SessionStart")),
-            projectPath: "/host-b/path",
-            tmuxPane: "%0"
-        )
-        sessionStore.handleEvent(HookEventMessage(pairId: "host-a", event: eventA))
-        sessionStore.handleEvent(HookEventMessage(pairId: "host-b", event: eventB))
+        // Two hosts emit state for the same tmux pane id (`%0`).
+        pushState(sessionStore, pairId: "host-a", sessionId: "%0", state: .working)
+        pushState(sessionStore, pairId: "host-b", sessionId: "%0", state: .doneWorking(summary: nil))
 
         // Store keeps both panes separately rather than collapsing them.
         #expect(sessionStore.paneStates.count == 2)
@@ -166,9 +298,10 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
 
-        #expect(serviceA.session?.latestEvent?.id == eventA.id)
-        #expect(serviceB.session?.latestEvent?.id == eventB.id)
-        #expect(serviceA.session?.latestEvent?.id != serviceB.session?.latestEvent?.id)
+        #expect(serviceA.session?.isWorking == true)
+        #expect(serviceA.session?.needsAttention == false)
+        #expect(serviceB.session?.isWorking == false)
+        #expect(serviceB.session?.needsAttention == true)
     }
 
     // MARK: - Mac Connection Status Tests
@@ -186,29 +319,32 @@ struct SessionDetailServiceTests {
         )
 
         #expect(service.isHostConnected == false)
-
-        // Note: In a real test, we'd need to mock RelayClient or use
-        // dependency injection to set isHostConnected to true.
-        // For now, this tests the property delegation works.
     }
 
     // MARK: - Response Persistence Tests (Issue #31)
-    // These tests use SessionStore.response(for:) / setResponse(_:for:)
+    // These tests use SessionStore.response(forRequestID:) / setResponse(_:forRequestID:)
     // which are only available on iOS.
 
     #if os(iOS)
+        private func openPermission(_ store: SessionStore, requestId: String) {
+            pushState(
+                store,
+                pairId: "test-pair",
+                sessionId: "%1",
+                state: .awaitingPermission(
+                    PermissionRequest(title: "Bash", description: "ls"),
+                    requestID: requestId
+                )
+            )
+        }
+
         @Test("Response is persisted to SessionStore when set")
         func responsePersistsToStore() {
             let sessionStore = SessionStore()
             let relayClient = ViewerRelayClient()
 
-            // Add a session with a permission request event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+            let requestId = "%1:PermissionRequest"
+            openPermission(sessionStore, requestId: requestId)
 
             let service = SessionDetailService(
                 paneId: "%1",
@@ -220,8 +356,8 @@ struct SessionDetailServiceTests {
             // Set a response
             service.responseState?.response = .accepted
 
-            // Verify response is persisted in the store
-            #expect(sessionStore.response(for: event.id) == .accepted)
+            // Verify response is persisted in the store (keyed by request id).
+            #expect(sessionStore.response(forRequestID: requestId) == .accepted)
         }
 
         @Test("Response is restored when service is recreated")
@@ -229,13 +365,8 @@ struct SessionDetailServiceTests {
             let sessionStore = SessionStore()
             let relayClient = ViewerRelayClient()
 
-            // Add a session with a permission request event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+            let requestId = "%1:PermissionRequest"
+            openPermission(sessionStore, requestId: requestId)
 
             // First service - set a response
             let service1 = SessionDetailService(
@@ -263,13 +394,8 @@ struct SessionDetailServiceTests {
             let sessionStore = SessionStore()
             let relayClient = ViewerRelayClient()
 
-            // Add a session with an event
-            let event = HookEvent(
-                action: .permissionRequest(PermissionRequestBody.preview),
-                projectPath: nil,
-                tmuxPane: "%1"
-            )
-            sessionStore.handleEvent(HookEventMessage(pairId: "test-pair", event: event))
+            let requestId = "%1:PermissionRequest"
+            openPermission(sessionStore, requestId: requestId)
 
             let service = SessionDetailService(
                 paneId: "%1",
@@ -280,13 +406,13 @@ struct SessionDetailServiceTests {
 
             // Test different response types
             service.responseState?.response = .rejected
-            #expect(sessionStore.response(for: event.id) == .rejected)
+            #expect(sessionStore.response(forRequestID: requestId) == .rejected)
 
             service.responseState?.response = .allQuestionsAnswered
-            #expect(sessionStore.response(for: event.id) == .allQuestionsAnswered)
+            #expect(sessionStore.response(forRequestID: requestId) == .allQuestionsAnswered)
 
             service.responseState?.response = .customInstructions("test input")
-            if case let .customInstructions(text) = sessionStore.response(for: event.id) {
+            if case let .customInstructions(text) = sessionStore.response(forRequestID: requestId) {
                 #expect(text == "test input")
             } else {
                 Issue.record("Expected customInstructions response")

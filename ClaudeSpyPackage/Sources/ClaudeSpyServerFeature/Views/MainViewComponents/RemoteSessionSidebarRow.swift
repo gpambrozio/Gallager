@@ -7,15 +7,13 @@ struct RemoteSessionSidebarRow: View {
     @Environment(AppSettings.self) private var settings
 
     let session: TmuxSession
-    let claudeSession: ClaudeSession?
+    let claudeSession: AgentSession?
     var homeDirectory: String?
 
-    /// The latest event subtitle from the Claude session's pane
+    /// The plugin model dropped the per-event buffer (spec §16), so there is no
+    /// "latest event" subtitle to surface; the field renders empty.
     private var latestEventSubtitle: String? {
-        session.windows
-            .flatMap(\.panes)
-            .compactMap(\.claudeSession?.latestEvent?.action.subtitle)
-            .first
+        nil
     }
 
     /// CLI-driven state override propagated from the host, if any.
