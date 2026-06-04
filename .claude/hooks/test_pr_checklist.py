@@ -100,6 +100,12 @@ class StaysSilent(unittest.TestCase):
     def test_no_word_boundary(self):
         self.assert_silent(bash("echo ghprcreate"))
 
+    def test_create_hyphenated_subcommand(self):
+        # `create` followed by `-` must not fire (e.g. a hypothetical
+        # `gh pr create-from-draft`); the trailing lookahead requires whitespace
+        # or end-of-string after `create`.
+        self.assert_silent(bash(f"{TRIGGER}-from-draft"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

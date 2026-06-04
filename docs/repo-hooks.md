@@ -22,11 +22,17 @@ documentation/CLAUDE.md updates, CLI + `gallager`-skill updates for new features
 end-to-end scenarios (with committed baseline screenshots) for new features or bug
 fixes. For every other Bash command it prints nothing and exits 0, so it is a no-op.
 
-Matching is intentionally simple: a word-boundary regex for `gh pr create`, tolerant
-of env prefixes (`GH_TOKEN=… gh pr create`), `cd … && gh pr create`, and extra
-whitespace. It does not try to fully parse the shell, so a command that merely
-*mentions* the phrase (an `echo`, a `grep`) will also fire — a harmless false positive
-whose only cost is an injected reminder.
+The checklist text itself lives in `.claude/hooks/pr-checklist.md` (read lazily, only
+when a PR-creating command fires) so the wording can be edited without touching the
+script.
+
+Matching is intentionally simple: a regex for `gh pr create`, tolerant of env prefixes
+(`GH_TOKEN=… gh pr create`), `cd … && gh pr create`, and extra whitespace. A leading
+`\b` keeps it from matching inside longer words and a trailing `(?=\s|$)` lookahead
+requires whitespace or end-of-string after `create`, so it won't fire on a
+hypothetical `gh pr create-from-draft`. It does not try to fully parse the shell, so a
+command that merely *mentions* the phrase (an `echo`, a `grep`) will also fire — a
+harmless false positive whose only cost is an injected reminder.
 
 #### Output contract
 
