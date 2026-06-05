@@ -256,6 +256,7 @@ struct RemoteWindowTabBar: View {
                 openBrowserTabView(tab)
             }
         case .fileExplorer,
+             .git,
              .file:
             EmptyView()
         }

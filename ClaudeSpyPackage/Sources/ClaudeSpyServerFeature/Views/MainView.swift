@@ -3,6 +3,7 @@ import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Dependencies
+import GitWorkbench
 import SwiftUI
 
 /// The main application view showing available tmux windows in a sidebar layout
@@ -67,6 +68,20 @@ public struct MainView: View {
     /// key is a typed struct so the hostId / sessionName pair can't be miss-parsed
     /// (tmux allows colons in session names, which would break a string key).
     @State private var remoteSessionTabsStates: [RemoteSessionTabsKey: SessionFileTabsState] = [:]
+
+    /// Window IDs that have the Git tab active (issue #258). Mirrors
+    /// `fileBrowserActiveWindowIds`; the two are mutually exclusive per window
+    /// since activating one clears the other.
+    @State private var gitActiveWindowIds: Set<String> = []
+    /// Cached GitWorkbench store per session name, paired with the repository
+    /// path it was built for so a working-directory change rebuilds it.
+    /// Retaining the store keeps the git UI state (selected workspace view,
+    /// file, diff) across tab/session switches, like `fileBrowserStates`.
+    @State private var gitWorkbenchStores: [String: GitStoreEntry] = [:]
+
+    /// Vends the GitWorkbench provider (live `git` CLI, or a stable mock under
+    /// `--e2e-test`). Read here to build per-session stores on demand.
+    @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
@@ -140,6 +155,9 @@ public struct MainView: View {
             for key in fileBrowserActiveWindowIds where !currentWindowIds.contains(key) {
                 fileBrowserActiveWindowIds.remove(key)
             }
+            for key in gitActiveWindowIds where !currentWindowIds.contains(key) {
+                gitActiveWindowIds.remove(key)
+            }
 
             // Prune any right-side window entries that point at terminals
             // that tmux has just removed (user typed `exit`, hit the X
@@ -166,6 +184,9 @@ public struct MainView: View {
             }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
                 sessionFileTabsStates.removeValue(forKey: key)
+            }
+            for key in gitWorkbenchStores.keys where !currentSessionNames.contains(key) {
+                gitWorkbenchStores.removeValue(forKey: key)
             }
 
             // Clear pending markdown-open suggestions for removed sessions.
@@ -836,13 +857,16 @@ public struct MainView: View {
                 return sessionTabs.openBrowserTabs.first(where: { $0.id == id })
             }()
             let isFileBrowserActive = fileBrowserActiveWindowIds.contains(window.id)
-            let isAnyFileViewActive = isFileBrowserActive || selectedFileTab != nil || selectedBrowserTab != nil
+            let isGitActive = gitActiveWindowIds.contains(window.id)
+            let isAnyFileViewActive = isFileBrowserActive || isGitActive
+                || selectedFileTab != nil || selectedBrowserTab != nil
             VStack(spacing: 0) {
                 if let session {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
                         isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil && selectedBrowserTab == nil,
+                        isGitBrowserSelected: isGitActive,
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
@@ -856,6 +880,7 @@ public struct MainView: View {
                                 return
                             }
                             fileBrowserActiveWindowIds.remove(window.id)
+                            gitActiveWindowIds.remove(window.id)
                             tabs?.selectedFileTabId = nil
                             tabs?.selectedBrowserTabId = nil
                             selectedWindow = newWindow
@@ -907,6 +932,24 @@ public struct MainView: View {
                                 return
                             }
                             fileBrowserActiveWindowIds.insert(window.id)
+                            gitActiveWindowIds.remove(window.id)
+                            tabs?.selectedFileTabId = nil
+                            tabs?.selectedBrowserTabId = nil
+                        },
+                        onSelectGitBrowser: {
+                            if sessionFileTabsStates[session.sessionName] == nil {
+                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+                            }
+                            let tabs = sessionFileTabsStates[session.sessionName]
+                            if tabs?.rightSide.contains(.git) == true {
+                                // Git button lives on the right pane: route the
+                                // click to the right-side selection so the left
+                                // pane is untouched.
+                                tabs?.selectedRight = .git
+                                return
+                            }
+                            gitActiveWindowIds.insert(window.id)
+                            fileBrowserActiveWindowIds.remove(window.id)
                             tabs?.selectedFileTabId = nil
                             tabs?.selectedBrowserTabId = nil
                         },
@@ -927,6 +970,7 @@ public struct MainView: View {
                         },
                         onShowInFileExplorer: { path in
                             fileBrowserActiveWindowIds.insert(window.id)
+                            gitActiveWindowIds.remove(window.id)
                             if fileBrowserStates[session.sessionName] == nil {
                                 fileBrowserStates[session.sessionName] = FileBrowserState()
                             }
@@ -963,6 +1007,7 @@ public struct MainView: View {
                     session: session,
                     directoryPath: directoryPath,
                     isFileBrowserActive: isFileBrowserActive,
+                    isGitActive: isGitActive,
                     browserState: browserState,
                     sessionTabs: session.flatMap { sessionFileTabsStates[$0.sessionName] },
                     selectedBrowserTab: selectedBrowserTab
@@ -1174,6 +1219,7 @@ public struct MainView: View {
                 rightPanePlaceholder
             }
         case .fileExplorer,
+             .git,
              .file,
              nil:
             rightPanePlaceholder
@@ -1192,6 +1238,7 @@ public struct MainView: View {
         session: LocalTmuxSession?,
         directoryPath: String,
         isFileBrowserActive: Bool,
+        isGitActive: Bool,
         browserState: FileBrowserState?,
         sessionTabs: SessionFileTabsState?,
         selectedBrowserTab: BrowserTab?
@@ -1205,6 +1252,7 @@ public struct MainView: View {
                         session: session,
                         directoryPath: directoryPath,
                         isFileBrowserActive: isFileBrowserActive,
+                        isGitActive: isGitActive,
                         browserState: browserState,
                         sessionTabs: sessionTabs,
                         selectedBrowserTab: selectedBrowserTab
@@ -1225,6 +1273,7 @@ public struct MainView: View {
                 session: session,
                 directoryPath: directoryPath,
                 isFileBrowserActive: isFileBrowserActive,
+                isGitActive: isGitActive,
                 browserState: browserState,
                 sessionTabs: sessionTabs,
                 selectedBrowserTab: selectedBrowserTab
@@ -1238,6 +1287,7 @@ public struct MainView: View {
         session: LocalTmuxSession?,
         directoryPath: String,
         isFileBrowserActive: Bool,
+        isGitActive: Bool,
         browserState: FileBrowserState?,
         sessionTabs: SessionFileTabsState?,
         selectedBrowserTab: BrowserTab?
@@ -1291,6 +1341,8 @@ public struct MainView: View {
                     )
                 }
             )
+        } else if isGitActive, let session {
+            gitPane(sessionName: session.sessionName, directoryPath: directoryPath)
         } else {
             WindowPaneLayoutView(
                 window: window,
@@ -1304,6 +1356,35 @@ public struct MainView: View {
                 }
             )
         }
+    }
+
+    /// The Git tab's content (issue #258), backed by a per-session
+    /// ``GitWorkbenchStore`` cached in `gitWorkbenchStores`. The store is built
+    /// lazily here (in `.task`, never during `body` evaluation) so the git state
+    /// survives tab/session switches, and rebuilt when the working directory
+    /// changes so it tracks the same folder as the file explorer.
+    @ViewBuilder
+    private func gitPane(sessionName: String, directoryPath: String) -> some View {
+        if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath {
+            GitBrowserView(store: entry.store)
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .task(id: directoryPath) {
+                    ensureGitStore(sessionName: sessionName, directoryPath: directoryPath)
+                }
+        }
+    }
+
+    /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
+    /// store for a session. Safe to call from `.task`/event handlers; never call
+    /// it during `body` evaluation since it mutates `@State`.
+    @MainActor
+    private func ensureGitStore(sessionName: String, directoryPath: String) {
+        if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath { return }
+        let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
+        let store = GitWorkbenchStore(provider: provider)
+        gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
     }
 
     /// Renders the right pane of the split layout by dispatching on the
@@ -1356,6 +1437,10 @@ public struct MainView: View {
             } else {
                 rightPanePlaceholder
             }
+        case .git:
+            gitPane(sessionName: sessionName, directoryPath: directoryPath)
+                .id("right-git")
+                .accessibilityIdentifier("split-right-pane")
         case let .browser(id):
             if
                 let tab = sessionTabs.openBrowserTabs.first(where: { $0.id == id }),
@@ -1964,6 +2049,7 @@ public struct MainView: View {
                 selectedRemoteSession = nil
                 selectedRemoteWindowId = nil
                 fileBrowserActiveWindowIds.remove(window.id)
+                gitActiveWindowIds.remove(window.id)
                 if
                     let sessionName = tmuxService.sessions
                         .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
@@ -2074,8 +2160,9 @@ public struct MainView: View {
             closeOpenFileTab(selectedTabId, sessionName: sessionName)
             return
         }
-        // The file browser tab itself has no close action — do nothing.
+        // The file browser and Git tabs have no close action — do nothing.
         guard !fileBrowserActiveWindowIds.contains(window.id) else { return }
+        guard !gitActiveWindowIds.contains(window.id) else { return }
         requestCloseWindow(window)
     }
 
@@ -2123,6 +2210,7 @@ public struct MainView: View {
     private enum TabStripEntry: Equatable {
         case window(LocalTmuxWindow)
         case fileBrowser
+        case gitBrowser
         case fileTab(UUID)
         case browserTab(UUID)
     }
@@ -2133,6 +2221,7 @@ public struct MainView: View {
     ) -> [TabStripEntry] {
         var entries: [TabStripEntry] = session.windows.map { .window($0) }
         entries.append(.fileBrowser)
+        entries.append(.gitBrowser)
         if let sessionTabs {
             entries.append(contentsOf: sessionTabs.openFileTabs.map { .fileTab($0.id) })
             entries.append(contentsOf: sessionTabs.openBrowserTabs.map { .browserTab($0.id) })
@@ -2145,8 +2234,9 @@ public struct MainView: View {
         window: LocalTmuxWindow,
         sessionTabs: SessionFileTabsState?
     ) -> Int? {
-        // Browser tab > file tab > file browser > selected window. The first
-        // match wins so the user's actual visible tab is the cycling anchor.
+        // Browser tab > file tab > git > file browser > selected window. The
+        // first match wins so the user's actual visible tab is the cycling
+        // anchor.
         if let selectedBrowserId = sessionTabs?.selectedBrowserTabId {
             if let idx = entries.firstIndex(of: .browserTab(selectedBrowserId)) {
                 return idx
@@ -2154,6 +2244,11 @@ public struct MainView: View {
         }
         if let selectedFileId = sessionTabs?.selectedFileTabId {
             if let idx = entries.firstIndex(of: .fileTab(selectedFileId)) {
+                return idx
+            }
+        }
+        if gitActiveWindowIds.contains(window.id) {
+            if let idx = entries.firstIndex(of: .gitBrowser) {
                 return idx
             }
         }
@@ -2174,6 +2269,7 @@ public struct MainView: View {
         switch entry {
         case let .window(window):
             fileBrowserActiveWindowIds.remove(currentWindow.id)
+            gitActiveWindowIds.remove(currentWindow.id)
             sessionTabs?.selectedFileTabId = nil
             sessionTabs?.selectedBrowserTabId = nil
             selectedWindow = window
@@ -2182,9 +2278,18 @@ public struct MainView: View {
             }
         case .fileBrowser:
             fileBrowserActiveWindowIds.insert(currentWindow.id)
+            gitActiveWindowIds.remove(currentWindow.id)
             if fileBrowserStates[session.sessionName] == nil {
                 fileBrowserStates[session.sessionName] = FileBrowserState()
             }
+            if sessionFileTabsStates[session.sessionName] == nil {
+                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
+            }
+            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
+            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
+        case .gitBrowser:
+            gitActiveWindowIds.insert(currentWindow.id)
+            fileBrowserActiveWindowIds.remove(currentWindow.id)
             if sessionFileTabsStates[session.sessionName] == nil {
                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
             }
@@ -2218,6 +2323,7 @@ public struct MainView: View {
                 case let .window(id): liveWindowIds.contains(id)
                 case let .browser(id): liveBrowserIds.contains(id)
                 case .fileExplorer,
+                     .git,
                      .file: false
                 }
             }
@@ -2257,6 +2363,7 @@ public struct MainView: View {
         case let .browser(id):
             selectRemoteBrowserTab(id, hostId: remote.hostId, sessionName: remote.sessionName)
         case .fileExplorer,
+             .git,
              .file:
             break
         }
@@ -2274,6 +2381,7 @@ public struct MainView: View {
                 .first(where: { $0.windows.contains(where: { $0.id == window.id }) }) else { return }
 
         fileBrowserActiveWindowIds.insert(window.id)
+        gitActiveWindowIds.remove(window.id)
         if fileBrowserStates[session.sessionName] == nil {
             fileBrowserStates[session.sessionName] = FileBrowserState()
         }
@@ -2313,6 +2421,7 @@ public struct MainView: View {
         originWindowId: String? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
+        gitActiveWindowIds.remove(windowId)
         if fileBrowserStates[sessionName] == nil {
             fileBrowserStates[sessionName] = FileBrowserState()
         }
@@ -2368,6 +2477,7 @@ public struct MainView: View {
         // Only flip the left pane into file-view mode for left-side tabs;
         // right-side clicks shouldn't disturb whatever the left pane shows.
         fileBrowserActiveWindowIds.insert(windowId)
+        gitActiveWindowIds.remove(windowId)
         tabs.selectedFileTabId = tabId
         tabs.selectedBrowserTabId = nil
     }
@@ -2409,14 +2519,22 @@ public struct MainView: View {
                 }
             case .fileExplorer:
                 fileBrowserActiveWindowIds.insert(windowId)
+                gitActiveWindowIds.remove(windowId)
+            case .git:
+                gitActiveWindowIds.insert(windowId)
+                fileBrowserActiveWindowIds.remove(windowId)
+                tabs.selectedFileTabId = nil
+                tabs.selectedBrowserTabId = nil
             case let .file(id):
                 fileBrowserActiveWindowIds.insert(windowId)
+                gitActiveWindowIds.remove(windowId)
                 tabs.selectedFileTabId = id
                 tabs.selectedBrowserTabId = nil
             case let .browser(id):
                 tabs.selectedBrowserTabId = id
                 tabs.selectedFileTabId = nil
                 fileBrowserActiveWindowIds.remove(windowId)
+                gitActiveWindowIds.remove(windowId)
             }
         } else {
             // Moving to the right side — becomes the right pane's selection.
@@ -2431,6 +2549,8 @@ public struct MainView: View {
                 }
             case .fileExplorer:
                 fileBrowserActiveWindowIds.remove(windowId)
+            case .git:
+                gitActiveWindowIds.remove(windowId)
             case let .file(id):
                 if tabs.selectedFileTabId == id { tabs.selectedFileTabId = nil }
             case let .browser(id):
@@ -2478,11 +2598,13 @@ public struct MainView: View {
         }
 
         if tabs.selectedRight != nil { return }
-        // Auto-pick: window > file explorer > newest browser > newest file.
+        // Auto-pick: window > file explorer > git > newest browser > newest file.
         if let window = tabs.rightSide.first(where: { if case .window = $0 { true } else { false } }) {
             tabs.selectedRight = window
         } else if tabs.rightSide.contains(.fileExplorer) {
             tabs.selectedRight = .fileExplorer
+        } else if tabs.rightSide.contains(.git) {
+            tabs.selectedRight = .git
         } else if let browser = tabs.openBrowserTabs.last(where: { tabs.rightSide.contains(.browser($0.id)) }) {
             tabs.selectedRight = .browser(browser.id)
         } else if let file = tabs.openFileTabs.last(where: { tabs.rightSide.contains(.file($0.id)) }) {
@@ -2627,6 +2749,7 @@ public struct MainView: View {
                 tabs.selectedBrowserTabId = existingId
                 tabs.selectedFileTabId = nil
                 fileBrowserActiveWindowIds.remove(windowId)
+                gitActiveWindowIds.remove(windowId)
             }
         } else {
             let newTab = BrowserTab(url: url, originWindowId: originWindowId, parentTabId: parentTabId)
@@ -2639,6 +2762,7 @@ public struct MainView: View {
                 tabs.selectedBrowserTabId = newTab.id
                 tabs.selectedFileTabId = nil
                 fileBrowserActiveWindowIds.remove(windowId)
+                gitActiveWindowIds.remove(windowId)
             }
         }
     }
@@ -2654,6 +2778,7 @@ public struct MainView: View {
         tabs.selectedBrowserTabId = tabId
         tabs.selectedFileTabId = nil
         fileBrowserActiveWindowIds.remove(windowId)
+        gitActiveWindowIds.remove(windowId)
     }
 
     /// Opens a fresh, empty browser tab with `about:blank` loaded. The tab is
@@ -2680,6 +2805,7 @@ public struct MainView: View {
         tabs.selectedBrowserTabId = newTab.id
         tabs.selectedFileTabId = nil
         fileBrowserActiveWindowIds.remove(windowId)
+        gitActiveWindowIds.remove(windowId)
         state.urlFieldFocusRequest += 1
     }
 
@@ -3037,6 +3163,7 @@ public struct MainView: View {
         case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
         case let .window(id) where !selectedRemoteSessionWindows.contains(where: { $0.id == id }): return
         case .fileExplorer,
+             .git,
              .file: return
         default: break
         }
@@ -3053,6 +3180,7 @@ public struct MainView: View {
             case let .browser(id):
                 tabs.selectedBrowserTabId = id
             case .fileExplorer,
+                 .git,
                  .file:
                 break
             }
@@ -3073,6 +3201,7 @@ public struct MainView: View {
             case let .browser(id):
                 if tabs.selectedBrowserTabId == id { tabs.selectedBrowserTabId = nil }
             case .fileExplorer,
+                 .git,
                  .file:
                 break
             }
@@ -3784,4 +3913,13 @@ public struct MainView: View {
 struct RemoteSessionTabsKey: Hashable {
     let hostId: String
     let sessionName: String
+}
+
+/// Cached GitWorkbench store for a session's Git tab (issue #258), paired with
+/// the repository directory it was created for. `MainView` rebuilds the entry
+/// when the active window's working directory changes so the Git tab always
+/// reflects the same folder as the file explorer.
+struct GitStoreEntry {
+    let path: String
+    let store: GitWorkbenchStore
 }
