@@ -120,6 +120,8 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 
 **Killing Mac app:** Use `osascript -e 'quit app "Gallager"'` — `pkill`/`killall` don't work reliably.
 
+**Opening a PR:** A `PostToolUse` hook (`.claude/hooks/pr-checklist.py`) fires on `gh pr create` and injects a checklist of post-PR chores (docs, CLAUDE.md, CLI/`gallager`-skill, e2e scenarios). Work through it before stopping. See `docs/repo-hooks.md`.
+
 ## Reference Docs
 
 - **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, Dependencies, testing
@@ -129,6 +131,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Encryption:** `docs/e2ee-encryption-plan.md`
 - **E2E testing:** `docs/e2e-testing.md` - Test framework, running tests, writing scenarios
 - **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server
+- **Repo hooks:** `docs/repo-hooks.md` - Project-scoped Claude Code hooks (swiftformat, PR checklist)
 - **Known issues:** `docs/known-issues.md`
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
 - **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`
