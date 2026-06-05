@@ -18,6 +18,23 @@ enum MacAppHTTPClient {
     private static let logger = Logger(label: "e2e.mac-http")
     static let defaultPort: UInt16 = 18_081
 
+    /// Returns `true` once the app's in-process `TestAccessibilityServer` answers
+    /// on the loopback port — i.e. the app has finished launching. Any HTTP reply
+    /// (including the 200 from `/healthz`) counts as ready; a connection error
+    /// (refused / timed out) means it isn't up yet.
+    static func isServerResponding(port: UInt16 = defaultPort) async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/healthz") else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// Trigger unpair on the first paired viewer via the test endpoint.
     /// Posts a NotificationCenter notification inside the app process.
     @discardableResult

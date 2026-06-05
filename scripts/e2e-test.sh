@@ -374,6 +374,17 @@ if [ "$LIST_SCENARIOS" != true ]; then
         missing=true
     fi
 
+    # macOS 15+ "Local Network" privacy: the macOS app's --e2e-test test server
+    # is bound to loopback (127.0.0.1), so it does NOT trip the "find and connect
+    # to devices on your local network" prompt that otherwise floats over the app
+    # and stalls a fresh machine. This permission is NOT TCC, so it can't be
+    # pre-granted via configuration profile or tccutil. If a fresh machine still
+    # shows that prompt for Gallager (e.g. running an older build), allow it once
+    # in System Settings > Privacy & Security > Local Network — the grant then
+    # persists for that machine. The orchestrator also fails fast with these same
+    # instructions if the app never finishes launching (MacOSDriver.launchApp).
+    echo "  ${_DIM}Local Network: handled (test server is loopback-bound)${_RESET}"
+
     if [ "$missing" = true ]; then
         echo ""
         warn "The e2e tests require macOS permissions that haven't been granted yet."

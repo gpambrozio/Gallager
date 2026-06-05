@@ -48,7 +48,19 @@
                     print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
                     return
                 }
-                listener = try NWListener(using: params, on: nwPort)
+                // Bind to the loopback interface only. The E2E orchestrator always
+                // reaches this server via 127.0.0.1, so it never needs to be visible
+                // on the LAN. Crucially, on macOS 15+ an NWListener bound to a
+                // broadcast-capable interface (Wi-Fi/Ethernet) trips the "find and
+                // connect to devices on your local network" privacy prompt — which
+                // floats over the app and stalls the whole run on a fresh CI machine
+                // (Local Network privacy is not TCC, so it can't be pre-granted via
+                // profile or tccutil). Loopback is exempt from Local Network privacy,
+                // so binding here keeps that prompt from ever appearing.
+                params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                    host: "127.0.0.1", port: nwPort
+                )
+                listener = try NWListener(using: params)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")
@@ -142,7 +154,18 @@
                     return
                 }
 
-                if request.hasPrefix("POST /unpair") {
+                if request.hasPrefix("GET /healthz") {
+                    // Liveness probe used by the E2E orchestrator to confirm the app
+                    // finished launching (see MacOSDriver.launchApp). Any HTTP reply
+                    // proves the loopback listener is up.
+                    let response = Data(
+                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                            .utf8
+                    )
+                    connection.send(content: response, completion: .contentProcessed { _ in
+                        connection.cancel()
+                    })
+                } else if request.hasPrefix("POST /unpair") {
                     Task { @MainActor in
                         NotificationCenter.default.post(
                             name: .init("com.claudespy.e2e.unpairViewer"), object: nil

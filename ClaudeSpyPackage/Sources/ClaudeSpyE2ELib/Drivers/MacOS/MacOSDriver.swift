@@ -61,6 +61,31 @@ public actor MacOSDriver {
 
         // Wait for the app to launch
         try await Task.sleep(for: .seconds(2))
+
+        // Fail fast (with actionable instructions) if the app never finishes
+        // coming up. The most common cause on a fresh macOS 15+ machine is the
+        // "find and connect to devices on your local network" privacy prompt
+        // floating over the app — see MacOSDriverError.appServerNotReady.
+        try await waitForTestServerReady()
+    }
+
+    /// Poll the app's in-process `TestAccessibilityServer` on the loopback port
+    /// until it answers, proving the app finished launching. Throws an actionable
+    /// error on timeout rather than letting a later step fail with an opaque
+    /// "element not found" / connection error.
+    private func waitForTestServerReady(timeout: TimeInterval = 20) async throws {
+        let port = testAccessibilityPort
+        do {
+            try await Polling.waitUntil(
+                description: "macOS app test server on 127.0.0.1:\(port)",
+                timeout: timeout,
+                pollInterval: 0.5
+            ) {
+                await MacAppHTTPClient.isServerResponding(port: port)
+            }
+        } catch {
+            throw MacOSDriverError.appServerNotReady(port: port)
+        }
     }
 
     /// Terminate the test macOS app instance by PID.
@@ -975,6 +1000,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case hookEventFailed(String)
     case elementQueryTimedOut(query: String, diagnostic: String)
     case unsupportedShortcutKey(String)
+    case appServerNotReady(port: UInt16)
 
     public var errorDescription: String? {
         switch self {
@@ -992,6 +1018,23 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Timed out waiting for: macOS UI element matching \(query)\nAX diagnostic:\n\(diagnostic)"
         case let .unsupportedShortcutKey(key):
             "Unsupported keyboard shortcut key: \(key)"
+        case let .appServerNotReady(port):
+            """
+            macOS app launched but its in-process test server never responded on \
+            127.0.0.1:\(port), so the app did not finish starting.
+
+            On a fresh macOS 15+ machine the usual cause is the Local Network \
+            privacy prompt ("Gallager would like to find and connect to devices on \
+            your local network") floating over the app and blocking it. The E2E \
+            test listener is bound to loopback to avoid this, so if you still see \
+            the prompt:
+              1. Rebuild so the loopback-bound TestAccessibilityServer is in the \
+            app under test, then
+              2. If a prompt is already showing, grant it once in System Settings ▸ \
+            Privacy & Security ▸ Local Network (enable Gallager). This grant is not \
+            TCC, so it can't be pre-seeded via profile/tccutil — it persists per \
+            machine once allowed.
+            """
         }
     }
 }
