@@ -2238,14 +2238,34 @@ public struct MainView: View {
         session: LocalTmuxSession,
         sessionTabs: SessionFileTabsState?
     ) -> [TabStripEntry] {
-        var entries: [TabStripEntry] = session.windows.map { .window($0) }
-        entries.append(.fileBrowser)
-        entries.append(.gitBrowser)
-        if let sessionTabs {
-            entries.append(contentsOf: sessionTabs.openFileTabs.map { .fileTab($0.id) })
-            entries.append(contentsOf: sessionTabs.openBrowserTabs.map { .browserTab($0.id) })
+        // Walk the same reconciled, drag-reordered order the visible
+        // `WindowTabBar` renders — sharing `reconciledOrder` keeps keyboard
+        // cycling and the on-screen strip from drifting apart (issue #566).
+        // Local sessions include the Git tab (issue #258), so `reconciledOrder`
+        // emits `.git` and the switch below maps it to `.gitBrowser`.
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: session.windows.map(\.id),
+            fileTabIds: sessionTabs?.openFileTabs.map(\.id) ?? [],
+            browserTabIds: sessionTabs?.openBrowserTabs.map(\.id) ?? [],
+            storedOrder: sessionTabs?.tabOrder ?? []
+        )
+        // Window ids are unique within a session, so assert that invariant
+        // rather than silently tolerating a duplicate.
+        let windowsById = Dictionary(uniqueKeysWithValues: session.windows.map { ($0.id, $0) })
+        return order.compactMap { payload in
+            switch payload {
+            case let .window(id):
+                windowsById[id].map(TabStripEntry.window)
+            case .fileExplorer:
+                .fileBrowser
+            case .git:
+                .gitBrowser
+            case let .file(id):
+                .fileTab(id)
+            case let .browser(id):
+                .browserTab(id)
+            }
         }
-        return entries
     }
 
     private func currentTabIndex(
@@ -2336,29 +2356,21 @@ public struct MainView: View {
         let windows = selectedRemoteSessionWindows
         let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
         let tabs = remoteSessionTabsStates[key]
-        // Prefer the user's drag-reordered visual order when one is persisted —
-        // tmux's `windowIndex` reflects host-side order but not any reorder the
-        // user has applied locally to the tab strip.
-        let liveWindowIds = Set(windows.map(\.id))
-        let liveBrowserIds = Set(tabs?.openBrowserTabs.map(\.id) ?? [])
-        let entries: [TabDragPayload]
-        if let storedOrder = tabs?.tabOrder, !storedOrder.isEmpty {
-            entries = storedOrder.filter { ref in
-                switch ref {
-                case let .window(id): liveWindowIds.contains(id)
-                case let .browser(id): liveBrowserIds.contains(id)
-                case .fileExplorer,
-                     .git,
-                     .file: false
-                }
-            }
-        } else {
-            var fallback: [TabDragPayload] = windows.map { .window($0.id) }
-            if let openBrowserTabs = tabs?.openBrowserTabs {
-                fallback.append(contentsOf: openBrowserTabs.map { .browser($0.id) })
-            }
-            entries = fallback
-        }
+        // Walk the same reconciled order the visible `RemoteWindowTabBar`
+        // renders, via the shared `reconciledOrder` helper — keeps keyboard
+        // cycling and the on-screen remote strip from drifting apart, and
+        // (unlike the old inline filter) slots a freshly-appeared window into
+        // the cycle instead of dropping it (issue #566). Remote sessions have
+        // no file explorer / file tabs / Git tab, hence `includeFileExplorer:
+        // false` and `includeGit: false`.
+        let entries = TabDragPayload.reconciledOrder(
+            windowIds: windows.map(\.id),
+            fileTabIds: [],
+            browserTabIds: tabs?.openBrowserTabs.map(\.id) ?? [],
+            storedOrder: tabs?.tabOrder ?? [],
+            includeFileExplorer: false,
+            includeGit: false
+        )
         guard entries.count > 1 else { return }
 
         // Browser tab > selected window. The first match wins so the user's

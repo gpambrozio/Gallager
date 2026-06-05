@@ -88,30 +88,21 @@ struct RemoteWindowTabBar: View {
     /// discovered entries are slotted in and removed entries drop out without
     /// rewriting the array elsewhere. New windows insert at the end of the
     /// windows subsequence (right before the first browser tab); new browser
-    /// tabs append at the very end. Remote sessions have no file explorer or
-    /// file tabs, so those cases never appear here.
+    /// tabs append at the very end. Remote sessions have no file explorer, file
+    /// tabs, or Git tab, hence `includeFileExplorer: false` and
+    /// `includeGit: false`.
+    ///
+    /// Shares `TabDragPayload.reconciledOrder` with the local strip and both
+    /// keyboard cyclers so all four surfaces stay in lockstep (issue #566).
     private var effectiveTabOrder: [TabDragPayload] {
-        let liveWindows = windows.map { TabDragPayload.window($0.id) }
-        let liveBrowsers = openBrowserTabs.map { TabDragPayload.browser($0.id) }
-        let live: Set<TabDragPayload> = Set(liveWindows + liveBrowsers)
-
-        var order: [TabDragPayload] = []
-        var seen: Set<TabDragPayload> = []
-        for ref in sessionTabs?.tabOrder ?? [] where live.contains(ref) && seen.insert(ref).inserted {
-            order.append(ref)
-        }
-
-        // New windows slot in just before the first browser tab so the
-        // default layout (windows, then browsers) is preserved.
-        var insertAt = order.firstIndex(where: { if case .browser = $0 { true } else { false } }) ?? order.count
-        for window in liveWindows where seen.insert(window).inserted {
-            order.insert(window, at: insertAt)
-            insertAt += 1
-        }
-        for tab in liveBrowsers where seen.insert(tab).inserted {
-            order.append(tab)
-        }
-        return order
+        TabDragPayload.reconciledOrder(
+            windowIds: windows.map(\.id),
+            fileTabIds: [],
+            browserTabIds: openBrowserTabs.map(\.id),
+            storedOrder: sessionTabs?.tabOrder ?? [],
+            includeFileExplorer: false,
+            includeGit: false
+        )
     }
 
     /// Effective order restricted to entries visible on the left section in

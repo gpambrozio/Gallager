@@ -123,40 +123,15 @@ struct WindowTabBar: View {
     /// this and the `.onChange` below writes it back into `sessionTabs` so the
     /// order survives session switches.
     private var effectiveTabOrder: [TabDragPayload] {
-        let liveWindows = session.windows.map { TabDragPayload.window($0.id) }
-        let liveFiles = openFileTabs.map { TabDragPayload.file($0.id) }
-        let liveBrowsers = openBrowserTabs.map { TabDragPayload.browser($0.id) }
-        let live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers).union([.fileExplorer, .git])
-
-        // Keep stored entries whose underlying data still exists, dedup'd.
-        var order: [TabDragPayload] = []
-        var seen: Set<TabDragPayload> = []
-        for ref in sessionTabs?.tabOrder ?? [] where live.contains(ref) && seen.insert(ref).inserted {
-            order.append(ref)
-        }
-
-        // New windows slot in just before the file-explorer button — preserves
-        // the default layout (windows, folder, git, files/browsers) for first
-        // runs and late-joining tmux windows.
-        var insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
-        for window in liveWindows where seen.insert(window).inserted {
-            order.insert(window, at: insertAt)
-            insertAt += 1
-        }
-        if seen.insert(.fileExplorer).inserted {
-            order.insert(.fileExplorer, at: insertAt)
-        }
-        // The Git button sits immediately to the right of the file-explorer
-        // button (issue #258).
-        if seen.insert(.git).inserted {
-            let afterFileExplorer = order.firstIndex(of: .fileExplorer).map { $0 + 1 } ?? order.count
-            order.insert(.git, at: min(afterFileExplorer, order.count))
-        }
-        // New file/browser tabs append at the end.
-        for tab in liveFiles + liveBrowsers where seen.insert(tab).inserted {
-            order.append(tab)
-        }
-        return order
+        // Local sessions get both the file-explorer and Git singletons
+        // (`includeGit` defaults to true), so the Git tab takes part in
+        // drag-reordering and keyboard cycling alongside everything else.
+        TabDragPayload.reconciledOrder(
+            windowIds: session.windows.map(\.id),
+            fileTabIds: openFileTabs.map(\.id),
+            browserTabIds: openBrowserTabs.map(\.id),
+            storedOrder: sessionTabs?.tabOrder ?? []
+        )
     }
 
     /// Effective order restricted to entries visible on the left section in
@@ -828,6 +803,87 @@ enum TabDragPayload: Codable, Hashable, Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .gallagerTabDrag)
+    }
+
+    /// Source-of-truth ordering for a session's tab strip. Reconciles the
+    /// persisted free-form `storedOrder` (what the user dragged into place)
+    /// with the live windows / file tabs / browser tabs so newly-discovered
+    /// entries are slotted in and removed entries drop out, while every
+    /// surviving entry keeps the user's interleaved position.
+    ///
+    /// Shared by the visible `WindowTabBar`, the visible `RemoteWindowTabBar`,
+    /// and the Cmd-Shift-[ / Cmd-Shift-] keyboard navigation (both local and
+    /// remote) so every surface walks the strip in the exact same order — see
+    /// issue #566, where the keyboard path used a fixed kind-grouped order and
+    /// ignored reordering.
+    ///
+    /// Remote sessions have no file explorer or file tabs; pass
+    /// `includeFileExplorer: false` for them so the synthetic `.fileExplorer`
+    /// entry is neither kept nor inserted and new windows slot in before the
+    /// first browser tab instead of before the (absent) explorer.
+    ///
+    /// The Git tab (issue #258) is another local-only singleton: it sits
+    /// immediately to the right of the file explorer in the default layout and,
+    /// like the explorer, doesn't exist on remote sessions. Pass
+    /// `includeGit: false` for remote so `.git` is neither kept nor inserted.
+    static func reconciledOrder(
+        windowIds: [String],
+        fileTabIds: [UUID],
+        browserTabIds: [UUID],
+        storedOrder: [TabDragPayload],
+        includeFileExplorer: Bool = true,
+        includeGit: Bool = true
+    ) -> [TabDragPayload] {
+        let liveWindows = windowIds.map { TabDragPayload.window($0) }
+        let liveFiles = fileTabIds.map { TabDragPayload.file($0) }
+        let liveBrowsers = browserTabIds.map { TabDragPayload.browser($0) }
+        var live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers)
+        if includeFileExplorer {
+            live.insert(.fileExplorer)
+        }
+        if includeGit {
+            live.insert(.git)
+        }
+
+        // Keep stored entries whose underlying data still exists, dedup'd.
+        var order: [TabDragPayload] = []
+        var seen: Set<TabDragPayload> = []
+        for ref in storedOrder where live.contains(ref) && seen.insert(ref).inserted {
+            order.append(ref)
+        }
+
+        // New windows slot in just before the file-explorer button (or, on
+        // remote sessions with no explorer, the first browser tab) — preserves
+        // the default layout (windows, folder, git, files/browsers) for first
+        // runs and late-joining tmux windows.
+        var insertAt: Int
+        if includeFileExplorer {
+            insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
+        } else {
+            insertAt = order.firstIndex { if case .browser = $0 { true } else { false } } ?? order.count
+        }
+        for window in liveWindows where seen.insert(window).inserted {
+            order.insert(window, at: insertAt)
+            insertAt += 1
+        }
+        if includeFileExplorer, seen.insert(.fileExplorer).inserted {
+            order.insert(.fileExplorer, at: insertAt)
+        }
+        // The Git button sits immediately to the right of the file-explorer
+        // button (issue #258); for a new git entry not yet in the stored order,
+        // slot it just after the explorer (or at the front of the singletons
+        // when the explorer is absent).
+        if includeGit, seen.insert(.git).inserted {
+            let gitInsertAt = includeFileExplorer
+                ? (order.firstIndex(of: .fileExplorer).map { $0 + 1 } ?? order.count)
+                : insertAt
+            order.insert(.git, at: min(gitInsertAt, order.count))
+        }
+        // New file/browser tabs append at the end.
+        for tab in liveFiles + liveBrowsers where seen.insert(tab).inserted {
+            order.append(tab)
+        }
+        return order
     }
 }
 
