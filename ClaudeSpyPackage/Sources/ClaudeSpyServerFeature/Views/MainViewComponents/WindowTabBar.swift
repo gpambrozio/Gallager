@@ -752,20 +752,30 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     /// entries are slotted in and removed entries drop out, while every
     /// surviving entry keeps the user's interleaved position.
     ///
-    /// Shared by the visible `WindowTabBar` and the Cmd-Shift-[ /
-    /// Cmd-Shift-] keyboard navigation so both walk the strip in the exact
-    /// same order — see issue #566, where the keyboard path used a fixed
-    /// kind-grouped order and ignored reordering.
+    /// Shared by the visible `WindowTabBar`, the visible `RemoteWindowTabBar`,
+    /// and the Cmd-Shift-[ / Cmd-Shift-] keyboard navigation (both local and
+    /// remote) so every surface walks the strip in the exact same order — see
+    /// issue #566, where the keyboard path used a fixed kind-grouped order and
+    /// ignored reordering.
+    ///
+    /// Remote sessions have no file explorer or file tabs; pass
+    /// `includeFileExplorer: false` for them so the synthetic `.fileExplorer`
+    /// entry is neither kept nor inserted and new windows slot in before the
+    /// first browser tab instead of before the (absent) explorer.
     static func reconciledOrder(
         windowIds: [String],
         fileTabIds: [UUID],
         browserTabIds: [UUID],
-        storedOrder: [TabDragPayload]
+        storedOrder: [TabDragPayload],
+        includeFileExplorer: Bool = true
     ) -> [TabDragPayload] {
         let liveWindows = windowIds.map { TabDragPayload.window($0) }
         let liveFiles = fileTabIds.map { TabDragPayload.file($0) }
         let liveBrowsers = browserTabIds.map { TabDragPayload.browser($0) }
-        let live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers).union([.fileExplorer])
+        var live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers)
+        if includeFileExplorer {
+            live.insert(.fileExplorer)
+        }
 
         // Keep stored entries whose underlying data still exists, dedup'd.
         var order: [TabDragPayload] = []
@@ -774,15 +784,21 @@ enum TabDragPayload: Codable, Hashable, Transferable {
             order.append(ref)
         }
 
-        // New windows slot in just before the file-explorer button — preserves
+        // New windows slot in just before the file-explorer button (or, on
+        // remote sessions with no explorer, the first browser tab) — preserves
         // the default layout (windows, folder, files/browsers) for first runs
         // and late-joining tmux windows.
-        var insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
+        var insertAt: Int
+        if includeFileExplorer {
+            insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
+        } else {
+            insertAt = order.firstIndex { if case .browser = $0 { true } else { false } } ?? order.count
+        }
         for window in liveWindows where seen.insert(window).inserted {
             order.insert(window, at: insertAt)
             insertAt += 1
         }
-        if seen.insert(.fileExplorer).inserted {
+        if includeFileExplorer, seen.insert(.fileExplorer).inserted {
             order.insert(.fileExplorer, at: insertAt)
         }
         // New file/browser tabs append at the end.

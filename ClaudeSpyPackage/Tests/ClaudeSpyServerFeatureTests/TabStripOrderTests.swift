@@ -136,4 +136,89 @@ struct TabStripOrderTests {
 
         #expect(once == twice)
     }
+
+    @Test("Duplicate refs in the stored order collapse to a single entry")
+    func duplicateRefsAreDeduped() {
+        let t1 = "win-1"
+        let browser = UUID()
+
+        // A corrupt/legacy stored order containing the same refs twice.
+        let stored: [TabDragPayload] = [
+            .window(t1),
+            .window(t1),
+            .fileExplorer,
+            .browser(browser),
+            .browser(browser),
+        ]
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1],
+            fileTabIds: [],
+            browserTabIds: [browser],
+            storedOrder: stored
+        )
+
+        #expect(order == [.window(t1), .fileExplorer, .browser(browser)])
+    }
+
+    @Test("New windows append before an absent file explorer falls back to the end")
+    func newWindowsFallBackToEndWhenNoFileExplorerStored() {
+        let t1 = "win-1"
+        let t2 = "win-2"
+
+        // Stored order omits the file explorer entirely; both windows are
+        // live, so the `insertAt ?? order.count` fallback drives placement.
+        let stored: [TabDragPayload] = [.window(t1)]
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1, t2],
+            fileTabIds: [],
+            browserTabIds: [],
+            storedOrder: stored
+        )
+
+        #expect(order == [.window(t1), .window(t2), .fileExplorer])
+    }
+
+    @Test("Remote sessions omit the file explorer entirely")
+    func remoteDefaultOrderHasNoFileExplorer() {
+        let t1 = "win-1"
+        let t2 = "win-2"
+        let browser = UUID()
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1, t2],
+            fileTabIds: [],
+            browserTabIds: [browser],
+            storedOrder: [],
+            includeFileExplorer: false
+        )
+
+        #expect(order == [.window(t1), .window(t2), .browser(browser)])
+    }
+
+    @Test("A new remote window slots in before the first browser tab")
+    func remoteNewWindowSlotsInBeforeBrowser() {
+        let t1 = "win-1"
+        let t2 = "win-2"
+        let browser = UUID()
+
+        // Stored order knows T1 + Browser; a new window T2 has just appeared.
+        // The old inline remote cycler dropped it from Cmd-Shift-[/] cycling
+        // (issue #566); the shared helper must slot it in.
+        let stored: [TabDragPayload] = [
+            .window(t1),
+            .browser(browser),
+        ]
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1, t2],
+            fileTabIds: [],
+            browserTabIds: [browser],
+            storedOrder: stored,
+            includeFileExplorer: false
+        )
+
+        #expect(order == [.window(t1), .window(t2), .browser(browser)])
+    }
 }

@@ -2140,10 +2140,9 @@ public struct MainView: View {
             browserTabIds: sessionTabs?.openBrowserTabs.map(\.id) ?? [],
             storedOrder: sessionTabs?.tabOrder ?? []
         )
-        let windowsById = Dictionary(
-            session.windows.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        // Window ids are unique within a session, so assert that invariant
+        // rather than silently tolerating a duplicate.
+        let windowsById = Dictionary(uniqueKeysWithValues: session.windows.map { ($0.id, $0) })
         return order.compactMap { payload in
             switch payload {
             case let .window(id):
@@ -2224,28 +2223,19 @@ public struct MainView: View {
         let windows = selectedRemoteSessionWindows
         let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
         let tabs = remoteSessionTabsStates[key]
-        // Prefer the user's drag-reordered visual order when one is persisted —
-        // tmux's `windowIndex` reflects host-side order but not any reorder the
-        // user has applied locally to the tab strip.
-        let liveWindowIds = Set(windows.map(\.id))
-        let liveBrowserIds = Set(tabs?.openBrowserTabs.map(\.id) ?? [])
-        let entries: [TabDragPayload]
-        if let storedOrder = tabs?.tabOrder, !storedOrder.isEmpty {
-            entries = storedOrder.filter { ref in
-                switch ref {
-                case let .window(id): liveWindowIds.contains(id)
-                case let .browser(id): liveBrowserIds.contains(id)
-                case .fileExplorer,
-                     .file: false
-                }
-            }
-        } else {
-            var fallback: [TabDragPayload] = windows.map { .window($0.id) }
-            if let openBrowserTabs = tabs?.openBrowserTabs {
-                fallback.append(contentsOf: openBrowserTabs.map { .browser($0.id) })
-            }
-            entries = fallback
-        }
+        // Walk the same reconciled order the visible `RemoteWindowTabBar`
+        // renders, via the shared `reconciledOrder` helper — keeps keyboard
+        // cycling and the on-screen remote strip from drifting apart, and
+        // (unlike the old inline filter) slots a freshly-appeared window into
+        // the cycle instead of dropping it (issue #566). Remote sessions have
+        // no file explorer / file tabs, hence `includeFileExplorer: false`.
+        let entries = TabDragPayload.reconciledOrder(
+            windowIds: windows.map(\.id),
+            fileTabIds: [],
+            browserTabIds: tabs?.openBrowserTabs.map(\.id) ?? [],
+            storedOrder: tabs?.tabOrder ?? [],
+            includeFileExplorer: false
+        )
         guard entries.count > 1 else { return }
 
         // Browser tab > selected window. The first match wins so the user's
