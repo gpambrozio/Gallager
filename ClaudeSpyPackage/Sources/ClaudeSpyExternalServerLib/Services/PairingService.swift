@@ -19,6 +19,12 @@ actor PairingService {
     /// Logger for persistence operations
     private let logger = Logger(label: "pairing-service")
 
+    /// Fired with the `pairId` whenever a pair is removed (either via the
+    /// unpair API or `resetState` in tests). Lets dependents — currently
+    /// `APNsService` for its in-memory `lastBadge` map — release any per-pair
+    /// state without the unpair endpoint needing to know about them.
+    private var onPairRemoved: (@Sendable (String) async -> Void)?
+
     /// File URL for pairs.json
     private var pairsFileURL: URL {
         dataDirectory.appendingPathComponent("pairs.json")
@@ -172,16 +178,29 @@ actor PairingService {
         activePairs[pairId]
     }
 
+    /// Register a handler that's invoked with the `pairId` whenever a pair is
+    /// removed. Currently used by `APNsService` to drop its `lastBadge` entry.
+    func setOnPairRemoved(_ handler: @escaping @Sendable (String) async -> Void) {
+        onPairRemoved = handler
+    }
+
     /// Clear all state (for testing)
-    func resetState() {
+    func resetState() async {
         pendingCodes.removeAll()
+        let removed = Array(activePairs.keys)
         activePairs.removeAll()
+        if let onPairRemoved {
+            for pairId in removed {
+                await onPairRemoved(pairId)
+            }
+        }
     }
 
     /// Remove a pair
-    func removePair(pairId: String) {
-        activePairs.removeValue(forKey: pairId)
+    func removePair(pairId: String) async {
+        guard activePairs.removeValue(forKey: pairId) != nil else { return }
         savePairs()
+        await onPairRemoved?(pairId)
     }
 
     /// Get host device name for a pair
@@ -232,6 +251,32 @@ actor PairingService {
         logger.debug("Updated viewer public key for pair", metadata: ["pairId": "\(pairId)"])
     }
 
+    /// Update the host's device name for a pair (called when host reconnects).
+    /// Lets the host change its display name without re-pairing.
+    func updateHostDeviceName(pairId: String, deviceName: String) {
+        guard var pair = activePairs[pairId], pair.hostDeviceName != deviceName else { return }
+        pair.hostDeviceName = deviceName
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated host device name for pair", metadata: [
+            "pairId": "\(pairId)",
+            "deviceName": "\(deviceName)",
+        ])
+    }
+
+    /// Update the viewer's device name for a pair (called when viewer reconnects).
+    /// Lets the user rename their iOS device and have hosts pick it up.
+    func updateViewerDeviceName(pairId: String, deviceName: String) {
+        guard var pair = activePairs[pairId], pair.viewerDeviceName != deviceName else { return }
+        pair.viewerDeviceName = deviceName
+        activePairs[pairId] = pair
+        savePairs()
+        logger.debug("Updated viewer device name for pair", metadata: [
+            "pairId": "\(pairId)",
+            "deviceName": "\(deviceName)",
+        ])
+    }
+
     // MARK: - Push Token Management
 
     /// Register a push token for a pair
@@ -263,6 +308,16 @@ actor PairingService {
     /// Check if a pair has a registered push token
     func hasPushToken(for pairId: String) -> Bool {
         activePairs[pairId]?.pushToken != nil
+    }
+
+    /// All pairIds whose registered push token matches `token`. A single iOS
+    /// device paired with multiple Macs surfaces here as multiple pairIds that
+    /// share one APNs token — used to aggregate per-host badge counts into a
+    /// single device-wide badge.
+    func pairIds(withToken token: String) -> [String] {
+        activePairs.compactMap { pairId, pair in
+            pair.pushToken == token ? pairId : nil
+        }
     }
 
     // MARK: - Private Helpers

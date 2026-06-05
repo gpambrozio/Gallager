@@ -16,6 +16,7 @@ struct PositionedPane: Identifiable {
 /// `TerminalContainerView` instances in the correct split arrangement.
 struct WindowPaneLayoutView: View {
     let window: LocalTmuxWindow
+    var onOpenURL: TerminalOpenURLHandler?
 
     @Environment(AppSettings.self) private var settings
     @Environment(MirrorWindowManager.self) private var windowManager
@@ -62,6 +63,10 @@ struct WindowPaneLayoutView: View {
         // rect count always matches the ForEach's subview count (no conditional gaps).
         let validPanes = positioned.filter { windowManager.paneStates[$0.paneInfo.paneId] != nil }
         let isSingle = validPanes.count == 1
+        // Tmux's active pane (with fallback to the first pane). Used to decide
+        // which terminal grabs focus when this window first appears so a
+        // multi-pane window doesn't open with no pane selected.
+        let activePaneId = window.activePane?.paneId
 
         return ProportionalTileLayout(rects: validPanes.map(\.rect)) {
             ForEach(validPanes) { pane in
@@ -69,7 +74,9 @@ struct WindowPaneLayoutView: View {
                     PaneTileView(
                         paneState: paneState,
                         paneInfo: pane.paneInfo,
-                        isSingle: isSingle
+                        isSingle: isSingle,
+                        isActiveInTmux: pane.paneInfo.paneId == activePaneId,
+                        onOpenURL: onOpenURL
                     )
                     .id(pane.id)
                 }
@@ -121,6 +128,11 @@ struct WindowPaneLayoutView: View {
         let paneState: PaneState
         let paneInfo: PaneInfo
         let isSingle: Bool
+        /// True when this pane is the one tmux currently marks as active.
+        /// Drives initial focus selection when the window appears so a
+        /// multi-pane window opens with the tmux-active pane focused.
+        let isActiveInTmux: Bool
+        var onOpenURL: TerminalOpenURLHandler?
 
         @Environment(MirrorWindowManager.self) private var windowManager
         @Environment(TmuxService.self) private var tmuxService
@@ -129,10 +141,24 @@ struct WindowPaneLayoutView: View {
         var body: some View {
             TerminalContainerView(
                 paneState: paneState,
-                autoFocus: isSingle,
+                autoFocus: isSingle || isActiveInTmux,
                 onStateChange: { _, _, _ in },
                 onTitleChange: { title in
                     windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
+                },
+                onOpenURL: onOpenURL,
+                onFocus: {
+                    // Mirror focus back to tmux so external clients attached
+                    // to this window land on the same active pane. Idempotent
+                    // when the pane is already active (e.g., on initial focus).
+                    let target = paneInfo.paneId
+                    Task {
+                        do {
+                            try await tmuxService.selectPane(target)
+                        } catch {
+                            print("Failed to select tmux pane \(target): \(error)")
+                        }
+                    }
                 }
             )
             .overlay {

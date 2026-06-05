@@ -50,6 +50,30 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
         write("\r\(Style.clearLine.rawValue)")
     }
 
+    /// Current terminal width in columns, or `nil` when not connected to a TTY
+    /// or the ioctl fails. Used to truncate progress lines so they fit on a
+    /// single physical row — wrapped lines can't be reclaimed by `\r` + clear,
+    /// which only erases the row the cursor is on.
+    private func terminalColumns() -> Int? {
+        guard isTTY else { return nil }
+        var w = winsize()
+        guard ioctl(fileno(stream), UInt(TIOCGWINSZ), &w) == 0, w.ws_col > 0 else {
+            return nil
+        }
+        return Int(w.ws_col)
+    }
+
+    /// Trim `text` to at most `width` columns, appending an ellipsis when
+    /// truncated. Assumes ASCII/monospaced content (true for `String(describing:)`
+    /// output of test steps).
+    private func truncate(_ text: String, toColumns width: Int) -> String {
+        guard width > 0 else { return "" }
+        guard text.count > width else { return text }
+        let ellipsis = "…"
+        let keep = max(0, width - ellipsis.count)
+        return String(text.prefix(keep)) + ellipsis
+    }
+
     // MARK: - TestProgressReporter
 
     public func scenarioStarted(_ name: String, totalSteps: Int) async {
@@ -62,28 +86,55 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
 
     public func stepStarted(_ stepNumber: Int, totalSteps: Int, description: String) async {
         clearCurrentLine()
+        let plainPrefix = "  [\(stepNumber)/\(totalSteps)] "
+        // Cap the description so the whole line stays on one row. Leave a 1-col
+        // margin so a description that exactly fills the terminal width can't
+        // push the cursor onto the next row (some terminals auto-wrap on the
+        // trailing column, others don't — leaving a gap is universal).
+        let visibleDescription: String
+        if let cols = terminalColumns() {
+            let budget = max(10, cols - plainPrefix.count - 1)
+            visibleDescription = truncate(description, toColumns: budget)
+        } else {
+            visibleDescription = description
+        }
         let progress = styled("  [\(stepNumber)/\(totalSteps)]", .dim)
-        let desc = styled(description, .dim)
+        let desc = styled(visibleDescription, .dim)
         write("\(progress) \(desc)")
     }
 
     public func stepCompleted(_ stepNumber: Int, screenshot: TestOrchestrator.ScreenshotResult?) async {
         clearCurrentLine()
-        if let ss = screenshot {
-            writeScreenshotResult(ss)
-        }
     }
 
-    public func stepFailed(_ stepNumber: Int, error: String, screenshot: TestOrchestrator.ScreenshotResult?) async {
+    public func stepFailed(
+        _ stepNumber: Int,
+        error: String,
+        screenshot: TestOrchestrator.ScreenshotResult?,
+        failureScreenshots: [TestOrchestrator.FailureScreenshot]
+    ) async {
         clearCurrentLine()
         if let ss = screenshot {
-            writeScreenshotResult(ss)
+            let camera = styled("  [screenshot]", .dim)
+            let detail: String
+            if let diff = ss.diffPercentage {
+                detail = styled(String(format: "%.2f%% diff - MISMATCH", diff), .red)
+            } else {
+                detail = styled("MISMATCH", .red)
+            }
+            writeln("\(camera) \(ss.label): \(detail)")
         }
         let marker = styled("  FAIL", .red, .bold)
         let stepInfo = styled("step \(stepNumber)", .dim)
         writeln("\(marker) \(stepInfo)")
         let errorText = styled("       \(error)", .red)
         writeln(errorText)
+        for capture in failureScreenshots {
+            let camera = styled("  [failure screenshot]", .dim)
+            let target = styled(capture.target, .yellow)
+            let path = styled(capture.path, .dim)
+            writeln("\(camera) \(target): \(path)")
+        }
     }
 
     public func scenarioCompleted(_ result: TestOrchestrator.ScenarioResult) async {
@@ -146,32 +197,5 @@ final public class TerminalReporter: TestProgressReporter, @unchecked Sendable {
             writeln(styled(summary, .red, .bold))
         }
         writeln()
-    }
-
-    // MARK: - Private
-
-    private func writeScreenshotResult(_ ss: TestOrchestrator.ScreenshotResult) {
-        let camera = styled("  [screenshot]", .dim)
-        let label = ss.label
-
-        if ss.baselineCreated {
-            let status = styled("baseline created", .yellow)
-            writeln("\(camera) \(label): \(status)")
-        } else if ss.passed {
-            if let diff = ss.diffPercentage {
-                let diffStr = String(format: "%.2f%%", diff)
-                let status = styled("match (\(diffStr) diff)", .green)
-                writeln("\(camera) \(label): \(status)")
-            }
-        } else {
-            if let diff = ss.diffPercentage {
-                let diffStr = String(format: "%.2f%%", diff)
-                let status = styled("\(diffStr) diff - MISMATCH", .red)
-                writeln("\(camera) \(label): \(status)")
-            } else {
-                let status = styled("MISMATCH", .red)
-                writeln("\(camera) \(label): \(status)")
-            }
-        }
     }
 }

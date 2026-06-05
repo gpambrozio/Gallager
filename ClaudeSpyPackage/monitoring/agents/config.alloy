@@ -1,0 +1,34 @@
+// Scrape the Vapor relay's /metrics with bearer auth.
+prometheus.scrape "relay" {
+  targets = [{ __address__ = "127.0.0.1:8080", __metrics_path__ = "/metrics", instance = "relay" }]
+  scrape_interval = "30s"
+
+  bearer_token = sys.env("METRICS_TOKEN")
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  job_name = "claudespy-relay"
+}
+
+// Scrape host metrics from node_exporter.
+prometheus.scrape "node" {
+  targets = [{ __address__ = "127.0.0.1:9100", instance = "hetzner-1" }]
+  scrape_interval = "30s"
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  job_name = "node"
+}
+
+// Push to Grafana Cloud Prometheus.
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_PROM_USER")
+      password = sys.env("GRAFANA_PROM_TOKEN")
+    }
+  }
+
+  external_labels = {
+    deployment = "hetzner-prod",
+  }
+}

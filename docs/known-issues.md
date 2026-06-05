@@ -7,11 +7,11 @@
 **Solution Implemented:**
 - Leverages the existing 5-second pane refresh in `MainView` (no additional polling)
 - `MirrorWindowView` observes `tmuxService.panes` changes and checks if its pane's dimensions changed
-- `PaneStream.updateDimensions()` triggers the `onDimensionChange` callback when dimensions differ
+- `PaneStreamManager.updateDimensions(paneId:width:height:)` updates the per-pane reader context and forwards an `onDimensionChange` callback to subscribers when dimensions differ
 - `MirrorWindowManager.resizeWindow()` updates the NSWindow size with animation
 
 **Files Changed:**
-- `ClaudeSpyServerFeature/Services/PaneStream.swift` - Added `updateDimensions()` method
+- `ClaudeSpyServerFeature/Services/PaneStreamManager.swift` - Owns dimension state on `ReaderContext` and forwards changes to subscribers
 - `ClaudeSpyServerFeature/Views/MirrorWindowView.swift` - Added `.onChange(of: tmuxService.panes)` observer
 - `ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift` - Added `resizeWindow()` method
 

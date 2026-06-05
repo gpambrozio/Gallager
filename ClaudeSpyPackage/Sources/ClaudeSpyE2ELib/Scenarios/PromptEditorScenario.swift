@@ -18,7 +18,6 @@ public enum PromptEditorScenario {
         // 2. Launch macOS app and open Panes window
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_000, height: 600)
-        TestStep.wait(seconds: 1)
 
         // Select the pane in the sidebar
         TestStep.macWaitForElement(titled: "editor-test", timeout: 5)
@@ -39,7 +38,6 @@ public enum PromptEditorScenario {
             target: "editor-test:0",
             command: "python3 $TMPDIR/editor_trigger.py %0 /tmp/e2e-editor-test.txt &"
         )
-        TestStep.wait(seconds: 3)
 
         // 5. Verify the editor overlay appeared
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10)
@@ -47,7 +45,6 @@ public enum PromptEditorScenario {
 
         // 6. Cancel the editor session
         TestStep.macClickButton(titled: "Cancel Editing")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "mac-editor-overlay-dismissed")
@@ -63,7 +60,6 @@ public enum PromptEditorScenario {
             target: "editor-test:0",
             command: "python3 $TMPDIR/editor_trigger.py %0 /tmp/e2e-editor-test2.txt &"
         )
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10)
         TestStep.macScreenshot(label: "mac-editor-overlay-submit-ready")
@@ -71,7 +67,7 @@ public enum PromptEditorScenario {
         // Edit the content: focus the editor, select all, replace with new text
         TestStep.macFocusElement(titled: "Original prompt content for submit test")
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "Edited prompt: please refactor this function")
         TestStep.wait(seconds: 1)
@@ -79,7 +75,6 @@ public enum PromptEditorScenario {
 
         // Submit the editor
         TestStep.macClickButton(titled: "Submit Edited Prompt")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "mac-editor-after-submit")

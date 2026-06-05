@@ -43,6 +43,7 @@ NC='\033[0m'
 SKIP_NOTARIZE=false
 LOCAL_SIGNING=false
 SKIP_UPLOAD=false
+BETA=false
 NOTARYTOOL_PROFILE="notarytool-profile"
 TEAM_ID="XG2WG7U93U"
 
@@ -61,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             SKIP_UPLOAD=true
             shift
             ;;
+        --beta)
+            BETA=true
+            shift
+            ;;
         --notarytool-profile)
             NOTARYTOOL_PROFILE="$2"
             shift 2
@@ -71,7 +76,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--skip-notarize] [--local-signing] [--skip-upload]"
+            echo "Usage: $0 [--skip-notarize] [--local-signing] [--skip-upload] [--beta]"
             exit 1
             ;;
     esac
@@ -145,27 +150,29 @@ rollback_on_failure() {
 check_prerequisites() {
     log_info "Checking prerequisites..."
 
-    if ! command -v lftp &> /dev/null; then
-        log_error "lftp is not installed. Install with: brew install lftp"
-    fi
+    if [ "$BETA" != true ]; then
+        if ! command -v lftp &> /dev/null; then
+            log_error "lftp is not installed. Install with: brew install lftp"
+        fi
 
-    if ! command -v op &> /dev/null; then
-        log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
-    fi
+        if ! command -v op &> /dev/null; then
+            log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
+        fi
 
-    if ! command -v create-dmg &> /dev/null; then
-        log_error "create-dmg is not installed. Install with: brew install create-dmg"
-    fi
+        if ! command -v create-dmg &> /dev/null; then
+            log_error "create-dmg is not installed. Install with: brew install create-dmg"
+        fi
 
-    if ! command -v sign_update &> /dev/null; then
-        log_warning "Sparkle sign_update not found. Install with: brew install sparkle"
+        if ! command -v sign_update &> /dev/null; then
+            log_warning "Sparkle sign_update not found. Install with: brew install sparkle"
+        fi
     fi
 
     if ! command -v xcrun &> /dev/null; then
         log_error "Xcode command line tools are not installed."
     fi
 
-    if [[ -n $(git -C "$PROJECT_ROOT" status --porcelain) ]]; then
+    if [ "$BETA" != true ] && [[ -n $(git -C "$PROJECT_ROOT" status --porcelain) ]]; then
         log_warning "Git working directory has uncommitted changes."
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo ""
@@ -486,17 +493,19 @@ upload_to_ftp() {
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    # Upload DMG and appcast.xml
+    # Upload DMG (versioned + canonical) and appcast.xml
     lftp -c "
 set ssl:verify-certificate false;
 set cmd:fail-exit true;
 open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST;
 cd $FTP_REMOTE_DIR;
 put -O . '$dmg_path';
+put '$dmg_path' -o 'Gallager.dmg';
 put -O . '$APPCAST_FILE';
 " || log_error "FTP upload failed"
 
     log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
+    log_success "Updated Gallager.dmg link → $dmg_name"
 }
 
 # =====================================================
@@ -566,6 +575,9 @@ Here are the commits since the last release:
 $commits
 
 Requirements:
+- ONLY include changes that directly affect the user experience (new features, behavior changes, bug fixes users would notice, performance improvements)
+- SKIP anything that does not affect users: CI/CD changes, build scripts, internal refactoring, code cleanup, dependency updates, tests, docs, tooling, release scripts, server infrastructure changes invisible to users
+- If a commit is ambiguous, err on the side of omitting it
 - Group changes by category (Features, Improvements, Bug Fixes) if applicable
 - Explain what each change means for users (not just the technical details)
 - Keep it concise but informative
@@ -576,6 +588,7 @@ Requirements:
 - Do NOT add any URLs or links
 - Do NOT add 'for more information' sections or footer content
 - Do NOT assume or mention who built the app
+- If no user-facing changes exist, output only: No user-facing changes in this release.
 - Output ONLY the release notes content itself"
 
     local release_notes
@@ -590,9 +603,55 @@ $commits"
 }
 
 # =====================================================
+# Beta build (build, sign, notarize, copy to ~)
+# =====================================================
+run_beta_build() {
+    echo ""
+    echo "=========================================="
+    echo "  ClaudeSpy Beta Build"
+    echo "=========================================="
+    echo ""
+
+    check_prerequisites
+
+    local version
+    version=$(get_version)
+    local build_number
+    build_number=$(get_build_number)
+    log_info "Building beta of version $version (build $build_number)"
+
+    build_archive
+    export_archive
+    verify_bundled_plugin
+    notarize_app
+
+    local app_path="$EXPORT_PATH/$APP_NAME.app"
+    local dest_path="$HOME/$APP_NAME.app"
+
+    log_info "Copying app to $dest_path..."
+    rm -rf "$dest_path"
+    cp -R "$app_path" "$dest_path" || log_error "Failed to copy app to $dest_path"
+
+    rm -rf "$BUILD_DIR"
+
+    echo ""
+    echo "=========================================="
+    echo "  Beta Build Complete!"
+    echo "=========================================="
+    echo ""
+    log_success "Beta app available at $dest_path"
+    echo ""
+}
+
+# =====================================================
 # Main
 # =====================================================
 main() {
+    if [ "$BETA" = true ]; then
+        run_beta_build
+        exit 0
+    fi
+
     echo ""
     echo "=========================================="
     echo "  ClaudeSpy Release Script"
@@ -600,7 +659,6 @@ main() {
     echo ""
 
     check_prerequisites
-    run_unit_tests
 
     local current_version
     current_version=$(get_version)
@@ -615,6 +673,8 @@ main() {
         log_info "Release cancelled"
         exit 0
     fi
+
+    run_unit_tests
 
     trap rollback_on_failure EXIT
     bump_version "$current_version"

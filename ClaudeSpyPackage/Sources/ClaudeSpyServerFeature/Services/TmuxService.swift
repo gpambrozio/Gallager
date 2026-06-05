@@ -1,3 +1,5 @@
+import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 import Logging
@@ -5,25 +7,32 @@ import Logging
 /// Errors that can occur when interacting with tmux
 enum TmuxError: Error, LocalizedError {
     case tmuxNotFound
-    case noServerRunning
     case invalidPane(target: String)
     case commandFailed(message: String)
-    case permissionDenied
 
     var errorDescription: String? {
         switch self {
         case .tmuxNotFound:
             return "tmux is not installed or not in PATH"
-        case .noServerRunning:
-            return "No tmux server running. Start tmux first."
         case let .invalidPane(target):
             return "Pane '\(target)' not found"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
-        case .permissionDenied:
-            return "Permission denied accessing tmux"
         }
     }
+}
+
+/// Outcome of a single refresh attempt against tmux. Encapsulates the decision
+/// of whether to assign new panes, clear stored state, or preserve the current
+/// state — keeping the mutation point in `refreshPanes` to a single switch so
+/// `panes` is never written to an intermediate `[]` value mid-refresh.
+private enum RefreshOutcome {
+    /// list-panes succeeded with parseable output. Use these panes verbatim.
+    case assign([PaneInfo])
+    /// Tmux server confirmed to have no panes/sessions. Clear stored state.
+    case empty(reason: String)
+    /// Couldn't confidently determine state. Preserve current panes.
+    case keep(reason: String, lastError: String?)
 }
 
 /// Whether a tmux stderr message definitively indicates no server is running (or no sessions exist).
@@ -57,11 +66,102 @@ private func isConnectionError(_ stderr: String) -> Bool {
 final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
     /// Includes Claude Code rendering config and oh-my-zsh update suppression.
-    private static let baseEnvironmentVars = [
-        "CLAUDE_CODE_NO_FLICKER=1",
-        "DISABLE_AUTO_UPDATE=true",
-        "DISABLE_UPDATE_PROMPT=true",
-    ]
+    private static let baseEnvironmentVars: [String] = {
+        var vars = [
+            "CLAUDE_CODE_NO_FLICKER=1",
+            "DISABLE_AUTO_UPDATE=true",
+            "DISABLE_UPDATE_PROMPT=true",
+        ]
+        // Pin spawned panes to the app's own TMPDIR so tooling that resolves
+        // `$TMPDIR/<file>` sees the same temp dir the app does. In production this
+        // equals the value panes already inherit from the app-owned tmux server (a
+        // no-op); under the E2E harness the app's TMPDIR is pinned to the test
+        // runner's temp dir, so injected `$TMPDIR/<script>` invocations resolve.
+        if let tmp = ProcessInfo.processInfo.environment["TMPDIR"], !tmp.isEmpty {
+            vars.append("TMPDIR=\(tmp)")
+        }
+        return vars
+    }()
+
+    /// Absolute path to the user's login shell. Mirrors tmux's own resolution
+    /// chain: `$SHELL` → passwd entry's `pw_shell` → POSIX-guaranteed `/bin/sh`.
+    /// Resolved once at first access and baked into `defaultCommandWrapper`
+    /// rather than relying on `${SHELL}` indirection inside `/bin/sh -c`, so
+    /// the spawned pane runs the exact shell we logged.
+    private static let userShellPath: String = {
+        if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
+            return shell
+        }
+        if let pw = getpwuid(geteuid())?.pointee, let cstr = pw.pw_shell {
+            let resolved = String(cString: cstr)
+            if !resolved.isEmpty { return resolved }
+        }
+        return "/bin/sh"
+    }()
+
+    /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
+    /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
+    private static func posixSingleQuote(_ string: String) -> String {
+        "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
+    }
+
+    /// Wrapper command installed as tmux's `default-command` so every spawned shell
+    /// reports as iTerm. Required for OSC 9;4 progress sequences: Claude Code only
+    /// emits them when it believes it's running under iTerm.
+    ///
+    /// `-e TERM_PROGRAM=iTerm.app` on `new-session` doesn't work — tmux 3.2+
+    /// unconditionally overwrites `TERM_PROGRAM=tmux` and
+    /// `TERM_PROGRAM_VERSION=<tmux-version>` at shell-spawn time (see tmux's
+    /// `spawn.c`), after the session env has been applied. The override happens
+    /// before `exec(shell)`, so we re-export here — the prefix runs *after*
+    /// tmux's hardcoded set and wins.
+    ///
+    /// `<userShellPath> -l` mirrors what tmux does when `default-command` is
+    /// empty (login shell from `default-shell`). Honors any `$SHELL` that
+    /// accepts `-l` as the login-shell flag (zsh/bash/fish/xonsh) — nushell
+    /// would error and would need the `exec -a "-name"` argv[0] convention
+    /// instead (works because tmux runs `default-command` via `/bin/sh -c`,
+    /// which on macOS is bash and supports `exec -a`).
+    ///
+    /// The leading `printf` emits OSC 10 (default foreground) and OSC 11
+    /// (default background) *setter* sequences before the shell starts.
+    /// tmux's display parser intercepts them and caches the pane's fg/bg —
+    /// so later OSC-10/11 *queries* from inside-pane apps (e.g. Codex CLI's
+    /// startup probe) get answered from tmux's cache rather than timing out
+    /// against tmux 3.6a's broken outer-terminal forwarding (see tmux/tmux
+    /// #4846, openai/codex #22761 / #23489). Without this, Codex falls back
+    /// to hardcoded colors — including bold + RGB(0,0,0) for the "● Working"
+    /// status, invisible on dark mirror themes.
+    ///
+    /// The fg/bg values match the actual colors the mirror's renderer
+    /// applies for the user's currently-selected theme (see
+    /// `TerminalContainerView.applyDarkTheme` / `applyLightTheme`), so the
+    /// cached value and the rendered bg can't drift if the user toggles
+    /// between dark and light themes.
+    private var defaultCommandWrapper: String {
+        let shell = Self.posixSingleQuote(Self.userShellPath)
+        let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
+        let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
+        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
+    }
+
+    /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11
+    /// setter for the given mirror theme. Values mirror exactly what
+    /// `TerminalContainerView.applyDarkTheme` and `applyLightTheme` push
+    /// into SwiftTerm so the cached value in tmux matches what the user
+    /// actually sees rendered.
+    private static func oscColors(for theme: TerminalTheme) -> (fg: String, bg: String) {
+        switch theme {
+        case .defaultDark,
+             .solarizedDark:
+            // applyDarkTheme: fg = NSColor(0.9), bg = NSColor(0.1)
+            return ("e6e6/e6e6/e6e6", "1a1a/1a1a/1a1a")
+        case .defaultLight,
+             .solarizedLight:
+            // applyLightTheme: fg = NSColor(0.1), bg = NSColor(0.95)
+            return ("1a1a/1a1a/1a1a", "f2f2/f2f2/f2f2")
+        }
+    }
 
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
@@ -113,9 +213,24 @@ final public class TmuxService {
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
 
+    /// Closure that returns the user's currently-selected mirror theme.
+    /// Read each time `defaultCommandWrapper` is evaluated so the OSC 10/11
+    /// setters baked into newly-spawned shells reflect the live preference.
+    /// Defaults to dark; `AppCoordinator` overrides this with a real
+    /// settings-backed closure during construction.
+    private var themeProvider: @MainActor () -> TerminalTheme = { .defaultDark }
+
     public init(tmuxPath: String = "/opt/homebrew/bin/tmux", socketPath: String? = nil) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath
+    }
+
+    /// Wire up the source of truth for the mirror theme. The closure is
+    /// invoked each time a new tmux session is created, so theme changes
+    /// the user makes in Settings take effect for the next-spawned shell
+    /// without needing to restart the app.
+    public func setThemeProvider(_ provider: @escaping @MainActor () -> TerminalTheme) {
+        themeProvider = provider
     }
 
     /// Updates the tmux configuration
@@ -148,32 +263,16 @@ final public class TmuxService {
 
     // MARK: - tmux Commands
 
-    /// Checks if tmux is available and a server is running
-    public func checkAvailability() async throws {
-        // Check if tmux exists
-        guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
-            throw TmuxError.tmuxNotFound
-        }
-
-        // Check if server is running
-        let result = try await runTmuxCommand(["list-sessions"])
-        if !result.isSuccess {
-            if isNoServerError(result.stderrString) {
-                throw TmuxError.noServerRunning
-            }
-            // Connection errors with a missing socket mean the server genuinely exited
-            if isConnectionError(result.stderrString) && isServerSocketMissing {
-                throw TmuxError.noServerRunning
-            }
-            if result.stderrString.lowercased().contains("permission denied") {
-                throw TmuxError.permissionDenied
-            }
-        }
-    }
-
-    /// Refreshes the list of available panes across all sessions
-    /// Updates the internal `panes` array and returns the result
-    /// - Returns: The refreshed list of panes
+    /// Refreshes the list of available panes across all sessions.
+    ///
+    /// Internally delegates the "what state is tmux in?" decision to
+    /// `queryRefreshOutcome`, which folds every observable signal (process
+    /// errors, stderr classification, socket presence, list-sessions
+    /// confirmation) into one of three outcomes: assign new panes, clear
+    /// stored state, or preserve current state. This function only chooses
+    /// what to write — and writes `panes` exactly once — so observers never
+    /// see an intermediate empty-list value mid-refresh.
+    /// - Returns: The refreshed list of panes.
     @discardableResult
     public func refreshPanes() async -> [PaneInfo] {
         guard !isRefreshing else { return panes }
@@ -193,112 +292,193 @@ final public class TmuxService {
             }
         }
 
-        do {
-            try await checkAvailability()
-
-            // Get sessions with attached clients to prefer them during deduplication
-            let attachedSessions = await getAttachedSessionNames()
-            attachedSessionNames = attachedSessions
-
-            let format = "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_command}|#{pane_current_path}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_title}|#{window_layout}|#{window_name}|#{window_active}|#{\(Self.descriptionOptionKey)}"
-
-            let result = try await runTmuxCommand([
-                "list-panes",
-                "-a",
-                "-F", format,
-            ])
-
-            guard result.isSuccess else {
-                if isNoServerError(result.stderrString) {
-                    panes = []
-                    return panes
-                }
-                // Connection errors are ambiguous: check if the socket is actually gone
-                // (server genuinely exited, e.g. last session closed) vs. transient
-                if isConnectionError(result.stderrString) && isServerSocketMissing {
-                    logger.info("tmux socket missing after connection error — server exited, clearing panes")
-                    panes = []
-                    return panes
-                }
-                logger.warning("tmux list-panes failed (keeping old panes)", metadata: [
-                    "stderr": "\(result.stderrString)",
-                    "exitCode": "\(result.exitCode)",
-                    "oldPaneCount": "\(panes.count)",
+        guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: clearing panes", metadata: [
+                    "reason": "tmux binary not found at \(tmuxPath)",
+                    "oldPaneCount": "\(oldPanes.count)",
                 ])
-                lastError = result.stderrString
-                return panes
             }
-
-            let lines = result.stdoutString
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: "\n")
-                .map(String.init)
-
-            // Parse panes and sort so attached sessions come first
-            let allPanes = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
-            let sortedPanes = allPanes.sorted { pane1, pane2 in
-                let pane1Attached = attachedSessions.contains(pane1.sessionName)
-                let pane2Attached = attachedSessions.contains(pane2.sessionName)
-                // Attached sessions come first
-                if pane1Attached != pane2Attached {
-                    return pane1Attached
-                }
-                return false // Preserve original order otherwise
-            }
-
-            // Deduplicate by paneId - attached session versions will be kept
-            var seen = Set<String>()
-            panes = sortedPanes.filter { pane in
-                if seen.contains(pane.paneId) {
-                    return false
-                }
-                seen.insert(pane.paneId)
-                return true
-            }
-        } catch TmuxError.noServerRunning {
-            // Tmux has no sessions - this is legitimate, not an error
-            lastError = nil
             panes = []
-        } catch {
-            // Check if the socket is gone — if so, the server genuinely exited
-            if isServerSocketMissing {
-                logger.info("tmux socket missing after error — server exited, clearing panes")
-                lastError = nil
-                panes = []
-            } else {
-                // Socket still exists — transient failure, keep old panes
-                logger.warning("tmux refresh failed transiently (keeping old panes)", metadata: [
-                    "error": "\(error.localizedDescription)",
-                    "oldPaneCount": "\(panes.count)",
+            return panes
+        }
+
+        // Get sessions with attached clients to prefer them during deduplication
+        let attachedSessions = await getAttachedSessionNames()
+        attachedSessionNames = attachedSessions
+
+        switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
+        case let .assign(newPanes):
+            panes = newPanes
+        case let .empty(reason):
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: clearing panes", metadata: [
+                    "reason": "\(reason)",
+                    "oldPaneCount": "\(oldPanes.count)",
                 ])
-                lastError = error.localizedDescription
             }
+            panes = []
+        case let .keep(reason, err):
+            if !oldPanes.isEmpty {
+                logger.warning("tmux refresh: keeping old panes", metadata: [
+                    "reason": "\(reason)",
+                    "oldPaneCount": "\(oldPanes.count)",
+                ])
+            }
+            lastError = err
+            // panes intentionally untouched — observers see no change
         }
 
         return panes
     }
 
-    /// Detects tmux panes that have a running Claude Code process as a descendant.
+    /// Queries tmux and folds every signal into a single `RefreshOutcome`.
     ///
-    /// Gets each pane's shell PID and current path via tmux, then walks the process tree
-    /// from `ps` output to find any descendant process named `claude`. This handles cases
-    /// where Claude Code is launched through shell wrappers or scripts (not a direct child
-    /// of the pane shell).
-    ///
-    /// Returns a mapping of pane ID (e.g., `%0`) to the pane's current working directory
-    /// for each pane where Claude Code is running.
-    public func detectClaudePanes() async -> [String: String] {
+    /// Decision flow:
+    /// 1. Run `list-panes -a`. If it parses to a non-empty list → `.assign`.
+    /// 2. Process-level throw or non-success exit:
+    ///    - `isNoServerError` stderr → `.empty` (tmux explicitly says so).
+    ///    - `isConnectionError` stderr + socket missing → `.empty`.
+    ///    - Process throw + socket missing → `.empty`.
+    ///    - Anything else → `.keep` (transient — preserve panes).
+    /// 3. Success but parsed empty → ask tmux directly via `list-sessions`:
+    ///    - Success + zero rows → `.empty` (server confirms no sessions).
+    ///    - Anything else → `.keep` (tmux glitched on list-panes; sessions
+    ///      always have at least one pane, so non-empty list-sessions means
+    ///      list-panes lied).
+    private func queryRefreshOutcome(attachedSessions: Set<String>) async -> RefreshOutcome {
+        // Fields are joined with ASCII Unit Separator (U+001F) — see
+        // `PaneInfo.fieldSeparator`. Using `|` here used to break parsing as
+        // soon as `pane_title` contained a `|` (Codex CLI does this when it
+        // surfaces "Action Required | <session>" titles).
+        let sep = String(PaneInfo.fieldSeparator)
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
+
+        let result: ProcessResult
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call
+            result = try await runTmuxCommand(["list-panes", "-a", "-F", format])
+        } catch {
+            if isServerSocketMissing {
+                return .empty(reason: "list-panes threw + socket missing (\(error.localizedDescription))")
+            }
+            return .keep(
+                reason: "list-panes threw + socket present (\(error.localizedDescription))",
+                lastError: error.localizedDescription
+            )
+        }
+
+        if !result.isSuccess {
+            let stderr = result.stderrString
+            if isNoServerError(stderr) {
+                return .empty(reason: "list-panes: no-server (stderr=\(stderr) exit=\(result.exitCode))")
+            }
+            if isConnectionError(stderr) && isServerSocketMissing {
+                return .empty(reason: "list-panes: connection error + socket missing (stderr=\(stderr))")
+            }
+            return .keep(
+                reason: "list-panes failed (stderr=\(stderr) exit=\(result.exitCode))",
+                lastError: stderr
+            )
+        }
+
+        // Success — parse, sort by attached-first, deduplicate by pane id.
+        let lines = result.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n")
+            .map(String.init)
+        let parsed = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        let sorted = parsed.sorted { pane1, pane2 in
+            let pane1Attached = attachedSessions.contains(pane1.sessionName)
+            let pane2Attached = attachedSessions.contains(pane2.sessionName)
+            if pane1Attached != pane2Attached {
+                return pane1Attached
+            }
+            return false
+        }
+        var seen = Set<String>()
+        let deduped = sorted.filter { pane in
+            if seen.contains(pane.paneId) {
+                return false
+            }
+            seen.insert(pane.paneId)
+            return true
+        }
+
+        if !deduped.isEmpty {
+            return .assign(deduped)
+        }
+
+        // list-panes returned success with empty/unparseable stdout. Confirm
+        // against list-sessions — every session has at least one pane, so
+        // sessions-exist + zero panes is definitionally a tmux glitch.
+        let sessionCheck = try? await runTmuxCommand(["list-sessions", "-F", "#{session_id}"])
+        let sessionLines = sessionCheck?.stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\n") ?? []
+        let listSessionsSucceeded = sessionCheck?.isSuccess == true
+
+        if listSessionsSucceeded && sessionLines.isEmpty {
+            return .empty(reason: "list-panes empty + list-sessions confirms no sessions (rawLines=\(lines.count) parsed=\(parsed.count))")
+        }
+        // Use `.debugDescription` so any ANSI/control bytes in the glitched
+        // stdout are escaped (e.g. `\u{1B}`) instead of leaking into the
+        // structured log line raw.
+        let stdoutPrefix = String(result.stdoutString.prefix(200)).debugDescription
+        return .keep(
+            reason: "list-panes empty + list-sessions inconclusive (sessionCount=\(sessionLines.count) sessionsSucceeded=\(listSessionsSucceeded) rawLines=\(lines.count) parsed=\(parsed.count) stdoutPrefix=\(stdoutPrefix))",
+            lastError: nil
+        )
+    }
+
+    /// Detects tmux panes that have a running coding-agent process as a descendant.
+    ///
+    /// Metadata for an agent process detected in a pane.
+    public struct DetectedAgentPane: Sendable {
+        public let path: String
+        /// Id of the plugin whose `process_names` matched (spec §6).
+        public let pluginID: String
+    }
+
+    /// Gets each pane's shell PID and current path via tmux, then walks the process tree
+    /// from `ps` output to find any descendant process whose name is one of an enabled
+    /// plugin's manifest `process_names`. This handles cases where the agent CLI is
+    /// launched through shell wrappers or scripts (not a direct child of the pane shell).
+    ///
+    /// - Parameter processNamesByPlugin: Map of pluginID → its manifest
+    ///   `process_names` (from `PluginRegistry.processNamesByPlugin`). Pane
+    ///   detection is purely manifest-driven and agent-blind (spec §6).
+    /// - Returns: A mapping of pane ID (e.g., `%0`) to the detected plugin and the
+    ///   pane's current working directory.
+    public func detectAgentPanes(
+        processNamesByPlugin: [String: [String]]
+    ) async -> [String: DetectedAgentPane] {
+        guard !processNamesByPlugin.isEmpty else { return [:] }
+
+        // Invert to processName → pluginID for O(1) lookup while walking the tree.
+        // When two plugins claim the same process name, the lexicographically
+        // smaller pluginID wins so detection is deterministic.
+        var pluginByProcessName: [String: String] = [:]
+        for (pluginID, names) in processNamesByPlugin.sorted(by: { $0.key < $1.key }) {
+            for name in names where pluginByProcessName[name] == nil {
+                pluginByProcessName[name] = pluginID
+            }
+        }
+        guard !pluginByProcessName.isEmpty else { return [:] }
+
+        do {
+            // Get pane IDs, shell PIDs, and current paths in one tmux call.
+            // Joined with U+001F so a `|` in a working-directory path can't
+            // shift fields — see `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
             let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}|#{pane_current_path}",
+                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
             ])
             guard result.isSuccess else { return [:] }
 
             // Build paneId -> (panePid, currentPath) mapping
             var paneInfo: [String: (pid: String, path: String)] = [:]
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3 else { continue }
                 paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
             }
@@ -308,26 +488,43 @@ final public class TmuxService {
             let tree = try await processTree()
             guard let tree else { return [:] }
 
-            // Walk the subtree of each pane shell, looking for a "claude" descendant
-            var claudePanes: [String: String] = [:]
+            // Walk the subtree of each pane shell, collecting every descendant
+            // whose process name a plugin claims. A pane can match more than one
+            // plugin (e.g. one agent launched from inside another's pane), so we
+            // can't break on the first hit: `descendants(of:)` order depends on
+            // the `ps`/PID snapshot, which would make the winner flip between
+            // runs. Pick the lexicographically smallest matching pluginID so
+            // attribution is deterministic (this also keeps "claude-code" winning
+            // over "codex", matching the previous behavior).
+            var detected: [String: DetectedAgentPane] = [:]
             for (paneId, info) in paneInfo {
                 let descendants = tree.descendants(of: info.pid)
-                if descendants.contains(where: { tree.processName(for: $0) == "claude" }) {
-                    claudePanes[paneId] = info.path
+                var matchedPluginIDs: Set<String> = []
+                for pid in descendants {
+                    guard let name = tree.processName(for: pid) else { continue }
+                    if let pluginID = pluginByProcessName[name] {
+                        matchedPluginIDs.insert(pluginID)
+                    }
+                }
+                if let winner = matchedPluginIDs.min() {
+                    detected[paneId] = DetectedAgentPane(path: info.path, pluginID: winner)
                 }
             }
 
-            return claudePanes
+            return detected
         } catch {
-            logger.warning("detectClaudePanes failed: \(error)")
+            logger.warning("detectAgentPanes failed: \(error)")
             return [:]
         }
     }
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
     private func getAttachedSessionNames() async -> Set<String> {
+        // Joined with U+001F so a `|` in a tmux session name can't shift
+        // fields — see `PaneInfo.fieldSeparator`.
+        let sep = String(PaneInfo.fieldSeparator)
         guard
-            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}|#{session_name}"]),
+            let result = try? await runTmuxCommand(["list-clients", "-F", "#{client_control_mode}\(sep)#{session_name}"]),
             result.isSuccess
         else {
             return []
@@ -338,7 +535,7 @@ final public class TmuxService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
             .compactMap { line -> String? in
-                let parts = line.split(separator: "|", maxSplits: 1)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 1)
                 guard parts.count == 2, parts[0] == "0" else { return nil }
                 return String(parts[1])
             }
@@ -444,7 +641,7 @@ final public class TmuxService {
         _ target: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
-        let (_, height) = try await getPaneDimensions(target)
+        let (width, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
         let scrollbackResult = try await runTmuxCommand(
@@ -464,6 +661,7 @@ final public class TmuxService {
             scrollbackOutput: scrollbackResult.isSuccess ? scrollbackResult.stdoutString : nil,
             visibleOutput: visibleResult.stdoutString,
             cursorOutput: cursorResult.stdoutString,
+            width: width,
             height: height
         )
     }
@@ -476,36 +674,43 @@ final public class TmuxService {
     /// are precisely ordered relative to live data — eliminating the H5 timing gap.
     ///
     /// - Parameters:
-    ///   - target: The pane target
+    ///   - paneId: The stable tmux pane id (e.g. `%3`)
     ///   - height: Known pane height (from previous query)
     ///   - controlClientManager: The manager to send commands through
     ///   - sessionName: The session name for the control client
     ///   - scrollbackMultiplier: How many times the visible height to capture as scrollback
     /// - Returns: Terminal data for scrollback + visible area
     public func capturePaneViaControlMode(
-        _ target: String,
+        paneId: String,
+        width: Int,
         height: Int,
         controlClientManager: TmuxControlClientManager,
         sessionName: String,
         scrollbackMultiplier: Int = 3
     ) async throws -> Data {
+        // Address the pane by its stable tmux pane ID rather than a
+        // session:window.pane target string. With `renumber-windows on`,
+        // window indices are reassigned synchronously when sibling windows
+        // are killed, which invalidates a stale target captured before the
+        // kill — leading to `%error` from `capture-pane` and a blank mirror
+        // until the user navigates away and back.
         let scrollbackLines = height * scrollbackMultiplier
 
         let scrollbackResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(target)' -p -e -S -\(scrollbackLines) -E -1",
+            "capture-pane -t '\(paneId)' -p -e -S -\(scrollbackLines) -E -1",
             sessionName: sessionName
         )
 
         let visibleResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(target)' -p -e",
+            "capture-pane -t '\(paneId)' -p -e",
             sessionName: sessionName
         )
 
         guard !visibleResponse.isError else {
-            throw TmuxError.invalidPane(target: target)
+            throw TmuxError.invalidPane(target: paneId)
         }
         let cursorResponse = try await controlClientManager.sendCommand(
-            "display-message -t '\(target)' -p '#{cursor_x},#{cursor_y},#{cursor_flag}'",
+            "display-message -t '\(paneId)' -p '#{cursor_x},#{cursor_y},#{cursor_flag}'",
             sessionName: sessionName
         )
 
@@ -513,6 +718,7 @@ final public class TmuxService {
             scrollbackOutput: scrollbackResponse.isError ? nil : scrollbackResponse.output,
             visibleOutput: visibleResponse.output,
             cursorOutput: cursorResponse.output,
+            width: width,
             height: height
         )
     }
@@ -527,6 +733,7 @@ final public class TmuxService {
         scrollbackOutput: String?,
         visibleOutput: String,
         cursorOutput: String,
+        width: Int,
         height: Int
     ) -> Data {
         // Parse cursor position and visibility flag
@@ -554,13 +761,9 @@ final public class TmuxService {
         // (lines above the visible area). We output them here; they get pushed
         // into SwiftTerm's scrollback buffer when Part 2 writes the visible area.
         //
-        // Scrollback is suppressed in two cases:
-        // 1. The visible area is mostly empty (screenWasCleared) — indicates
-        //    `clear` was just run and the scrollback is stale pre-clear history.
-        // 2. The scrollback has fewer lines than the terminal height — indicates
-        //    `clear` was run and the screen has since been re-filled. After
-        //    clear, tmux trims the pushed blank lines, leaving only a small
-        //    number of stale lines in the scrollback capture.
+        // Scrollback is suppressed when the visible area is mostly empty —
+        // that's the right-after-clear state where the scrollback is stale
+        // pre-clear history that would pollute the mirror.
         let nonEmptyVisibleCount = visibleLines.count { line in
             !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -574,17 +777,14 @@ final public class TmuxService {
             }
             let scrollbackLinesList = trimmed.split(separator: "\n", omittingEmptySubsequences: false)
 
-            // Skip scrollback when it has fewer lines than the terminal
-            // height. This catches the case where `clear` (or \e[2J) was run
-            // and the screen has since been re-filled — the screenWasCleared
-            // heuristic above only detects clears when the visible area is
-            // still mostly empty. After clear + fill, the scrollback contains
-            // only a small number of stale pre-clear lines (tmux trims the
-            // blank pushed lines), while genuine scrollback from continuous
-            // output (e.g., `seq 1 200`) produces many more lines than height.
-            let hasEnoughScrollback = scrollbackLinesList.count >= height
-
-            if !scrollbackLinesList.isEmpty, hasEnoughScrollback {
+            // Once we have any scrollback at all, push it through. Earlier
+            // versions skipped scrollback when its line count was below the
+            // pane height, on the assumption that "real" scrollback is always
+            // larger than one screen — but small genuine output (e.g.
+            // `seq 1 100` in a 61-row mirror, ~39 history lines) was being
+            // dropped. Match tmux's own scrollback behavior instead: anything
+            // tmux retains, the mirror retains.
+            if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
@@ -632,24 +832,81 @@ final public class TmuxService {
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
 
-        // Output visible lines sequentially, clearing each line before writing.
-        // After the LF scroll above, Part 1 is in the scrollback buffer, so the
-        // visible area is empty — we clear each line defensively and draw Part 2.
-        // Filter each line to keep only color codes (remove cursor positioning that could interfere)
+        // Output visible lines sequentially. Filter each line to keep only color
+        // codes (remove cursor positioning that could interfere).
+        //
+        // Trailing-cell strategy: write the line's content, then EITHER pad
+        // out to `width - 1` with explicit spaces under the active SGR (when
+        // the line's end-of-line SGR state has non-bg attributes that need
+        // styling preservation), OR just `\e[K` (BCE-erase to end of line)
+        // when the bg band — or no styling at all — is sufficient. Reset SGR
+        // before `\r\n`.
+        //
+        // Why conditional and not always-or-never padding:
+        //
+        //   - `\e[K` (EL) is BCE: it paints trailing cells with the line's
+        //     active bg color (so issue #411 bg bands survive) but uses
+        //     `Terminal.eraseAttr()` which strips fg and style — i.e. it
+        //     CANNOT preserve underline / italic / fg-color bands from
+        //     trimmed-capture rows (the #352 trim shape: a lone `\e[4m` or
+        //     similar non-bg setter with no chars after).
+        //
+        //   - Padding with real spaces under the active SGR preserves any
+        //     attribute on the trailing cells, including non-bg ones — but
+        //     every padded space is a real cell with `code != 0` in the
+        //     buffer. `BufferLine.getTrimmedLength` only trims cells with
+        //     `code == 0`, so padded rows have a trimmed length equal to the
+        //     pane width. When auto-resize fires after attach and SwiftTerm
+        //     reflows narrower, every padded row of `width - 1` chars wraps
+        //     into `ceil((width - 1) / newCols)` visual rows. The trailing
+        //     visual rows are pure pad spaces — visually blank — producing
+        //     the double/triple-spacing reported as issue #429.
+        //
+        //   So we restrict padding to the rows that actually need it: those
+        //   ending with a non-bg SGR setter that hasn't been reset. In
+        //   practice these are TUI bands (underlined separators, fg-colored
+        //   status lines), not ordinary log content. Ordinary content rows
+        //   skip padding → trimmed length stays at the actual content
+        //   length → reflow narrower trims trailing NULL cells → no blank
+        //   continuation rows. The few padded rows still produce blanks on
+        //   reflow, but those rows are also redrawn by the running TUI on
+        //   the SIGWINCH that auto-resize triggers, so the blanks are
+        //   transient — a much smaller blast radius than padding every row.
+        //
+        //   Padding stops one column short of `width` (then `\e[K` BCE-clears
+        //   the final cell) so the cursor can never land in the pending-wrap
+        //   position. The single-cell loss of non-bg styling on the rightmost
+        //   column is invisible in practice. This was the original intent of
+        //   the `width - 1` cap from PR #353/#413.
+        //
+        //   The SGR-leak fix from #352 (resetting SGR before extractActiveSGR
+        //   and skipping extraction on empty cursor lines) is unchanged and
+        //   still prevents the underline-state leak into live-streamed data
+        //   regardless of padding strategy.
+        let padTarget = max(0, width - 1)
         for index in 0..<linesToOutput {
-            output += "\u{1b}[2K" // Clear current line
+            var visibleColumns = 0
+            var needsExplicitPadding = false
             if index < visibleLines.count {
-                output += filterToColorCodesOnly(visibleLines[index])
+                let filtered = filterToColorCodesOnly(visibleLines[index])
+                output += filtered
+                visibleColumns = countVisibleColumns(filtered)
+                needsExplicitPadding = lineHasNonBgSGRActiveAtEnd(filtered)
             }
-            // Add newline after each line except the last
+            if needsExplicitPadding, visibleColumns < padTarget {
+                output += String(repeating: " ", count: padTarget - visibleColumns)
+            }
+            output += "\u{1b}[K" // BCE-clear trailing cells (preserves bg band; no real chars when not padded)
+            output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
             }
         }
 
         // Clear any remaining lines below the visible content
-        // (in case terminal has more rows than visible lines)
-        output += "\u{1b}[J" // Clear from cursor to end of screen
+        // (in case terminal has more rows than visible lines). SGR was reset
+        // after the final line above, so ED clears with default attributes.
+        output += "\u{1b}[J"
 
         // Position cursor using relative movement from the last drawn line.
         // After drawing `linesToOutput` lines, the cursor is on the last line.
@@ -685,6 +942,164 @@ final public class TmuxService {
         }
 
         return Data(output.utf8)
+    }
+
+    /// Counts visible (cursor-advancing) columns in a `filterToColorCodesOnly`
+    /// result, skipping CSI/OSC escape sequences. Each grapheme is measured
+    /// via `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
+    /// combining marks count as 0 — matching SwiftTerm's column accounting.
+    ///
+    /// Used by `processCapturePaneForStreaming` when a row needs explicit
+    /// padding under the active SGR (see `lineHasNonBgSGRActiveAtEnd`) — the
+    /// pad amount is `padTarget - visibleColumns`, so over-counting wraps the
+    /// row and silently consumes a row of the rebuilt screen.
+    func countVisibleColumns(_ filtered: String) -> Int {
+        var count = 0
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            let char = filtered[i]
+            if char == "\u{1b}", filtered.index(after: i) < filtered.endIndex {
+                let next = filtered.index(after: i)
+                if filtered[next] == "[" {
+                    // CSI: ESC [ ... <terminator @–~>
+                    var end = filtered.index(after: next)
+                    while end < filtered.endIndex {
+                        let c = filtered[end]
+                        if c >= "@" && c <= "~" {
+                            i = filtered.index(after: end)
+                            break
+                        }
+                        end = filtered.index(after: end)
+                    }
+                    if end >= filtered.endIndex {
+                        i = filtered.endIndex
+                    }
+                } else if filtered[next] == "]" {
+                    // OSC: ESC ] ... BEL or ESC \
+                    var end = filtered.index(after: next)
+                    while end < filtered.endIndex {
+                        if filtered[end] == "\u{07}" {
+                            i = filtered.index(after: end)
+                            break
+                        }
+                        if filtered[end] == "\u{1b}" {
+                            let after = filtered.index(after: end)
+                            if after < filtered.endIndex, filtered[after] == "\\" {
+                                i = filtered.index(after: after)
+                                break
+                            }
+                        }
+                        end = filtered.index(after: end)
+                    }
+                    if end >= filtered.endIndex {
+                        i = filtered.endIndex
+                    }
+                } else {
+                    // 2-byte non-CSI escape (rare here — filterToColorCodesOnly
+                    // mostly strips these, but stay defensive)
+                    i = filtered.index(after: next)
+                }
+            } else {
+                count += Self.displayWidth(of: char)
+                i = filtered.index(after: i)
+            }
+        }
+        return count
+    }
+
+    /// Returns true if the active SGR state at the end of `filtered` includes
+    /// any attribute that BCE (`\e[K`) cannot preserve — i.e. a style flag
+    /// (bold, dim, italic, underline, blink, reverse, hide, strikethrough,
+    /// double-underline, overline) or a non-default fg color.
+    ///
+    /// Used by `processCapturePaneForStreaming` to decide whether the
+    /// trailing cells of a rebuilt row need explicit padding under the active
+    /// SGR (preserving the issue #352 trim-shape bands like a lone `\e[4m`)
+    /// or whether `\e[K` alone suffices (issue #411 bg bands or default).
+    ///
+    /// The walker treats partial resets (22-29 style off, 39 default fg) as
+    /// no-ops, so it over-pads when a partial reset cancels the only active
+    /// attribute. That false positive is acceptable: the cost is reflow
+    /// blanks on a rare row, while a false negative would lose visible
+    /// styling on the rebuild.
+    func lineHasNonBgSGRActiveAtEnd(_ filtered: String) -> Bool {
+        var hasNonBgActive = false
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            guard
+                filtered[i] == "\u{1b}",
+                filtered.index(after: i) < filtered.endIndex,
+                filtered[filtered.index(after: i)] == "[" else {
+                i = filtered.index(after: i)
+                continue
+            }
+            let paramsStart = filtered.index(after: filtered.index(after: i))
+            var end = paramsStart
+            while end < filtered.endIndex {
+                let c = filtered[end]
+                if c >= "@", c <= "~" { break }
+                end = filtered.index(after: end)
+            }
+            if end >= filtered.endIndex { break }
+            let terminator = filtered[end]
+            if terminator == "m" {
+                let paramStr = String(filtered[paramsStart..<end])
+                // `omittingEmptySubsequences: false` so trailing-empty
+                // params (e.g. `\e[1;m`) are treated as `0` per ECMA-48.
+                let params: [Int] = paramStr.isEmpty
+                    ? [0]
+                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
+                    .map { Int($0) ?? 0 }
+                var idx = 0
+                while idx < params.count {
+                    let p = params[idx]
+                    switch p {
+                    case 0:
+                        // Reset all attributes.
+                        hasNonBgActive = false
+                    case 1...9,
+                         21,
+                         53:
+                        // Style flags: bold, dim, italic, underline, blink,
+                        // fast-blink, reverse, hide, strikethrough,
+                        // double-underline, overline.
+                        hasNonBgActive = true
+                    case 30...37,
+                         90...97:
+                        // 8-color and bright fg.
+                        hasNonBgActive = true
+                    case 38:
+                        // Extended fg: 38;5;N or 38;2;R;G;B. Skip parameters.
+                        hasNonBgActive = true
+                        if idx + 1 < params.count {
+                            switch params[idx + 1] {
+                            case 5: idx += 2
+                            case 2: idx += 4
+                            default: break
+                            }
+                        }
+                    case 48:
+                        // Extended bg — doesn't affect non-bg state. Skip params.
+                        if idx + 1 < params.count {
+                            switch params[idx + 1] {
+                            case 5: idx += 2
+                            case 2: idx += 4
+                            default: break
+                            }
+                        }
+                    default:
+                        // 22-29 (style resetters), 39 (default fg), 40-47 / 49 /
+                        // 100-107 (bg-related). Conservative: leave the flag
+                        // unchanged — partial resets may not clear all non-bg
+                        // attributes and we'd rather over-pad than lose styling.
+                        break
+                    }
+                    idx += 1
+                }
+            }
+            i = filtered.index(after: end)
+        }
+        return hasNonBgActive
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
@@ -1163,11 +1578,95 @@ final public class TmuxService {
         }
     }
 
+    /// Sends a `TmuxKey` sequence to a pane, batching consecutive keys by
+    /// literal mode to minimize tmux subprocess spawns: literal text is
+    /// concatenated into a single `send-keys -l`, runs of named keys go through
+    /// `sendBatchKeys`, and a `.delay` flushes the current batch then sleeps.
+    /// Shared by the keystroke-command path and the plugin `sendKeys` sink.
+    public func sendKeystrokes(_ target: String, keys: [TmuxKey]) async throws {
+        var batch: [TmuxKey] = []
+        var batchIsLiteral = false
+
+        for key in keys {
+            if case let .delay(milliseconds) = key {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+                batchIsLiteral = false
+                try await Task.sleep(for: .milliseconds(milliseconds))
+                continue
+            }
+
+            let isLiteral = key.requiresLiteralMode
+            if !batch.isEmpty, isLiteral != batchIsLiteral {
+                try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+            }
+            batchIsLiteral = isLiteral
+            batch.append(key)
+        }
+
+        try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+    }
+
+    private func flushKeystrokeBatch(_ target: String, keys: inout [TmuxKey], literal: Bool) async throws {
+        guard !keys.isEmpty else { return }
+        if literal {
+            try await sendKeys(target, keys: keys.map(\.tmuxKeyName).joined(), literal: true)
+        } else {
+            try await sendBatchKeys(target, keys: keys.map(\.tmuxKeyName))
+        }
+        keys.removeAll()
+    }
+
     /// Tmux strips a trailing ";" from the last argv entry, treating it
     /// as a command separator. Escaping it as "\;" prevents this.
     /// This affects standalone ";" and any string ending in ";" (e.g. ";;;;;").
     private func escapeTmuxSemicolon(_ key: String) -> String {
         key.hasSuffix(";") ? String(key.dropLast()) + "\\;" : key
+    }
+
+    /// Loads `content` into a named tmux buffer and pastes it into `target`,
+    /// preserving bracketed-paste markers so apps that have enabled DEC mode
+    /// 2004 see it as a single paste event. Used by the file-drop flow:
+    /// `content` is the shell-escaped, space-separated path string from
+    /// `DroppedPathFormatter`.
+    ///
+    /// `bufferName` is fixed per-call so concurrent drops don't trample tmux's
+    /// global anonymous buffer. `paste-buffer -d` deletes the named buffer
+    /// after pasting so it doesn't accumulate across drops.
+    public func loadAndPasteBuffer(
+        target: String,
+        content: String,
+        bufferName: String
+    ) async throws {
+        // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
+        // expose stdin — write to a tmp file and pass the path instead.
+        // Use a `gallager-drop-buf-` prefix so this scratch file shares the
+        // top-level `gallager-drop-` namespace AppCoordinator's startup sweep
+        // already cleans, but stays distinguishable from the per-drop landing
+        // directories created by `handleSendDroppedFiles`.
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("gallager-drop-buf-\(UUID().uuidString)")
+        try Data(content.utf8).write(to: tmpURL, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+        let load = try await runTmuxCommand([
+            "load-buffer",
+            "-b", bufferName,
+            tmpURL.path,
+        ])
+        guard load.isSuccess else {
+            throw TmuxError.commandFailed(message: load.stderrString)
+        }
+
+        let paste = try await runTmuxCommand([
+            "paste-buffer",
+            "-p", // honor bracketed-paste mode
+            "-d", // delete the named buffer afterwards
+            "-b", bufferName,
+            "-t", target,
+        ])
+        guard paste.isSuccess else {
+            throw TmuxError.commandFailed(message: paste.stderrString)
+        }
     }
 
     /// Resizes a tmux pane to the specified dimensions
@@ -1200,7 +1699,8 @@ final public class TmuxService {
     public func splitPane(
         _ target: String,
         horizontal: Bool,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        shellCommand: String? = nil
     ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
         var args = [
@@ -1212,6 +1712,14 @@ final public class TmuxService {
 
         if let workingDirectory, !workingDirectory.isEmpty {
             args.append(contentsOf: ["-c", workingDirectory])
+        }
+
+        // Trailing positional becomes the new pane's command (tmux runs it
+        // instead of the user's default-shell). Pass the shell here so the
+        // pane comes up running it directly — no transient default-shell
+        // window flash, no follow-up `exec` round trip.
+        if let shellCommand, !shellCommand.isEmpty {
+            args.append(shellCommand)
         }
 
         let result = try await runTmuxCommand(args)
@@ -1234,6 +1742,13 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+
+        // Sync the local cache so `pane_active` reflects the change before the
+        // 5-second polling timer next fires. Without this, switching sessions
+        // and returning to a multi-pane window can render with the previous
+        // `activePane`, which echoes a stale `select-pane` back through the
+        // auto-focus path.
+        await refreshPanes()
     }
 
     /// Selects (switches to) a tmux window
@@ -1254,20 +1769,39 @@ final public class TmuxService {
     ///   - sessionName: The session to create the window in
     ///   - workingDirectory: Optional working directory for the new window
     /// - Returns: The pane ID of the new window's first pane
-    public func newWindow(sessionName: String, workingDirectory: String? = nil) async throws -> String {
+    public func newWindow(
+        sessionName: String,
+        workingDirectory: String? = nil,
+        windowName: String? = nil,
+        windowIndex: Int? = nil
+    ) async throws -> String {
         // Trailing colon tells tmux "target session with window unspecified" so it auto-picks
         // the next free index. Without it, tmux fills the target from the best-attached
         // client's current window and new-window then tries that exact index — which fails
         // with "index N in use" whenever a control-mode client is focused on an existing
-        // window (i.e. always, for us).
+        // window (i.e. always, for us). When `windowIndex` is supplied (e.g. by
+        // `gallager apply` honoring sparse `window_index:` entries) we want
+        // exactly that index, so target it directly.
+        let target: String
+        if let windowIndex {
+            target = Self.windowTarget(in: sessionName, windowIndex: "\(windowIndex)")
+        } else {
+            target = Self.sessionTarget(sessionName)
+        }
         var args = [
             "new-window",
-            "-t", "\(sessionName):",
+            "-t", target,
             "-P", "-F", "#{pane_id}:#{window_index}",
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
         if let workingDirectory {
             args += ["-c", workingDirectory]
+        }
+
+        if let windowName, !windowName.isEmpty {
+            // Set the name at creation so the tab label is correct from the
+            // first frame, before any `rename-window` round trip.
+            args += ["-n", windowName]
         }
 
         let result = try await runTmuxCommand(args)
@@ -1285,11 +1819,15 @@ final public class TmuxService {
         // instead of the running command. tmux's auto-rename is implicitly
         // disabled once we rename the window. Snapshot *after* new-window
         // returns so concurrent calls see each other's creations and avoid
-        // picking the same number.
-        if let windowIndex {
+        // picking the same number. Skip when the caller already supplied a name
+        // — overriding it would defeat the point of `--name`.
+        if windowName == nil, let windowIndex {
             let existingNames = await listWindowNames(in: sessionName)
             let nextName = Self.nextTerminalWindowName(existingNames: existingNames)
-            _ = try? await renameWindow(target: "\(sessionName):\(windowIndex)", name: nextName)
+            _ = try? await renameWindow(
+                target: Self.windowTarget(in: sessionName, windowIndex: windowIndex),
+                name: nextName
+            )
         }
 
         // Refresh to pick up the new window
@@ -1314,11 +1852,55 @@ final public class TmuxService {
         }
     }
 
+    /// Reorders a tmux window inside a single session so the windows match the
+    /// supplied id list. `windowIds` lists the windows of `sessionName` (each in
+    /// the form `sessionName:N`) in the order the caller wants them to appear.
+    ///
+    /// tmux only supports moving a window to one specific index at a time, so
+    /// the implementation rewrites every window index in two steps: first
+    /// parking each window at a high temporary index (offset by 1000) to free
+    /// up the lower indices, then moving each window into its target slot 0…N-1
+    /// in the desired order. After all moves complete a single `refreshPanes`
+    /// brings the in-memory model back in sync with tmux.
+    public func moveWindows(in sessionName: String, to windowIds: [String]) async throws {
+        guard !windowIds.isEmpty else { return }
+        // Park every window at a unique high index so the lower indices are
+        // free for re-assignment. -k forces tmux to overwrite the destination
+        // if it's already in use, which shouldn't happen at +1000 but keeps
+        // the call defensive against future renumbering.
+        for (offset, id) in windowIds.enumerated() {
+            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + offset)")
+            let result = try await runTmuxCommand([
+                "move-window", "-k",
+                "-s", id,
+                "-t", parkTarget,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+        // Now move each parked window into its final slot. Iterate in the new
+        // order so the final tmux indices match the caller's intent.
+        for newIndex in windowIds.indices {
+            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + newIndex)")
+            let finalTarget = Self.windowTarget(in: sessionName, windowIndex: "\(newIndex)")
+            let result = try await runTmuxCommand([
+                "move-window", "-k",
+                "-s", parkTarget,
+                "-t", finalTarget,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+        await refreshPanes()
+    }
+
     /// Lists window names for a session in window-index order.
     private func listWindowNames(in sessionName: String) async -> [String] {
         guard
             let result = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_name}",
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_name}",
             ]), result.isSuccess
         else {
             return []
@@ -1358,7 +1940,7 @@ final public class TmuxService {
     public func killSession(_ sessionName: String) async throws {
         let result = try await runTmuxCommand([
             "kill-session",
-            "-t", sessionName,
+            "-t", Self.sessionTarget(sessionName),
         ])
 
         guard result.isSuccess else {
@@ -1403,48 +1985,38 @@ final public class TmuxService {
         await refreshPanes()
     }
 
-    // MARK: - Custom Descriptions
+    // MARK: - Custom Descriptions and Colors
 
     /// The tmux user option key used to persist Gallager custom descriptions.
-    /// User options must be prefixed with `@`; tmux stores them at the scope
-    /// they are set (session or window) and resolves lookups with window-over-session
-    /// inheritance when formatted from a pane.
+    /// User options must be prefixed with `@`; tmux stores them on the session
+    /// and any pane resolves the lookup via the session→window→pane chain.
     private static let descriptionOptionKey = "@gallager-description"
+
+    /// The tmux user option key used to persist Gallager session colors.
+    /// Stored at session scope just like `descriptionOptionKey`.
+    private static let colorOptionKey = "@gallager-color"
+
+    /// The tmux user option key used to persist Gallager session emoji icons.
+    /// Stored at session scope just like `descriptionOptionKey`.
+    private static let emojiOptionKey = "@gallager-emoji"
 
     /// Persists the custom description for a session as a tmux user option.
     ///
     /// Writes `@gallager-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
     /// window-level overrides inside the session are cleared first so the new value
-    /// applies uniformly across every window — doing the sweep up front also means a
-    /// stray override from a previous version or manual tmux tweak gets cleaned up
-    /// even if the session-level write ends up being a no-op.
+    /// applies uniformly across every window — defensive against stray overrides
+    /// from older versions of Gallager or manual `tmux set-option -w` tweaks.
     /// - Parameters:
     ///   - description: The description text, or `nil` to clear the option.
     ///   - sessionName: The tmux session name.
     public func setSessionDescription(_ description: String?, for sessionName: String) async throws {
-        // Sweep window-level overrides first so the session value wins everywhere.
-        // Running this before the session-level write also means the cleanup still
-        // happens if `set-option -u` exits non-zero (e.g. option already unset).
-        if
-            let windows = try? await runTmuxCommand([
-                "list-windows", "-t", sessionName, "-F", "#{window_index}",
-            ]), windows.isSuccess {
-            let indexes = windows.stdoutString
-                .split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            for index in indexes {
-                _ = try? await runTmuxCommand([
-                    "set-option", "-wu", "-t", "\(sessionName):\(index)",
-                    Self.descriptionOptionKey,
-                ])
-            }
-        }
+        await sweepWindowOverrides(of: Self.descriptionOptionKey, in: sessionName)
 
+        let target = Self.sessionTarget(sessionName)
         if let description {
             let result = try await runTmuxCommand([
-                "set-option", "-t", sessionName,
+                "set-option", "-t", target,
                 Self.descriptionOptionKey, description,
             ])
             guard result.isSuccess else {
@@ -1452,13 +2024,198 @@ final public class TmuxService {
             }
         } else {
             let result = try await runTmuxCommand([
-                "set-option", "-u", "-t", sessionName,
+                "set-option", "-u", "-t", target,
                 Self.descriptionOptionKey,
             ])
             guard result.isSuccess else {
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
         }
+    }
+
+    /// Persists the custom color for a session as a tmux user option.
+    ///
+    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// scope after sweeping any window-level overrides.
+    /// - Parameters:
+    ///   - color: The color, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionColor(_ color: SessionColor?, for sessionName: String) async throws {
+        await sweepWindowOverrides(of: Self.colorOptionKey, in: sessionName)
+
+        let target = Self.sessionTarget(sessionName)
+        if let color {
+            let result = try await runTmuxCommand([
+                "set-option", "-t", target,
+                Self.colorOptionKey, color.rawValue,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-u", "-t", target,
+                Self.colorOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    /// Persists the custom emoji for a session as a tmux user option.
+    ///
+    /// Mirrors `setSessionDescription` — writes `@gallager-emoji` at session
+    /// scope after sweeping any window-level overrides.
+    /// - Parameters:
+    ///   - emoji: The emoji string, or `nil` to clear the option.
+    ///   - sessionName: The tmux session name.
+    public func setSessionEmoji(_ emoji: String?, for sessionName: String) async throws {
+        await sweepWindowOverrides(of: Self.emojiOptionKey, in: sessionName)
+
+        let target = Self.sessionTarget(sessionName)
+        if let emoji, !emoji.isEmpty {
+            let result = try await runTmuxCommand([
+                "set-option", "-t", target,
+                Self.emojiOptionKey, emoji,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        } else {
+            let result = try await runTmuxCommand([
+                "set-option", "-u", "-t", target,
+                Self.emojiOptionKey,
+            ])
+            guard result.isSuccess else {
+                throw TmuxError.commandFailed(message: result.stderrString)
+            }
+        }
+    }
+
+    /// Clears any window-level override for `optionKey` across every window in
+    /// `sessionName`. Errors are intentionally swallowed: the override may not
+    /// exist (the common case), and this is best-effort defensive cleanup.
+    private func sweepWindowOverrides(of optionKey: String, in sessionName: String) async {
+        guard
+            let windows = try? await runTmuxCommand([
+                "list-windows", "-t", Self.sessionTarget(sessionName), "-F", "#{window_index}",
+            ]), windows.isSuccess else { return }
+        let indexes = windows.stdoutString
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for index in indexes {
+            _ = try? await runTmuxCommand([
+                "set-option", "-wu", "-t", Self.windowTarget(in: sessionName, windowIndex: index),
+                optionKey,
+            ])
+        }
+    }
+
+    /// Sets a tmux session-scoped environment variable.
+    ///
+    /// Used by `gallager apply` to honor the `environment:` block in a layout
+    /// config. tmux's `set-environment -t <session>` only affects new shells
+    /// spawned inside the session — already-running panes keep their existing
+    /// environment.
+    /// - Parameters:
+    ///   - sessionName: The tmux session whose environment is being modified.
+    ///   - name: The environment variable name.
+    ///   - value: The value to set, or `nil` to unset (`set-environment -u`).
+    public func setSessionEnvironment(
+        sessionName: String,
+        name: String,
+        value: String?
+    ) async throws {
+        let target = Self.sessionTarget(sessionName)
+        let args: [String] = if let value {
+            ["set-environment", "-t", target, name, value]
+        } else {
+            ["set-environment", "-u", "-t", target, name]
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Applies a tmux layout (preset name or dumped layout string) to a window.
+    ///
+    /// Accepts the standard presets (`even-horizontal`, `tiled`, etc.) as well
+    /// as dumped layout hex strings of the form `select-layout <hex>` exports.
+    /// - Parameters:
+    ///   - target: The tmux window target (e.g. `session:0`).
+    ///   - layout: The layout name or dumped hex string.
+    public func selectLayout(target: String, layout: String) async throws {
+        let result = try await runTmuxCommand([
+            "select-layout",
+            "-t", target,
+            layout,
+        ])
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Sets a tmux option at session, window, or global scope.
+    ///
+    /// Mirrors `tmux set-option [-g|-w] -t <target> <name> <value>`. Used by
+    /// `gallager apply` to pass through the `options:` blocks in a layout
+    /// config. We do not validate option names — tmux is the source of truth
+    /// and surfaces unknown options as a non-zero exit that we propagate.
+    /// - Parameters:
+    ///   - target: The tmux target (session or window) the option applies to.
+    ///   - name: The option name.
+    ///   - value: The option value.
+    ///   - scope: The option scope (`session` or `window`). Global scope is
+    ///     unsupported — Gallager owns the tmux server.
+    public enum TmuxOptionScope: Sendable {
+        case session
+        case window
+    }
+
+    public func setOption(
+        target: String,
+        name: String,
+        value: String,
+        scope: TmuxOptionScope
+    ) async throws {
+        var args = ["set-option"]
+        switch scope {
+        case .session: break
+        case .window: args.append("-w")
+        }
+        args.append(contentsOf: ["-t", target, name, value])
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Captures the current contents of a pane as plain text (no escape sequences).
+    ///
+    /// Intended for scripts that need to read pane output (grep a build log,
+    /// assert on a test output, wait for a specific line). Unlike `capturePane`,
+    /// this omits the `-e` flag so the result is plain text suitable for grep.
+    /// - Parameters:
+    ///   - target: The pane target (e.g. `%3` or `session:0.0`).
+    ///   - scrollback: When `true`, includes the entire scrollback history.
+    /// - Returns: The captured plain-text content.
+    public func capturePaneText(_ target: String, scrollback: Bool = false) async throws -> String {
+        var args = ["capture-pane", "-t", target, "-p"]
+        if scrollback {
+            args.append("-S")
+            args.append("-")
+        }
+        let result = try await runTmuxCommand(args)
+        guard result.isSuccess else {
+            // Surface tmux's stderr verbatim so scripts get an actionable message
+            // (e.g. "can't find pane: %99", "no server running") instead of a
+            // generic "pane not found".
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+        return result.stdoutString
     }
 
     /// Describes a process running in a tmux pane (foreground or background).
@@ -1542,7 +2299,7 @@ final public class TmuxService {
     /// - Returns: Array of running processes found across the session's panes
     public func runningProcesses(inSession sessionName: String) async -> [RunningProcess] {
         // list-panes -s lists all panes in the session (across all windows)
-        await runningProcesses(listPanesArgs: ["-s", "-t", sessionName])
+        await runningProcesses(listPanesArgs: ["-s", "-t", Self.sessionTarget(sessionName)])
     }
 
     /// Detects running processes across all panes of a specific tmux window.
@@ -1559,7 +2316,11 @@ final public class TmuxService {
     /// Shared implementation for detecting running processes in tmux panes.
     private func runningProcesses(listPanesArgs: [String]) async -> [RunningProcess] {
         do {
-            let format = "#{pane_index}|#{pane_current_command}|#{pane_pid}"
+            // Joined with U+001F so a `|` in a process name (unusual but
+            // permitted) can't corrupt the pid field — see
+            // `PaneInfo.fieldSeparator`.
+            let sep = String(PaneInfo.fieldSeparator)
+            let format = "#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_pid}"
             let result = try await runTmuxCommand(
                 ["list-panes"] + listPanesArgs + ["-F", format]
             )
@@ -1573,7 +2334,7 @@ final public class TmuxService {
 
             var entries: [PaneEntry] = []
             for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: "|", maxSplits: 2)
+                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
                 guard parts.count == 3, let index = Int(parts[0]) else { continue }
                 entries.append(PaneEntry(paneIndex: index, command: String(parts[1]), pid: String(parts[2])))
             }
@@ -1636,6 +2397,26 @@ final public class TmuxService {
 
     // MARK: - Session Creation
 
+    /// Forces the server-wide tmux options needed for modified keys (notably
+    /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
+    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
+    /// is a scalar so re-setting it is harmless. `terminal-features` is a
+    /// list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append `xterm*:extkeys` if it isn't
+    /// already present — otherwise the value would grow into
+    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
+    private func applyExtendedKeysOptions() async {
+        _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
+
+        let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
+            .stdoutString
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !current.contains("xterm*:extkeys") else { return }
+        _ = try? await runTmuxCommand([
+            "set-option", "-sa", "terminal-features", "xterm*:extkeys",
+        ])
+    }
+
     /// Creates a new tmux session with the specified name and dimensions.
     /// If a session with the given name already exists, appends a number suffix.
     /// - Parameters:
@@ -1644,9 +2425,9 @@ final public class TmuxService {
     ///   - height: Terminal height in rows
     ///   - extraEnvironment: Additional `KEY=VALUE` strings to set on the session
     ///     via `-e`, on top of `terminalEnvironmentVars`.
-    ///   - isClaudeProject: When `true`, the first window is named `"claude"`.
-    ///     Otherwise it's named `"terminal 1"`. The explicit name also disables
-    ///     tmux's automatic-rename so the tab doesn't track the running command.
+    ///   - firstWindowName: Name for the first window. The explicit name also
+    ///     disables tmux's automatic-rename so the tab doesn't track the
+    ///     running command.
     /// - Returns: Tuple containing the actual session name and the pane ID of the first pane
     public func createSession(
         baseName: String,
@@ -1655,7 +2436,7 @@ final public class TmuxService {
         workingDirectory: String? = nil,
         runCommand: String? = nil,
         extraEnvironment: [String] = [],
-        isClaudeProject: Bool = false
+        firstWindowName: String = "terminal 1"
     ) async throws -> (sessionName: String, paneId: String) {
         // Get existing session names
         let existingNames = await getExistingSessionNames()
@@ -1668,9 +2449,17 @@ final public class TmuxService {
         // -e: set environment variables (suppress oh-my-zsh update prompts)
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
-        let firstWindowName = isClaudeProject ? "claude" : "terminal 1"
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
+        // Chain `set-option -g default-command … ; new-session …` in one tmux
+        // invocation. `set-option` needs a running server, but we need the
+        // wrapper installed *before* `new-session` so the first pane uses it.
+        // Within a single tmux call the server is started, then commands run
+        // in order — so set-option succeeds and the new session inherits the
+        // just-set global default-command. Repeating this on every session
+        // create is harmless (idempotent) and avoids tracking server lifetime.
         var args = [
+            "set-option", "-g", "default-command", defaultCommandWrapper,
+            ";",
             "new-session",
             "-d",
             "-s", sessionName,
@@ -1691,11 +2480,18 @@ final public class TmuxService {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
+        // Apply server-wide options required for extended-key passthrough so
+        // Shift+Enter (and other modified keys) reach apps like Claude Code
+        // without the user editing ~/.tmux.conf. Server options are global and
+        // idempotent — re-running on each session create is harmless and
+        // additive (`-a` appends to the terminal-features list).
+        await applyExtendedKeysOptions()
+
         // Get the pane ID of the first pane in the new session
         // Target format: session:window.pane (first window, first pane)
         let windowIndex = 0
         let paneIndex = 0
-        let firstPaneTarget = "\(sessionName):\(windowIndex).\(paneIndex)"
+        let firstPaneTarget = "=\(sessionName):\(windowIndex).\(paneIndex)"
         let paneIdResult = try await runTmuxCommand([
             "display-message",
             "-t", firstPaneTarget,
@@ -1722,6 +2518,13 @@ final public class TmuxService {
         await refreshPanes()
 
         return (sessionName: sessionName, paneId: paneId)
+    }
+
+    /// Returns `true` when a tmux session with the given name currently exists.
+    /// Uses tmux as the source of truth so the answer is correct even when the
+    /// in-memory `panes` array hasn't been refreshed yet.
+    public func sessionExists(named name: String) async -> Bool {
+        await getExistingSessionNames().contains(name)
     }
 
     /// Gets all existing session names
@@ -1763,6 +2566,25 @@ final public class TmuxService {
 
     // MARK: - Private Helpers
 
+    /// Wraps a session name in tmux's exact-match target syntax (`=<name>:`).
+    ///
+    /// tmux's `-t <name>` parser falls back to prefix and substring matching
+    /// when no exact match is found — and in tmux 3.6 it picks an alphabetic
+    /// candidate even when an exact match exists, so `-t terminal` can resolve
+    /// to a session named `terminal-2`. The `=` prefix forces an exact
+    /// session-name match; the trailing `:` disambiguates the target as a
+    /// session (rather than a window or pane) so `set-option`, `list-windows`,
+    /// etc. resolve to the right scope.
+    private static func sessionTarget(_ sessionName: String) -> String {
+        "=\(sessionName):"
+    }
+
+    /// Window target inside a specific session, using exact-match session
+    /// resolution. See `sessionTarget(_:)` for why this is necessary.
+    private static func windowTarget(in sessionName: String, windowIndex: String) -> String {
+        "=\(sessionName):\(windowIndex)"
+    }
+
     private func runTmuxCommand(_ arguments: [String]) async throws -> ProcessResult {
         var args = arguments
 
@@ -1774,7 +2596,16 @@ final public class TmuxService {
         return try await processRunner.run(
             executable: tmuxPath,
             arguments: args,
-            environment: nil,
+            // The Mac app process can inherit `TMUX` / `TMUX_PANE` from the
+            // launching shell when started by hand from a tmux pane. tmux uses
+            // these to bias `-t <name>` target parsing — for session-scoped
+            // options it reinterprets the target as a window in the current
+            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // red` ends up writing to the *current* session whenever a window
+            // there has a name starting with "terminal". Force them empty for
+            // every subprocess invocation since the Mac app is not actually
+            // running inside a tmux pane.
+            environment: ["TMUX": "", "TMUX_PANE": ""],
             timeout: nil
         )
     }

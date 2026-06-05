@@ -1,5 +1,6 @@
 #if os(iOS)
     import ClaudeSpyCommon
+    import ClaudeSpyEncryption
     import Dependencies
     import Foundation
     import SwiftUI
@@ -8,16 +9,45 @@
     // MARK: - PreferencesService + AppSettings.Keys
 
     extension PreferencesService {
-        func string(_ key: IOSSettings.Keys) -> String? { string(key.rawValue) }
-        func setString(_ value: String?, _ key: IOSSettings.Keys) { setString(value, key.rawValue) }
-        func optionalBool(_ key: IOSSettings.Keys) -> Bool? { optionalBool(key.rawValue) }
-        func setBool(_ value: Bool, _ key: IOSSettings.Keys) { setBool(value, key.rawValue) }
-        func optionalInt(_ key: IOSSettings.Keys) -> Int? { optionalInt(key.rawValue) }
-        func setInt(_ value: Int, _ key: IOSSettings.Keys) { setInt(value, key.rawValue) }
-        func optionalDouble(_ key: IOSSettings.Keys) -> Double? { optionalDouble(key.rawValue) }
-        func setDouble(_ value: Double, _ key: IOSSettings.Keys) { setDouble(value, key.rawValue) }
-        func data(_ key: IOSSettings.Keys) -> Data? { data(key.rawValue) }
-        func setData(_ value: Data?, _ key: IOSSettings.Keys) { setData(value, key.rawValue) }
+        func string(_ key: IOSSettings.Keys) -> String? {
+            string(key.rawValue)
+        }
+
+        func setString(_ value: String?, _ key: IOSSettings.Keys) {
+            setString(value, key.rawValue)
+        }
+
+        func optionalBool(_ key: IOSSettings.Keys) -> Bool? {
+            optionalBool(key.rawValue)
+        }
+
+        func setBool(_ value: Bool, _ key: IOSSettings.Keys) {
+            setBool(value, key.rawValue)
+        }
+
+        func optionalInt(_ key: IOSSettings.Keys) -> Int? {
+            optionalInt(key.rawValue)
+        }
+
+        func setInt(_ value: Int, _ key: IOSSettings.Keys) {
+            setInt(value, key.rawValue)
+        }
+
+        func optionalDouble(_ key: IOSSettings.Keys) -> Double? {
+            optionalDouble(key.rawValue)
+        }
+
+        func setDouble(_ value: Double, _ key: IOSSettings.Keys) {
+            setDouble(value, key.rawValue)
+        }
+
+        func data(_ key: IOSSettings.Keys) -> Data? {
+            data(key.rawValue)
+        }
+
+        func setData(_ value: Data?, _ key: IOSSettings.Keys) {
+            setData(value, key.rawValue)
+        }
     }
 
     /// Settings for the ClaudeSpy iOS app with UserDefaults persistence.
@@ -28,9 +58,11 @@
 
         public enum Keys: String {
             case deviceId
+            case customDeviceName
             case pairedHosts
             case externalServerURL
             case autoReconnect
+            case appearanceMode
             case terminalFontName
             case terminalFontSize
             case newSessionName
@@ -51,6 +83,12 @@
             didSet { preferences.setString(deviceId, Keys.deviceId) }
         }
 
+        /// User-set device name override. When `nil` or empty after trimming,
+        /// `deviceName` falls back to the system's `UIDevice.current.name`.
+        public var customDeviceName: String? {
+            didSet { preferences.setString(customDeviceName, Keys.customDeviceName) }
+        }
+
         /// All paired host servers
         public private(set) var pairedHosts: [PairedHost] = [] {
             didSet { savePairedHosts() }
@@ -64,6 +102,12 @@
         /// Whether to automatically reconnect on app launch
         public var autoReconnect = false {
             didSet { preferences.setBool(autoReconnect, Keys.autoReconnect) }
+        }
+
+        /// App appearance (System / Light / Dark). Drives
+        /// `.preferredColorScheme(_:)` on the iOS root view.
+        public var appearanceMode: AppearanceMode = .system {
+            didSet { preferences.setString(appearanceMode.rawValue, Keys.appearanceMode) }
         }
 
         /// Font name for terminal snapshot display
@@ -98,9 +142,20 @@
             !pairedHosts.isEmpty
         }
 
-        /// The display name for this iOS device
-        public var deviceName: String {
+        /// The system device name (e.g. "iPhone"). Used as the default when the
+        /// user has not provided a custom name.
+        public var systemDeviceName: String {
             UIDevice.current.name
+        }
+
+        /// The display name for this iOS device. Returns the user's custom name
+        /// when set, otherwise falls back to `systemDeviceName`.
+        public var deviceName: String {
+            let trimmed = customDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+            return systemDeviceName
         }
 
         // MARK: - Initialization
@@ -119,10 +174,14 @@
                 self.deviceId = newDeviceId
             }
 
+            // Load custom device name (nil falls back to UIDevice.current.name)
+            self.customDeviceName = preferences.string(Keys.customDeviceName)
+
             // Load settings
             self.externalServerURL = preferences.string(Keys.externalServerURL)
                 ?? "wss://claudespy.gustavo.eng.br"
             self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? false
+            self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? .system
 
             // Terminal settings with iOS-appropriate defaults
             self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
@@ -135,6 +194,12 @@
 
             // Load paired hosts
             self.pairedHosts = loadPairedHosts()
+
+            // didSet doesn't fire during init, so refresh the App Group mirror
+            // explicitly so the Notification Service Extension can label
+            // notifications even if the user hasn't changed pairings since
+            // upgrading.
+            mirrorHostNamesToAppGroup()
         }
 
         // MARK: - Paired Hosts Storage
@@ -157,6 +222,21 @@
                 return
             }
             preferences.setData(data, Keys.pairedHosts)
+            mirrorHostNamesToAppGroup()
+        }
+
+        /// Mirror pairId → display-name into the shared App Group container so the
+        /// Notification Service Extension can label notifications by host.
+        private func mirrorHostNamesToAppGroup() {
+            let duplicateHostNames = Dictionary(grouping: pairedHosts, by: \.hostName)
+                .filter { $0.value.count > 1 }
+                .keys
+            let mapping = Dictionary(uniqueKeysWithValues: pairedHosts.map { host in
+                let showUsername = host.customName == nil
+                    && duplicateHostNames.contains(host.hostName)
+                return (host.id, host.displayName(showUsername: showUsername))
+            })
+            PairedHostNameStore.save(mapping)
         }
 
         // MARK: - Pairing Management

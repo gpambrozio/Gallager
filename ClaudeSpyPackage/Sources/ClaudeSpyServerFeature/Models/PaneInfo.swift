@@ -9,7 +9,10 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let target: String
 
     /// Unique identifier for Identifiable conformance (uses target since paneId can repeat in linked sessions)
-    public var id: String { target }
+    public var id: String {
+        target
+    }
+
     /// The name of the session containing this pane
     public let sessionName: String
     /// The window index within the session
@@ -37,9 +40,19 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     /// Custom description set via the tmux `@gallager-description` user option,
     /// resolved with tmux's window-over-session inheritance. `nil` if unset.
     public let customDescription: String?
+    /// Custom color set via the tmux `@gallager-color` user option, resolved
+    /// with tmux's window-over-session inheritance. `nil` if unset or if the
+    /// stored value isn't a recognised `SessionColor` case.
+    public let customColor: SessionColor?
+    /// Custom emoji set via the tmux `@gallager-emoji` user option, resolved
+    /// with tmux's window-over-session inheritance. `nil` if unset. Free-form
+    /// text so any platform-supported emoji works.
+    public let customEmoji: String?
 
     /// Window identifier combining session name and window index (e.g., "mysession:0")
-    public var windowId: String { "\(sessionName):\(windowIndex)" }
+    public var windowId: String {
+        "\(sessionName):\(windowIndex)"
+    }
 
     public init(
         paneId: String,
@@ -56,7 +69,9 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         windowLayout: String = "",
         windowName: String = "",
         isWindowActive: Bool = false,
-        customDescription: String? = nil
+        customDescription: String? = nil,
+        customColor: SessionColor? = nil,
+        customEmoji: String? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -73,14 +88,34 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.windowName = windowName
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
+        self.customColor = customColor
+        self.customEmoji = customEmoji
     }
 }
 
 public extension PaneInfo {
-    /// Creates a PaneInfo from tmux format output
-    /// Expected format: id|session|window|pane|command|path|width|height|active|title|layout|windowName|windowActive|customDescription
+    /// Field separator used between substituted tmux format variables.
+    ///
+    /// ASCII Unit Separator (U+001F) is the canonical "this byte exists for
+    /// field separation and nothing else" choice — it can't legitimately appear
+    /// in `pane_title`, `window_name`, paths, commands, or user-set
+    /// descriptions, so the parser never has to defend against a field value
+    /// that collides with the delimiter. tmux passes the byte through `#{...}`
+    /// substitution untouched (verified against tmux 3.x).
+    ///
+    /// `|` was used before and broke as soon as a client (Codex CLI) set a
+    /// `pane_title` containing `|`; the shifted parse parked the emoji glyph
+    /// in the description slot.
+    static let fieldSeparator: Character = "\u{1F}"
+
+    /// Creates a PaneInfo from tmux format output.
+    ///
+    /// Expected field order (separated by `fieldSeparator`):
+    /// id, session, window, pane, command, path, width, height, active,
+    /// title, layout, windowName, windowActive, customColor, customEmoji,
+    /// customDescription.
     init?(fromTmuxOutput line: String) {
-        let components = line.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        let components = line.split(separator: Self.fieldSeparator, omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
 
         guard
@@ -104,10 +139,25 @@ public extension PaneInfo {
         self.windowName = components.count >= 12 ? components[11] : ""
         self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         if components.count >= 14 {
-            // Descriptions may contain `|`, so rejoin everything past the fixed fields
-            // instead of only taking components[13].
-            let description = components[13...].joined(separator: "|")
-            self.customDescription = description.isEmpty ? nil : description
+            // tmux only ever stores the canonical `rawValue` we wrote via
+            // `set-option @gallager-color`, so go straight from rawValue
+            // here. `parse(_:)` accepts CLI/API aliases like "violet" → purple
+            // and would silently bridge them to a color tmux never persisted,
+            // blurring the distinction between input parsing and storage.
+            let raw = components[13]
+            self.customColor = raw.isEmpty ? nil : SessionColor(rawValue: raw.lowercased())
+        } else {
+            self.customColor = nil
+        }
+        if components.count >= 15 {
+            let raw = components[14]
+            self.customEmoji = raw.isEmpty ? nil : raw
+        } else {
+            self.customEmoji = nil
+        }
+        if components.count >= 16 {
+            let raw = components[15]
+            self.customDescription = raw.isEmpty ? nil : raw
         } else {
             self.customDescription = nil
         }
@@ -131,7 +181,9 @@ public extension PaneInfo {
             windowLayout: windowLayout,
             windowName: windowName,
             isWindowActive: isWindowActive,
-            customDescription: customDescription
+            customDescription: customDescription,
+            customColor: customColor,
+            customEmoji: customEmoji
         )
     }
 
@@ -151,5 +203,7 @@ public extension PaneInfo {
         state.windowName = windowName
         state.isWindowActive = isWindowActive
         state.customDescription = customDescription
+        state.customColor = customColor
+        state.customEmoji = customEmoji
     }
 }

@@ -165,6 +165,23 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            // In mouse mode, suppress the press if it lands on a URL we'd
+            // intercept in `mouseUp` (file/http/https/ftp). Otherwise SwiftTerm
+            // forwards a mouse-press SGR sequence to the terminal app (e.g.
+            // Claude Code), which can open the link from the press event
+            // before our `handleURLClick` runs — Claude Code in particular
+            // shells out to `open(1)` for OSC 8 hyperlinks, racing past the
+            // `browserLinkBehavior` prompt.
+            if
+                let interactive = interactiveView,
+                interactive.isMouseModeActive,
+                interactive.isClickOnInterceptableURL(
+                    at: interactive.convert(event.locationInWindow, from: nil),
+                    allowedSchemes: TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+                ) {
+                onMouseDown?()
+                return
+            }
             terminalView?.mouseDown(with: event)
             onMouseDown?()
         }
@@ -210,20 +227,27 @@
         override func mouseUp(with event: NSEvent) {
             lastDragPosition = nil
 
-            // When mouse mode is active, skip URL detection and auto-copy —
-            // the terminal app owns mouse interaction.
+            if let interactive = interactiveView {
+                let point = interactive.convert(event.locationInWindow, from: nil)
+                // Intercept the same scheme set in both modes: in mouse mode
+                // the matching `mouseDown` carve-out has already suppressed
+                // the press for these URLs, so the TUI app never saw the
+                // click. Routing through `handleURLClick` then `onOpenURL`
+                // gives the host's `browserLinkBehavior` policy authority
+                // over OSC 8 hyperlinks rendered by TUIs like Claude Code.
+                let allowed = TerminalURLDetector.defaultAllowedSchemes.union(["file"])
+                if interactive.handleURLClick(at: point, allowedSchemes: allowed) {
+                    return
+                }
+            }
+
+            // No matching URL at the click point. In mouse mode, the terminal
+            // app owns the click — forward to SwiftTerm and skip auto-copy.
             if interactiveView?.isMouseModeActive == true {
                 terminalView?.mouseUp(with: event)
                 return
             }
 
-            // Check for plain-text URL click before forwarding to SwiftTerm.
-            if let interactive = interactiveView {
-                let point = interactive.convert(event.locationInWindow, from: nil)
-                if interactive.handleURLClick(at: point) {
-                    return
-                }
-            }
             terminalView?.mouseUp(with: event)
 
             // Auto-copy selection to clipboard when mouse is released
@@ -312,12 +336,47 @@
         /// sent to tmux as-is, bypassing TmuxKey conversion.
         var onRawInput: (@MainActor (Data) -> Void)?
 
+        /// Callback invoked when the user pastes an image (Cmd+V with image clipboard
+        /// contents). When set, the terminal hands the image off to the host instead
+        /// of sending Ctrl+V locally. Used by the remote terminal mirror to forward
+        /// images over the relay so the host's foreground app can paste them.
+        ///
+        /// Return-value contract:
+        /// - `true`: handler consumed the paste; the terminal does nothing further.
+        /// - `false`: fall back to the local Ctrl+V flow — **not** "skip the paste".
+        ///   The local fallback sends `Ctrl+V` into the pane, which makes the
+        ///   in-pane app read the *host's* pasteboard. Do not return `false` to
+        ///   signal a forward failure: the user would silently get a Ctrl+V into
+        ///   the pane against the wrong (unmodified host) clipboard. Failures
+        ///   should be surfaced by the handler itself; always return `true` once
+        ///   the handler has taken responsibility for the paste.
+        var onImagePaste: (@MainActor (ClipboardImage) -> Bool)?
+
+        /// Callback invoked when the user drops files from Finder onto the
+        /// terminal. The wrapper view extracts file URLs from the dragging
+        /// pasteboard and hands them to this callback so the local pane can
+        /// paste the paths via tmux's bracketed-paste buffer, and the remote
+        /// pane can ship the bytes to its host.
+        var onFileDrop: (@MainActor ([URL]) -> Void)?
+
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
+
+        /// Callback invoked when the user clicks a URL in the terminal. The
+        /// callback should return `true` if it handled the URL (and the
+        /// terminal view should do nothing further) or `false` to fall back to
+        /// `NSWorkspace.shared.open(_:)`. When the callback is `nil`, all URLs
+        /// are forwarded to `NSWorkspace`.
+        var onOpenURL: (@MainActor (URL) -> Bool)?
 
         /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
+
+        /// Fires whenever this view becomes the window's first responder
+        /// (mouse click, programmatic, tabbing). Used to propagate focus back
+        /// to tmux via `select-pane` so external clients see the same active pane.
+        var onBecomeFirstResponder: (@MainActor () -> Void)?
 
         var preserveUserScroll = false
         var onResize: ((NSSize) -> Void)?
@@ -343,12 +402,10 @@
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
 
-        /// Cached OSC 8 payloads extracted from SwiftTerm cells before clearing.
-        /// Structure: [absoluteBufferRow: [col: payloadString]]
-        /// Keyed by absolute buffer row so lookups remain correct after scrolling.
-        /// We clear SwiftTerm's cell payloads to prevent its own dashed underline rendering,
-        /// but cache them here so our URL detection still works.
-        private var cachedPayloads: [Int: [Int: String]] = [:]
+        /// OSC 8 hyperlink payload cache, mirrored from SwiftTerm cells before
+        /// we clear them to suppress SwiftTerm's own dashed underline rendering.
+        /// See `TerminalPayloadCache` for the full rationale.
+        private let payloadCache = TerminalPayloadCache()
 
         private var isFocused = false {
             didSet {
@@ -371,6 +428,7 @@
             setupScrollOverlay()
             setupHorizontalScroller()
             setupFocusBorder()
+            registerForDraggedTypes([.fileURL])
         }
 
         @available(*, unavailable)
@@ -460,6 +518,7 @@
             // the caret draws as a hollow rectangle since TerminalView itself never
             // becomes first responder.
             terminalView.hasFocus = true
+            onBecomeFirstResponder?()
             return super.becomeFirstResponder()
         }
 
@@ -499,7 +558,19 @@
                 Task { @MainActor in
                     guard let self, let window = self.window else { return }
                     if self.autoFocusEnabled, !self.isEditorActive {
-                        window.makeFirstResponder(self)
+                        // In a multi-pane window every pane registers this
+                        // observer; if a sibling terminal already holds first
+                        // responder we must not steal it. The observers run
+                        // in an unspecified order and the last writer wins,
+                        // so without this guard the tmux-active pane keeps
+                        // overriding the user's explicit click.
+                        let currentResponder = window.firstResponder
+                        let siblingHasFocus =
+                            currentResponder !== self &&
+                            currentResponder is InteractiveTerminalView
+                        if !siblingHasFocus {
+                            window.makeFirstResponder(self)
+                        }
                     }
                     // If we're already first responder, restore cursor appearance
                     if window.firstResponder === self {
@@ -903,6 +974,13 @@
             // Don't intercept keys when the prompt editor overlay is active
             guard !isEditorActive else { return false }
 
+            // performKeyEquivalent is dispatched depth-first across every view in
+            // the window — not just the first responder — and the first view that
+            // returns true consumes the event. In a multi-pane layout, that means
+            // any sibling pane could claim Cmd+V or Cmd+C and route input to the
+            // wrong tmux target. Only act when this pane actually has focus.
+            guard isFocused else { return false }
+
             guard event.modifierFlags.contains(.command) else {
                 return false
             }
@@ -918,8 +996,14 @@
                     return true
                 }
 
-                // If clipboard has an image, send Ctrl+V so the terminal app can handle it
-                if clipboard.hasImage() {
+                // If clipboard has an image, hand it off to the remote-paste
+                // path when set (viewer of a remote host) — otherwise fall back
+                // to the local Ctrl+V flow that lets the in-pane terminal app
+                // read the host's pasteboard directly.
+                if let image = clipboard.getImage() {
+                    if let onImagePaste, onImagePaste(image) {
+                        return true
+                    }
                     onInput?([.ctrl("v")])
                     return true
                 }
@@ -939,8 +1023,77 @@
             }
         }
 
+        // MARK: - File Drop (Drag from Finder)
+
+        override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            // Don't promise a copy if there's nothing wired to receive it
+            // — otherwise AppKit would show a copy cursor that's about to
+            // be rejected by `prepareForDragOperation`.
+            guard
+                onFileDrop != nil,
+                sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: nil)
+            else { return [] }
+            return .copy
+        }
+
+        override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            // `draggingUpdated` fires repeatedly during a drag; bail out fast
+            // when no drop handler is wired so we don't pay for the pasteboard
+            // class read on every event. `draggingEntered` repeats this guard
+            // — the explicit early-return here just keeps the hot path from
+            // depending on that internal detail.
+            guard onFileDrop != nil else { return [] }
+            return draggingEntered(sender)
+        }
+
+        override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            // No callback wired (no pane yet) — refuse to accept the drop so
+            // AppKit shows the user the "rejected" animation instead of
+            // silently absorbing the drag.
+            onFileDrop != nil
+        }
+
+        override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            guard
+                let onFileDrop,
+                let urls = sender.draggingPasteboard.readObjects(
+                    forClasses: [NSURL.self],
+                    options: [.urlReadingFileURLsOnly: true]
+                ) as? [URL],
+                !urls.isEmpty
+            else { return false }
+            onFileDrop(urls)
+            return true
+        }
+
+        /// Test hook: simulate a file drop without going through AppKit's
+        /// dragging machinery. Used by `TestAccessibilityServer` so E2E
+        /// scenarios can exercise the drop flow even though they can't drag
+        /// from a real Finder.
+        func simulateFileDrop(_ urls: [URL]) {
+            onFileDrop?(urls)
+        }
+
         override func keyDown(with event: NSEvent) {
             guard !isEditorActive else { return }
+
+            // SwiftTerm's legacy keyDown path dispatches both Enter and
+            // Shift+Enter through `insertNewline:`, collapsing the modifier
+            // to plain `\r`. SwiftTerm only preserves the modifier when the
+            // inner app pushes kitty mode, which can't happen here because
+            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
+            // Intercept and route as `.shiftEnter` so tmux delivers the
+            // proper extended-key sequence to the pane.
+            let returnChars: Set = ["\r", "\u{3}"]
+            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
+                let activeModifiers = event.modifierFlags
+                    .intersection([.shift, .control, .option, .command])
+                if activeModifiers == .shift {
+                    onInput?([.shiftEnter])
+                    return
+                }
+            }
+
             terminalView.keyDown(with: event)
         }
 
@@ -953,55 +1106,16 @@
             lineText: (Int) -> String?,
             cellPayload: (Int, Int) -> String?
         ) {
-            let payloads = cachedPayloads
+            let cache = payloadCache
             let yDisp = terminal.buffer.yDisp
             return (
                 lineText: { terminal.getLine(row: $0)?.translateToString(trimRight: true) },
-                cellPayload: { col, row in payloads[row + yDisp]?[col] }
+                cellPayload: { col, row in cache.cellPayload(col: col, absoluteRow: row + yDisp) }
             )
         }
 
-        /// Scans ALL terminal buffer lines for OSC 8 payloads, merges them into the cache, then clears them.
-        /// We cache payloads so our URL detection works, but clear them from SwiftTerm's cells
-        /// to prevent SwiftTerm from rendering its own dashed underlines.
-        /// Merges rather than replaces so payloads from earlier feeds (already cleared) are preserved.
         private func extractAndClearPayloads() {
-            let terminal = terminalView.getTerminal()
-            // TinyAtom.empty is internal, but TinyAtom is a single UInt16 struct —
-            // empty has code 0 which makes CharData.hasPayload return false.
-            assert(MemoryLayout<TinyAtom>.size == MemoryLayout<UInt16>.size, "TinyAtom layout changed — unsafeBitCast assumption is invalid")
-            let emptyAtom = unsafeBitCast(UInt16(0), to: TinyAtom.self)
-            let cols = terminal.cols
-            let totalLines = terminal.buffer.yDisp + terminal.rows
-
-            for absoluteRow in 0..<totalLines {
-                guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else { continue }
-                for col in 0..<cols {
-                    var cd = line[col]
-                    if cd.hasPayload {
-                        if let payload = cd.getPayload() as? String, !payload.isEmpty {
-                            if cachedPayloads[absoluteRow] == nil {
-                                cachedPayloads[absoluteRow] = [:]
-                            }
-                            cachedPayloads[absoluteRow]?[col] = payload
-                        }
-                        cd.setPayload(atom: emptyAtom)
-                        line[col] = cd
-                    }
-                }
-            }
-
-            // Prune entries for lines that have been trimmed from the circular buffer
-            let minRow = cachedPayloads.keys.min() ?? 0
-            if minRow < totalLines {
-                for row in minRow..<totalLines where cachedPayloads[row] != nil {
-                    if terminal.getScrollInvariantLine(row: row) == nil {
-                        cachedPayloads.removeValue(forKey: row)
-                    } else {
-                        break // Lines are contiguous; once we find a valid one, the rest are valid
-                    }
-                }
-            }
+            payloadCache.extractAndClear(from: terminalView.getTerminal())
         }
 
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
@@ -1009,15 +1123,22 @@
         private func gridPosition(for point: NSPoint) -> (col: Int, row: Int)? {
             guard cellSize.width > 0, cellSize.height > 0 else { return nil }
 
-            // Convert point to terminal view coordinates (accounting for horizontal scroll offset)
+            // Translate the click into terminalView's own bottom-left coordinate
+            // space. When dimensions are locked (tmux pane), terminalView is
+            // pinned to the top of the InteractiveTerminalView with
+            // `frame.origin.y = bounds.height - frame.height`, so accounting
+            // for the offset is required — otherwise clicks near the visual top
+            // map below row 0 and get clamped, hiding the real row.
+            let terminalLocalY = point.y - terminalView.frame.origin.y
             let terminalPoint = NSPoint(
                 x: point.x + horizontalOffset,
-                y: point.y
+                y: terminalLocalY
             )
 
             let terminal = terminalView.getTerminal()
 
-            // SwiftTerm uses flipped coordinates (origin at top-left for content)
+            // SwiftTerm rows count down from the visual top; AppKit's local y
+            // counts up from the bottom, so subtract from frame.height.
             let col = Int(terminalPoint.x / cellSize.width)
             let row = Int((terminalView.frame.height - terminalPoint.y) / cellSize.height)
 
@@ -1164,7 +1285,18 @@
         }
 
         /// Called by the scroll overlay on click — opens URL if one is at the click position.
-        fileprivate func handleURLClick(at point: NSPoint) -> Bool {
+        ///
+        /// In normal mode `allowedSchemes` is the union of the default
+        /// http/https/ftp set plus `file://`, so OSC 8 file links from the
+        /// local terminal are routed through `onOpenURL` and open as an
+        /// in-app file tab. In mouse mode the caller passes `["file"]` so
+        /// only file links are intercepted; all other URLs fall through to
+        /// the terminal app.
+        ///
+        /// `TerminalURLDetector` still rejects `file://` by default for the
+        /// hover/highlight rendering path (which can run against remote panes
+        /// where opening local files would be unsafe).
+        fileprivate func handleURLClick(at point: NSPoint, allowedSchemes: Set<String>) -> Bool {
             guard let pos = gridPosition(for: point) else { return false }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
@@ -1174,24 +1306,73 @@
                     row: pos.row,
                     cols: terminal.cols,
                     lineText: closures.lineText,
-                    cellPayload: closures.cellPayload
+                    cellPayload: closures.cellPayload,
+                    allowedSchemes: allowedSchemes
                 ),
                 let nsURL = URL(string: url) {
-                NSWorkspace.shared.open(nsURL)
+                openURL(nsURL)
                 return true
             }
             return false
+        }
+
+        /// Whether the given point lies on a URL we want to intercept (any of
+        /// `allowedSchemes`). Used to suppress the mouse-mode press so terminal
+        /// apps (e.g. Claude Code) don't act on the click before our
+        /// `handleURLClick` runs in `mouseUp` — e.g. opening the URL in the
+        /// system default browser via `open(1)`, which would race past the
+        /// `browserLinkBehavior` prompt.
+        fileprivate func isClickOnInterceptableURL(
+            at point: NSPoint,
+            allowedSchemes: Set<String>
+        ) -> Bool {
+            guard let pos = gridPosition(for: point) else { return false }
+            let terminal = terminalView.getTerminal()
+            let closures = urlClosures(for: terminal)
+            return TerminalURLDetector.urlAt(
+                col: pos.col,
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload,
+                allowedSchemes: allowedSchemes
+            ) != nil
+        }
+
+        /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
+        /// back to the `URLOpener` dependency (`NSWorkspace.shared.open` in
+        /// production, a file-backed log in E2E tests) when the callback is
+        /// absent or declines to handle the URL.
+        private func openURL(_ url: URL) {
+            if onOpenURL?(url) == true { return }
+            @Dependency(URLOpener.self) var urlOpener
+            urlOpener.openInDefaultBrowser(url)
         }
 
         // MARK: - URL Underlines
 
         /// Scans visible rows for URLs and draws persistent underline decorations.
         /// Called when terminal content changes or scrolls.
+        ///
+        /// When mouse mode is active the underlines are cleared and redrawing
+        /// is skipped: the terminal app owns the click stream for non-file
+        /// URLs, so links shouldn't appear interactive. `file://` links are
+        /// still interceptable (see `mouseUp`/`handleURLClick`), but we
+        /// intentionally don't underline them either — keeping the visual
+        /// behavior uniform across schemes while mouse mode is on.
+        ///
+        /// Note: this wrapper view doesn't subclass `TerminalView`, so it has no
+        /// `mouseModeChanged` override. Existing underlines are cleared on the
+        /// next layout pass (`rangeChanged`/`scrolled`), unlike iOS which
+        /// repaints immediately. In practice TUIs always redraw when toggling
+        /// mouse tracking, so the latency isn't user-visible.
         private func updateURLUnderlines() {
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
             }
             urlUnderlineLayers.removeAll()
+
+            if isMouseModeActive { return }
 
             let terminal = terminalView.getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
@@ -1464,9 +1645,13 @@
         }
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
-            if let url = URL(string: link) {
-                NSWorkspace.shared.open(url)
-            }
+            guard let url = URL(string: link) else { return }
+            // In mouse mode the matching mouseDown/mouseUp carve-out already
+            // suppresses + intercepts the click before SwiftTerm gets a chance
+            // to fire this delegate, so reaching here in mouse mode means a
+            // non-mouse hyperlink activation (e.g. keyboard) — open through
+            // the same path as normal mode.
+            openURL(url)
         }
 
         func bell(source: TerminalView) {

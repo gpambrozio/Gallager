@@ -50,7 +50,6 @@ public enum PromptEditorRemoteScenario {
             target: "editor-test:0",
             command: "python3 $TMPDIR/editor_trigger.py %0 /tmp/e2e-editor-test.txt &"
         )
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10)
         TestStep.macScreenshot(label: "host-editor-overlay-visible")
@@ -60,7 +59,6 @@ public enum PromptEditorRemoteScenario {
 
         // 7. Cancel on host — verify overlay disappears on BOTH
         TestStep.macClickButton(titled: "Cancel Editing")
-        TestStep.wait(seconds: 2)
 
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5)
         TestStep.macScreenshot(label: "host-editor-overlay-dismissed")
@@ -79,7 +77,6 @@ public enum PromptEditorRemoteScenario {
             target: "editor-test:0",
             command: "python3 $TMPDIR/editor_trigger.py %0 /tmp/e2e-editor-viewer.txt &"
         )
-        TestStep.wait(seconds: 3)
 
         // Verify overlay appears on viewer
         TestStep.macWaitForElement(titled: "Edit Prompt", timeout: 10, instance: 1)
@@ -88,14 +85,13 @@ public enum PromptEditorRemoteScenario {
         // Click on the TextEditor to give it keyboard focus, then select all and type
         TestStep.macFocusElement(titled: "Original prompt for viewer edit", instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macSelectAll(instance: 1)
+        TestStep.macPressKey(.character("a"), modifiers: .command, instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "Viewer edited: add error handling", instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "viewer-editor-overlay-edited", instance: 1)
 
         TestStep.macClickButton(titled: "Submit Edited Prompt", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Verify overlay dismissed on both
         TestStep.macWaitForElementToDisappear(titled: "Edit Prompt", timeout: 5, instance: 1)

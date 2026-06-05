@@ -11,9 +11,6 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Host registers with the relay server after connecting
     case registerHost(RegisterHostMessage)
 
-    /// Host forwards a hook event to be relayed to viewers
-    case hookEvent(HookEventMessage)
-
     /// Host responds to a command from viewer
     case commandResponse(CommandResponseMessage)
 
@@ -68,7 +65,7 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server notifies viewer that host has disconnected
     case hostDisconnected
 
-    // (hookEvent, sessionState, commandResponse are shared with Host → Server)
+    // (sessionState, commandResponse are shared with Host → Server)
 
     // MARK: - Bidirectional
 
@@ -97,6 +94,24 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Host sends encrypted push notification payload to be relayed via APNs.
     /// Server forwards to APNs with generic placeholder text; iOS extension decrypts.
     case encryptedPush(EncryptedPushPayload)
+
+    // MARK: - Plugin system (agent-blind)
+
+    /// Host pushes a per-session state update (high-frequency). Carries the
+    /// `AgentState`, including the open response form.
+    case agentSessionStatus(AgentSessionStatusMessage)
+
+    /// Viewer submits a structured response for a previously-emitted request.
+    case agentResponseSubmission(AgentResponseSubmissionMessage)
+
+    /// Host pushes the complete enabled-plugin presentation set (on connect and
+    /// on enable/disable/upgrade).
+    case pluginPresentations(PluginPresentationsMessage)
+
+    /// Host pushes a pre-baked notification over the live WebSocket so a
+    /// backgrounded-but-connected viewer can show a local notification (the
+    /// parallel APNs `.encryptedPush` is dropped by the relay while connected).
+    case agentNotification(AgentNotificationMessage)
 }
 
 // MARK: - Encrypted Message Wrapper
@@ -153,7 +168,6 @@ public extension WebSocketMessage {
 
     private enum MessageType: String, Codable {
         case registerHost
-        case hookEvent
         case commandResponse
         case terminalStream
         case sessionState
@@ -175,6 +189,10 @@ public extension WebSocketMessage {
         case error
         case encrypted
         case encryptedPush
+        case agentSessionStatus
+        case agentResponseSubmission
+        case pluginPresentations
+        case agentNotification
     }
 
     init(from decoder: Decoder) throws {
@@ -185,9 +203,6 @@ public extension WebSocketMessage {
         case .registerHost:
             let payload = try container.decode(RegisterHostMessage.self, forKey: .payload)
             self = .registerHost(payload)
-        case .hookEvent:
-            let payload = try container.decode(HookEventMessage.self, forKey: .payload)
-            self = .hookEvent(payload)
         case .commandResponse:
             let payload = try container.decode(CommandResponseMessage.self, forKey: .payload)
             self = .commandResponse(payload)
@@ -245,6 +260,18 @@ public extension WebSocketMessage {
         case .encryptedPush:
             let payload = try container.decode(EncryptedPushPayload.self, forKey: .payload)
             self = .encryptedPush(payload)
+        case .agentSessionStatus:
+            let payload = try container.decode(AgentSessionStatusMessage.self, forKey: .payload)
+            self = .agentSessionStatus(payload)
+        case .agentResponseSubmission:
+            let payload = try container.decode(AgentResponseSubmissionMessage.self, forKey: .payload)
+            self = .agentResponseSubmission(payload)
+        case .pluginPresentations:
+            let payload = try container.decode(PluginPresentationsMessage.self, forKey: .payload)
+            self = .pluginPresentations(payload)
+        case .agentNotification:
+            let payload = try container.decode(AgentNotificationMessage.self, forKey: .payload)
+            self = .agentNotification(payload)
         }
     }
 
@@ -254,9 +281,6 @@ public extension WebSocketMessage {
         switch self {
         case let .registerHost(payload):
             try container.encode(MessageType.registerHost, forKey: .type)
-            try container.encode(payload, forKey: .payload)
-        case let .hookEvent(payload):
-            try container.encode(MessageType.hookEvent, forKey: .type)
             try container.encode(payload, forKey: .payload)
         case let .commandResponse(payload):
             try container.encode(MessageType.commandResponse, forKey: .type)
@@ -315,6 +339,18 @@ public extension WebSocketMessage {
         case let .encryptedPush(payload):
             try container.encode(MessageType.encryptedPush, forKey: .type)
             try container.encode(payload, forKey: .payload)
+        case let .agentSessionStatus(payload):
+            try container.encode(MessageType.agentSessionStatus, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .agentResponseSubmission(payload):
+            try container.encode(MessageType.agentResponseSubmission, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .pluginPresentations(payload):
+            try container.encode(MessageType.pluginPresentations, forKey: .type)
+            try container.encode(payload, forKey: .payload)
+        case let .agentNotification(payload):
+            try container.encode(MessageType.agentNotification, forKey: .type)
+            try container.encode(payload, forKey: .payload)
         }
     }
 
@@ -322,7 +358,6 @@ public extension WebSocketMessage {
     var messageType: String {
         switch self {
         case .registerHost: MessageType.registerHost.rawValue
-        case .hookEvent: MessageType.hookEvent.rawValue
         case .commandResponse: MessageType.commandResponse.rawValue
         case .terminalStream: MessageType.terminalStream.rawValue
         case .sessionState: MessageType.sessionState.rawValue
@@ -344,6 +379,10 @@ public extension WebSocketMessage {
         case .error: MessageType.error.rawValue
         case .encrypted: MessageType.encrypted.rawValue
         case .encryptedPush: MessageType.encryptedPush.rawValue
+        case .agentSessionStatus: MessageType.agentSessionStatus.rawValue
+        case .agentResponseSubmission: MessageType.agentResponseSubmission.rawValue
+        case .pluginPresentations: MessageType.pluginPresentations.rawValue
+        case .agentNotification: MessageType.agentNotification.rawValue
         }
     }
 }
@@ -354,12 +393,15 @@ public extension WebSocketMessage {
     /// Whether this message type should be encrypted for E2EE.
     var shouldEncrypt: Bool {
         switch self {
-        case .hookEvent,
-             .sessionState,
+        case .sessionState,
              .command,
              .commandResponse,
              .terminalStream,
-             .peerHello:
+             .peerHello,
+             .agentSessionStatus,
+             .agentResponseSubmission,
+             .pluginPresentations,
+             .agentNotification:
             true
         default:
             false

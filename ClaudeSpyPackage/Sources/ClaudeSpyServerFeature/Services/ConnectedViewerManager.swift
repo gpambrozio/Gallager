@@ -39,9 +39,27 @@ final public class ConnectedViewerManager {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String, String) async -> Void)?
 
+    /// Called when the partner's device name is received (for persisting to settings).
+    /// Parameters are: viewerId, deviceName.
+    public var onPartnerDeviceNameReceived: (@MainActor @Sendable (String, String) async -> Void)?
+
     /// Called when a pairing was removed by the other side.
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
+
+    /// Provides the current pending-attention session count. Forwarded to every
+    /// `ConnectedViewer` so outgoing pushes (event and silent) carry the right
+    /// APNs badge value.
+    public var pendingSessionCountProvider: (@MainActor @Sendable () async -> Int)?
+
+    /// Called when any viewer submits a plugin response (iOS→Mac). The
+    /// coordinator routes it to the owning plugin core's `deliverResponse`.
+    public var onAgentResponseSubmission: (@MainActor @Sendable (AgentResponseSubmissionMessage) async -> Void)?
+
+    /// Provides the current enabled-plugin presentation set, pushed to each
+    /// viewer on connect. Forwarded to every `ConnectedViewer` via its
+    /// `onViewerConnected` hook (spec §7.2).
+    public var presentationsProvider: (@MainActor @Sendable () async -> [PluginPresentation])?
 
     // MARK: - Computed Properties
 
@@ -220,11 +238,43 @@ final public class ConnectedViewerManager {
 
     // MARK: - Broadcasting
 
-    /// Send a hook event to all connected viewers.
-    public func sendHookEventToAll(_ event: HookEvent, skipPushNotification: Bool = false) async {
+    /// Send a per-session state update to all connected viewers (the
+    /// high-frequency path — spec §7.2). The `AgentState` carries the open form.
+    public func sendAgentSessionStatusToAll(
+        sessionId: String,
+        pluginId: String,
+        state: AgentState
+    ) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
-                group.addTask { await connection.sendHookEvent(event, skipPushNotification: skipPushNotification) }
+                group.addTask {
+                    await connection.sendAgentSessionStatus(
+                        sessionId: sessionId,
+                        pluginId: pluginId,
+                        state: state
+                    )
+                }
+            }
+        }
+    }
+
+    /// Send an encrypted push notification with arbitrary title/body to every
+    /// connected viewer. Used by `notification.create --push` so a single CLI
+    /// call reaches all paired iOS devices.
+    public func sendCustomPushNotificationToAll(
+        title: String,
+        body: String,
+        paneId: String?
+    ) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask {
+                    await connection.sendCustomPushNotification(
+                        title: title,
+                        body: body,
+                        paneId: paneId
+                    )
+                }
             }
         }
     }
@@ -243,6 +293,28 @@ final public class ConnectedViewerManager {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected && connection.isViewerConnected {
                 group.addTask { await connection.pushSessionState() }
+            }
+        }
+    }
+
+    /// Send a silent badge-update push to all connected viewers. Used after
+    /// `markSessionHandled` to bring the iOS badge in line with the host's new
+    /// (lower) pending-attention session count.
+    public func broadcastBadgeUpdate(badge: Int) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendBadgeUpdate(badge: badge) }
+            }
+        }
+    }
+
+    /// Push the complete enabled-plugin presentation set to all connected
+    /// viewers (spec §7.2/§7.3). Used on enable/disable; per-viewer connect
+    /// pushes go through each `ConnectedViewer.onViewerConnected`.
+    public func pushPluginPresentationsToAll(_ presentations: [PluginPresentation]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for connection in connections.values where connection.state.isConnected {
+                group.addTask { await connection.sendPluginPresentations(presentations) }
             }
         }
     }
@@ -291,10 +363,32 @@ final public class ConnectedViewerManager {
             await self.onPartnerKeyReceived?(viewerId, publicKey, keyId)
         }
 
+        connection.onPartnerDeviceNameReceived = { [weak self, viewerId] deviceName in
+            guard let self else { return }
+            await self.onPartnerDeviceNameReceived?(viewerId, deviceName)
+        }
+
         connection.onUnpaired = { [weak self, viewerId] in
             guard let self else { return }
             self.connections.removeValue(forKey: viewerId)
             await self.onUnpaired?(viewerId)
+        }
+
+        connection.onPendingSessionCount = { [weak self] in
+            await self?.pendingSessionCountProvider?() ?? 0
+        }
+
+        connection.onAgentResponseSubmission = { [weak self] submission in
+            await self?.onAgentResponseSubmission?(submission)
+        }
+
+        // On connect, push the current plugin presentations to just this
+        // viewer (the full set). Enable/disable re-pushes go through
+        // `pushPluginPresentationsToAll`.
+        connection.onViewerConnected = { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            let presentations = await self.presentationsProvider?() ?? []
+            await connection.sendPluginPresentations(presentations)
         }
     }
 }

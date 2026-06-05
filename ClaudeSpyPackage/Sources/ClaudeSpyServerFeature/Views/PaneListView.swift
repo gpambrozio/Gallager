@@ -94,7 +94,7 @@ private struct PaneRow: View {
 
     /// Check if pane has active Claude session
     private var hasClaude: Bool {
-        windowManager.paneStates[pane.paneId]?.claudeSession != nil
+        windowManager.paneStates[pane.paneId]?.agentSession != nil
     }
 
     var body: some View {

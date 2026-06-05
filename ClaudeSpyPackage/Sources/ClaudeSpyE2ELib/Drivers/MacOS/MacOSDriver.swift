@@ -28,6 +28,16 @@ public actor MacOSDriver {
         self.testAccessibilityPort = testAccessibilityPort
     }
 
+    /// Whether the app instance launched by `launchApp` is still running.
+    /// Used by the orchestrator to decide whether to attempt failure screenshots.
+    public var isLaunched: Bool {
+        guard let pid = appPID else { return false }
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            return !app.isTerminated
+        }
+        return false
+    }
+
     // MARK: - App Lifecycle
 
     /// Launch the macOS app and record its PID for targeted interaction
@@ -39,7 +49,11 @@ public actor MacOSDriver {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         configuration.arguments = arguments
-        configuration.environment = ["LOG_LEVEL": "debug"]
+        // Pin the app's TMPDIR to the test runner's temp dir so tmux panes the app
+        // creates (e.g. via "New Terminal" → TmuxService) resolve `$TMPDIR/<script>`
+        // to where `injectScript` copies — otherwise scripts run in app-created
+        // panes are "not found" (the app inherits a different sandbox temp dir).
+        configuration.environment = ["LOG_LEVEL": "debug", "TMPDIR": NSTemporaryDirectory()]
 
         let runningApp = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
         appPID = runningApp.processIdentifier
@@ -96,6 +110,30 @@ public actor MacOSDriver {
         try await runAppleScript(script)
     }
 
+    /// Make the app resign active by bringing Finder to the front. After this
+    /// the app is no longer frontmost, so `NSApp.isActive` reads false. Pair with
+    /// `activate()` to bring the app back. Used to test focus-dependent behavior
+    /// such as attention that should only auto-clear while the app is frontmost.
+    public func deactivate() async throws {
+        // Require a launched app so deactivation is meaningful (and consistent
+        // with `activate()`), even though bringing Finder forward is global.
+        _ = try requirePID()
+        logger.info("Deactivating app by bringing Finder to the front")
+        // Drive Finder via System Events (already-granted automation), mirroring
+        // `activate()`, instead of `tell application "Finder"` which would need a
+        // separate automation consent. Finder is always running, so this reliably
+        // resigns the app active without hiding its windows (AX reads still work).
+        let script = """
+        tell application "System Events"
+            tell (first process whose name is "Finder")
+                set frontmost to true
+            end tell
+        end tell
+        delay 0.3
+        """
+        try await runAppleScript(script)
+    }
+
     // MARK: - Settings Navigation
 
     /// Open the Settings window via the status item menu
@@ -123,6 +161,19 @@ public actor MacOSDriver {
             pollInterval: 0.5
         ) {
             MacOSAccessibility.windowExists(appPID: pid, titled: titled)
+        }
+    }
+
+    /// Wait for a top-level window whose title equals `title` exactly.
+    /// Asserts on `navigationTitle` without substring ambiguity.
+    public func waitForWindowTitle(equals title: String, timeout: TimeInterval = 5) async throws {
+        let pid = try requirePID()
+        try await Polling.waitUntil(
+            description: "window with title equal to \"\(title)\"",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.windowExists(appPID: pid, titledExactly: title)
         }
     }
 
@@ -174,53 +225,29 @@ public actor MacOSDriver {
 
     // MARK: - Key Press
 
-    /// Press Tab key via CGEvent to cycle focus between elements in dialogs.
-    public func pressTab() async throws {
+    /// Press a key with optional modifiers via CGEvent.
+    ///
+    /// Resolves named keys (Tab, Escape, …) and character keys (letters,
+    /// digits, common punctuation) into US-keyboard virtual key codes, then
+    /// posts a keyDown/keyUp pair through `CGEvent`. The app is focused
+    /// first so the event lands in the right process.
+    public func pressKey(_ key: Key, modifiers: KeyboardModifiers = []) async throws {
         let pid = try requirePID()
-        logger.info("Pressing Tab key (PID \(pid))")
+        // Named keys always resolve; only `.character(_)` cases with an
+        // unsupported symbol can fail to map.
+        guard let virtualKey = MacOSAccessibility.virtualKeyCode(for: key) else {
+            let desc: String
+            if case let .character(character) = key {
+                desc = String(character)
+            } else {
+                desc = String(describing: key)
+            }
+            throw MacOSDriverError.unsupportedShortcutKey(desc)
+        }
+        logger.info("Pressing key '\(modifiers)+\(key)' (PID \(pid))")
         MacOSAccessibility.focusApp(appPID: pid)
         try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 48) // Tab
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Escape key to dismiss dialogs/alerts.
-    public func pressEscape() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Escape key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 53) // Escape
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Return key to confirm default action in dialogs/alerts.
-    public func pressReturn() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Return key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 36) // Return
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Space key to activate the focused button in dialogs.
-    public func pressSpace() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Space key (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.pressKey(code: 49) // Space
-        try await Task.sleep(for: .milliseconds(200))
-    }
-
-    /// Press Cmd+A to select all text in the focused field.
-    public func selectAll() async throws {
-        let pid = try requirePID()
-        logger.info("Pressing Cmd+A (PID \(pid))")
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
-        MacOSAccessibility.selectAll()
+        MacOSAccessibility.pressKey(code: virtualKey, modifiers: modifiers.cgEventFlags)
         try await Task.sleep(for: .milliseconds(200))
     }
 
@@ -234,6 +261,32 @@ public actor MacOSDriver {
         try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
         if !MacOSAccessibility.cgClick(appPID: pid, titled: titled) {
             throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
+    /// CGEvent left-click on an element matching the query. Use to target
+    /// elements by accessibility identifier (e.g. an individual terminal pane
+    /// via `.identifier("terminal-%1")`) instead of brittle hard-coded screen
+    /// coordinates.
+    ///
+    /// `pointInRect` maps the matched element's frame to the actual click
+    /// point. Defaults to the centre; override to target a corner or edge
+    /// when the matched element is a wider container.
+    public func cgClick(
+        matching query: ElementQuery,
+        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+    ) async throws {
+        let pid = try requirePID()
+        logger.info("CGEvent clicking element matching query")
+        _ = try await Polling.waitFor(
+            description: "macOS UI element for cg-click",
+            timeout: 5,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.findElement(appPID: pid, matching: query)
+        }
+        if !MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect) {
+            throw MacOSDriverError.elementNotFound("query for cg-click")
         }
     }
 
@@ -289,6 +342,60 @@ public actor MacOSDriver {
         throw MacOSDriverError.elementNotFound("\(elementTitle) context menu → \(menuItem)")
     }
 
+    /// Right-click an element, expand a submenu by pressing its parent label,
+    /// then click an item inside that submenu. Used for nested SwiftUI `Menu`
+    /// items inside a `.contextMenu { }` (e.g. the session row's "Set Color"
+    /// submenu, whose colour rows only join the AX tree once the parent is
+    /// expanded). Pressing the parent menu item opens the submenu without
+    /// dismissing the context menu — AppKit treats menu items that own a
+    /// submenu as "expand on press" rather than "fire and dismiss".
+    public func contextSubmenuClick(
+        elementTitle: String,
+        parentMenuItem: String,
+        submenuItem: String
+    ) async throws {
+        let pid = try requirePID()
+        logger.info(
+            "Context submenu click: '\(elementTitle)' → '\(parentMenuItem)' → '\(submenuItem)'"
+        )
+
+        // Step 1: Right-click to open the top-level context menu.
+        try await waitForAXElement(pid: pid, titled: elementTitle, timeout: 5)
+        if !MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) {
+            throw MacOSDriverError.elementNotFound(elementTitle)
+        }
+
+        // Step 2: Poll for the parent menu item, then press it to expand the
+        // submenu. Pressing a SwiftUI `Menu`'s parent label opens the submenu.
+        let parentDeadline = Date().addingTimeInterval(3)
+        var parentExpanded = false
+        while Date() < parentDeadline {
+            try await Task.sleep(for: .milliseconds(300))
+            if MacOSAccessibility.press(appPID: pid, titled: parentMenuItem) {
+                parentExpanded = true
+                break
+            }
+        }
+        guard parentExpanded else {
+            throw MacOSDriverError.elementNotFound(
+                "\(elementTitle) context menu → \(parentMenuItem)"
+            )
+        }
+
+        // Step 3: Poll for the submenu item now that the submenu is open.
+        let submenuDeadline = Date().addingTimeInterval(3)
+        while Date() < submenuDeadline {
+            try await Task.sleep(for: .milliseconds(300))
+            if MacOSAccessibility.press(appPID: pid, titled: submenuItem) {
+                return
+            }
+        }
+
+        throw MacOSDriverError.elementNotFound(
+            "\(elementTitle) context menu → \(parentMenuItem) → \(submenuItem)"
+        )
+    }
+
     // MARK: - Panes Window
 
     /// Open the Panes window via the status item menu
@@ -311,22 +418,34 @@ public actor MacOSDriver {
     public func moveWindow(x: Int, y: Int) async throws {
         let pid = try requirePID()
         logger.info("Moving window to (\(x), \(y))")
-        if !MacOSAccessibility.moveWindow(appPID: pid, x: x, y: y) {
-            throw MacOSDriverError.appleScriptFailed(
-                "Failed to move window to (\(x), \(y)) — no visible window found"
-            )
+        var lastReason = "(no attempt recorded)"
+        for attempt in 1...3 {
+            let result = MacOSAccessibility.moveWindowDetailed(appPID: pid, x: x, y: y)
+            if result.success { return }
+            lastReason = result.reason
+            logger.info("Move attempt \(attempt)/3 failed: \(lastReason)")
+            if attempt < 3 { try await Task.sleep(for: .milliseconds(250)) }
         }
+        throw MacOSDriverError.appleScriptFailed(
+            "Failed to move window to (\(x), \(y)) after 3 attempts — \(lastReason)"
+        )
     }
 
     /// Resize the macOS app window via AX.
     public func resizeWindow(width: Int, height: Int) async throws {
         let pid = try requirePID()
         logger.info("Resizing window to \(width)x\(height)")
-        if !MacOSAccessibility.resizeWindow(appPID: pid, width: width, height: height) {
-            throw MacOSDriverError.appleScriptFailed(
-                "Failed to resize window to \(width)x\(height) — no visible window found"
-            )
+        var lastReason = "(no attempt recorded)"
+        for attempt in 1...3 {
+            let result = MacOSAccessibility.resizeWindowDetailed(appPID: pid, width: width, height: height)
+            if result.success { return }
+            lastReason = result.reason
+            logger.info("Resize attempt \(attempt)/3 failed: \(lastReason)")
+            if attempt < 3 { try await Task.sleep(for: .milliseconds(250)) }
         }
+        throw MacOSDriverError.appleScriptFailed(
+            "Failed to resize window to \(width)x\(height) after 3 attempts — \(lastReason)"
+        )
     }
 
     /// Set the sidebar width of the NavigationSplitView via the in-app HTTP server.
@@ -346,6 +465,42 @@ public actor MacOSDriver {
         if !MacOSAccessibility.focusElement(appPID: pid, titled: titled) {
             throw MacOSDriverError.elementNotFound(titled)
         }
+    }
+
+    /// Write text to the system pasteboard so a subsequent `paste()` (Cmd+V)
+    /// inserts it into the focused field. Useful for input AppleScript
+    /// keystroke can't deliver — emoji, multi-codepoint glyphs, etc.
+    public func writeClipboard(text: String) async throws {
+        logger.info("Writing to clipboard: \(text.prefix(30))")
+        // `pbcopy` reads stdin and sets the system clipboard. The trailing
+        // newline that an `echo` would add is suppressed with `printf %s`.
+        let result = try await processRunner.run(
+            "/bin/sh",
+            arguments: ["-c", "printf %s \"$1\" | /usr/bin/pbcopy", "sh", text]
+        )
+        guard result.isSuccess else {
+            throw MacOSDriverError.appleScriptFailed(
+                "pbcopy failed: \(result.stderrString)"
+            )
+        }
+    }
+
+    /// Press Cmd+V in the macOS app, pasting the current clipboard contents
+    /// into the focused field. Pairs with `writeClipboard(text:)` to enter
+    /// characters AppleScript keystroke can't type directly.
+    public func paste() async throws {
+        let pid = try requirePID()
+        logger.info("Pasting via Cmd+V")
+        let script = """
+        tell application "System Events"
+            tell (first process whose unix id is \(pid))
+                set frontmost to true
+                delay 0.1
+                keystroke "v" using command down
+            end tell
+        end tell
+        """
+        try await runAppleScript(script)
     }
 
     /// Type text into the macOS app via AppleScript keystroke.
@@ -463,6 +618,18 @@ public actor MacOSDriver {
         )
     }
 
+    /// Drag from the center of one accessibility element to the center of
+    /// another. Used by scenarios that test SwiftUI drag-and-drop (e.g. tab
+    /// strip reorder) so the source and target points stay anchored to the
+    /// elements themselves instead of fragile screen coordinates.
+    public func dragElement(from fromQuery: ElementQuery, to toQuery: ElementQuery) async throws {
+        let pid = try requirePID()
+        logger.info("Drag element \(fromQuery) → \(toQuery)")
+        if !MacOSAccessibility.dragElement(appPID: pid, from: fromQuery, to: toQuery) {
+            throw MacOSDriverError.elementNotFound("\(fromQuery) or \(toQuery)")
+        }
+    }
+
     /// Get the center point of the app's first visible window.
     private func windowCenter(appPID: pid_t) -> CGPoint? {
         let allWindows = MacOSAccessibility.windows(appPID: appPID)
@@ -519,22 +686,61 @@ public actor MacOSDriver {
         }
     }
 
-    // MARK: - Hook Events
+    // MARK: - File Drop Simulation
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// The hook server port is read from `hookPortFile` (defaults to `~/.claudespy-port`).
-    public func sendHookEvent(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws {
-        logger.info("Sending hook event via test server, pane: \(tmuxPane)")
-        let success = try await MacAppHTTPClient.sendHook(
-            json: json,
-            tmuxPane: tmuxPane,
-            projectPath: projectPath,
-            hookPortFile: hookPortFile
+    /// Trigger a simulated Finder file drop on the given tmux pane via the
+    /// in-process `/drop-files` test endpoint. Drives the same code path as
+    /// a real drop on `InteractiveTerminalView`.
+    public func dropFilesOnPane(paneId: String, paths: [String]) async throws {
+        logger.info("Simulating file drop on pane \(paneId): \(paths)")
+        let success = try await MacAppHTTPClient.dropFilesOnPane(
+            paneId: paneId,
+            paths: paths,
+            port: testAccessibilityPort
         )
         if !success {
-            throw MacOSDriverError.hookEventFailed("Hook event POST failed")
+            throw MacOSDriverError.elementNotFound(
+                "drop-files endpoint failed for pane \(paneId)"
+            )
         }
-        logger.info("Hook event sent successfully")
+    }
+
+    // MARK: - Hook Events (ingress socket)
+
+    /// Deliver a hook event to the macOS app by writing one length-prefixed
+    /// `IngressFrame` to the app's ingress socket (spec §8) — the transport that
+    /// replaced the deleted HTTP `HookServerService` path.
+    ///
+    /// `pluginID` routes the frame to the owning core (`"claude-code"` /
+    /// `"codex"` / `"echo"`); `json` is the raw host-agent event the core
+    /// decodes; `tmuxPane`/`projectPath` become the harvested ingress `context`
+    /// (`TMUX_PANE` / `CLAUDE_PROJECT_DIR`). `socketPath` is the per-scenario
+    /// `<gallager-state-root>/ingress.sock`.
+    public func sendHookEvent(
+        pluginID: String,
+        json: String,
+        tmuxPane: String,
+        projectPath: String?,
+        socketPath: String
+    ) async throws {
+        logger.info("Sending ingress frame (plugin_id=\(pluginID)) for pane: \(tmuxPane)")
+        var context = ["TMUX_PANE": tmuxPane]
+        if let projectPath {
+            context["CLAUDE_PROJECT_DIR"] = projectPath
+        }
+        do {
+            _ = try await IngressSocketClient.sendFrame(
+                pluginID: pluginID,
+                context: context,
+                payload: Data(json.utf8),
+                socketPath: socketPath
+            )
+        } catch {
+            throw MacOSDriverError.hookEventFailed(
+                "Ingress frame write failed: \(error.localizedDescription)"
+            )
+        }
+        logger.info("Ingress frame written successfully")
     }
 
     // MARK: - Wait for Element
@@ -768,6 +974,7 @@ public enum MacOSDriverError: Error, LocalizedError {
     case elementNotFound(String)
     case hookEventFailed(String)
     case elementQueryTimedOut(query: String, diagnostic: String)
+    case unsupportedShortcutKey(String)
 
     public var errorDescription: String? {
         switch self {
@@ -783,6 +990,8 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Hook event failed: \(message)"
         case let .elementQueryTimedOut(query, diagnostic):
             "Timed out waiting for: macOS UI element matching \(query)\nAX diagnostic:\n\(diagnostic)"
+        case let .unsupportedShortcutKey(key):
+            "Unsupported keyboard shortcut key: \(key)"
         }
     }
 }

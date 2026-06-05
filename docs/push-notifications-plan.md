@@ -2,14 +2,16 @@
 
 ## Overview
 
-This document outlines the implementation plan for sending push notifications from the ClaudeSpy external server to paired iOS devices. Push notifications will alert users to important Claude Code events when the iOS app is not actively connected via WebSocket.
+This document outlines the implementation plan for sending push notifications from the ClaudeSpy external server to paired iOS devices. Push notifications will alert users to important coding-agent events (Claude Code or Codex CLI) when the iOS app is not actively connected via WebSocket.
+
+> **Note (2026-05):** Notification copy is now rendered against `CodingAgent.displayName` / `shortName`, so the sample strings below that hard-code "Claude Code" should be read as templates. The shipped behavior interpolates the agent name from the event's `agent` field (`"Claude Code"` or `"Codex"`).
 
 ## Current Architecture Context
 
 The existing distributed system uses:
 - **WebSocket connections** for real-time communication between Mac ↔ Server ↔ iOS
 - **Device pairing** via 6-character codes, stored in `pairs.json`
-- **Hook events** from Claude Code forwarded through the relay
+- **Hook events** from Claude Code and Codex CLI forwarded through the relay (each tagged with a `CodingAgent`)
 
 **Key limitation:** When the iOS app is backgrounded or closed, WebSocket connections are terminated. Users miss important events like permission requests or session completions.
 

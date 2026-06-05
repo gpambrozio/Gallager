@@ -9,10 +9,9 @@ import SwiftUI
 struct TmuxPaneMirrorApp: App {
     @State private var coordinator: AppCoordinator
     @State private var showingTmuxInstallGuide: Bool
-    @State private var pluginSetupCheckTrigger = 0
-    @State private var showingPluginSetup = false
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
+    @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
@@ -44,8 +43,7 @@ struct TmuxPaneMirrorApp: App {
         if CommandLine.arguments.contains("--e2e-test") {
             let prefs = PreferencesService.inMemory()
 
-            // Suppress first-launch dialogs (plugin setup, launch-at-login prompt)
-            prefs.setBool(true, AppSettings.Keys.hasCompletedPluginSetup.rawValue)
+            // Suppress first-launch dialogs (launch-at-login prompt)
             prefs.setBool(true, AppSettings.Keys.hasAskedAboutLaunchAtLogin.rawValue)
 
             // E2E tests expect manual resize by default; disable auto-resize so scenarios
@@ -66,15 +64,9 @@ struct TmuxPaneMirrorApp: App {
                 prefs.setString(CommandLine.arguments[idx + 1], AppSettings.Keys.tmuxSocket.rawValue)
             }
 
-            // E2E test support: override hook server port file for isolation
-            let hookPortFile: String?
-            if let idx = CommandLine.arguments.firstIndex(of: "--hook-port-file"),
-               idx + 1 < CommandLine.arguments.count
-            {
-                hookPortFile = CommandLine.arguments[idx + 1]
-            } else {
-                hookPortFile = nil
-            }
+            // (The legacy hook HTTP server + `--hook-port-file` are gone; the
+            // plugin ingress Unix socket — set up in AppCoordinator and isolated
+            // per scenario via `--gallager-state-root` — replaces them.)
 
             // E2E test support: override notification log path for verification
             let notificationLogPath: String?
@@ -106,10 +98,47 @@ struct TmuxPaneMirrorApp: App {
                 clipboardFilePath = nil
             }
 
+            // E2E test support: register a fake editor backed by a Python script
+            // so scenarios can verify "Open in Editor" forwards the file path
+            // without launching real editor apps on the host.
+            let fakeEditorScript: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--fake-editor-script"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                fakeEditorScript = CommandLine.arguments[idx + 1]
+            } else {
+                fakeEditorScript = nil
+            }
+            // E2E test support: where the fake editor writes the paths it received.
+            let fakeEditorLog: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--fake-editor-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                fakeEditorLog = CommandLine.arguments[idx + 1]
+            } else {
+                fakeEditorLog = nil
+            }
+
+            // E2E test support: redirect default-browser opens to a log file
+            // so scenarios can verify `.alwaysInDefaultBrowser` clicks without
+            // actually launching the system browser on every run.
+            let defaultBrowserLogPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--default-browser-log"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                defaultBrowserLogPath = CommandLine.arguments[idx + 1]
+            } else {
+                defaultBrowserLogPath = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
-                $0[ClaudeProjectScanner.self] = .inMemory()
+                // Project lists now come from the plugin cores via
+                // `PluginHost.setProjects` (the per-agent scanners moved into the
+                // cores). E2E project-list determinism is handled by the plugin
+                // runtime / `--gallager-state-root` fixtures (Step 10), not by
+                // injecting scanners here.
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle
                 // via --sample-files-dir passed by the test orchestrator.
@@ -183,22 +212,45 @@ struct TmuxPaneMirrorApp: App {
                     "settings.json": .file(.text("{ \"model\": \"opus\" }\n")),
                 ])
                 fakeTree[".DS_Store"] = .file(.unsupported())
+                // Long markdown file used by the scroll-preservation phase to
+                // verify that the user's scroll position is restored after
+                // tab/session switches. Numbered lines make it visually
+                // obvious in the screenshot which part of the file is on
+                // screen at any moment.
+                fakeTree["long.md"] = .file(.markdown(longMarkdownContent))
+                // Long plain-text file used by the scroll-preservation phase
+                // to verify that the text viewer (a separate SwiftUI
+                // implementation from the markdown viewer) also restores the
+                // saved offset on tab/session switches.
+                fakeTree["long.txt"] = .file(.text(longPlainTextContent))
+                // Replace the short page.html with a long HTML fixture so the
+                // WebView scroll-preservation phase has something tall enough
+                // to scroll. Reuses the existing tree row to avoid bumping
+                // Phase 22's row count past the viewport.
+                fakeTree["page.html"] = .file(.html(longHTMLContent))
                 // Pending file: hangs on first load, succeeds on second.
                 // Dynamic entries appear in the tree after the pending file loads.
                 fakeTree["loading.txt"] = .file(.pendingText("This file loaded successfully!\n"))
+                // Ephemeral file: disappears from the tree after its content is read,
+                // so scenarios can exercise "file deleted while tab is open" behaviour.
+                fakeTree["ephemeral.txt"] = .file(
+                    .ephemeralText("This file is about to disappear.\n")
+                )
                 let dynamicEntries: [String: FakeEntry] = [
                     "generated": .folder([
                         "output.txt": .file(.text("Generated content.\n")),
                     ]),
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
+                $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
+                // Git tab (issue #258): stable in-memory fixtures so the
+                // GitWorkbench view renders deterministic content for scenarios
+                // instead of running `git` against the fake filesystem.
+                $0[GitWorkbenchProviderClient.self] = .mock
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
                 )
-                if let hookPortFile {
-                    $0[HookServerService.self] = .live(portFilePath: hookPortFile)
-                }
                 if let notificationLogPath {
                     // Clean up any previous log from earlier runs
                     try? FileManager.default.removeItem(atPath: notificationLogPath)
@@ -213,6 +265,19 @@ struct TmuxPaneMirrorApp: App {
                     try? FileManager.default.removeItem(atPath: clipboardFilePath)
                     $0[ClipboardClient.self] = .fileBacked(path: clipboardFilePath)
                 }
+                if let fakeEditorScript {
+                    if let fakeEditorLog {
+                        try? FileManager.default.removeItem(atPath: fakeEditorLog)
+                    }
+                    $0[EditorClient.self] = .fakeScript(
+                        scriptPath: fakeEditorScript,
+                        logPath: fakeEditorLog
+                    )
+                }
+                if let defaultBrowserLogPath {
+                    try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
+                    $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
             }
 
             // Force regular activation policy so the app has a menu bar
@@ -225,7 +290,15 @@ struct TmuxPaneMirrorApp: App {
             #endif
         }
 
-        _coordinator = State(initialValue: AppCoordinator())
+        let coord = AppCoordinator()
+        _coordinator = State(initialValue: coord)
+        // Wire cleanup before any delegate calls can fire. applicationShouldTerminate
+        // returns .terminateNow when onShouldTerminate is nil; setting it here (in
+        // @MainActor init) ensures it is never nil when the delegate is invoked —
+        // SwiftUI can call NSApp.terminate during scene setup on .regular-policy apps.
+        shutdownDelegate.onShouldTerminate = {
+            await coord.shutdown()
+        }
     }
 
     var body: some Scene {
@@ -238,9 +311,9 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.windowManager.paneStreamManager)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(coordinator.editorSessionManager)
                 .environment(coordinator.remoteEditorContentStore)
+                .environment(coordinator.markdownOpenSuggestionStore)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .onAppear {
                     if coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide {
@@ -249,8 +322,8 @@ struct TmuxPaneMirrorApp: App {
                     }
                 }
                 .sheet(isPresented: $showingTmuxInstallGuide, onDismiss: {
-                    // After tmux is found, proceed with the plugin setup chain
-                    pluginSetupCheckTrigger += 1
+                    // After tmux is found, proceed with launch-at-login prompt
+                    Task { await checkForLaunchAtLoginPrompt() }
                 }) {
                     TmuxInstallationGuideView { foundPath in
                         coordinator.settings.tmuxPath = foundPath
@@ -259,19 +332,7 @@ struct TmuxPaneMirrorApp: App {
                 .task {
                     // Only run first-launch dialogs if tmux is already installed
                     guard !showingTmuxInstallGuide else { return }
-                    pluginSetupCheckTrigger += 1
-                }
-                .task(id: pluginSetupCheckTrigger) {
-                    guard pluginSetupCheckTrigger > 0 else { return }
-                    await checkForPluginSetup()
-                }
-                .sheet(isPresented: $showingPluginSetup, onDismiss: {
-                    // After plugin setup is dismissed, check for launch at login prompt
-                    Task { await checkForLaunchAtLoginPrompt() }
-                }) {
-                    PluginSetupView()
-                        .environment(coordinator.settings)
-                        .environment(coordinator.pluginService)
+                    await checkForLaunchAtLoginPrompt()
                 }
                 .sheet(isPresented: $showingLaunchAtLoginPrompt) {
                     LaunchAtLoginPromptView()
@@ -300,10 +361,34 @@ struct TmuxPaneMirrorApp: App {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .newItem) {
-                Button("Close Tab") {
-                    NotificationCenter.default.post(name: .closeCurrentTab, object: nil)
+                CloseTabMenuItem()
+
+                Button("Open in Editor…") {
+                    NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
                 }
-                .keyboardShortcut("w", modifiers: .command)
+                .keyboardShortcut("e", modifiers: .command)
+            }
+
+            CommandGroup(after: .textEditing) {
+                Button("Find in Files") {
+                    NotificationCenter.default.post(name: .openContentSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
+
+            // Window menu - tab navigation shortcuts
+            CommandGroup(before: .windowList) {
+                Button("Previous Tab") {
+                    NotificationCenter.default.post(name: .selectPreviousTab, object: nil)
+                }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+
+                Button("Next Tab") {
+                    NotificationCenter.default.post(name: .selectNextTab, object: nil)
+                }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+
+                Divider()
             }
 
             // Edit menu - Copy as Rich Text / Copy with Control Sequences
@@ -361,7 +446,6 @@ struct TmuxPaneMirrorApp: App {
                 .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
-                .environment(coordinator.pluginService)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
 
@@ -373,6 +457,9 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator)
         } label: {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
+                .task {
+                    coordinator.settings.applyAppearance()
+                }
                 .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }
                     await coordinator.setupAllServices()
@@ -384,37 +471,12 @@ struct TmuxPaneMirrorApp: App {
     private var totalPendingSessionCount: Int {
         let localCount = coordinator.windowManager.pendingSessionCount
         let remoteCount = coordinator.remoteSessionStore?.paneStates.values
-            .filter { $0.claudeSession?.needsAttention == true }.count ?? 0
+            .filter { $0.agentSession?.needsAttention == true }.count ?? 0
         return localCount + remoteCount
     }
 
-    /// Checks if we should show the plugin setup on first launch.
-    /// Driven by `pluginSetupCheckTrigger` via `.task(id:)`.
-    private func checkForPluginSetup() async {
-        if !coordinator.settings.hasCompletedPluginSetup {
-            // If claude isn't installed, jump straight to the setup sheet so
-            // the user can follow the install flow.
-            if let path = await coordinator.pluginService.findClaude() {
-                coordinator.settings.claudeCommandPath = path
-                await coordinator.pluginService.checkInstallation()
-            } else {
-                showingPluginSetup = true
-                return
-            }
-
-            if case .notInstalled = coordinator.pluginService.state {
-                showingPluginSetup = true
-            } else if case .installed = coordinator.pluginService.state {
-                coordinator.settings.hasCompletedPluginSetup = true
-                await checkForLaunchAtLoginPrompt()
-            }
-        } else {
-            await checkForLaunchAtLoginPrompt()
-        }
-    }
-
     /// Checks if we should show the launch at login prompt.
-    /// Called after plugin setup is complete or skipped.
+    /// Called after tmux setup is complete.
     private func checkForLaunchAtLoginPrompt() async {
         // Only show if user hasn't been asked yet
         guard !coordinator.settings.hasAskedAboutLaunchAtLogin else { return }
@@ -422,6 +484,100 @@ struct TmuxPaneMirrorApp: App {
         // Small delay to avoid sheet animation conflicts
         try? await Task.sleep(for: .milliseconds(300))
         showingLaunchAtLoginPrompt = true
+    }
+}
+
+/// Long markdown content for the file browser's scroll-preservation E2E phase.
+/// Numbered lines and a "BOTTOM" marker make it easy to see in screenshots
+/// which part of the file is on screen.
+private let longMarkdownContent: String = {
+    var lines: [String] = ["# Scroll Preservation Test", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("## BOTTOM MARKER")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
+
+/// Long HTML fixture for the WebView scroll-preservation E2E phase. The
+/// `ScrollableWebView` wrapper is a separate code path from the markdown and
+/// plain-text viewers, so it needs its own scroll-tall page. The closing
+/// `<h1>HTML BOTTOM MARKER</h1>` is the assertion target — it only renders on
+/// screen when the WebView has been scrolled all the way down.
+private let longHTMLContent: String = {
+    var lines: [String] = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        "  <meta charset=\"utf-8\">",
+        "  <title>Scroll Preservation Test (HTML)</title>",
+        "  <style>",
+        "    body { font-family: -apple-system, sans-serif; padding: 20px; }",
+        "    p { margin: 12px 0; }",
+        "  </style>",
+        "</head>",
+        "<body>",
+        "  <h1>Scroll Preservation Test (HTML)</h1>",
+        "  <p>This page is intentionally tall so the WebView must scroll.</p>",
+    ]
+    for index in 1 ... 120 {
+        lines.append("  <p>Line \(index): The quick brown fox jumps over the lazy dog.</p>")
+    }
+    lines.append("  <h1>HTML BOTTOM MARKER</h1>")
+    lines.append("  <p>If you can read this line, you are at the bottom of the page.</p>")
+    lines.append("</body>")
+    lines.append("</html>")
+    return lines.joined(separator: "\n")
+}()
+
+/// Plain-text counterpart to `longMarkdownContent`. The text viewer uses a
+/// different SwiftUI implementation from the markdown viewer, so the
+/// scroll-preservation E2E phase exercises both paths against their own
+/// fixtures. The marker string is distinct so screenshot baselines and AX
+/// queries don't conflict if both files happen to be open simultaneously.
+private let longPlainTextContent: String = {
+    var lines: [String] = ["=== Scroll Preservation Test (Plain Text) ===", ""]
+    lines.append("This file is intentionally tall so the file viewer must")
+    lines.append("scroll. The numbered lines below make the visible region")
+    lines.append("recognisable in screenshot baselines.")
+    lines.append("")
+    for index in 1 ... 120 {
+        lines.append("Line \(index): The quick brown fox jumps over the lazy dog.")
+    }
+    lines.append("")
+    lines.append("=== TEXT BOTTOM MARKER ===")
+    lines.append("")
+    lines.append("If you can read this line, you are at the bottom of the file.")
+    return lines.joined(separator: "\n")
+}()
+
+/// Cmd-W menu item.
+///
+/// When the panes scene is focused, `MainView` publishes a
+/// `closeCurrentTabAction` focused value that closes the active tab (or
+/// window when no tab is open). Other scenes (Settings, About, CLI API
+/// Reference) don't publish that value, so the button falls back to sending
+/// `performClose:` to the key window — restoring the standard macOS Cmd-W
+/// behaviour on those windows.
+private struct CloseTabMenuItem: View {
+    @FocusedValue(\.closeCurrentTabAction) private var closeCurrentTabAction
+
+    var body: some View {
+        Button("Close Tab") {
+            if let closeCurrentTabAction {
+                closeCurrentTabAction()
+            } else {
+                NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: nil, from: nil)
+            }
+        }
+        .keyboardShortcut("w", modifiers: .command)
     }
 }
 

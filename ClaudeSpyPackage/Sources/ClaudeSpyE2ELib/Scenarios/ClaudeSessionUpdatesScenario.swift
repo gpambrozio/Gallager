@@ -27,11 +27,12 @@ public enum ClaudeSessionUpdatesScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
-        // 3. Verify iOS still shows the session (MyProject) with updated event
+        // 3. Verify iOS still shows the session (MyProject), now "Working" — a
+        //    UserPromptSubmit puts the agent in its loop (the agent-blind status
+        //    label), replacing the per-event "Prompt Submitted" row.
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("Prompt Submitted"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Working"), timeout: 5)
 
         // 4. Send SessionEnd hook — session should be removed
         TestStep.macSendHookEvent(
@@ -46,12 +47,14 @@ public enum ClaudeSessionUpdatesScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
-        // 5. Verify the session is gone — pane should now show as a plain terminal
-        //    The pane still exists in tmux, so it should appear as a terminal row
-        //    with the session name (not "MyProject" which was the Claude session name)
+        // 5. After SessionEnd the agent session is removed and the pane reverts to
+        //    a plain terminal (commit 9a8c2683 — the `.sessionEnded` app action
+        //    clears `paneStates[pane].agentSession`). The "MyProject" badge
+        //    disappears and pane 1 shows as the plain "session-1" terminal again.
         TestStep.iosWaitForElementToDisappear(.labelContains("MyProject"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("session-1"), timeout: 5)
+        // Pane 2 remains a plain terminal throughout.
+        TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)
     }
 }

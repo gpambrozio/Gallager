@@ -2,89 +2,58 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Closure type for sending commands from response views.
-/// Takes a CommandType directly - the calling view adds the paneId when sending.
-typealias CommandSender = @MainActor (CommandType) async -> Void
+/// Closure the response views call to submit a structured `AgentResponse` back
+/// to the host (which routes it to `core.deliverResponse`). iOS sends structured
+/// choices only — it never builds agent-specific keystrokes (spec §7.1).
+typealias ResponseSender = @MainActor (AgentResponse) async -> Void
 
-// MARK: - Event Response Extension
+// MARK: - Agent Response Request → View
 
-extension HookEvent {
-    /// Returns a contextual response view based on the event type, or nil if no response UI is needed.
+extension AgentResponseRequest {
+    /// Returns the contextual response view for this request's case. The five
+    /// closed cases map 1:1 onto the existing iOS forms (spec §7.1).
     @MainActor
     func responseView(
-        isYoloMode: Bool,
         isConnected: Bool,
-        sendCommand: @escaping CommandSender,
+        submit: @escaping ResponseSender,
         state: ResponseState
-    ) -> AnyView? {
-        switch action {
-        case .sessionStart:
-            return AnyView(PromptView(isConnected: isConnected, sendCommand: sendCommand, state: state))
-        case let .stop(body):
+    ) -> AnyView {
+        switch self {
+        case let .prompt(promptRequest):
+            return AnyView(PromptView(
+                request: promptRequest,
+                isConnected: isConnected,
+                submit: submit,
+                state: state
+            ))
+        case let .replyAfterStop(replyRequest):
             return AnyView(StopResponseView(
-                lastAssistantMessage: body.lastAssistantMessage,
+                request: replyRequest,
                 isConnected: isConnected,
-                sendCommand: sendCommand,
+                submit: submit,
                 state: state
             ))
-        case let .permissionRequest(body):
-            // In yolo mode, skip the response UI for auto-approvable events
-            // (the host auto-sends Enter after 500ms)
-            if isYoloMode, body.isYoloAutoApprovable {
-                return nil
-            }
-            // Check for special tool types that need dedicated UIs
-            if let toolInput = body.toolInput {
-                switch toolInput {
-                case let .askUserQuestion(params):
-                    return AnyView(AskUserQuestionResponseView(
-                        params: params,
-                        isConnected: isConnected,
-                        sendCommand: sendCommand,
-                        state: state
-                    ))
-                case let .exitPlanMode(params):
-                    return AnyView(ExitPlanModeResponseView(
-                        params: params,
-                        isConnected: isConnected,
-                        sendCommand: sendCommand,
-                        state: state
-                    ))
-                default:
-                    break
-                }
-            }
+        case let .permission(permissionRequest):
             return AnyView(PermissionRequestResponseView(
-                request: body,
+                request: permissionRequest,
                 isConnected: isConnected,
-                sendCommand: sendCommand,
+                submit: submit,
                 state: state
             ))
-        case .sessionEnd,
-             .preToolUse,
-             .postToolUse,
-             .postToolUseFailure,
-             .permissionDenied,
-             .notification,
-             .userPromptSubmit,
-             .stopFailure,
-             .subagentStart,
-             .subagentStop,
-             .teammateIdle,
-             .taskCreated,
-             .taskCompleted,
-             .preCompact,
-             .postCompact,
-             .instructionsLoaded,
-             .configChange,
-             .cwdChanged,
-             .fileChanged,
-             .elicitation,
-             .elicitationResult,
-             .worktreeCreate,
-             .worktreeRemove,
-             .unknown:
-            return nil
+        case let .askUserQuestion(questionRequest):
+            return AnyView(AskUserQuestionResponseView(
+                request: questionRequest,
+                isConnected: isConnected,
+                submit: submit,
+                state: state
+            ))
+        case let .approvePlan(planRequest):
+            return AnyView(ExitPlanModeResponseView(
+                request: planRequest,
+                isConnected: isConnected,
+                submit: submit,
+                state: state
+            ))
         }
     }
 }

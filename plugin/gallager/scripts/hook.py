@@ -1,60 +1,43 @@
 #!/usr/bin/env python3
-import sys
+import json
 import os
-from urllib.request import urlopen, Request
-from urllib.parse import urlencode
-from urllib.error import URLError
+import socket
+import struct
+import sys
 
-def read_port():
-    """Read the hook server port from the per-user port file."""
-    port_file = os.path.expanduser('~/.claudespy-port')
-    try:
-        with open(port_file, 'r') as f:
-            port = int(f.read().strip())
-            if 1 <= port <= 65535:
-                return port
-            return None
-    except (OSError, ValueError):
-        return None
+PLUGIN_ID = "claude-code"
+SOCKET_PATH = os.path.expanduser("~/.gallager/state/ingress.sock")
+
 
 def main():
-    tmux_pane = os.environ.get('TMUX_PANE', '')
-
+    tmux_pane = os.environ.get("TMUX_PANE", "")
     if not tmux_pane:
-        # Exit if not running inside tmux
-        exit(0)
+        return  # Not inside tmux — nothing to mirror.
 
-    port = read_port()
-    if port is None:
-        # ClaudeSpy is not running or port file missing
-        exit(0)
+    raw = sys.stdin.read()
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except Exception:
+        return
 
-    project_path = os.environ.get('CLAUDE_PROJECT_DIR', '')
+    context = {"TMUX_PANE": tmux_pane}
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if project_dir:
+        context["CLAUDE_PROJECT_DIR"] = project_dir
 
-    # Read stdin
-    stdin_data = sys.stdin.read()
-
-    # Properly encode query parameters
-    query_params = urlencode({
-        'project_path': project_path,
-        'tmux_pane': tmux_pane
-    })
-
-    # Make POST request
-    url = f"http://localhost:{port}/api/hooks?{query_params}"
+    body = json.dumps(
+        {"plugin_id": PLUGIN_ID, "context": context, "payload": payload}
+    ).encode("utf-8")
+    frame = struct.pack(">I", len(body)) + body
 
     try:
-        req = Request(url,
-                     data=stdin_data.encode('utf-8'),
-                     headers={'Content-Type': 'application/json'},
-                     method='POST')
-        with urlopen(req, timeout=5) as response:
-            # Read response but don't do anything with it
-            response.read().decode('utf-8')
-            exit(0)
-    except (URLError, Exception):
-        # Fallback response if server is not available
-        exit(0)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(5)
+            sock.connect(SOCKET_PATH)
+            sock.sendall(frame)
+    except Exception:
+        return  # Gallager not running / socket gone — drop silently.
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

@@ -333,9 +333,33 @@ Scripts live in `ClaudeSpyE2ELib/Scenarios/Scripts/` as plain files (Python, she
 
 | Step | Description |
 |------|-------------|
-| `wait(seconds:)` | Sleep for a duration |
+| `wait(seconds:)` | Sleep for a duration. **Avoid** when a state-driven wait works — see [Avoid redundant waits](#avoid-redundant-waits) below. |
 | `storeValue(key:value:)` | Store a literal value in the execution context |
 | `log(_:)` | Log a message (supports `${variable}` interpolation) |
+
+### Avoid redundant waits
+
+Fixed `wait(seconds:)` calls compound across the scenario suite and are the biggest single source of slow E2E runs. The `*WaitFor*` family of steps (`iosWaitForElement`, `iosWaitForElementToDisappear`, `macWaitForElement`, `macWaitForElementQuery`, `macWaitForWindow`, `macAssertWindowTitle`, `waitForHostConnected`, `waitForViewerConnected`, `waitForNoPairings`, `verifyServerHasPairings`, `waitForTmuxDisplayMessage*`, `waitForFileContains`) already poll until the condition is satisfied or the timeout expires, so a fixed `wait` directly before them is always redundant and should be removed.
+
+`iosTap` and `macClickButton` also have a 5-second internal element wait, so a `wait` before them is almost never useful.
+
+Two anti-patterns to watch out for:
+
+1. **`waitForElementToDisappear` as a "loading finished" signal.** If the element hasn't appeared yet when the check runs, `waitForElementToDisappear` returns immediately — and the test continues before the loading has actually started. Instead, wait for an element that only exists in the post-loaded state:
+
+   ```swift
+   // ❌ may return immediately if spinner hasn't shown yet
+   TestStep.iosTap(.label("New Session"))
+   TestStep.iosWaitForElementToDisappear(.labelContains("Loading projects"), timeout: 15)
+
+   // ✅ waiting for a project item proves the list rendered
+   TestStep.iosTap(.label("New Session"))
+   TestStep.iosWaitForElement(.labelContains("New Terminal"), timeout: 15)
+   ```
+
+2. **Fixed wait around terminal/tmux state.** When you need to wait for the terminal to reach a known state, use `waitForTmuxDisplayMessage` / `waitForTmuxDisplayMessageNotEqual` keyed on `#{pane_title}`, `#{pane_width}x#{pane_height}`, etc., so the test moves on the instant the state lands rather than after a worst-case sleep.
+
+Fixed waits are still appropriate when there's no observable signal — typically before a `*Screenshot` that captures a debounced/animated state (cursor blink, scroll deceleration), or between a `tmuxRunCommand` and an immediate `tmuxCapturePaneContent`. Keep those durations tight (0.3–1s).
 
 ## Element queries (iOS)
 
@@ -497,6 +521,16 @@ When a comparison fails, a diff image is saved alongside the baseline with a `_d
 ClaudeSpyE2E --baselines-dir /path/to/baselines ...
 ```
 
+## Failure screenshots
+
+When a step fails for a reason other than a screenshot comparison (e.g. an element never appears, an assertion fails, an HTTP request errors out), the orchestrator captures a diagnostic screenshot of the running platform(s) so the report shows the UI state at the moment of failure.
+
+- **iOS-targeted steps** (`iosTap`, `iosWaitForElement`, ...) capture the iOS simulator only.
+- **macOS-targeted steps** (`macClickButton`, `macWaitForWindow`, ...) capture the targeted instance only.
+- **Universal steps** (assertions, server, tmux, generic helpers) capture the iOS simulator and every running macOS instance — whichever component caused the failure is included.
+
+Captures are best-effort: if a platform isn't running, or the screenshot itself fails, the orchestrator logs a warning and continues so the original failure is still surfaced. The PNGs are saved alongside scenario screenshots as `failure-step-NN-<target>.png` and uploaded to the results repository's content-addressable image store.
+
 ## Test report generation
 
 The `e2e-report.sh` script runs all E2E scenarios, collects results and screenshots, and publishes a report to the [ClaudeSpyTestResults](https://github.com/gpambrozio/ClaudeSpyTestResults) repository.
@@ -553,7 +587,7 @@ ClaudeSpyTestResults/
 
 Each `report.json` contains:
 - **metadata** — branch, commit, commit message, PR number/URL, timestamp
-- **scenarios** — array of scenario results, each with steps that include screenshot hashes (`imageHash`, `baselineHash`, `diffHash`), pass/fail status, and diff percentages
+- **scenarios** — array of scenario results, each with steps that include screenshot hashes (`imageHash`, `baselineHash`, `diffHash`), pass/fail status, and diff percentages. Failed non-comparison steps additionally include `failureScreenshots`: an array of `{ target, imageHash }` entries for each captured platform.
 
 ### Viewing results
 

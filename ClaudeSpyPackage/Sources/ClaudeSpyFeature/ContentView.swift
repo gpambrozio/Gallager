@@ -56,6 +56,7 @@
             }
             .environment(settings)
             .environment(sessionStore)
+            .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
                 await initializeConnectionManager()
                 setupConnectionManagerHandlers()
@@ -75,6 +76,9 @@
         /// When returning to foreground, we immediately attempt reconnection to avoid
         /// waiting for exponential backoff timers.
         private func handleScenePhaseChange(_ phase: ScenePhase) {
+            // Keep the notification service's foreground flag in sync so the
+            // backgrounded-only local-notification fallback fires correctly.
+            pushService.setAppActive(phase == .active)
             switch phase {
             case .background:
                 // Only start background task if we have any active connections
@@ -102,23 +106,34 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
-            connectionManager.onHookEvent = { [sessionStore] event in
+            // High-frequency per-session state updates drive the sidebar badges.
+            // The `AgentState` carries the open response form (no separate channel).
+            connectionManager.onAgentSessionStatus = { [sessionStore] status in
                 Task { @MainActor in
-                    sessionStore.handleEvent(event)
+                    sessionStore.handleAgentStatus(status)
+                }
+            }
 
-                    // If app is backgrounded, show a local notification.
-                    // The server won't send a push since we're "connected" via WebSocket,
-                    // but the user can't see the app, so we need to alert them.
-                    if scenePhase != .active {
-                        if let notification = event.buildNotification() {
-                            PushNotificationService.shared.scheduleLocalNotification(
-                                title: notification.title,
-                                body: notification.body,
-                                paneId: event.event.tmuxPane,
-                                hostId: event.pairId
-                            )
-                        }
-                    }
+            // The complete enabled-plugin presentation set (icons/names/colors).
+            connectionManager.onPluginPresentations = { [sessionStore] presentations in
+                Task { @MainActor in
+                    sessionStore.handlePluginPresentations(presentations)
+                }
+            }
+
+            // Backgrounded fallback: the relay drops the APNs push while we're
+            // WS-connected, so a host's live-socket notification is the only
+            // alert during the backgrounded-but-connected window. When active,
+            // the in-app UI already reflects the event, so we suppress it.
+            connectionManager.onAgentNotification = { [pushService] notification in
+                Task { @MainActor in
+                    guard !pushService.isAppActive else { return }
+                    pushService.scheduleLocalNotification(
+                        title: notification.title,
+                        body: notification.body,
+                        paneId: notification.sessionId,
+                        hostId: notification.pairId
+                    )
                 }
             }
 
@@ -235,60 +250,64 @@
 
     // MARK: - Main View
 
-    /// The main tabbed interface after pairing.
+    /// The main interface after pairing.
+    ///
+    /// Shows a session list with a Settings button in the toolbar that
+    /// presents the SettingsView as a sheet.
     struct MainView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
         @Environment(SessionStore.self) private var sessionStore
-        @Environment(\.verticalSizeClass) private var verticalSizeClass
 
-        @State private var selectedTab: Tab = .sessions
         @State private var sessionsNavigationPath = NavigationPath()
+        @State private var showingSettings = false
 
         @State private var pushService = PushNotificationService.shared
         /// Tracks the currently displayed session pane ID for deep link deduplication.
         /// Set when navigating to a session, cleared when popping back to the list.
         @State private var currentlyDisplayedPaneId: String?
 
-        enum Tab {
-            case sessions
-            case settings
-        }
-
-        /// Whether to hide the tab bar.
-        /// Hidden when inside a session (navigation stack is non-empty) or on iPhone in landscape.
-        private var hideTabBar: Bool {
-            !sessionsNavigationPath.isEmpty
-                || (UIDevice.current.userInterfaceIdiom == .phone && verticalSizeClass == .compact)
-        }
-
         var body: some View {
-            TabView(selection: $selectedTab) {
+            // Wrapping the NavigationStack in a Group lets the `.sheet`
+            // modifier sit at a peer level of the navigation transition,
+            // so dismissing the Settings sheet and pushing onto the nav
+            // stack don't fight each other (avoids a sleep workaround in
+            // handleDeepLink).
+            Group {
                 NavigationStack(path: $sessionsNavigationPath) {
                     SessionListView(
-                        navigationPath: $sessionsNavigationPath
+                        navigationPath: $sessionsNavigationPath,
+                        onOpenSettings: { showingSettings = true }
                     )
-                    .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
                 }
-                .tabItem {
-                    Label("Sessions", symbol: .terminal)
-                }
-                .tag(Tab.sessions)
-
+            }
+            .sheet(isPresented: $showingSettings) {
                 NavigationStack {
                     SettingsView()
-                        .toolbar(hideTabBar ? .hidden : .visible, for: .tabBar)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") {
+                                    showingSettings = false
+                                }
+                            }
+                        }
                 }
-                .tabItem {
-                    Label("Settings", symbol: .gearshape)
-                }
-                .tag(Tab.settings)
+                // Sheets present in a separate window context, so the
+                // root view's `.preferredColorScheme` doesn't always
+                // re-propagate after the sheet is on screen. Re-apply
+                // here so toggling the picker updates the sheet's chrome.
+                .preferredColorScheme(settings.appearanceMode.colorScheme)
             }
             .task {
                 await connectIfNeeded()
             }
-            .onChange(of: pushService.pendingDeepLink) { _, deepLink in
-                handleDeepLink(deepLink)
+            .onChange(of: pushService.pendingDeepLink) { _, _ in
+                // Consume so the value resets to nil — a subsequent notification
+                // with an identical payload would otherwise be suppressed by
+                // Equatable and never re-trigger this onChange.
+                if let deepLink = pushService.consumePendingDeepLink() {
+                    handleDeepLink(deepLink)
+                }
             }
             .onChange(of: sessionsNavigationPath.count) { _, count in
                 // Clear the currently displayed pane ID when user pops back to session list
@@ -311,8 +330,8 @@
         private func handleDeepLink(_ deepLink: PushNotificationService.DeepLinkInfo?) {
             guard let deepLink else { return }
 
-            // Switch to sessions tab
-            selectedTab = .sessions
+            // Dismiss Settings sheet if open so the deep link target is visible
+            showingSettings = false
 
             // If we're already displaying this session, don't navigate again.
             // This prevents redundant navigation when receiving multiple push
@@ -321,15 +340,10 @@
                 return
             }
 
-            // Navigate to the session detail after a brief delay. This delay is necessary
-            // because NavigationStack may ignore path appends if the tab transition hasn't
-            // completed. 100ms provides reliable behavior across device types.
-            //
             // We reset the navigation path first to ensure only one session detail view
             // exists in the stack. Multiple push notifications would otherwise pile up
             // session views indefinitely.
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(100))
                 sessionsNavigationPath = NavigationPath()
 
                 // Pane state may not be synced yet on cold start (e.g., launched via
@@ -371,6 +385,21 @@
     struct SettingsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+
+        /// In-flight edit buffer for the device name field. Synced to/from
+        /// `settings.deviceName` so the field shows the system name when no
+        /// custom name is set.
+        @State private var deviceNameDraft = ""
+
+        /// The device name that was committed to settings on the last edit.
+        /// Used to detect whether the user actually changed the name when the
+        /// field loses focus, so we only reconnect when something differs.
+        @State private var lastCommittedDeviceName = ""
+
+        /// Tracks focus on the device-name field so we can also commit when
+        /// the user dismisses the keyboard by tapping elsewhere — `onSubmit`
+        /// alone would silently discard the draft.
+        @FocusState private var deviceNameFieldFocused: Bool
 
         /// Available monospace fonts for terminal display
         static let availableFonts = [
@@ -415,6 +444,24 @@
                     }
                 }
 
+                // Device Name Section
+                Section {
+                    TextField(settings.systemDeviceName, text: $deviceNameDraft)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .focused($deviceNameFieldFocused)
+                        .onSubmit { commitDeviceName() }
+                        .onChange(of: deviceNameFieldFocused) { _, isFocused in
+                            if !isFocused { commitDeviceName() }
+                        }
+                        .accessibilityIdentifier("device-name-field")
+                } header: {
+                    Text("Device Name")
+                } footer: {
+                    Text("Shown to the Macs you've paired with. Leave blank to use the system name (\(settings.systemDeviceName)).")
+                }
+
                 // Paired Hosts Section
                 Section {
                     NavigationLink {
@@ -427,6 +474,22 @@
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+
+                // Appearance Section
+                Section {
+                    @Bindable var settings = settings
+
+                    Picker("Theme", selection: $settings.appearanceMode) {
+                        ForEach(AppearanceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Appearance")
+                } footer: {
+                    Text("Choose Light, Dark, or follow the iOS system setting.")
                 }
 
                 // Terminal Section
@@ -503,8 +566,6 @@
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-
-                    LabeledContent("Device Name", value: settings.deviceName)
                 }
 
                 // Why Gallager Section
@@ -537,6 +598,50 @@
                 }
             }
             .navigationTitle("Settings")
+            .onAppear {
+                deviceNameDraft = settings.customDeviceName ?? ""
+                lastCommittedDeviceName = deviceNameDraft
+            }
+            .onDisappear {
+                // SwiftUI tears down the view (and `@FocusState`) when the
+                // sheet dismisses, so `.onChange(of: deviceNameFieldFocused)`
+                // can't be relied on as the only commit trigger. Commit any
+                // pending edit here so closing the sheet preserves the name.
+                commitDeviceName()
+            }
+        }
+
+        /// Persist the edited device name and push the update to paired hosts.
+        ///
+        /// Treats whitespace-only input as "clear back to system name" by
+        /// storing `nil`, which makes `IOSSettings.deviceName` fall back to
+        /// `UIDevice.current.name`. To propagate the change to already-connected
+        /// hosts, disconnects and reconnects all of them — the new name rides
+        /// along on the next `RegisterViewerMessage`.
+        private func commitDeviceName() {
+            let trimmed = deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed != lastCommittedDeviceName else {
+                return
+            }
+
+            settings.customDeviceName = trimmed.isEmpty ? nil : trimmed
+            lastCommittedDeviceName = trimmed
+
+            // Push the new name to any currently connected hosts by reconnecting.
+            guard
+                settings.isPaired,
+                let serverURL = URL(string: settings.externalServerURL)
+            else { return }
+
+            Task {
+                await connectionManager.disconnectAll()
+                await connectionManager.connectAll(
+                    pairedHosts: settings.pairedHosts,
+                    serverURL: serverURL,
+                    deviceId: settings.deviceId,
+                    deviceName: settings.deviceName
+                )
+            }
         }
 
         private var connectionStatusColor: Color {

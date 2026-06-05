@@ -27,6 +27,7 @@ EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
 TEAM_ID="XG2WG7U93U"
 BUNDLE_ID="br.eng.gustavo.claudespy"
+BETA_GROUP_NAME="Beta 1"
 ASC_API_BASE="https://api.appstoreconnect.apple.com/v1"
 
 # =====================================================
@@ -45,6 +46,7 @@ SKIP_UPLOAD=false
 EXPORT_ONLY=false
 AUTO_YES=false
 SET_CHANGELOG=false
+SKIP_SUBMIT=false
 API_KEY=""
 API_ISSUER=""
 
@@ -60,6 +62,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --set-changelog)
             SET_CHANGELOG=true
+            shift
+            ;;
+        --skip-submit)
+            SKIP_SUBMIT=true
             shift
             ;;
         --yes|-y)
@@ -81,6 +87,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-upload       Build, archive, and export IPA but don't upload"
             echo "  --export-only       Same as --skip-upload (alias)"
             echo "  --set-changelog     Set TestFlight 'What to Test' from git commits (run after build processes)"
+            echo "  --skip-submit       Don't assign to $BETA_GROUP_NAME group or submit for beta review"
             echo "  --yes, -y           Skip confirmation prompts"
             echo "  --api-key KEY       App Store Connect API Key ID"
             echo "  --api-issuer ID     App Store Connect API Issuer ID"
@@ -228,8 +235,10 @@ Here are the commits since the last release:
 $commits
 
 Requirements:
-- Only include changes relevant to the iOS app or that could indirectly affect it (e.g. shared networking, encryption, server relay changes)
-- Skip commits that only affect the macOS app, build scripts, CI, or docs
+- ONLY include changes that directly affect the user experience on iOS (new features, behavior changes, bug fixes users would notice, performance improvements)
+- ONLY include changes from shared layers (networking, encryption, server relay) if they have a visible effect on the iOS app
+- SKIP anything that does not affect users: CI/CD changes, build scripts, internal refactoring, code cleanup, dependency updates, tests, docs, tooling, release scripts, macOS-only changes, server infrastructure changes invisible to users
+- If a commit is ambiguous, err on the side of omitting it
 - Group changes by category (New Features, Improvements, Bug Fixes) if applicable
 - Explain what each change means for testers — what to look for, what might break
 - Keep it concise but informative — this is TestFlight, not a press release
@@ -238,7 +247,7 @@ Requirements:
 - Do NOT include ANY preamble, commentary, thinking, or meta-text — start directly with the content
 - Do NOT add URLs, links, or 'for more information' sections
 - Output ONLY the What to Test content itself
-- If no commits are relevant to iOS, output: No iOS-relevant changes in this build."
+- If no user-facing iOS changes exist, output: No user-facing changes in this build."
 
     local notes
     notes=$(claude -p "$prompt" 2>/dev/null) || {
@@ -321,6 +330,63 @@ for item in d.get('data', []):
     fi
 
     log_success "What to Test notes updated"
+}
+
+find_beta_group_id() {
+    local app_id="$1"
+    local response
+    response=$(asc_get "/betaGroups?filter[app]=${app_id}&fields[betaGroups]=name")
+    local group_id
+    group_id=$(echo "$response" | python3 -c "
+import sys, json
+target = sys.argv[1]
+d = json.load(sys.stdin)
+for item in d.get('data', []):
+    if item['attributes'].get('name') == target:
+        print(item['id'])
+        break
+" "$BETA_GROUP_NAME" 2>/dev/null)
+
+    if [ -z "$group_id" ]; then
+        log_error "Could not find beta group: $BETA_GROUP_NAME
+API response: $response"
+    fi
+    echo "$group_id"
+}
+
+assign_build_to_beta_group() {
+    local build_id="$1"
+    local group_id="$2"
+
+    local response
+    response=$(asc_post "/betaGroups/${group_id}/relationships/builds" \
+        "{\"data\":[{\"type\":\"builds\",\"id\":\"${build_id}\"}]}")
+
+    if [ -n "$response" ] && echo "$response" | grep -q '"errors"'; then
+        log_error "Failed to assign build to $BETA_GROUP_NAME
+API response: $response"
+    fi
+
+    log_success "Build assigned to $BETA_GROUP_NAME"
+}
+
+submit_for_beta_review() {
+    local build_id="$1"
+
+    local response
+    response=$(asc_post "/betaAppReviewSubmissions" \
+        "{\"data\":{\"type\":\"betaAppReviewSubmissions\",\"relationships\":{\"build\":{\"data\":{\"type\":\"builds\",\"id\":\"${build_id}\"}}}}}")
+
+    if echo "$response" | grep -q '"errors"'; then
+        if echo "$response" | grep -qiE 'already|in_review|state_invalid'; then
+            log_warning "Build appears to be already submitted for beta review"
+            return 0
+        fi
+        log_error "Failed to submit build for beta review
+API response: $response"
+    fi
+
+    log_success "Build submitted for beta review"
 }
 
 # =====================================================
@@ -455,6 +521,7 @@ upload_to_testflight() {
 # Generate changelog, wait for build to be ready, set What to Test
 # =====================================================
 WHATS_NEW_SET=false
+BETA_REVIEW_SUBMITTED=false
 
 # Arg 1: prompt_user ("true" to prompt before waiting, "false" to skip)
 # Returns 0 on success, 1 on failure. Exits 0 if the user cancels at the prompt.
@@ -543,6 +610,21 @@ except Exception:
     # Step 3: Set What to Test
     set_whats_new "$build_id" "$changelog"
     WHATS_NEW_SET=true
+
+    # Step 4: Assign to beta group + submit for review
+    if [ "$SKIP_SUBMIT" != true ]; then
+        log_info "Looking up beta group: $BETA_GROUP_NAME..."
+        local group_id
+        group_id=$(find_beta_group_id "$app_id")
+
+        log_info "Assigning build to $BETA_GROUP_NAME..."
+        assign_build_to_beta_group "$build_id" "$group_id"
+
+        log_info "Submitting build for beta review..."
+        submit_for_beta_review "$build_id"
+        BETA_REVIEW_SUBMITTED=true
+    fi
+
     return 0
 }
 
@@ -618,6 +700,11 @@ main() {
     elif [ "$WHATS_NEW_SET" = true ]; then
         echo ""
         echo "Build is live on TestFlight with 'What to Test' notes set."
+        if [ "$BETA_REVIEW_SUBMITTED" = true ]; then
+            echo "Assigned to $BETA_GROUP_NAME and submitted for beta review."
+        elif [ "$SKIP_SUBMIT" = true ]; then
+            echo "Beta group assignment and review submission skipped (--skip-submit)."
+        fi
     else
         echo ""
         echo "Build uploaded but 'What to Test' notes were not set."

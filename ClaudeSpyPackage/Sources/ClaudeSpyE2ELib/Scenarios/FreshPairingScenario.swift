@@ -20,6 +20,10 @@ public enum FreshPairingScenario {
         // 4. Launch iOS in simulator
         TestStep.launchIOSApp()
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 15)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — otherwise baselines depend on whatever happens to
+        // be on the simulator's pasteboard from a prior run.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-pairing-view")
 
         // 5. Generate pairing code on macOS
@@ -39,7 +43,7 @@ public enum FreshPairingScenario {
 
         // 7. Verify iOS transitioned to main view and connected
         TestStep.iosWaitForElement(.labelContains("Sessions"), timeout: 15)
-        TestStep.iosWaitForElement(.labelContains("Connected"), timeout: 15)
+        TestStep.iosWaitForElement(.label("Connected"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-paired")
 
         // 8. Verify server state
@@ -48,7 +52,15 @@ public enum FreshPairingScenario {
         // 9. Wait for both host and viewer to connect to relay server
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
+
+        // 10. The Paired Viewers cell on Remote Access should now show the
+        //     iOS device's actual name (UIDevice.current.name on the
+        //     simulator contains "iPhone") instead of the old "Viewer"
+        //     placeholder. This guards the rename feature on the default
+        //     pairing path; RenameViewerDeviceScenario covers the custom
+        //     rename round-trip.
+        TestStep.macWaitForElement(titled: "iPhone", timeout: 15)
         TestStep.macScreenshot(label: "mac-connected", tolerance: 5)
     }
 }

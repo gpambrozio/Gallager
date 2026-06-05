@@ -6,6 +6,309 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.1</title>
+         <sparkle:version>34</sparkle:version>
+         <sparkle:shortVersionString>2.1</sparkle:shortVersionString>
+         <pubDate>Fri, 05 Jun 2026 06:42:32 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.1
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Git browser tab</strong> — A new horizontal tab provides a built-in Git browser, letting you inspect repository state directly within a monitored session without leaving the app.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Tab navigation shortcuts</strong> — `Cmd-Shift-[` and `Cmd-Shift-]` now move between tabs in their displayed order after tabs have been reordered, so cycling matches what you see on screen.</li>
+<li><strong>iOS notification badge</strong> — The app-icon badge on iOS now clears correctly when a session's attention state is resolved through the agent flow, preventing a lingering badge after items have been handled.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.1.dmg"
+                    sparkle:edSignature="opbEO8MH8Cz7DIO4qYd3SpDjkmZwnIahtZ/TFRqlnOYFiF2PwWJuCUTRHKAvDQX1HCEHE1RTfrKr2nPPyFeHDw=="
+                    length="32316112"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.32</title>
+         <sparkle:version>32</sparkle:version>
+         <sparkle:shortVersionString>1.32</sparkle:shortVersionString>
+         <pubDate>Sat, 23 May 2026 19:05:17 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.32
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Codex CLI support</strong>: Added the OpenAI Codex CLI as a second supported coding agent alongside Claude Code. Codex projects are now detected, tagged on iOS, and launch with the Codex CLI when opened.</li>
+<li><strong>Project scanner</strong>: The project scanner no longer requires a `.claude` directory, allowing more projects to be discovered automatically.</li>
+<li><strong>Emoji lookup</strong>: The `gallager set-emoji` command now supports looking up emojis by name or description.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Sidebar spacing</strong>: Added breathing room between the sidebar status icon and emoji badge for better readability.</li>
+<li><strong>Sparkle updated</strong> to 2.9.2.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Codex "Working" status visible</strong>: Fixed an issue where the Codex "Working" status indicator was invisible due to tmux's pane background cache not being pre-warmed.</li>
+<li><strong>OSC 8 file links</strong>: Clicks outside a hyperlink's text no longer trigger the link to open.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.32.dmg"
+                    sparkle:edSignature="/SsL8B2SPUsHhKIZC9kc9wfiLumHzEd3+7N3FP9HOiqlMOmYhWfRKM8VxyVkztR2ZApcxo7aZA4jVtTIin8yCQ=="
+                    length="31410262"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.31</title>
+         <sparkle:version>31</sparkle:version>
+         <sparkle:shortVersionString>1.31</sparkle:shortVersionString>
+         <pubDate>Tue, 19 May 2026 19:19:51 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.31
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>New browser tab support</strong>: Links with `target="_blank"` now open as new browser tabs instead of replacing the current view.</li>
+<li><strong>Remote tab bar parity</strong>: Split, the + menu, and drag-to-reorder are now available in the remote tab bar, matching the local experience.</li>
+<li><strong>Arrow-key navigation</strong>: The new-session project picker now supports keyboard arrow navigation.</li>
+<li><strong>Pending session indicator</strong>: Sessions awaiting attention in the menu bar now use the accent color and a wave icon for better visibility.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Host name in decryption failures</strong>: Notifications about decryption failures now display the originating host name to help identify the source.</li>
+<li><strong>Silent badge updates</strong>: When a host clears its needs-attention state, the badge updates silently without triggering a visible notification.</li>
+<li><strong>Push notification feedback</strong>: Push notifications now play the default sound and trigger haptic feedback.</li>
+<li><strong>Split pane terminal sizing</strong>: The terminal now resizes to fit the width of split panes correctly.</li>
+<li><strong>Session selection on launch</strong>: New local sessions are now selected appropriately even when a remote session was last interacted with.</li>
+<li><strong>File browser refresh</strong>: The file tree now reloads when a watcher attaches, so newly added files appear without manual refresh.</li>
+<li><strong>Smoother progress animation</strong>: The progress animation has been refined for a better visual experience.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Cursor-position leak</strong>: Fixed an issue where DECXCPR cursor-position responses could leak into the tmux pane.</li>
+<li><strong>Start directory honored</strong>: `gallager apply` now correctly honors the `start_directory` of the first pane.</li>
+<li><strong>Toolbar accessibility on macOS 26</strong>: Corrected the accessibility label for toolbar icon buttons on macOS 26.</li>
+<li><strong>Window filtering</strong>: Window resize and move operations now filter to standard windows and retry as needed for improved reliability.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.31.dmg"
+                    sparkle:edSignature="FmnGND/fQqsA5DXODQuX7rZWrqFT7jxYogExBCYmpImk6AUA97y/9vAuI0PfAHHdoZWUNES/h9lHG+npMiPHAw=="
+                    length="31193963"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.30</title>
+         <sparkle:version>30</sparkle:version>
+         <sparkle:shortVersionString>1.30</sparkle:shortVersionString>
+         <pubDate>Thu, 14 May 2026 08:33:01 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.30
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Draggable tabs and reordering</strong>: Tabs in the main window can now be reordered by dragging. New keyboard shortcuts ⌘⇧[ and ⌘⇧] move between tabs.</li>
+<li><strong>Browser tab</strong>: A new browser tab opens links from the terminal directly inside Gallager, with per-domain decisions to remember whether you want a domain to open in-app or in your default browser.</li>
+<li><strong>Split-tab view</strong>: File and browser tabs can be displayed side-by-side in a split layout.</li>
+<li><strong>Open files in external editors</strong>: File-browser entries can be opened in your preferred external editor.</li>
+<li><strong>Full-text search in file explorer</strong>: Search file contents directly from the file browser.</li>
+<li><strong>Drag files out of the file explorer</strong>: File-browser rows can be dragged into other applications.</li>
+<li><strong>Drop files from Finder into terminals</strong>: Dropping files from Finder onto a terminal pane forwards them to the tmux paste buffer.</li>
+<li><strong>Image paste forwarding</strong>: Images pasted into a Mac viewer are now forwarded to the remote host.</li>
+<li><strong>Remote link handling on iOS</strong>: Links clicked in remote sessions now open inside the app.</li>
+<li><strong>`gallager set-progress` CLI</strong>: New command for driving the sidebar progress indicator, including an `indeterminate` state.</li>
+<li><strong>`gallager notify --push`</strong>: Notifications can now be sent as push notifications.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Cmd-W scoping</strong>: Cmd-W now properly closes the Settings and About windows when they're focused, instead of only acting on terminal panes.</li>
+<li><strong>File-browser selection</strong>: The file-browser list keeps its first-responder state so the selection highlight stays visible.</li>
+<li><strong>Native context menus</strong>: File-browser context menus now use native NSMenu for better platform integration.</li>
+<li><strong>Sidebar progress alignment</strong>: The sidebar progress bar sits slightly lower for better visual alignment.</li>
+<li><strong>Disk-full alert threshold</strong>: The disk-full warning now triggers at 85% usage instead of 80%, reducing false alarms.</li>
+<li><strong>Sparkle updater</strong>: Updated to Sparkle 2.9.1.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed `gallager apply` failing with "can't find window: !" in certain configurations.</li>
+<li>Fixed an issue where pane streaming could spawn multiple readers; each pane now uses a single persistent reader for more reliable output.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.30.dmg"
+                    sparkle:edSignature="2uEsQJHFbNvf4eOYKmrksTrdg4YizhdAbzlBh4LWSlirkKOaib4UIBPwFVUHUJ9QUKkHp9JD3GdUHRUkZpgPAQ=="
+                    length="31030741"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.29</title>
+         <sparkle:version>29</sparkle:version>
+         <sparkle:shortVersionString>1.29</sparkle:shortVersionString>
+         <pubDate>Thu, 07 May 2026 06:54:18 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.29
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Custom emoji icons for tmux sessions</strong>: Personalize sessions with emoji icons for easier identification at a glance.</li>
+<li><strong>Appearance picker</strong>: New appearance settings on both macOS and iOS, with session-color swatches in menus and a live preview in the prompt editor.</li>
+<li><strong>One-tap pairing on iOS</strong>: When a pairing code is detected in the iOS clipboard, the app now offers a one-tap paste to streamline device setup.</li>
+<li><strong>Editable iOS device names</strong>: Rename your iOS device, and see the updated name reflected on paired hosts.</li>
+<li><strong>Progress indicators in mirrored panes</strong>: OSC 9;4 progress updates from Claude Code are now forwarded through mirrored tmux panes, surfacing task progress in the UI.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Updated tool model list</strong>: Tool models now match the latest Claude Code documentation.</li>
+<li><strong>Faster project list refresh</strong>: The Claude project list on the host now refreshes every minute automatically.</li>
+<li><strong>ProjectNavigator upgraded to 1.8.0</strong>: Includes the latest improvements from the underlying navigation component.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>URL detection in terminal</strong>: URL matching no longer extends into uninitialized terminal cells, preventing spurious or overly long link selections.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.29.dmg"
+                    sparkle:edSignature="U7bU6+/FFoL498Y6eS4qABXVamRmE+Zft/uS+uUV0fJ5v7dAuzXLqxpQ6GdK0hicxDKUa/kThKUeffPTMZO2Aw=="
+                    length="30171153"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.28</title>
+         <sparkle:version>28</sparkle:version>
+         <sparkle:shortVersionString>1.28</sparkle:shortVersionString>
+         <pubDate>Mon, 04 May 2026 11:58:45 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.28
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Per-session colors</strong>: Assign a custom color to each session, shown as a dot in the sidebar for quick visual identification.</li>
+<li><strong>Declarative session layouts</strong>: Define and apply tmux session layouts via `gallager apply` for reproducible workspace setups.</li>
+<li><strong>Host-pressure alerts</strong>: Get notified when the relay host is under resource pressure that could affect connectivity.</li>
+<li><strong>Per-session progress bars</strong>: OSC 9;4 progress sequences are now tracked per session.</li>
+<li><strong>Setup hook event</strong>: Support for the new Setup hook event from the Claude Code hooks specification.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Streamlined iOS settings</strong>: Settings have moved from a dedicated tab to a toolbar button, freeing up tab bar space for primary navigation.</li>
+<li><strong>Smarter Cmd+V and Cmd+C</strong>: Copy and paste shortcuts now route only to the focused pane instead of being broadcast.</li>
+<li><strong>Shift+Enter passthrough</strong>: Shift+Enter is now passed through to the terminal for multi-line input in supported tools.</li>
+<li><strong>CLI ergonomics</strong>: The `gallager` CLI gains pane titles, idempotent `create`, `wait-ready`, `send --enter`, and `capture-pane`. Commands now default to the calling pane when no target is specified.</li>
+<li><strong>Editor scroll position preserved</strong>: Scroll position in the in-app editor is retained when switching tabs or sessions.</li>
+<li><strong>Return to originating terminal</strong>: Closing a file tab now returns focus to the terminal you opened it from.</li>
+<li><strong>Updated tool models</strong>: Tool definitions have been updated to match the latest Claude Code documentation.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed an issue where iOS terminal link underlines could briefly appear in mouse mode.</li>
+<li>Fixed double-spacing on mirror attach when the terminal width was narrower than the source pane.</li>
+<li>Fixed a flake in the Mark Handled action by serializing viewer sends and restoring the home directory correctly.</li>
+<li>Fixed tmux control clients not disconnecting cleanly during shutdown.</li>
+<li>Fixed the relay server healthcheck.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.28.dmg"
+                    sparkle:edSignature="U6N2R5rzCMylyZjtmZ1QFnDnRkWyClYhEaFTJkzKfIokLfW7rV7moH3ZLOe3oDEUvrhvjKy46+nJltIreTJJDQ=="
+                    length="29897731"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.27</title>
+         <sparkle:version>27</sparkle:version>
+         <sparkle:shortVersionString>1.27</sparkle:shortVersionString>
+         <pubDate>Wed, 29 Apr 2026 19:58:13 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.27
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Sidebar label overrides via CLI</strong>: A new `gallager session-state` command lets you customize sidebar labels for tmux sessions from the terminal.</li>
+<li><strong>Shared file context menu</strong>: The file navigator and editor tabs now share a unified context menu, providing consistent file actions across both surfaces.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Window title reflects selected session</strong>: The macOS window title now shows the primary sidebar label of the currently selected session, making it easier to identify which session a window belongs to.</li>
+<li><strong>Cleaner terminal behavior in mouse mode</strong>: Link underlines and clicks are now suppressed while the terminal is in mouse mode, preventing accidental link activation when interacting with mouse-aware applications.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Clean tmux teardown on quit</strong>: Gallager now tears down the tmux `pipe-pane` cleanly when quitting, preventing lingering pipe processes after the app closes.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.27.dmg"
+                    sparkle:edSignature="JojVo0UwP/Kt1tXayXwP5BYe4yGsc2TH16LgSSU2YxVE9dMxMzjzTMKmJ6a6bpsD++77xn4qXRHnWTfAL3w0DQ=="
+                    length="29011274"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 1.26</title>
+         <sparkle:version>26</sparkle:version>
+         <sparkle:shortVersionString>1.26</sparkle:shortVersionString>
+         <pubDate>Tue, 28 Apr 2026 09:49:09 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 1.26
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Markdown file suggestion bar</strong>: A new suggestion bar makes it easy to open the markdown file currently referenced in the terminal.</li>
+<li><strong>Open in New Tab</strong>: Added an "Open in New Tab" context menu action to the file explorer for quicker navigation between files.</li>
+<li><strong>File link handling</strong>: Clicking `file://` links in the terminal now opens them in a new tab instead of leaving the terminal.</li>
+<li><strong>New hook events</strong>: Added support for `UserPromptExpansion` and `PostToolBatch` hook events, expanding visibility into Claude Code activity.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>iOS drag-to-scroll</strong>: Drag-to-scroll now works on iOS when the host session has tmux mouse mode enabled, making it easier to navigate scrollback on touch devices.</li>
+<li><strong>AskUserQuestion keystrokes</strong>: Fixed keystroke handling so remote input correctly drives Claude Code's AskUserQuestion prompt UI.</li>
+<li><strong>Custom Claude command path preserved</strong>: Plugin setup no longer overwrites a user-configured custom path to the `claude` command.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed a background color bleed in terminal rendering that could leave stray styling after capture-pane rebuilds.</li>
+<li>Fixed an issue where the terminal could appear blank after closing a sibling tmux window.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-1.26.dmg"
+                    sparkle:edSignature="g0DlQwRdDRU8umN+uxToNxBf4hzZB342mMT9v+Mkurj6ciCFmAdC9vxBNh1pPBUnb9EC26/bUaK/PES9yLMNCQ=="
+                    length="28967923"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.25</title>
          <sparkle:version>25</sparkle:version>
          <sparkle:shortVersionString>1.25</sparkle:shortVersionString>

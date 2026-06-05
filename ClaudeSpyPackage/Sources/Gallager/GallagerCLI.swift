@@ -13,15 +13,23 @@ struct GallagerCLI: ParsableCommand {
             SelectSessionCommand.self,
             CurrentSessionCommand.self,
             CloseSessionCommand.self,
+            SessionStateCommand.self,
+            SetTitleCommand.self,
+            SetColorCommand.self,
+            SetEmojiCommand.self,
+            FindEmojiCommand.self,
             // Windows
             ListWindowsCommand.self,
             NewWindowCommand.self,
             SelectWindowCommand.self,
+            RenameWindowCommand.self,
             CloseWindowCommand.self,
             // Panes
             ListPanesCommand.self,
             SplitPaneCommand.self,
             SelectPaneCommand.self,
+            CapturePaneCommand.self,
+            SetProgressCommand.self,
             // Input
             SendCommand.self,
             SendKeyCommand.self,
@@ -32,8 +40,13 @@ struct GallagerCLI: ParsableCommand {
             // Projects
             ListProjectsCommand.self,
             StartProjectCommand.self,
+            // Plugins
+            PluginCommand.self,
+            // Layouts
+            ApplyCommand.self,
             // Utility
             PingCommand.self,
+            WaitReadyCommand.self,
             CapabilitiesCommand.self,
             IdentifyCommand.self,
         ]
@@ -56,6 +69,16 @@ struct GlobalOptions: ParsableArguments {
 
     @Option(name: .long, help: "Target specific window")
     var window: String?
+
+    /// The pane ID for the calling shell, derived from `$TMUX_PANE`.
+    ///
+    /// Returns `nil` when running outside tmux. Each command decides whether
+    /// to fall back to this value based on which targeting flags it actually
+    /// consumes — irrelevant flags should not suppress the fallback.
+    var callingPaneId: String? {
+        let envPane = ProcessInfo.processInfo.environment["TMUX_PANE"]
+        return envPane?.isEmpty == false ? envPane : nil
+    }
 }
 
 /// Helper to send a request and handle common error reporting.

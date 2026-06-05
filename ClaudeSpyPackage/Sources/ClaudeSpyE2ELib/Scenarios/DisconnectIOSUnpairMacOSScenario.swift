@@ -18,17 +18,22 @@ public enum DisconnectIOSUnpairMacOSScenario {
         // 3. macOS: trigger unpair via test HTTP endpoint
         // (SwiftUI Menu creates native NSMenu popups invisible to the accessibility tree)
         TestStep.macUnpair()
-        TestStep.wait(seconds: 2)
+        // Wait for the server to process the unpair and for the macOS UI to
+        // settle (Generate button reappears) before taking the screenshot.
+        TestStep.waitForNoPairings(timeout: 15)
+        TestStep.macWaitForElement(titled: "Generate Pairing Code", timeout: 5)
         TestStep.macScreenshot(label: "mac-after-unpair")
 
         // 4. Verify server has 0 pairings (while iOS is still blocked)
-        TestStep.waitForNoPairings(timeout: 15)
         TestStep.verifyServerHasPairings(count: 0)
 
         // 5. Unblock iOS so it can reconnect. The server will reject it with INVALID_PAIR
         //    since the pairing was removed, causing iOS to clean up its pairing data.
         TestStep.serverUnblockDevice(.viewer)
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 30)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — the previous pairing may have left a code on the board.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-invalid-pair-cleanup")
     }
 }

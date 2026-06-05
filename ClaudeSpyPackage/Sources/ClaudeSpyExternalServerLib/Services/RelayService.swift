@@ -7,16 +7,19 @@ actor RelayService {
     private let pairingService: PairingService
     private let connectionHub: ConnectionHub
     private let apnsService: APNsService?
+    private let metricsService: MetricsService
     private let logger = Logger(label: "relay-service")
 
     init(
         pairingService: PairingService,
         connectionHub: ConnectionHub,
-        apnsService: APNsService?
+        apnsService: APNsService?,
+        metricsService: MetricsService
     ) {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
         self.apnsService = apnsService
+        self.metricsService = metricsService
     }
 
     // MARK: - Connection Notifications
@@ -33,9 +36,11 @@ actor RelayService {
                 logger.warning("Host connected but no public key available, skipping notification")
                 return
             }
+            let hostDeviceName = await pairingService.getHostDeviceName(pairId: pairId)
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
-                publicKeyId: hostKeyInfo.keyId
+                publicKeyId: hostKeyInfo.keyId,
+                deviceName: hostDeviceName
             )
             message = .hostConnected(connectedMessage)
         case (.host, false):
@@ -46,9 +51,11 @@ actor RelayService {
                 logger.warning("Viewer connected but no public key available, skipping notification")
                 return
             }
+            let viewerDeviceName = await pairingService.getViewerDeviceName(pairId: pairId)
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
-                publicKeyId: viewerKeyInfo.keyId
+                publicKeyId: viewerKeyInfo.keyId,
+                deviceName: viewerDeviceName
             )
             message = .viewerConnected(connectedMessage)
         case (.viewer, false):
@@ -70,9 +77,17 @@ actor RelayService {
             await handleHostRegistration(registration, pairId: pairId)
 
         case let .encrypted(encryptedMessage):
-            // Pass through encrypted messages - server cannot decrypt or see message type
-            logger.info("Relaying encrypted message to viewer")
-            await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
+            // Pass through encrypted messages - server cannot decrypt or see message type.
+            // Only count successfully-relayable messages: gate on the peer being connected,
+            // matching the symmetric viewer→host branch below. Otherwise we'd inflate the
+            // counter when the peer is offline (push notifications go out via `.encryptedPush`).
+            if await connectionHub.isViewerConnected(pairId: pairId) {
+                await metricsService.incrementMessagesRelayed()
+                logger.info("Relaying encrypted message to viewer")
+                await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
+            } else {
+                logger.debug("Viewer not connected, dropping encrypted relay message")
+            }
 
         case let .encryptedPush(payload):
             // Encrypted push notification - forward to APNs if viewer is not connected
@@ -114,6 +129,7 @@ actor RelayService {
         case let .encrypted(encryptedMessage):
             // Pass through encrypted messages to host - server cannot decrypt or see message type
             if await connectionHub.isHostConnected(pairId: pairId) {
+                await metricsService.incrementMessagesRelayed()
                 logger.info("Relaying encrypted message to host")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .host)
             } else {
@@ -136,13 +152,16 @@ actor RelayService {
     // MARK: - Registration Handlers
 
     private func handleHostRegistration(_ registration: RegisterHostMessage, pairId: String) async {
-        // Store host's public key and username for the pair
+        // Store host's public key, username, and current device name for the pair.
+        // Updating the name here lets the host change its display name and have
+        // viewers pick it up on the next connection without re-pairing.
         await pairingService.updateHostPublicKey(
             pairId: pairId,
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId,
             username: registration.username
         )
+        await pairingService.updateHostDeviceName(pairId: pairId, deviceName: registration.deviceName)
 
         let viewerDeviceName = await pairingService.getViewerDeviceName(pairId: pairId)
         let isViewerConnected = await connectionHub.isViewerConnected(pairId: pairId)
@@ -171,7 +190,8 @@ actor RelayService {
         // when we don't have the public key yet
         let hostConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
-            publicKeyId: registration.publicKeyId
+            publicKeyId: registration.publicKeyId,
+            deviceName: registration.deviceName
         )
         logger.info("Notifying viewer that host registered with public key")
         await connectionHub.send(.hostConnected(hostConnectedMessage), to: pairId, deviceType: .viewer)
@@ -181,7 +201,8 @@ actor RelayService {
             logger.info("Notifying host that viewer is connected, requesting session state")
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: viewerKeyInfo.key,
-                publicKeyId: viewerKeyInfo.keyId
+                publicKeyId: viewerKeyInfo.keyId,
+                deviceName: viewerDeviceName
             )
             await connectionHub.send(.viewerConnected(connectedMessage), to: pairId, deviceType: .host)
             // Also request current session state from host
@@ -190,12 +211,15 @@ actor RelayService {
     }
 
     private func handleViewerRegistration(_ registration: RegisterViewerMessage, pairId: String) async {
-        // Store viewer's public key for the pair
+        // Store viewer's public key and current device name for the pair.
+        // Updating the name here lets the user rename their iOS device in
+        // settings and have hosts pick up the new name on the next reconnect.
         await pairingService.updateViewerPublicKey(
             pairId: pairId,
             publicKey: registration.publicKey,
             publicKeyId: registration.publicKeyId
         )
+        await pairingService.updateViewerDeviceName(pairId: pairId, deviceName: registration.deviceName)
 
         let hostDeviceName = await pairingService.getHostDeviceName(pairId: pairId)
         let hostUsername = await pairingService.getHostUsername(pairId: pairId)
@@ -226,7 +250,8 @@ actor RelayService {
         // when we don't have the public key yet
         let viewerConnectedMessage = ViewerConnectedMessage(
             publicKey: registration.publicKey,
-            publicKeyId: registration.publicKeyId
+            publicKeyId: registration.publicKeyId,
+            deviceName: registration.deviceName
         )
         logger.info("Notifying host that viewer registered with public key")
         await connectionHub.send(.viewerConnected(viewerConnectedMessage), to: pairId, deviceType: .host)
@@ -236,7 +261,8 @@ actor RelayService {
             logger.info("Notifying viewer that host is connected, requesting session state")
             let connectedMessage = ViewerConnectedMessage(
                 publicKey: hostKeyInfo.key,
-                publicKeyId: hostKeyInfo.keyId
+                publicKeyId: hostKeyInfo.keyId,
+                deviceName: hostDeviceName
             )
             await connectionHub.send(.hostConnected(connectedMessage), to: pairId, deviceType: .viewer)
             // Also request current session state from host

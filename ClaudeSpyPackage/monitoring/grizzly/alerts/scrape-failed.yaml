@@ -1,0 +1,38 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: relay-usage
+spec:
+  title: relay-usage
+  interval: 1m
+  rules:
+    - uid: high-relay-rate
+      title: Sustained high message rate
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 600, to: 0 }
+          datasourceUid: grafanacloud-prom
+          model:
+            # Messages relayed per second over 5m
+            expr: rate(claudespy_messages_relayed_total[5m])
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [50] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 15m
+      annotations:
+        summary: "Relay sustained >50 msg/s for 15 minutes"
+        description: "Either legitimate heavy use, a runaway client, or someone abusing the pair. Check `claudespy_active_pairs` and per-pair logs."
+      labels:
+        severity: warning

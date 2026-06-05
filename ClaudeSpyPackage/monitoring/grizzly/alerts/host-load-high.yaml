@@ -1,0 +1,45 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: host-load-high
+spec:
+  title: host-load-high
+  interval: 1m
+  rules:
+    - uid: host-load-high
+      title: Host load > 2x CPU count
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 600, to: 0 }
+          datasourceUid: grafanacloud-prom
+          model:
+            # node_load5 normalized by CPU count. >2 means each core is on average
+            # waiting on 1 other runnable task — a clear sign of contention.
+            # `scalar()` is required: count() returns a labelless vector and
+            # vector matching against node_load5's labels otherwise produces
+            # an empty result (which fires DatasourceNoData every evaluation).
+            expr: |
+              node_load5{instance="hetzner-1"}
+                /
+              scalar(count(count by (cpu) (node_cpu_seconds_total{instance="hetzner-1",mode="idle"})))
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [2] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 10m
+      annotations:
+        summary: "Host load > 2x CPU count for 10 minutes"
+        description: "Sustained CPU contention on the relay host. A noisy-neighbor container is usually responsible. Check `docker stats` and `ps -eo pid,pcpu,pmem,rss,comm --sort=-pcpu | head` on the host."
+      labels:
+        severity: warning

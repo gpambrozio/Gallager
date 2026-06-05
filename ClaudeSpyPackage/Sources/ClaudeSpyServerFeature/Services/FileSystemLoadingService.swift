@@ -19,15 +19,15 @@ public enum FileContentKind: Sendable {
     case unsupported
 }
 
-let imageExtensions: Set<String> = [
+let imageExtensions: Set = [
     "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "ico", "svg",
 ]
 
-let videoExtensions: Set<String> = [
+let videoExtensions: Set = [
     "mp4", "mov", "m4v", "avi", "mkv", "mp3", "wav", "aac", "m4a", "flac", "ogg", "aiff",
 ]
 
-let markdownExtensions: Set<String> = ["md", "markdown"]
+let markdownExtensions: Set = ["md", "markdown"]
 
 // MARK: - File Tree Load Result
 
@@ -39,15 +39,20 @@ public struct FileTreeLoadResult: Sendable {
     public let stableIds: [String: UUID]
     /// Filesystem paths of folders whose children have been loaded.
     public let loadedFolderPaths: Set<String>
+    /// Filesystem paths that are symbolic links. Used by the navigator to render
+    /// links with a distinct visual indicator (italic name + link badge).
+    public let symlinkedPaths: Set<String>
 
     public init(
         root: FullFileOrFolder<TextFileContents>,
         stableIds: [String: UUID],
-        loadedFolderPaths: Set<String>
+        loadedFolderPaths: Set<String>,
+        symlinkedPaths: Set<String> = []
     ) {
         self.root = root
         self.stableIds = stableIds
         self.loadedFolderPaths = loadedFolderPaths
+        self.symlinkedPaths = symlinkedPaths
     }
 }
 
@@ -55,7 +60,10 @@ public struct FileTreeLoadResult: Sendable {
 
 /// A file found during a directory search, with its path information.
 public struct FileSearchResult: Sendable, Identifiable, Equatable {
-    public var id: String { fullPath }
+    public var id: String {
+        fullPath
+    }
+
     public let fullPath: String
     public let relativePath: String
     public let name: String
@@ -130,15 +138,22 @@ extension FileSystemLoadingService: DependencyKey {
                 await Task.detached {
                     var ids = stableIds
                     var loadedPaths = Set<String>()
+                    var symlinkedPaths = Set<String>()
                     let root = loadDirectory(
                         at: url,
                         path: url.path,
                         depth: 1,
                         expandedPaths: expandedPaths,
                         stableIds: &ids,
-                        loadedPaths: &loadedPaths
+                        loadedPaths: &loadedPaths,
+                        symlinkedPaths: &symlinkedPaths
                     )
-                    return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
+                    return FileTreeLoadResult(
+                        root: root,
+                        stableIds: ids,
+                        loadedFolderPaths: loadedPaths,
+                        symlinkedPaths: symlinkedPaths
+                    )
                 }.value
             },
             detectFileKind: { path in
@@ -265,40 +280,49 @@ public struct FakeFile: Sendable {
     public let bundlePath: String?
     /// When true, first read hangs indefinitely (cancelled by task); second read succeeds.
     public let isPending: Bool
+    /// When true, the file is removed from the tree after its first successful read and
+    /// a directory change is signalled. Used to exercise "file deleted while tab is open".
+    public let isEphemeral: Bool
 
     public static func text(_ content: String) -> FakeFile {
-        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: false)
+        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: false, isEphemeral: false)
     }
 
     /// A text file that hangs on first read, succeeds on subsequent reads.
     /// Use with `dynamicEntries` on `inMemory()` to test loading indicators
     /// and directory change detection together.
     public static func pendingText(_ content: String) -> FakeFile {
-        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: true)
+        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: true, isEphemeral: false)
+    }
+
+    /// A text file that, after its content is returned, removes itself from the tree
+    /// and signals a directory change. Used to simulate external file deletion.
+    public static func ephemeralText(_ content: String) -> FakeFile {
+        FakeFile(kind: .text, textContent: content, bundlePath: nil, isPending: false, isEphemeral: true)
     }
 
     public static func markdown(_ content: String) -> FakeFile {
-        FakeFile(kind: .markdown, textContent: content, bundlePath: nil, isPending: false)
+        FakeFile(kind: .markdown, textContent: content, bundlePath: nil, isPending: false, isEphemeral: false)
     }
 
     public static func html(_ content: String) -> FakeFile {
-        FakeFile(kind: .html, textContent: content, bundlePath: nil, isPending: false)
+        FakeFile(kind: .html, textContent: content, bundlePath: nil, isPending: false, isEphemeral: false)
     }
 
     public static func image(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .image, textContent: nil, bundlePath: bundlePath, isPending: false)
+        FakeFile(kind: .image, textContent: nil, bundlePath: bundlePath, isPending: false, isEphemeral: false)
     }
 
     public static func pdf(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .pdf, textContent: nil, bundlePath: bundlePath, isPending: false)
+        FakeFile(kind: .pdf, textContent: nil, bundlePath: bundlePath, isPending: false, isEphemeral: false)
     }
 
     public static func video(bundlePath: String) -> FakeFile {
-        FakeFile(kind: .video, textContent: nil, bundlePath: bundlePath, isPending: false)
+        FakeFile(kind: .video, textContent: nil, bundlePath: bundlePath, isPending: false, isEphemeral: false)
     }
 
     public static func unsupported() -> FakeFile {
-        FakeFile(kind: .unsupported, textContent: nil, bundlePath: nil, isPending: false)
+        FakeFile(kind: .unsupported, textContent: nil, bundlePath: nil, isPending: false, isEphemeral: false)
     }
 }
 
@@ -347,12 +371,23 @@ public extension FileSystemLoadingService {
         let pendingAttempted = OSAllocatedUnfairLock<Set<String>>(initialState: [])
         let dynamicActivated = OSAllocatedUnfairLock(initialState: false)
         let dirContinuation = OSAllocatedUnfairLock<AsyncStream<Void>.Continuation?>(initialState: nil)
+        // Relative paths that have been "deleted" by ephemeral files being read.
+        // Entries in this set are hidden from tree loads and file listings.
+        let deletedRelativePaths = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+
+        /// Returns the relative-path key for a full filesystem path, if one exists.
+        @Sendable
+        func relativePathKey(for path: String) -> String? {
+            capturedRelFiles.keys.first(where: { path.hasSuffix("/" + $0) })
+        }
 
         /// Finds the fake file for a full filesystem path by matching its suffix
-        /// against the relative path index.
+        /// against the relative path index. Returns nil for paths already deleted.
         @Sendable
         func findFile(for path: String) -> FakeFile? {
-            capturedRelFiles.first(where: { path.hasSuffix("/" + $0.key) })?.value
+            guard let key = relativePathKey(for: path) else { return nil }
+            if deletedRelativePaths.withLock({ $0.contains(key) }) { return nil }
+            return capturedRelFiles[key]
         }
 
         return FileSystemLoadingService(
@@ -377,9 +412,12 @@ public extension FileSystemLoadingService {
                     effectiveTree = tree
                 }
 
+                let deleted = deletedRelativePaths.withLock { $0 }
+
                 func buildFolder(
                     _ entries: [String: FakeEntry],
                     path: String,
+                    relativePath: String,
                     depth: Int
                 ) -> FullFileOrFolder<TextFileContents> {
                     let folderUUID = stableId(for: path)
@@ -389,6 +427,8 @@ public extension FileSystemLoadingService {
                     loadedPaths.insert(path)
                     var children = OrderedDictionary<String, FullFileOrFolder<TextFileContents>>()
                     for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
+                        let childRelative = relativePath.isEmpty ? name : relativePath + "/" + name
+                        if deleted.contains(childRelative) { continue }
                         let childPath = path + "/" + name
                         switch entry {
                         case .file:
@@ -396,13 +436,18 @@ public extension FileSystemLoadingService {
                                 File(contents: TextFileContents(text: ""), persistentID: stableId(for: childPath))
                             )
                         case let .folder(subEntries):
-                            children[name] = buildFolder(subEntries, path: childPath, depth: depth - 1)
+                            children[name] = buildFolder(
+                                subEntries,
+                                path: childPath,
+                                relativePath: childRelative,
+                                depth: depth - 1
+                            )
                         }
                     }
                     return .folder(FullFolder<TextFileContents>(children: children, persistentID: folderUUID))
                 }
 
-                let root = buildFolder(effectiveTree, path: rootPath, depth: 1)
+                let root = buildFolder(effectiveTree, path: rootPath, relativePath: "", depth: 1)
                 return FileTreeLoadResult(root: root, stableIds: ids, loadedFolderPaths: loadedPaths)
             },
             detectFileKind: { path in
@@ -442,11 +487,30 @@ public extension FileSystemLoadingService {
                     }
                 }
 
-                if let text = fake.textContent { return text }
-                if let bundlePath = fake.bundlePath {
-                    return try? String(contentsOfFile: bundlePath, encoding: .utf8)
+                let content: String?
+                if let text = fake.textContent {
+                    content = text
+                } else if let bundlePath = fake.bundlePath {
+                    content = try? String(contentsOfFile: bundlePath, encoding: .utf8)
+                } else {
+                    content = nil
                 }
-                return nil
+
+                // Ephemeral file: after returning content, mark as deleted and signal directory change
+                if fake.isEphemeral, let key = relativePathKey(for: path) {
+                    let wasNewlyDeleted = deletedRelativePaths.withLock { deleted -> Bool in
+                        guard !deleted.contains(key) else { return false }
+                        deleted.insert(key)
+                        return true
+                    }
+                    if wasNewlyDeleted {
+                        dirContinuation.withLock { continuation in
+                            _ = continuation?.yield()
+                        }
+                    }
+                }
+
+                return content
             },
             readImageFile: { path in
                 guard let bundlePath = findFile(for: path)?.bundlePath else { return nil }
@@ -486,9 +550,11 @@ public extension FileSystemLoadingService {
                 } else {
                     effectiveTree = tree
                 }
+                let deleted = deletedRelativePaths.withLock { $0 }
                 func collect(_ entries: [String: FakeEntry], prefix: String) {
                     for (name, entry) in entries.sorted(by: { $0.key < $1.key }) {
                         let relativePath = prefix.isEmpty ? name : prefix + "/" + name
+                        if deleted.contains(relativePath) { continue }
                         switch entry {
                         case .file:
                             let fullPath = rootPath + "/" + relativePath
@@ -517,7 +583,7 @@ public extension FileSystemLoadingService {
 
 /// OS-level files and directories to skip when building the file tree or
 /// walking the filesystem for search.
-private let skippedEntries: Set<String> = [
+private let skippedEntries: Set = [
     ".DS_Store", ".Trash", ".Spotlight-V100", ".fseventsd",
     ".TemporaryItems", ".DocumentRevisions-V100",
 ]
@@ -674,9 +740,9 @@ private func collectFilesByWalking(
     }
 }
 
-// FullFileOrFolder contains File which wraps FileWrapper (not Sendable).
-// Safe here because we only transfer the tree once from Task.detached back to MainActor,
-// and TextFileContents holds only a String with no shared mutable state.
+/// FullFileOrFolder contains File which wraps FileWrapper (not Sendable).
+/// Safe here because we only transfer the tree once from Task.detached back to MainActor,
+/// and TextFileContents holds only a String with no shared mutable state.
 extension FullFileOrFolder: @retroactive @unchecked Sendable { }
 
 /// Recursively loads a directory into a `FullFileOrFolder` hierarchy,
@@ -687,7 +753,8 @@ private func loadDirectory(
     depth: Int,
     expandedPaths: Set<String>,
     stableIds: inout [String: UUID],
-    loadedPaths: inout Set<String>
+    loadedPaths: inout Set<String>,
+    symlinkedPaths: inout Set<String>
 ) -> FullFileOrFolder<TextFileContents> {
     let folderUUID = stableIds[path] ?? {
         let id = UUID()
@@ -699,7 +766,7 @@ private func loadDirectory(
     guard
         let items = try? fm.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )
     else {
@@ -721,17 +788,36 @@ private func loadDirectory(
 
         if skippedEntries.contains(name) { continue }
 
-        let isDirectory = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        let childPath = item.path
+        // URL.isDirectoryKey reports false for any symlink — even one pointing to a folder —
+        // so symlinks need an explicit follow via FileManager.fileExists to classify the target.
+        let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let isSymbolicLink = resourceValues?.isSymbolicLink == true
+        let isDirectory: Bool
+        if isSymbolicLink {
+            var dirFlag: ObjCBool = false
+            isDirectory = fm.fileExists(atPath: item.path, isDirectory: &dirFlag) && dirFlag.boolValue
+        } else {
+            isDirectory = resourceValues?.isDirectory == true
+        }
+        // Preserve the symlink-relative path through recursion so paths shown to the user
+        // and stored in stableIds reflect the link chain rather than the resolved target.
+        let childPath = path + "/" + name
+        if isSymbolicLink {
+            symlinkedPaths.insert(childPath)
+        }
 
         if isDirectory {
+            // contentsOfDirectory(at:) refuses to traverse a symlink (POSIX "Not a directory"),
+            // so resolve before recursing while keeping childPath as the symlink path.
+            let urlForRecursion = isSymbolicLink ? item.resolvingSymlinksInPath() : item
             children[name] = loadDirectory(
-                at: item,
+                at: urlForRecursion,
                 path: childPath,
                 depth: depth - 1,
                 expandedPaths: expandedPaths,
                 stableIds: &stableIds,
-                loadedPaths: &loadedPaths
+                loadedPaths: &loadedPaths,
+                symlinkedPaths: &symlinkedPaths
             )
         } else {
             let fileUUID = stableIds[childPath] ?? {

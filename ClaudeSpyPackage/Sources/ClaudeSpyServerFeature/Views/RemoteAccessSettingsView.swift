@@ -199,7 +199,6 @@ public struct RemoteAccessSettingsView: View {
         .padding(.top, 4)
     }
 
-    @ViewBuilder
     private var unpairedView: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Pair your iPhone to monitor Claude sessions remotely.")
@@ -217,7 +216,6 @@ public struct RemoteAccessSettingsView: View {
         }
     }
 
-    @ViewBuilder
     private func pairingCodeView(code: String, expiresAt: Date) -> some View {
         VStack(alignment: .center, spacing: 16) {
             Text("Enter this code on your iPhone:")
@@ -266,7 +264,6 @@ public struct RemoteAccessSettingsView: View {
         .padding(.vertical, 8)
     }
 
-    @ViewBuilder
     private func errorView(message: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -374,6 +371,7 @@ private struct ViewerRow: View {
             switch connection.state {
             case .connected where connection.isViewerConnected:
                 Text("Connected")
+                    .accessibilityLabel("Viewer connected")
             case .connected:
                 Text("Waiting for viewer")
             case .connecting:

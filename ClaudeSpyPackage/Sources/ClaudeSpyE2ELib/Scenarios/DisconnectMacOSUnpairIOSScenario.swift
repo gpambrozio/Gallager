@@ -12,15 +12,23 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 2. Server: block the host (macOS) from reconnecting and disconnect it.
         //    This prevents auto-reconnection so the unpair truly happens while macOS is offline.
         TestStep.serverBlockDevice(.host)
-        TestStep.wait(seconds: 3)
         TestStep.macWaitForElementToDisappear(titled: "Connected")
         TestStep.macScreenshot(label: "mac-after-disconnect")
 
-        // 3. iOS: navigate to Manage Hosts and unpair
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
+        // 3. iOS: navigate to Manage Hosts and unpair via Settings sheet
+        TestStep.iosTap(.label("Settings"))
+        // Wait for the sheet itself before looking inside it; otherwise a
+        // failure here reports "Paired Hosts not found" which hides the
+        // real problem (sheet never presented).
+        TestStep.iosWaitForElement(.label("Settings"), timeout: 3)
+        TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
+        // The first synthesized tap on a NavigationLink inside a freshly
+        // presented sheet doesn't reliably activate it on iOS — the second
+        // tap then pushes ManageHostsView onto the sheet's NavigationStack.
         TestStep.iosTap(.labelContains("Paired Hosts"))
-        TestStep.wait(seconds: 0.5)
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.labelContains("Paired Hosts"))
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-paired-hosts")
 
         // 4. Swipe left to reveal delete button, tap it
@@ -32,7 +40,6 @@ public enum DisconnectMacOSUnpairIOSScenario {
 
         // 5. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
-        TestStep.wait(seconds: 2)
 
         // 6. Verify server has 0 pairings (while macOS is still blocked)
         TestStep.waitForNoPairings(timeout: 15)
@@ -41,8 +48,7 @@ public enum DisconnectMacOSUnpairIOSScenario {
         // 7. Unblock macOS so it can reconnect. The server will reject it with INVALID_PAIR
         //    since the pairing was removed. macOS should detect the error and clean up.
         TestStep.serverUnblockDevice(.host)
-        TestStep.wait(seconds: 15)
-        TestStep.macWaitForElement(titled: "Generate Pairing Code")
+        TestStep.macWaitForElement(titled: "Generate Pairing Code", timeout: 20)
 
         // 8. Verify macOS cleaned up
         TestStep.macScreenshot(label: "mac-invalid-pair-cleanup")

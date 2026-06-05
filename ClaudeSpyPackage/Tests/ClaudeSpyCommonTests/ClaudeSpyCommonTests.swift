@@ -116,6 +116,241 @@ struct StripDAQueriesTests {
     }
 }
 
+// MARK: - stripDSRQueries
+
+@Suite("TerminalResponseFilter.stripDSRQueries")
+struct StripDSRQueriesTests {
+    @Test("Strips CPR query ESC[6n")
+    func stripsCPRQuery() {
+        let input = Data([0x1B, 0x5B, 0x36, 0x6E]) // ESC [ 6 n
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DECXCPR query ESC[?6n")
+    func stripsDECXCPRQuery() {
+        let input = Data([0x1B, 0x5B, 0x3F, 0x36, 0x6E]) // ESC [ ? 6 n
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips status query ESC[5n")
+    func stripsStatusQuery() {
+        let input = Data([0x1B, 0x5B, 0x35, 0x6E]) // ESC [ 5 n
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DEC private status query ESC[?15n")
+    func stripsDECPrivateMultiDigitQuery() {
+        // ESC [ ? 1 5 n
+        let input = Data([0x1B, 0x5B, 0x3F, 0x31, 0x35, 0x6E])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DSR query with multiple params ESC[?6;0n")
+    func stripsMultiParamQuery() {
+        // ESC [ ? 6 ; 0 n
+        let input = Data([0x1B, 0x5B, 0x3F, 0x36, 0x3B, 0x30, 0x6E])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DSR query embedded in surrounding data")
+    func stripsEmbeddedDSR() {
+        // "hello" + ESC[?6n + "world"
+        var input = Data("hello".utf8)
+        input.append(contentsOf: [0x1B, 0x5B, 0x3F, 0x36, 0x6E])
+        input.append(Data("world".utf8))
+
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == Data("helloworld".utf8))
+    }
+
+    @Test("Strips multiple DSR queries from same chunk")
+    func stripsMultipleDSRQueries() {
+        // ESC[6n + "text" + ESC[?6n
+        var input = Data([0x1B, 0x5B, 0x36, 0x6E])
+        input.append(Data("text".utf8))
+        input.append(contentsOf: [0x1B, 0x5B, 0x3F, 0x36, 0x6E])
+
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == Data("text".utf8))
+    }
+
+    @Test("Preserves data with no DSR queries")
+    func preservesNormalData() {
+        let input = Data("normal terminal output".utf8)
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves other ESC sequences ending in 'n'")
+    func preservesNonDSREscapeSequences() {
+        // ESC [ ; ; n — empty params, no digits → not a DSR query (no param bytes)
+        let input = Data([0x1B, 0x5B, 0x3B, 0x3B, 0x6E])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves SGR sequences (different terminator)")
+    func preservesSGR() {
+        // ESC [ 3 1 m (red foreground)
+        let input = Data([0x1B, 0x5B, 0x33, 0x31, 0x6D])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves DA query (different terminator)")
+    func preservesDAQuery() {
+        // ESC [ c — DA query, terminator 'c' not 'n'
+        let input = Data([0x1B, 0x5B, 0x63])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles empty data")
+    func handlesEmptyData() {
+        let result = TerminalResponseFilter.stripDSRQueries(Data())
+        #expect(result.isEmpty)
+    }
+
+    @Test("Handles lone ESC at end of data")
+    func handlesLoneESCAtEnd() {
+        var input = Data("text".utf8)
+        input.append(0x1B)
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles ESC[ without parameters or terminator")
+    func handlesIncompleteCSI() {
+        var input = Data("text".utf8)
+        input.append(contentsOf: [0x1B, 0x5B])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles ESC[? without parameters or terminator")
+    func handlesIncompletePrivateCSI() {
+        var input = Data("text".utf8)
+        input.append(contentsOf: [0x1B, 0x5B, 0x3F])
+        let result = TerminalResponseFilter.stripDSRQueries(input)
+        #expect(result == input)
+    }
+}
+
+// MARK: - stripDECRQMQueries
+
+@Suite("TerminalResponseFilter.stripDECRQMQueries")
+struct StripDECRQMQueriesTests {
+    @Test("Strips DEC private DECRQM ESC[?2026$p (synchronized output)")
+    func stripsSynchronizedOutputQuery() {
+        // ESC [ ? 2 0 2 6 $ p
+        let input = Data([0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36, 0x24, 0x70])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips standard DECRQM ESC[4$p")
+    func stripsStandardDECRQM() {
+        // ESC [ 4 $ p
+        let input = Data([0x1B, 0x5B, 0x34, 0x24, 0x70])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DECRQM with multi-digit param ESC[?1049$p")
+    func stripsMultiDigitParam() {
+        // ESC [ ? 1 0 4 9 $ p
+        let input = Data([0x1B, 0x5B, 0x3F, 0x31, 0x30, 0x34, 0x39, 0x24, 0x70])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips DECRQM embedded in surrounding data")
+    func stripsEmbeddedDECRQM() {
+        var input = Data("hello".utf8)
+        input.append(contentsOf: [0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36, 0x24, 0x70])
+        input.append(Data("world".utf8))
+
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == Data("helloworld".utf8))
+    }
+
+    @Test("Strips multiple DECRQM queries from same chunk")
+    func stripsMultipleDECRQMQueries() {
+        // ESC[?2026$p + "text" + ESC[4$p
+        var input = Data([0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36, 0x24, 0x70])
+        input.append(Data("text".utf8))
+        input.append(contentsOf: [0x1B, 0x5B, 0x34, 0x24, 0x70])
+
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == Data("text".utf8))
+    }
+
+    @Test("Preserves DECRPM response (terminator y, not p)")
+    func preservesDECRPMResponse() {
+        // ESC [ ? 2 0 2 6 ; 2 $ y — DECRPM response, not a query
+        let input = Data([0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36, 0x3B, 0x32, 0x24, 0x79])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves SGR sequences (no $ intermediate)")
+    func preservesSGR() {
+        // ESC [ 3 1 m
+        let input = Data([0x1B, 0x5B, 0x33, 0x31, 0x6D])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves DA query (no $ intermediate)")
+    func preservesDAQuery() {
+        let input = Data([0x1B, 0x5B, 0x63])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves DSR query (different terminator)")
+    func preservesDSRQuery() {
+        // ESC [ ? 6 n
+        let input = Data([0x1B, 0x5B, 0x3F, 0x36, 0x6E])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves normal data without ESC")
+    func preservesNormalData() {
+        let input = Data("normal output with $p somewhere".utf8)
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles empty data")
+    func handlesEmptyData() {
+        let result = TerminalResponseFilter.stripDECRQMQueries(Data())
+        #expect(result.isEmpty)
+    }
+
+    @Test("Handles ESC[?digits without trailing $p")
+    func handlesIncompleteDECRQM() {
+        // ESC [ ? 2 0 2 6 — no $p terminator
+        let input = Data([0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles ESC[digits$ without trailing p")
+    func handlesIncompleteIntermediate() {
+        // ESC [ 4 $ — no final byte
+        let input = Data([0x1B, 0x5B, 0x34, 0x24])
+        let result = TerminalResponseFilter.stripDECRQMQueries(input)
+        #expect(result == input)
+    }
+}
+
 // MARK: - stripKittyKeyboardProtocol
 
 @Suite("TerminalResponseFilter.stripKittyKeyboardProtocol")
@@ -374,6 +609,34 @@ struct IsTerminalResponseTests {
         #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
     }
 
+    @Test("Detects extended cursor position report (DECXCPR) ESC[?58;3;1R")
+    func detectsExtendedCursorPositionReport() {
+        // ESC [ ? 5 8 ; 3 ; 1 R — exactly the leaked form reported by users
+        let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x35, 0x38, 0x3B, 0x33, 0x3B, 0x31, 0x52]
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects DEC private DECRPM response ESC[?2026;2$y")
+    func detectsDECRPMPrivateResponse() {
+        // ESC [ ? 2 0 2 6 ; 2 $ y — exactly the leaked form reported by users
+        let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x32, 0x30, 0x32, 0x36, 0x3B, 0x32, 0x24, 0x79]
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects standard DECRPM response ESC[4;2$y")
+    func detectsDECRPMStandardResponse() {
+        // ESC [ 4 ; 2 $ y — non-private DECRPM
+        let data: [UInt8] = [0x1B, 0x5B, 0x34, 0x3B, 0x32, 0x24, 0x79]
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Catch-all: any ESC[? sequence is a response")
+    func catchAllDECPrivateResponses() {
+        // Hypothetical future DEC private response with novel terminator
+        let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x39, 0x39, 0x39, 0x40] // ESC [ ? 9 9 9 @
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
     @Test("Detects kitty keyboard protocol response ESC[?1u")
     func detectsKittyProtocolResponse() {
         let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x31, 0x75] // ESC [ ? 1 u
@@ -391,5 +654,68 @@ struct IsTerminalResponseTests {
     func rejectsShortData() {
         let data: [UInt8] = [0x1B, 0x5B]
         #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+}
+
+// MARK: - TerminalURLDetector
+
+@Suite("TerminalURLDetector regex detection")
+struct TerminalURLDetectorRegexTests {
+    @Test("Detects a simple plain-text URL surrounded by spaces")
+    func detectsPlainURL() {
+        let line = "see https://example.com for details"
+        let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+        #expect(urls.count == 1)
+        #expect(urls.first?.url == "https://example.com")
+        #expect(urls.first?.startCol == 4)
+        #expect(urls.first?.endCol == 4 + "https://example.com".utf16.count)
+    }
+
+    @Test("Stops URL match at NULL char from uninitialized terminal cells (issue #462)")
+    func urlStopsAtNullChar() {
+        // Reproduces issue #462: when a shell prompt theme writes right-aligned
+        // content (e.g. exit code) via cursor positioning, the cells between
+        // the typed URL and the right-aligned text are never written. SwiftTerm's
+        // `BufferLine.translateToString` returns NULL chars (`\u{0}`, from
+        // CharData.code == 0) for those cells. The URL regex must treat NULL
+        // as a terminator — otherwise the match runs past the URL into the
+        // right-aligned content, painting the underline across the whole line.
+        let line = "$ git clone http://github.com/idonotexist/repo\u{0}\u{0}\u{0}\u{0}\u{0}130"
+        let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+        #expect(urls.count == 1)
+        #expect(urls.first?.url == "http://github.com/idonotexist/repo")
+        let prefixCount = "$ git clone ".utf16.count
+        let urlCount = "http://github.com/idonotexist/repo".utf16.count
+        #expect(urls.first?.startCol == prefixCount)
+        #expect(urls.first?.endCol == prefixCount + urlCount)
+    }
+
+    @Test("Stops URL match at any control character")
+    func urlStopsAtControlChars() {
+        // Cells written with literal control chars (rare but possible — e.g.
+        // `cat -v` style output) should also terminate URL matching. Test a
+        // representative sampling: SOH, BEL, BS, ESC, DEL.
+        for control in ["\u{1}", "\u{7}", "\u{8}", "\u{1B}", "\u{7F}"] {
+            let line = "x http://example.com\(control)trailing"
+            let urls = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? line : nil }
+
+            #expect(urls.count == 1, "Failed for control char \\u{\(String(control.unicodeScalars.first!.value, radix: 16))}")
+            #expect(urls.first?.url == "http://example.com")
+        }
+    }
+
+    @Test("Allows tabs and existing whitespace to terminate URLs (regression check)")
+    func urlStopsAtTabAndSpace() {
+        let withTab = "x http://example.com\tfollowing"
+        let urlsTab = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withTab : nil }
+        #expect(urlsTab.count == 1)
+        #expect(urlsTab.first?.url == "http://example.com")
+
+        let withSpace = "x http://example.com following"
+        let urlsSpace = TerminalURLDetector.detectURLs(row: 0) { $0 == 0 ? withSpace : nil }
+        #expect(urlsSpace.count == 1)
+        #expect(urlsSpace.first?.url == "http://example.com")
     }
 }

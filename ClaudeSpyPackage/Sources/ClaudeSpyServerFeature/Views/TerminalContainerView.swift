@@ -12,6 +12,10 @@ typealias TerminalStateChangeHandler = @MainActor (StreamState, Int, Int) -> Voi
 /// Callback type for reporting terminal title changes to parent view
 typealias TerminalTitleChangeHandler = @MainActor (String) -> Void
 
+/// Callback type for handling URL clicks in the terminal. Returns `true` if the
+/// callback handled the URL, `false` to fall back to `NSWorkspace.shared.open`.
+typealias TerminalOpenURLHandler = @MainActor (URL) -> Bool
+
 // MARK: - Terminal Container View
 
 /// A self-contained SwiftUI view that mirrors a tmux pane.
@@ -29,6 +33,10 @@ struct TerminalContainerView: NSViewRepresentable {
     var autoFocus = true
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
+    var onOpenURL: TerminalOpenURLHandler?
+    /// Fires whenever this terminal becomes the window's first responder.
+    /// Used to mirror focus back to tmux so external clients see the same active pane.
+    var onFocus: (@MainActor () -> Void)?
 
     @Environment(AppSettings.self) private var settings
     @Environment(TmuxService.self) private var tmuxService
@@ -60,6 +68,11 @@ struct TerminalContainerView: NSViewRepresentable {
             onTitleChange: onTitleChange
         )
 
+        // URL-click handler is set on every layout pass so it picks up fresh
+        // state captured by parent closures (window/session selection).
+        coordinator.terminalView.onOpenURL = onOpenURL
+        coordinator.terminalView.onBecomeFirstResponder = onFocus
+
         return coordinator.terminalView
     }
 
@@ -83,6 +96,11 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // Update settings if changed
         coordinator.updateSettings(settings)
+
+        // Re-bind the URL click handler so closures captured here reflect the
+        // current parent state on every layout pass.
+        nsView.onOpenURL = onOpenURL
+        nsView.onBecomeFirstResponder = onFocus
 
         // Update container size on layout changes
         coordinator.updateContainerSize(nsView.frame.size)
@@ -193,6 +211,17 @@ struct TerminalContainerView: NSViewRepresentable {
                 }
             }
 
+            // Wire up file-drop forwarding. For the local mirror the dropped
+            // paths are already addressable on the host filesystem, so we
+            // skip the SendDroppedFiles round-trip and paste the paths
+            // straight into tmux's bracketed-paste buffer.
+            terminalView.onFileDrop = { [weak self] urls in
+                guard let self, let paneState = self.paneState else { return }
+                Task {
+                    await self.handleLocalFileDrop(urls: urls, target: paneState.target)
+                }
+            }
+
             // Wire up title change handling
             terminalView.onTitleChange = { [weak self] title in
                 self?.handleTitleChange(title)
@@ -248,6 +277,29 @@ struct TerminalContainerView: NSViewRepresentable {
             }
         }
 
+        private func handleLocalFileDrop(urls: [URL], target: String) async {
+            guard
+                let tmuxService,
+                let content = DroppedPathFormatter.format(urls: urls)
+            else { return }
+            do {
+                // Per-drop buffer name. The host's tmux command queue isn't
+                // strictly ordered across our async load/paste pair (the
+                // process spawn for one drop's `paste-buffer` can land after
+                // the next drop's `load-buffer` if the user drops twice
+                // quickly), so a stable name like `gallager-drop` would lose
+                // the first drop's contents under that race. The UUID suffix
+                // gives each drop its own buffer; `-d` cleans them up.
+                try await tmuxService.loadAndPasteBuffer(
+                    target: target,
+                    content: content,
+                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                )
+            } catch {
+                print("Failed to paste dropped files into tmux: \(error)")
+            }
+        }
+
         /// Updates the pane state when tmux rearranges pane indices.
         /// The `onInput` closure reads `self.paneState.target` on each call,
         /// so updating the stored state is sufficient — no closure re-wiring needed.
@@ -260,6 +312,7 @@ struct TerminalContainerView: NSViewRepresentable {
             // after the pane is destroyed (prevents SIGABRT from NSTask).
             terminalView.onInput = nil
             terminalView.onRawInput = nil
+            terminalView.onFileDrop = nil
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil

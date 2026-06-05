@@ -18,8 +18,10 @@ public enum ProjectListScenario {
         // ── Click + button to open new session popover ───────────
 
         TestStep.log("Opening new session popover")
-        TestStep.macClickButton(titled: "Create new session")
-        TestStep.wait(seconds: 2)
+        TestStep.macCGClickElement(
+            query: .identifier("new-session-local"),
+            pointInRect: { CGPoint(x: $0.maxX - 4, y: $0.midY) }
+        )
 
         // ── Verify mock projects appear ──────────────────────────
 

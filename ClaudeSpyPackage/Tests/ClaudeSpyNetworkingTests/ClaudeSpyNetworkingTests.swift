@@ -154,7 +154,8 @@ struct PushModelsTests {
                 "senderKeyId": "sender-key",
                 "version": 1
             },
-            "pairId": "pair-xyz"
+            "pairId": "pair-xyz",
+            "silent": false
         }
         """
 
@@ -306,6 +307,13 @@ struct TmuxKeyCsiParsingTests {
         #expect(TmuxKey.from(bytes: data) == [.backtab])
     }
 
+    @Test("Parses CSI u for Shift+Enter as shiftEnter")
+    func parsesCsiUShiftEnter() {
+        // ESC [ 13 ; 2 u — Shift+Enter (codepoint 13, modifier 2 = 1 + shift)
+        let data = Data([0x1B, 0x5B, 0x31, 0x33, 0x3B, 0x32, 0x75])
+        #expect(TmuxKey.from(bytes: data) == [.shiftEnter])
+    }
+
     @Test("Unknown CSI sequence produces no garbage output")
     func unknownCsiProducesNoGarbage() {
         // ESC [ 200 ~ — bracketed paste start (unknown extended key)
@@ -362,7 +370,8 @@ struct WebSocketMessageTests {
                     "senderKeyId": "sender",
                     "version": 1
                 },
-                "pairId": "test-pair"
+                "pairId": "test-pair",
+                "silent": false
             }
         }
         """
@@ -469,64 +478,125 @@ struct TerminalStreamMessageTests {
     }
 }
 
-@Suite("ClaudeProjectInfo Tests")
-struct ClaudeProjectInfoTests {
-    @Test("Round-trip preserves claudeConfigDir")
+@Suite("AgentProject Tests")
+struct AgentProjectTests {
+    @Test("Round-trip preserves configDir")
     func roundTripPreservesConfigDir() throws {
-        let original = ClaudeProjectInfo(
+        let original = AgentProject(
             name: "MyProject",
             path: "/Users/test/MyProject",
             lastUsed: Date(timeIntervalSince1970: 1_704_067_200),
-            claudeConfigDir: "/Users/test/work-claude"
+            configDir: "/Users/test/work-claude",
+            pluginID: "claude-code"
         )
 
         let encoder = JSONEncoder()
         let decoder = JSONDecoder()
         let data = try encoder.encode(original)
-        let decoded = try decoder.decode(ClaudeProjectInfo.self, from: data)
+        let decoded = try decoder.decode(AgentProject.self, from: data)
 
         #expect(decoded == original)
-        #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
+        #expect(decoded.configDir == "/Users/test/work-claude")
     }
 
-    @Test("Decodes legacy JSON without claudeConfigDir as nil")
-    func decodesLegacyJSON() throws {
+    @Test("Decodes JSON without configDir as nil")
+    func decodesJSONWithoutConfigDir() throws {
         let json = """
         {
-            "name": "LegacyProject",
-            "path": "/Users/test/LegacyProject",
-            "lastUsed": null
+            "name": "PlainProject",
+            "path": "/Users/test/PlainProject",
+            "lastUsed": null,
+            "pluginID": "claude-code"
         }
         """
 
-        let decoded = try JSONDecoder().decode(ClaudeProjectInfo.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
 
-        #expect(decoded.name == "LegacyProject")
-        #expect(decoded.path == "/Users/test/LegacyProject")
-        #expect(decoded.claudeConfigDir == nil)
+        #expect(decoded.name == "PlainProject")
+        #expect(decoded.path == "/Users/test/PlainProject")
+        #expect(decoded.configDir == nil)
+        #expect(decoded.pluginID == "claude-code")
+    }
+
+    @Test("Decodes Codex project JSON")
+    func decodesCodexProject() throws {
+        let json = """
+        {
+            "name": "CodexProject",
+            "path": "/Users/test/CodexProject",
+            "lastUsed": null,
+            "pluginID": "codex"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AgentProject.self, from: Data(json.utf8))
+
+        #expect(decoded.pluginID == "codex")
+    }
+}
+
+@Suite("AgentSession Cross-Version Decoding")
+struct AgentSessionCrossVersionTests {
+    @Test("Round-trips an AgentSession carrying its AgentState")
+    func decodesAgentSession() throws {
+        // The state enum's JSON shape is synthesized, so encode a real session
+        // rather than hand-writing it, then confirm the derived bits.
+        let original = AgentSession(
+            paneId: "%0",
+            pluginID: "claude-code",
+            detectedProjectPath: "/Users/test/Proj",
+            state: .working
+        )
+
+        let decoded = try JSONDecoder().decode(
+            AgentSession.self, from: JSONEncoder().encode(original)
+        )
+
+        #expect(decoded.paneId == "%0")
+        #expect(decoded.pluginID == "claude-code")
+        #expect(decoded.detectedProjectPath == "/Users/test/Proj")
+        #expect(decoded.state == .working)
+        #expect(decoded.isWorking == true)
+        #expect(decoded.needsAttention == false)
+    }
+
+    @Test("Decodes legacy payload without pluginID, defaulting to claude-code")
+    func decodesLegacyWithoutPluginID() throws {
+        let json = """
+        {
+            "paneId": "%0",
+            "detectedProjectPath": "/Users/test/Proj"
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: Data(json.utf8))
+
+        #expect(decoded.pluginID == "claude-code")
+        #expect(decoded.isWorking == false)
+        #expect(decoded.needsAttention == false)
     }
 }
 
 @Suite("CreateTmuxSession Tests")
 struct CreateTmuxSessionTests {
-    @Test("Round-trip preserves claudeConfigDir")
+    @Test("Round-trip preserves configDir")
     func roundTripPreservesConfigDir() throws {
         let original = CreateTmuxSession(
             sessionName: "work",
             width: 120,
             height: 40,
             workingDirectory: "/Users/test/work",
-            claudeConfigDir: "/Users/test/work-claude"
+            configDir: "/Users/test/work-claude"
         )
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: data)
 
         #expect(decoded == original)
-        #expect(decoded.claudeConfigDir == "/Users/test/work-claude")
+        #expect(decoded.configDir == "/Users/test/work-claude")
     }
 
-    @Test("Decodes legacy JSON without claudeConfigDir as nil")
+    @Test("Decodes legacy JSON without configDir as nil")
     func decodesLegacyJSON() throws {
         let json = """
         {
@@ -542,6 +612,36 @@ struct CreateTmuxSessionTests {
         #expect(decoded.width == 80)
         #expect(decoded.height == 24)
         #expect(decoded.workingDirectory == nil)
-        #expect(decoded.claudeConfigDir == nil)
+        #expect(decoded.configDir == nil)
+        #expect(decoded.pluginID == "claude-code")
+    }
+
+    @Test("Round-trip preserves Codex pluginID")
+    func roundTripPreservesCodexPluginID() throws {
+        let original = CreateTmuxSession(
+            sessionName: "codex-work",
+            width: 120,
+            height: 40,
+            workingDirectory: "/Users/test/codex-work",
+            pluginID: "codex"
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CreateTmuxSession.self, from: data)
+
+        #expect(decoded == original)
+        #expect(decoded.pluginID == "codex")
+    }
+
+    @Test("Defaults pluginID to claude-code when omitted on init")
+    func defaultsPluginIDToClaude() {
+        let session = CreateTmuxSession(
+            sessionName: "work",
+            width: 80,
+            height: 24,
+            workingDirectory: "/Users/test/work"
+        )
+
+        #expect(session.pluginID == "claude-code")
     }
 }

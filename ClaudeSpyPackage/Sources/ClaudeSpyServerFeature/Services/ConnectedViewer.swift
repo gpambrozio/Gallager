@@ -125,6 +125,15 @@ final public class ConnectedViewer: Identifiable {
     /// Each new command awaits the previous one to preserve WebSocket ordering.
     private var pendingFireAndForget: Task<Void, Never>?
 
+    /// Serial chain for outbound encrypted messages. Encrypted sends have multiple
+    /// suspension points (E2EE check, encrypt, WebSocket send), so concurrent
+    /// callers can interleave and reorder messages on the wire. Chaining each
+    /// send on the previous one guarantees viewers receive messages in the same
+    /// order the host enqueued them — critical for hook events vs. session state
+    /// pushes, which would otherwise race and leave `claudeSession` wiped on the
+    /// viewer.
+    private var pendingSend: Task<Void, Never>?
+
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
 
@@ -145,8 +154,28 @@ final public class ConnectedViewer: Identifiable {
     /// Called when partner's public key is received (for persisting to settings)
     public var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
+    /// Called when the partner's device name is received (for persisting to settings).
+    /// Fires whenever the relay reports a (possibly updated) viewer device name —
+    /// e.g. on `HostRegisteredMessage.viewerDeviceName` or `ViewerConnectedMessage.deviceName`.
+    public var onPartnerDeviceNameReceived: (@MainActor @Sendable (String) async -> Void)?
+
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
+
+    /// Provides the current pending-attention session count, used as the badge
+    /// value on outgoing push notifications so the iOS app icon badge stays in
+    /// sync with the host's needs-attention count.
+    public var onPendingSessionCount: (@MainActor @Sendable () async -> Int)?
+
+    /// Called when this viewer submits a plugin response (iOS→Mac). The
+    /// coordinator routes it to the owning plugin core's `deliverResponse`.
+    /// Mirrors how `onCommand` routes inbound viewer messages up to the manager.
+    public var onAgentResponseSubmission: (@Sendable (AgentResponseSubmissionMessage) async -> Void)?
+
+    /// Called once the viewer becomes fully connected (E2EE up + peerHello
+    /// validated), the same point session-state pushes become valid. The manager
+    /// uses this to push the current plugin presentations on connect (spec §7.2).
+    public var onViewerConnected: (@MainActor @Sendable () async -> Void)?
 
     // MARK: - Initialization
 
@@ -253,21 +282,139 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Sending Messages
 
-    /// Send a hook event to be relayed to viewer (encrypted)
-    public func sendHookEvent(_ event: HookEvent, skipPushNotification: Bool = false) async {
+    /// Send a high-frequency per-session state update to this viewer (encrypted,
+    /// spec §7.2). The `AgentState` carries the open response form, so this is the
+    /// single per-session push.
+    public func sendAgentSessionStatus(
+        sessionId: String,
+        pluginId: String,
+        state: AgentState
+    ) async {
+        guard self.state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send agent session status")
+            return
+        }
+        let message = WebSocketMessage.agentSessionStatus(
+            AgentSessionStatusMessage(
+                pairId: id,
+                sessionId: sessionId,
+                pluginId: pluginId,
+                state: state,
+                timestamp: Date()
+            )
+        )
+        await sendEncrypted(message)
+    }
+
+    /// Send an encrypted push notification with arbitrary title/body to this
+    /// viewer. Used by `notification.create --push` so CLI-triggered alerts
+    /// follow the same APNs path as Claude hook events.
+    public func sendCustomPushNotification(
+        title: String,
+        body: String,
+        paneId: String?
+    ) async {
         guard state.isConnected else {
-            logger.debug("Not connected to \(viewerName), cannot send hook event")
+            logger.debug("Not connected to \(viewerName), cannot send custom push")
             return
         }
 
-        let message = WebSocketMessage.hookEvent(
-            HookEventMessage(pairId: id, event: event)
+        guard await e2eeService.isSessionEstablished else {
+            logger.error("E2EE session not established, cannot send custom push")
+            return
+        }
+
+        let content = NotificationContent(
+            title: title,
+            body: body,
+            eventType: "cli.notify",
+            pairId: id,
+            paneId: paneId,
+            timestamp: Date()
+        )
+
+        do {
+            let encryptedContent = try await e2eeService.encrypt(content)
+            let badge = await onPendingSessionCount?()
+            let payload = EncryptedPushPayload(
+                encryptedContent: encryptedContent,
+                pairId: id,
+                badge: badge,
+                silent: false
+            )
+            await send(.encryptedPush(payload))
+            // Log the (pre-formatted, agent-blind) notification title so E2E
+            // scenarios can tell notification kinds apart — the wire `eventType`
+            // stays "cli.notify" for the NSE; this is a test-only signal.
+            pushNotificationLog.logPushSent(title, paneId)
+            // Also deliver over the live WebSocket so a backgrounded-but-connected
+            // viewer — whose APNs push the relay just dropped — can still show a
+            // local notification. iOS gates on app state to avoid double-alerting.
+            await sendAgentNotification(title: title, body: body, paneId: paneId)
+        } catch {
+            logger.error("Failed to encrypt custom push notification: \(error)")
+        }
+    }
+
+    /// Deliver a pre-baked notification (title/body) to this viewer over the
+    /// live WebSocket (encrypted), paired with `sendCustomPushNotification`'s
+    /// APNs push. The relay drops the APNs push while the viewer is connected,
+    /// so this is the only alert path during the backgrounded-but-connected
+    /// window; iOS materializes a local notification only when not active.
+    private func sendAgentNotification(title: String, body: String, paneId: String?) async {
+        guard state.isConnected else { return }
+        let message = WebSocketMessage.agentNotification(
+            AgentNotificationMessage(
+                pairId: id,
+                sessionId: paneId,
+                title: title,
+                body: body,
+                timestamp: Date()
+            )
         )
         await sendEncrypted(message)
+    }
 
-        // Also send encrypted push payload for notifications when iOS is offline
-        guard !skipPushNotification else { return }
-        await sendEncryptedPushNotification(for: event)
+    /// Send a silent (background) APNs push that only updates the iOS app
+    /// badge — no alert, no sound, no Notification Service Extension. Used when
+    /// the host clears a session from the "needs attention" state so the iOS
+    /// badge tracks the new lower count.
+    public func sendBadgeUpdate(badge: Int) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send badge update")
+            return
+        }
+
+        guard await e2eeService.isSessionEstablished else {
+            logger.error("E2EE session not established, cannot send badge update")
+            return
+        }
+
+        // Encrypt a placeholder content so the wire shape matches event pushes.
+        // The Notification Service Extension never runs for silent pushes, so
+        // the receiver only consumes the unencrypted `badge` field.
+        let content = NotificationContent(
+            title: "",
+            body: "",
+            eventType: "badge.update",
+            pairId: id,
+            paneId: nil,
+            timestamp: Date()
+        )
+
+        do {
+            let encryptedContent = try await e2eeService.encrypt(content)
+            let payload = EncryptedPushPayload(
+                encryptedContent: encryptedContent,
+                pairId: id,
+                badge: badge,
+                silent: true
+            )
+            await send(.encryptedPush(payload))
+            pushNotificationLog.logPushSent("badge.update", nil)
+        } catch {
+            logger.error("Failed to encrypt badge update: \(error)")
+        }
     }
 
     /// Send terminal stream data to viewer (encrypted)
@@ -310,15 +457,24 @@ final public class ConnectedViewer: Identifiable {
             return
         }
 
-        var sessionState = await onSessionStateRequest()
-        // Set the pairId for this specific connection
-        sessionState = SessionStateMessage(
-            pairId: id,
-            paneStates: sessionState.paneStates,
-            claudeProjects: sessionState.claudeProjects
-        )
+        let sessionState = await onSessionStateRequest().withPairId(id)
         logger.info("Pushing session state to viewer: \(viewerName)")
         await sendEncrypted(.sessionState(sessionState))
+    }
+
+    /// Push the complete enabled-plugin presentation set to this viewer
+    /// (encrypted). Sent on viewer connect and on enable/disable; always the
+    /// complete set (spec §7.2/§7.3).
+    public func sendPluginPresentations(_ presentations: [PluginPresentation]) async {
+        guard state.isConnected else {
+            logger.debug("Not connected to \(viewerName), cannot send plugin presentations")
+            return
+        }
+
+        let message = WebSocketMessage.pluginPresentations(
+            PluginPresentationsMessage(pairId: id, presentations: presentations)
+        )
+        await sendEncrypted(message)
     }
 
     // MARK: - Private Connection Methods
@@ -470,6 +626,12 @@ final public class ConnectedViewer: Identifiable {
                 reconnectionAttempt = 0
                 await updateState(.connected)
                 connectedViewerDeviceName = response.viewerDeviceName
+
+                // Persist the viewer name to settings so the UI shows the user's
+                // chosen device name instead of the placeholder from initial pairing.
+                if let viewerDeviceName = response.viewerDeviceName {
+                    await onPartnerDeviceNameReceived?(viewerDeviceName)
+                }
                 // `isViewerConnected` is deliberately NOT set here — it's flipped to
                 // true only after the viewer's peerHello arrives and passes the
                 // compatibility check. Setting it eagerly would surface the peer as
@@ -511,8 +673,22 @@ final public class ConnectedViewer: Identifiable {
                 }
             }
 
+        case let .agentResponseSubmission(submission):
+            logger.info(
+                "Received plugin response submission from viewer",
+                metadata: ["pluginId": "\(submission.pluginId)", "requestId": "\(submission.requestId)"]
+            )
+            await onAgentResponseSubmission?(submission)
+
         case let .viewerConnected(connectedMessage):
             logger.info("Viewer device connected")
+
+            // Persist the viewer name to settings if the relay included one,
+            // so a renamed iOS device propagates to the macOS UI.
+            if let deviceName = connectedMessage.deviceName {
+                connectedViewerDeviceName = deviceName
+                await onPartnerDeviceNameReceived?(deviceName)
+            }
 
             // `isViewerConnected` stays false until peerHello validation succeeds —
             // see `.peerHello` below. Keeping the flag off during the handshake
@@ -546,6 +722,9 @@ final public class ConnectedViewer: Identifiable {
                 // Compatible — now safe to surface the viewer as connected; the
                 // session-state push will fire when the viewer requests it.
                 isViewerConnected = true
+                // Push the current plugin presentations now that the viewer is
+                // ready to receive (the session-state push is still pull-based).
+                await onViewerConnected?()
             }
 
         case .viewerDisconnected:
@@ -664,6 +843,16 @@ final public class ConnectedViewer: Identifiable {
     }
 
     private func sendEncrypted(_ message: WebSocketMessage) async {
+        let previous = pendingSend
+        let task = Task { [weak self] in
+            _ = await previous?.value
+            await self?.performEncryptedSend(message)
+        }
+        pendingSend = task
+        await task.value
+    }
+
+    private func performEncryptedSend(_ message: WebSocketMessage) async {
         guard await e2eeService.isSessionEstablished else {
             logger.error("E2EE session not established, refusing to send sensitive message")
             return
@@ -674,41 +863,6 @@ final public class ConnectedViewer: Identifiable {
             await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
-        }
-    }
-
-    private func sendEncryptedPushNotification(for event: HookEvent) async {
-        guard state.isConnected else {
-            return
-        }
-
-        guard await e2eeService.isSessionEstablished else {
-            logger.error("E2EE session not established, cannot send encrypted push")
-            return
-        }
-
-        let eventMessage = HookEventMessage(pairId: id, event: event)
-        guard let notification = eventMessage.buildNotification() else {
-            return
-        }
-
-        let content = NotificationContent(
-            title: notification.title,
-            body: notification.body,
-            eventType: event.action.eventName,
-            pairId: id,
-            paneId: event.tmuxPane,
-            timestamp: event.timestamp
-        )
-
-        do {
-            let encryptedContent = try await e2eeService.encrypt(content)
-            let payload = EncryptedPushPayload(encryptedContent: encryptedContent, pairId: id)
-            let message = WebSocketMessage.encryptedPush(payload)
-            await send(message)
-            pushNotificationLog.logPushSent(event.action.eventName, event.tmuxPane)
-        } catch {
-            logger.error("Failed to encrypt push notification: \(error)")
         }
     }
 
@@ -766,6 +920,14 @@ final public class ConnectedViewer: Identifiable {
 
         urlSession?.invalidateAndCancel()
         urlSession = nil
+
+        // Drop the serial chain heads so a reconnect starts a fresh chain
+        // instead of waiting on stale in-flight encrypt tasks from the old
+        // socket. The trailing tasks aren't cancelled (they don't check
+        // `isCancelled`); they just finish as no-ops since `webSocketTask`
+        // is now nil.
+        pendingFireAndForget = nil
+        pendingSend = nil
     }
 
     private func updateState(_ newState: ConnectionState) async {

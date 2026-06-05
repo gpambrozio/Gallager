@@ -91,7 +91,7 @@ struct SessionSortData {
     let latestEventTimestamp: Date?
 
     /// Status priority: lower = higher priority (attention > working > idle)
-    static func statusPriority(for claudeSession: ClaudeSession?) -> Int {
+    static func statusPriority(for claudeSession: AgentSession?) -> Int {
         guard let session = claudeSession else { return 3 }
         if session.needsAttention { return 0 }
         if session.isWorking { return 1 }
@@ -99,7 +99,7 @@ struct SessionSortData {
     }
 
     /// Status priority with idle before working (attention > idle > working)
-    static func statusPriorityIdleFirst(for claudeSession: ClaudeSession?) -> Int {
+    static func statusPriorityIdleFirst(for claudeSession: AgentSession?) -> Int {
         guard let session = claudeSession else { return 3 }
         if session.needsAttention { return 0 }
         if !session.isWorking { return 1 }
@@ -135,6 +135,40 @@ struct SessionSortData {
             }
         }
         return sessionName
+    }
+
+    /// Builds sort data for a remote `TmuxSession` using the relay-provided pane state.
+    static func forRemoteSession(
+        _ session: TmuxSession,
+        sidebarFields: [SidebarField],
+        sidebarTerminalFields: [SidebarField],
+        homeDirectory: String?
+    ) -> SessionSortData {
+        let claudeSession = session.windows.flatMap(\.panes).compactMap(\.agentSession).first
+        let activePane = session.activeWindow?.activePane
+        let terminalTitle = session.windows.flatMap(\.panes).compactMap(\.terminalTitle).first { !$0.isEmpty }
+        let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
+        let label = primaryLabel(
+            fields: fields,
+            customDescription: session.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: terminalTitle,
+            command: activePane?.command,
+            currentPath: activePane?.currentPath,
+            gitBranch: activePane?.gitBranch,
+            homeDirectory: homeDirectory
+        )
+        return SessionSortData(
+            sessionName: session.sessionName,
+            primaryLabel: label,
+            hasClaude: claudeSession != nil,
+            statusPriority: statusPriority(for: claudeSession),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
+            // The plugin model dropped the per-event timestamp buffer (spec §16);
+            // recency sort by last event is no longer available.
+            latestEventTimestamp: nil
+        )
     }
 }
 

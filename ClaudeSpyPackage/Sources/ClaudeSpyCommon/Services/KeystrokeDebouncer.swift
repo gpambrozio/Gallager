@@ -1,4 +1,5 @@
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 
 /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
@@ -16,10 +17,20 @@ import Foundation
 /// scheduling of `@MainActor` continuations).
 @MainActor
 final public class KeystrokeDebouncer {
-    private static let debounceInterval: Duration = .milliseconds(8)
+    /// Window in which consecutive keystrokes are batched into a single send.
+    /// Must exceed the worst-case inter-key gap of any expected source —
+    /// notably AppleScript's `keystroke` synthesis, which can pause up to
+    /// ~15 ms between chars on a loaded system. A short window splits long
+    /// strings across multiple WebSocket commands and exposes a race where
+    /// the trailing batch can be lost en route to the host (see the Rapid
+    /// Keystroke Order e2e flake).
+    static let defaultDebounceInterval: Duration = .milliseconds(30)
 
     private let paneId: String
-    private let relayClient: ViewerRelayClient
+    private let debounceInterval: Duration
+    private let sendOp: @MainActor (SendOp) async -> Void
+
+    @Dependency(\.continuousClock) private var clock
 
     private var keyBuffer: [TmuxKey] = []
     private var flushTask: Task<Void, Never>?
@@ -29,14 +40,35 @@ final public class KeystrokeDebouncer {
     private var sendTask: Task<Void, Never>?
     private var sendContinuation: CheckedContinuation<Void, Never>?
 
-    private enum SendOp {
+    /// Operation queued for sending. Internal so tests can match against the
+    /// values pulled out of the queue.
+    enum SendOp: Equatable {
         case keys([TmuxKey])
         case rawInput(Data)
     }
 
-    public init(paneId: String, relayClient: ViewerRelayClient) {
+    public convenience init(paneId: String, relayClient: ViewerRelayClient) {
+        self.init(paneId: paneId) { op in
+            switch op {
+            case let .keys(keys):
+                _ = await relayClient.sendCommand(SendKeystroke(keys), paneId: paneId)
+            case let .rawInput(data):
+                _ = await relayClient.sendCommand(SendRawInput(data: data), paneId: paneId)
+            }
+        }
+    }
+
+    /// Internal initialiser used by tests to capture send operations without
+    /// standing up a full `ViewerRelayClient`. The debounce interval is also
+    /// exposed here so tests can pin it to a known value driven by `TestClock`.
+    init(
+        paneId: String,
+        debounceInterval: Duration = KeystrokeDebouncer.defaultDebounceInterval,
+        sendOp: @escaping @MainActor (SendOp) async -> Void
+    ) {
         self.paneId = paneId
-        self.relayClient = relayClient
+        self.debounceInterval = debounceInterval
+        self.sendOp = sendOp
         startSendLoop()
     }
 
@@ -48,13 +80,14 @@ final public class KeystrokeDebouncer {
         // Reset the flush timer — if more keys arrive within the debounce window,
         // they'll be batched together.
         flushTask?.cancel()
-        flushTask = Task {
+        let interval = debounceInterval
+        flushTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: Self.debounceInterval)
+                try await self?.clock.sleep(for: interval)
             } catch {
                 return
             }
-            flushBuffer()
+            self?.flushBuffer()
         }
     }
 
@@ -118,18 +151,7 @@ final public class KeystrokeDebouncer {
                 }
 
                 let op = self.sendQueue.removeFirst()
-                switch op {
-                case let .keys(keys):
-                    _ = await self.relayClient.sendCommand(
-                        SendKeystroke(keys),
-                        paneId: self.paneId
-                    )
-                case let .rawInput(data):
-                    _ = await self.relayClient.sendCommand(
-                        SendRawInput(data: data),
-                        paneId: self.paneId
-                    )
-                }
+                await self.sendOp(op)
             }
         }
     }

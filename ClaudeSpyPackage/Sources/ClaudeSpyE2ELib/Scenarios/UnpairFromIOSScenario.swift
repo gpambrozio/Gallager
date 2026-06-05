@@ -9,11 +9,20 @@ public enum UnpairFromIOSScenario {
         // 1. Establish a fresh pairing
         FreshPairingScenario.scenario
 
-        // 2. Navigate to Manage Hosts on iOS
-        TestStep.iosTap(.labelContains("Settings"))
-        TestStep.wait(seconds: 0.5)
+        // 2. Navigate to Manage Hosts on iOS — open Settings sheet then push Paired Hosts
+        TestStep.iosTap(.label("Settings"))
+        // Wait for the sheet itself before looking inside it; otherwise a
+        // failure here reports "Paired Hosts not found" which hides the
+        // real problem (sheet never presented).
+        TestStep.iosWaitForElement(.label("Settings"), timeout: 3)
+        TestStep.iosWaitForElement(.labelContains("Paired Hosts"), timeout: 5)
+        // The first synthesized tap on a NavigationLink inside a freshly
+        // presented sheet doesn't reliably activate it on iOS — the second
+        // tap then pushes ManageHostsView onto the sheet's NavigationStack.
         TestStep.iosTap(.labelContains("Paired Hosts"))
-        TestStep.wait(seconds: 0.5)
+        TestStep.wait(seconds: 1)
+        TestStep.iosTap(.labelContains("Paired Hosts"))
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-paired-hosts")
 
         // 3. Swipe left to reveal delete button, tap it
@@ -26,7 +35,6 @@ public enum UnpairFromIOSScenario {
 
         // 4. Tap the confirmation dialog button (use Button role to avoid matching dialog title)
         TestStep.iosTap(.roleAndLabelContains(role: "Button", label: "Remove"))
-        TestStep.wait(seconds: 2)
 
         // 5. Verify server has 0 pairings
         TestStep.waitForNoPairings(timeout: 15)
@@ -34,6 +42,9 @@ public enum UnpairFromIOSScenario {
 
         // 6. Verify iOS returns to pairing view
         TestStep.iosWaitForElement(.labelContains("pairing code"), timeout: 10)
+        // Clear clipboard so the SwiftUI PasteButton is in a deterministic
+        // disabled state — the unpair flow may have left a code on the board.
+        TestStep.iosClearClipboard
         TestStep.iosScreenshot(label: "ios-back-to-pairing")
     }
 }

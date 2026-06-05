@@ -8,6 +8,8 @@ enum Route: String, CaseIterable {
     case inputText
     case customAction
     case status
+    case launchApp
+    case terminateApp
 
     func toHTTPRoute() -> HTTPRoute {
         HTTPRoute(rawValue)

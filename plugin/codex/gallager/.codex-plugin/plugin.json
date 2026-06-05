@@ -1,0 +1,24 @@
+{
+  "name": "gallager",
+  "version": "1.1.0",
+  "description": "Forward Codex CLI lifecycle events to the local Gallager monitoring app.",
+  "author": {
+    "name": "Gustavo Ambrozio",
+    "email": "gustavo@gustavo.eng.br",
+    "url": "https://github.com/gpambrozio"
+  },
+  "homepage": "https://github.com/gpambrozio/ClaudeSpy",
+  "repository": "https://github.com/gpambrozio/ClaudeSpy",
+  "license": "MIT",
+  "keywords": ["codex", "tmux", "monitoring", "gallager"],
+  "interface": {
+    "displayName": "Gallager",
+    "shortDescription": "Forward Codex events to the Gallager monitoring app.",
+    "longDescription": "Bridges Codex CLI lifecycle hooks to the locally-running Gallager app, which mirrors tmux panes and surfaces session activity on macOS and iOS.",
+    "developerName": "Gustavo Ambrozio",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "websiteURL": "https://github.com/gpambrozio/ClaudeSpy",
+    "brandColor": "#3B82F6"
+  }
+}

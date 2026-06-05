@@ -84,7 +84,7 @@ public enum TerminalTitleInitialConnectionScenario {
         TestStep.verifyServerHasPairings(count: 1)
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 15)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
 
         // ── Phase 5: iOS viewer connects to the session ──────────────
 
@@ -93,6 +93,8 @@ public enum TerminalTitleInitialConnectionScenario {
 
         // The title should appear in the iOS navigation bar immediately
         TestStep.iosWaitForElement(.labelContains("Initial Connection Title"), timeout: 15)
+        // Settle wait for the terminal view's content to finish loading.
+        TestStep.wait(seconds: 1)
         TestStep.iosScreenshot(label: "ios-receives-title-on-initial-connection")
     }
 }

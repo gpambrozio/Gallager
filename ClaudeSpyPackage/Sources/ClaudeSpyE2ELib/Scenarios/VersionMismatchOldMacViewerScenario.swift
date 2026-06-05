@@ -14,7 +14,8 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.startServer
         TestStep.verifyServerHealth
 
-        // 2. Launch Mac host at the current default version (requires viewer 1.23)
+        // 2. Launch Mac host at the current default version (its default minimum
+        //    requires an up-to-date viewer).
         TestStep.launchMacApp()
         TestStep.wait(seconds: 3)
 
@@ -44,7 +45,6 @@ public enum VersionMismatchOldMacViewerScenario {
         TestStep.macFocusElement(titled: "Pairing Code", instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macType(text: "${pairingCode}", pressReturn: true, instance: 1)
-        TestStep.wait(seconds: 5)
 
         // 4. Pair record should exist regardless of version mismatch
         TestStep.verifyServerHasPairings(count: 1)
@@ -58,7 +58,8 @@ public enum VersionMismatchOldMacViewerScenario {
         // 6. Old viewer should see the "out of date" update prompt.
         //    Text is rendered in-place (no "Error: " prefix) on RemoteHostsSettingsView.
         TestStep.macWaitForElement(titled: "out of date", timeout: 20, instance: 1)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
+        // swiftlint:disable:next custom_no_number_decimals
+        TestStep.macWaitForElement(titled: "requires version 2.0", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "old-viewer-sees-update-prompt", tolerance: 5, instance: 1)
 
         // 7. Close the viewer's Settings window and surface its main Panes
@@ -74,7 +75,8 @@ public enum VersionMismatchOldMacViewerScenario {
             .identifier("host-version-mismatch-row"), timeout: 10, instance: 1
         )
         TestStep.macWaitForElement(titled: "Update this app", timeout: 5, instance: 1)
-        TestStep.macWaitForElement(titled: "requires version 1.23", timeout: 5, instance: 1)
+        // swiftlint:disable:next custom_no_number_decimals
+        TestStep.macWaitForElement(titled: "requires version 2.0", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-sidebar-mismatch", tolerance: 5, instance: 1)
 
         // 8. Simulate the user "updating" the viewer: clear its version
@@ -96,14 +98,17 @@ public enum VersionMismatchOldMacViewerScenario {
 
         // 10. The sidebar mismatch row disappears on the viewer once the new
         //     peerHello validates. With no tmux sessions running, the reachable
-        //     host collapses to the "No active sessions" caption. The host still
-        //     proves recovery via its Remote Access "Connected" label.
+        //     host collapses to the "No active sessions" caption. The host
+        //     proves recovery via its Remote Access "1 viewer connected"
+        //     subtitle, which only appears once the relay has actually
+        //     re-registered the viewer's session — waiting on the bare
+        //     "Connected" label is too eager and produces flaky screenshots.
         TestStep.macWaitForElementQueryToDisappear(
             .identifier("host-version-mismatch-row"), timeout: 20, instance: 1
         )
         TestStep.macWaitForElement(titled: "No active sessions", timeout: 20, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "1 viewer connected", timeout: 20)
         TestStep.macScreenshot(label: "host-after-viewer-upgrade", tolerance: 5)
         TestStep.macScreenshot(label: "viewer-sidebar-reconnected", tolerance: 5, instance: 1)
     }

@@ -1,0 +1,12 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertContactPoint
+metadata:
+  name: discord-alerts
+spec:
+  name: discord-alerts
+  type: discord
+  settings:
+    url: ${DISCORD_WEBHOOK_URL}
+    use_discord_username: false
+    avatar_url: ""
+  disableResolveMessage: false

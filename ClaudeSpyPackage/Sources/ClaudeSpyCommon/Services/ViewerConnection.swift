@@ -13,7 +13,9 @@ final public class ViewerConnection: Identifiable {
     public let id: String
 
     /// The paired host's display name
-    public var hostName: String { pairedDevice.hostName }
+    public var hostName: String {
+        pairedDevice.hostName
+    }
 
     /// The underlying relay client
     public let relayClient: ViewerRelayClient
@@ -136,24 +138,45 @@ final public class ViewerConnection: Identifiable {
         await relayClient.sendPushToken(token)
     }
 
+    /// Submit a structured response for a previously-emitted response request.
+    public func submitAgentResponse(
+        sessionId: String,
+        pluginId: String,
+        requestId: String,
+        response: AgentResponse
+    ) async {
+        await relayClient.submitAgentResponse(
+            sessionId: sessionId,
+            pluginId: pluginId,
+            requestId: requestId,
+            response: response
+        )
+    }
+
     // MARK: - Callbacks Setup
 
     /// Configure callbacks for this connection.
     ///
     /// - Parameters:
-    ///   - onHookEvent: Called when a hook event is received
+    ///   - onAgentSessionStatus: Called when a session state update arrives
+    ///   - onPluginPresentations: Called when the plugin presentation set arrives
+    ///   - onAgentNotification: Called when a pre-baked notification arrives over the live socket
     ///   - onSessionState: Called when session state is received
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
     ///   - onHostDisconnected: Called when the host device disconnects (pairing still active)
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
-        onHookEvent: (@Sendable (HookEventMessage) -> Void)? = nil,
+        onAgentSessionStatus: (@Sendable (AgentSessionStatusMessage) -> Void)? = nil,
+        onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)? = nil,
+        onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
         onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
         onHostDisconnected: (@MainActor @Sendable () async -> Void)? = nil,
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
-        relayClient.onHookEvent = onHookEvent
+        relayClient.onAgentSessionStatus = onAgentSessionStatus
+        relayClient.onPluginPresentations = onPluginPresentations
+        relayClient.onAgentNotification = onAgentNotification
         relayClient.onSessionState = onSessionState
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
         relayClient.onHostDisconnected = onHostDisconnected

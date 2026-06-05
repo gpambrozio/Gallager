@@ -1,0 +1,42 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: AlertRuleGroup
+metadata:
+  folder: ClaudeSpy
+  name: relay-resources
+spec:
+  title: relay-resources
+  interval: 1m
+  rules:
+    - uid: high-memory
+      title: Host memory usage > 85%
+      condition: B
+      data:
+        - refId: A
+          relativeTimeRange: { from: 600, to: 0 }
+          datasourceUid: grafanacloud-prom
+          model:
+            expr: |
+              100 * (1 - (
+                node_memory_MemAvailable_bytes{instance="hetzner-1"}
+                /
+                node_memory_MemTotal_bytes{instance="hetzner-1"}
+              ))
+            instant: true
+            refId: A
+        - refId: B
+          datasourceUid: __expr__
+          model:
+            type: threshold
+            refId: B
+            expression: A
+            conditions:
+              - evaluator: { type: gt, params: [85] }
+                operator: { type: and }
+      noDataState: NoData
+      execErrState: Error
+      for: 10m
+      annotations:
+        summary: "Memory usage above 85% for 10 minutes"
+        description: "VM memory pressure — investigate via `ssh root@<host> free -m` and `docker stats`."
+      labels:
+        severity: warning

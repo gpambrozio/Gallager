@@ -23,15 +23,14 @@ public enum EmptyStateNewSessionScenario {
         TestStep.log("Verifying New Terminal option is shown in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
 
-        TestStep.log("Verifying Claude Projects section is shown")
-        TestStep.macWaitForElement(titled: "Claude Projects", timeout: 5)
+        TestStep.log("Verifying Projects section is shown")
+        TestStep.macWaitForElement(titled: "Projects", timeout: 5)
 
         TestStep.macScreenshot(label: "mac-empty-state")
 
         // ── Click New Terminal and verify sidebar updates ────────
         TestStep.log("Clicking New Terminal to create a session")
         TestStep.macClickButton(titled: "New Terminal")
-        TestStep.wait(seconds: 3)
 
         TestStep.log("Verifying empty state disappeared")
         TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 10)
@@ -45,7 +44,6 @@ public enum EmptyStateNewSessionScenario {
         // No running processes → closes immediately without confirmation dialog
         TestStep.log("Clicking Close session toolbar button")
         TestStep.macClickButton(titled: "Close session")
-        TestStep.wait(seconds: 2)
 
         TestStep.log("Verifying empty state returned")
         TestStep.macWaitForElement(titled: "No Panes Available", timeout: 10)

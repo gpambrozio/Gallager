@@ -51,11 +51,71 @@ extension PreferencesService {
 /// Settings tab for programmatic navigation
 public enum SettingsTab: String, Sendable {
     case general
+    case appearance
+    case browser
     case remoteAccess
     case remoteHosts
     case sidebarLayout
-    case plugin
+    case editors
+    case agents
     case about
+}
+
+/// Where a clicked http/https/ftp link in the terminal should open.
+///
+/// Drives the dialog presented to the user on a terminal link click and the
+/// "remember my choice" outcome — picking a non-`.ask` value here suppresses
+/// the prompt for subsequent clicks.
+public enum BrowserLinkBehavior: String, CaseIterable, Codable, Identifiable, Sendable {
+    /// Show a confirmation dialog with an "Always do this" checkbox.
+    case ask
+    /// Open in a new browser tab next to the file/terminal tabs.
+    case alwaysInApp
+    /// Forward to the system's default browser via `NSWorkspace`.
+    case alwaysInDefaultBrowser
+
+    public var id: String {
+        rawValue
+    }
+
+    public var displayName: String {
+        switch self {
+        case .ask: "Ask"
+        case .alwaysInApp: "Always in app"
+        case .alwaysInDefaultBrowser: "Always in default browser"
+        }
+    }
+}
+
+/// A per-domain rule that overrides ``AppSettings/browserLinkBehavior`` for
+/// any http/https/ftp link whose host (case-insensitive) matches ``domain``.
+///
+/// Created by the user via the "Don't ask again for this domain" checkbox on
+/// the link confirmation dialog, or directly from the Browser settings tab.
+public struct BrowserDomainRule: Codable, Identifiable, Sendable, Hashable {
+    public let id: UUID
+    /// Lowercased host (e.g. `example.com`) — never `.ask`-only domains.
+    public var domain: String
+    public var behavior: BrowserLinkBehavior
+
+    public init(id: UUID = UUID(), domain: String, behavior: BrowserLinkBehavior) {
+        self.id = id
+        self.domain = domain.lowercased()
+        self.behavior = behavior
+    }
+}
+
+/// macOS-specific bridge from `AppearanceMode` to `NSAppearance`. The shared
+/// enum lives in `ClaudeSpyCommon` so iOS can reuse it for
+/// `.preferredColorScheme(_:)`.
+public extension AppearanceMode {
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 // MARK: - Paired Viewer Model
@@ -70,8 +130,10 @@ public struct PairedViewer: Codable, Identifiable, Sendable, Hashable {
     /// Unique pair identifier (also serves as Identifiable id)
     public let id: String
 
-    /// Display name of the viewer
-    public let deviceName: String
+    /// Display name of the viewer.
+    /// Mutable so the viewer can rename their device on the iOS app and have
+    /// the host pick up the new name without re-pairing.
+    public var deviceName: String
 
     /// Partner's public key for E2EE (Base64-encoded)
     public let partnerPublicKey: String
@@ -151,6 +213,30 @@ final public class AppSettings {
         didSet { preferences.setString(theme.rawValue, Keys.theme) }
     }
 
+    // MARK: - Appearance Settings
+
+    /// Window appearance (System / Light / Dark). Applied to `NSApp.appearance`
+    /// whenever it changes.
+    ///
+    /// Note: the didSet uses optional chaining because the App-protocol init
+    /// runs before SwiftUI sets up `NSApplication`. The initial application is
+    /// done explicitly via `applyAppearance()` from a SwiftUI lifecycle hook
+    /// once `NSApp` exists.
+    public var appearanceMode: AppearanceMode = Defaults.appearanceMode {
+        didSet {
+            preferences.setString(appearanceMode.rawValue, Keys.appearanceMode)
+            applyAppearance()
+        }
+    }
+
+    /// Apply the persisted appearance to `NSApp`. Safe to call multiple times.
+    /// Must be invoked from a SwiftUI lifecycle hook (`.task`/`.onAppear`)
+    /// after launch, since `NSApp` is not yet wired during App init —
+    /// optional chaining keeps it a no-op until then.
+    public func applyAppearance() {
+        NSApp?.appearance = appearanceMode.nsAppearance
+    }
+
     // MARK: - Behavior Settings
 
     /// Whether to open the panes window when the app launches
@@ -183,6 +269,42 @@ final public class AppSettings {
         didSet { preferences.setBool(alwaysAutoResize, Keys.alwaysAutoResize) }
     }
 
+    /// Whether clicking a file:// link in the terminal opens the file in a new tab
+    /// instead of forwarding the URL to the system (which would open it in the browser).
+    public var openClickedFileInNewTab: Bool = Defaults.openClickedFileInNewTab {
+        didSet { preferences.setBool(openClickedFileInNewTab, Keys.openClickedFileInNewTab) }
+    }
+
+    /// Always open new file tabs on the split-view right pane (issue #498).
+    /// Off by default; when enabled, opening a file via terminal click or any
+    /// other path routes the new tab to the right side instead of the left.
+    public var alwaysOpenFilesInSplit: Bool = Defaults.alwaysOpenFilesInSplit {
+        didSet { preferences.setBool(alwaysOpenFilesInSplit, Keys.alwaysOpenFilesInSplit) }
+    }
+
+    /// Where a clicked http/https/ftp link in the terminal should open.
+    /// `.ask` shows a confirmation dialog with a remember-my-choice toggle that
+    /// flips this setting on the user's behalf.
+    public var browserLinkBehavior: BrowserLinkBehavior = Defaults.browserLinkBehavior {
+        didSet { preferences.setString(browserLinkBehavior.rawValue, Keys.browserLinkBehavior) }
+    }
+
+    /// Per-domain overrides for ``browserLinkBehavior``.
+    ///
+    /// Looked up case-insensitively by URL host before the global setting is
+    /// consulted, so e.g. `example.com` can be forced to always open in-app
+    /// while every other host still goes through the dialog.
+    public var browserDomainRules: [BrowserDomainRule] = [] {
+        didSet { saveBrowserDomainRules() }
+    }
+
+    /// Always open new in-app browser tabs on the split-view right pane
+    /// (issue #498). Off by default; when enabled, terminal links resolved to
+    /// in-app tabs land on the right side.
+    public var alwaysOpenLinksInSplit: Bool = Defaults.alwaysOpenLinksInSplit {
+        didSet { preferences.setBool(alwaysOpenLinksInSplit, Keys.alwaysOpenLinksInSplit) }
+    }
+
     /// Delay before attempting reconnection (in seconds)
     public var reconnectDelay: Int = Defaults.reconnectDelay {
         didSet { preferences.setInt(reconnectDelay, Keys.reconnectDelay) }
@@ -193,21 +315,6 @@ final public class AppSettings {
     /// Path to tmux binary
     public var tmuxPath: String = Defaults.tmuxPath {
         didSet { preferences.setString(tmuxPath, Keys.tmuxPath) }
-    }
-
-    /// Whether to automatically run a command when creating sessions in project folders
-    public var autoRunClaudeInProjects: Bool = Defaults.autoRunClaudeInProjects {
-        didSet { preferences.setBool(autoRunClaudeInProjects, Keys.autoRunClaudeInProjects) }
-    }
-
-    /// Whether to close the tmux pane when Claude exits normally (user typed /exit or ctrl+c at prompt)
-    public var closePaneOnSessionEnd: Bool = Defaults.closePaneOnSessionEnd {
-        didSet { preferences.setBool(closePaneOnSessionEnd, Keys.closePaneOnSessionEnd) }
-    }
-
-    /// Path to claude command (for auto-run in project folders)
-    public var claudeCommandPath: String = Defaults.claudeCommandPath {
-        didSet { preferences.setString(claudeCommandPath, Keys.claudeCommandPath) }
     }
 
     /// tmux socket path (empty for default)
@@ -269,18 +376,21 @@ final public class AppSettings {
         didSet { preferences.setString(sidebarSortMode.rawValue, Keys.sidebarSortMode) }
     }
 
-    // MARK: - Project Scanning Settings
+    // MARK: - External Editor Settings
 
-    /// Additional directories to scan for Claude projects (each should contain .claude.json and .claude/projects/)
-    public var additionalClaudeFolders: [String] = [] {
-        didSet { saveAdditionalClaudeFolders() }
+    /// External editors the user can pick to open files with.
+    ///
+    /// On first launch this is empty; ``seedEditorsIfEmpty(using:)`` populates
+    /// it with the installed editors from ``EditorClient/detectInstalledKnownEditors``.
+    public var editors: [EditorConfiguration] = [] {
+        didSet { saveEditors() }
     }
 
-    // MARK: - Plugin Settings
-
-    /// Whether the user has completed the plugin setup (or dismissed it)
-    public var hasCompletedPluginSetup: Bool = Defaults.hasCompletedPluginSetup {
-        didSet { preferences.setBool(hasCompletedPluginSetup, Keys.hasCompletedPluginSetup) }
+    /// Whether we've already attempted the first-launch editor seeding. Persisted
+    /// so we don't re-seed an empty list when the user has explicitly removed all
+    /// of them.
+    public var hasSeededEditors: Bool = Defaults.hasSeededEditors {
+        didSet { preferences.setBool(hasSeededEditors, Keys.hasSeededEditors) }
     }
 
     // MARK: - Launch at Login Settings
@@ -302,20 +412,23 @@ final public class AppSettings {
         self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
+        self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? Defaults.appearanceMode
         self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
         self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? Defaults.autoReconnect
         self.preventSleepDuringSessions = preferences.optionalBool(Keys.preventSleepDuringSessions) ?? Defaults.preventSleepDuringSessions
         self.autoCopyOnSelect = preferences.optionalBool(Keys.autoCopyOnSelect) ?? Defaults.autoCopyOnSelect
         self.alwaysAutoResize = preferences.optionalBool(Keys.alwaysAutoResize) ?? Defaults.alwaysAutoResize
+        self.openClickedFileInNewTab = preferences.optionalBool(Keys.openClickedFileInNewTab) ?? Defaults.openClickedFileInNewTab
+        self.alwaysOpenFilesInSplit = preferences.optionalBool(Keys.alwaysOpenFilesInSplit) ?? Defaults.alwaysOpenFilesInSplit
+        self.browserLinkBehavior = BrowserLinkBehavior(
+            rawValue: preferences.string(Keys.browserLinkBehavior) ?? ""
+        ) ?? Defaults.browserLinkBehavior
+        self.browserDomainRules = Self.loadCodable(from: preferences, key: Keys.browserDomainRules)
+        self.alwaysOpenLinksInSplit = preferences.optionalBool(Keys.alwaysOpenLinksInSplit) ?? Defaults.alwaysOpenLinksInSplit
         self.reconnectDelay = preferences.optionalInt(Keys.reconnectDelay) ?? Defaults.reconnectDelay
         self.tmuxPath = preferences.string(Keys.tmuxPath) ?? Defaults.tmuxPath
         self.tmuxSocket = preferences.string(Keys.tmuxSocket) ?? Defaults.tmuxSocket
-
-        // Claude command settings
-        self.autoRunClaudeInProjects = preferences.optionalBool(Keys.autoRunClaudeInProjects) ?? Defaults.autoRunClaudeInProjects
-        self.closePaneOnSessionEnd = preferences.optionalBool(Keys.closePaneOnSessionEnd) ?? Defaults.closePaneOnSessionEnd
-        self.claudeCommandPath = preferences.string(Keys.claudeCommandPath) ?? Defaults.claudeCommandPath
         self.terminalApp = TerminalApp(rawValue: preferences.string(Keys.terminalApp) ?? "") ?? Defaults.terminalApp
         self.customTerminalPath = preferences.string(Keys.customTerminalPath) ?? Defaults.customTerminalPath
 
@@ -349,11 +462,9 @@ final public class AppSettings {
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
 
-        // Project Scanning
-        self.additionalClaudeFolders = Self.loadCodable(from: preferences, key: Keys.additionalClaudeFolders)
-
-        // Plugin
-        self.hasCompletedPluginSetup = preferences.optionalBool(Keys.hasCompletedPluginSetup) ?? Defaults.hasCompletedPluginSetup
+        // External Editors
+        self.editors = Self.loadCodable(from: preferences, key: Keys.editors)
+        self.hasSeededEditors = preferences.optionalBool(Keys.hasSeededEditors) ?? Defaults.hasSeededEditors
 
         // Launch at Login
         self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
@@ -367,18 +478,21 @@ final public class AppSettings {
         case fontSize
         case scrollbackLines
         case theme
+        case appearanceMode
         case openPanesWindowOnLaunch
         case showStatusBar
         case autoReconnect
         case preventSleepDuringSessions
         case autoCopyOnSelect
         case alwaysAutoResize
+        case openClickedFileInNewTab
+        case alwaysOpenFilesInSplit
+        case browserLinkBehavior
+        case browserDomainRules
+        case alwaysOpenLinksInSplit
         case reconnectDelay
         case tmuxPath
         case tmuxSocket
-        case autoRunClaudeInProjects
-        case claudeCommandPath
-        case closePaneOnSessionEnd
         case terminalApp
         case customTerminalPath
         // Remote Access
@@ -391,10 +505,9 @@ final public class AppSettings {
         case sidebarFields
         case sidebarTerminalFields
         case sidebarSortMode
-        /// Project Scanning
-        case additionalClaudeFolders
-        /// Plugin
-        case hasCompletedPluginSetup
+        /// External Editors
+        case editors
+        case hasSeededEditors
         // Launch at Login
         case launchAtLogin
         case hasAskedAboutLaunchAtLogin
@@ -408,25 +521,27 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
+        static let appearanceMode = AppearanceMode.system
         static let openPanesWindowOnLaunch = true
         static let showStatusBar = true
         static let autoReconnect = true
         static let preventSleepDuringSessions = true
         static let autoCopyOnSelect = true
         static let alwaysAutoResize = true
+        static let openClickedFileInNewTab = true
+        static let alwaysOpenFilesInSplit = false
+        static let browserLinkBehavior = BrowserLinkBehavior.ask
+        static let alwaysOpenLinksInSplit = false
         static let reconnectDelay = 2
         static let tmuxPath = "/opt/homebrew/bin/tmux"
         static let tmuxSocket = ""
-        static let autoRunClaudeInProjects = true
-        static let claudeCommandPath = "claude"
-        static let closePaneOnSessionEnd = false
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
-        /// Plugin
-        static let hasCompletedPluginSetup = false
+        /// External Editors
+        static let hasSeededEditors = false
         // Launch at Login
         static let launchAtLogin = false
         static let hasAskedAboutLaunchAtLogin = false
@@ -474,11 +589,11 @@ final public class AppSettings {
         preferences.setData(data, Keys.sidebarFields)
     }
 
-    private func saveAdditionalClaudeFolders() {
-        guard let data = try? JSONEncoder().encode(additionalClaudeFolders) else {
+    private func saveEditors() {
+        guard let data = try? JSONEncoder().encode(editors) else {
             return
         }
-        preferences.setData(data, Keys.additionalClaudeFolders)
+        preferences.setData(data, Keys.editors)
     }
 
     private func saveSidebarTerminalFields() {
@@ -486,6 +601,54 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.sidebarTerminalFields)
+    }
+
+    private func saveBrowserDomainRules() {
+        guard let data = try? JSONEncoder().encode(browserDomainRules) else {
+            return
+        }
+        preferences.setData(data, Keys.browserDomainRules)
+    }
+
+    // MARK: - Browser Domain Rule Management
+
+    /// Returns the per-domain behavior for `url` if one exists.
+    ///
+    /// Host matching is case-insensitive and uses the URL's host verbatim — no
+    /// suffix matching, so a rule for `example.com` does not cover
+    /// `sub.example.com`. When the URL carries an explicit port the lookup key
+    /// is `host:port`, so a rule for `example.com:8080` matches only that
+    /// host+port combination and a port-less rule for `example.com` matches
+    /// only URLs without an explicit port.
+    public func browserBehavior(for url: URL) -> BrowserLinkBehavior? {
+        guard let host = url.host?.lowercased() else { return nil }
+        let key = url.port.map { "\(host):\($0)" } ?? host
+        return browserDomainRules.first(where: { $0.domain == key })?.behavior
+    }
+
+    /// Sets the behavior for `domain`, replacing any existing rule for the
+    /// same (case-insensitively normalized) host.
+    public func setBrowserBehavior(_ behavior: BrowserLinkBehavior, for domain: String) {
+        let normalized = domain.lowercased()
+        guard !normalized.isEmpty else { return }
+        if let index = browserDomainRules.firstIndex(where: { $0.domain == normalized }) {
+            browserDomainRules[index].behavior = behavior
+        } else {
+            browserDomainRules.append(BrowserDomainRule(domain: normalized, behavior: behavior))
+        }
+    }
+
+    /// Updates a rule's behavior in place, looked up by `id`. No-op if not
+    /// found.
+    public func updateBrowserDomainRule(id: UUID, behavior: BrowserLinkBehavior) {
+        if let index = browserDomainRules.firstIndex(where: { $0.id == id }) {
+            browserDomainRules[index].behavior = behavior
+        }
+    }
+
+    /// Removes a per-domain rule by id.
+    public func removeBrowserDomainRule(id: UUID) {
+        browserDomainRules.removeAll { $0.id == id }
     }
 
     // MARK: - Pairing Management
@@ -558,25 +721,39 @@ final public class AppSettings {
         return !matchingNames.isEmpty
     }
 
-    // MARK: - Claude Folder Management
+    // MARK: - Editor Management
 
-    /// Add a new folder to scan for Claude projects.
-    ///
-    /// Returns the normalized path that was added (or would have been added if
-    /// it hadn't already been present). Callers that need to act on the
-    /// canonical representation can use this instead of re-normalizing the
-    /// input.
+    /// Adds an editor to the list. Returns the added editor.
     @discardableResult
-    public func addClaudeFolder(_ path: String) -> String {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        guard !additionalClaudeFolders.contains(normalized) else { return normalized }
-        additionalClaudeFolders.append(normalized)
-        return normalized
+    public func addEditor(_ editor: EditorConfiguration) -> EditorConfiguration {
+        editors.append(editor)
+        return editor
     }
 
-    /// Remove a Claude folder by its path.
-    public func removeClaudeFolder(_ path: String) {
-        additionalClaudeFolders.removeAll { $0 == path }
+    /// Removes an editor by its identifier.
+    public func removeEditor(id: UUID) {
+        editors.removeAll { $0.id == id }
+    }
+
+    /// Updates an existing editor in place. Looked up by `id`; no-op if not found.
+    public func updateEditor(_ editor: EditorConfiguration) {
+        if let index = editors.firstIndex(where: { $0.id == editor.id }) {
+            editors[index] = editor
+        }
+    }
+
+    /// On first launch (or when the user explicitly hasn't seeded yet), populate
+    /// `editors` with the editors that are currently installed on the host.
+    /// Subsequent calls are no-ops because `hasSeededEditors` is set to true.
+    ///
+    /// Async because the live `detectInstalledKnownEditors` runs Launch
+    /// Services lookups off the MainActor.
+    public func seedEditorsIfEmpty(using client: EditorClient) async {
+        guard !hasSeededEditors else { return }
+        if editors.isEmpty {
+            editors = await client.detectInstalledKnownEditors()
+        }
+        hasSeededEditors = true
     }
 
     // MARK: - Login Item Management

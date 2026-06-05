@@ -4,7 +4,32 @@
     import Foundation
     import Logging
 
+    /// Receives events parsed by `PipePaneReader`.
+    ///
+    /// All methods are called on the main actor. The reader dispatches each
+    /// chunk's events as a single fire-and-forget Task to MainActor, so the
+    /// FIFO consumer pulling from the pipe-pane stream is never blocked
+    /// waiting on rendering. MainActor Tasks of the same priority dispatched
+    /// from the reader actor run in submission order, preserving stream
+    /// ordering across chunks.
+    @MainActor
+    protocol PipePaneReaderDelegate: AnyObject, Sendable {
+        func pipePaneReader(_ paneId: String, didReceiveData data: Data)
+        func pipePaneReader(
+            _ paneId: String,
+            didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
+        )
+        func pipePaneReader(_ paneId: String, didReceiveTitle title: String)
+        func pipePaneReader(_ paneId: String, didReceiveClipboard content: String)
+        func pipePaneReader(_ paneId: String, didReceiveProgress progress: TerminalProgressState)
+    }
+
     /// Manages FIFO-based raw byte delivery from tmux pipe-pane for a single pane.
+    ///
+    /// A single `PipePaneReader` lives for the full lifetime of its tmux pane.
+    /// It starts in scan-only mode (data discarded, OSC notifications still
+    /// extracted) and switches into buffering / live modes via
+    /// `setBuffering(_:)` and `flushBuffer()` when subscribers attach.
     ///
     /// Instead of parsing `%output` events from control mode (which requires octal unescaping,
     /// UTF-8 reconstruction, and line-boundary handling), this reads raw PTY bytes directly
@@ -17,7 +42,24 @@
     /// 3. tmux starts `cat > fifo` subprocess (blocks on open until reader connects)
     /// 4. Open FIFO for reading (unblocks writer, data flows)
     actor PipePaneReader {
-        private let paneId: String
+        /// Three data-delivery modes the reader can be in.
+        ///
+        /// - `scanOnly`: parser is in scan-only mode (no `filteredData` built),
+        ///   incoming bytes are discarded. OSC notification/title/clipboard/progress
+        ///   events still flow to the delegate. This is the default after start
+        ///   and the resting state when no subscribers are attached.
+        /// - `buffering`: parser builds `filteredData`, but bytes are queued
+        ///   for a later `flushBuffer()` instead of being forwarded. Used during
+        ///   an initial `capture-pane` snapshot so live bytes that arrive
+        ///   between "buffering on" and "snapshot taken" aren't dropped.
+        /// - `live`: parser builds `filteredData` and bytes flow directly to the
+        ///   delegate. The state after `flushBuffer()` returns.
+        private enum Mode { case scanOnly, buffering, live }
+
+        /// `paneId` never changes after init; expose nonisolated so the delegate
+        /// (which receives the id with every callback) doesn't need to cross
+        /// actor boundaries to read it.
+        nonisolated let paneId: String
         private let logger: Logger
 
         // FIFO state
@@ -25,11 +67,10 @@
         private var fileHandle: FileHandle?
         private var isRunning = false
 
-        // Data delivery
-        private var dataHandler: (@Sendable (Data) -> Void)?
-        private var notificationHandler: (@Sendable (TerminalStreamMessage.TerminalNotification) -> Void)?
-        private var titleChangeHandler: (@Sendable (String) -> Void)?
-        private var clipboardHandler: (@Sendable (String) -> Void)?
+        // Delivery
+        private weak var delegate: (any PipePaneReaderDelegate)?
+        private var mode: Mode = .scanOnly
+        private var buffer: [Data] = []
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -38,18 +79,14 @@
         private var dataContinuation: AsyncStream<Data>.Continuation?
         private var consumerTask: Task<Void, Never>?
 
-        // Buffering during initial capture
-        private var isBuffering = false
-        private var buffer: [Data] = []
-
-        // Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
+        /// Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
         private var tmuxEscapeBuffer = Data()
 
-        // Parser for OSC 9/777 notification sequences
-        private var notificationParser: TerminalNotificationParser
+        /// Parser for OSC 9/777 notification sequences. `scanOnly` is flipped
+        /// by `setBuffering(_:)` so the same instance can be reused across modes.
+        private var notificationParser = TerminalNotificationParser(scanOnly: true)
 
-        init(paneId: String, scanOnly: Bool = false) {
-            self.notificationParser = TerminalNotificationParser(scanOnly: scanOnly)
+        init(paneId: String) {
             self.paneId = paneId
             self.logger = Logger(label: "com.claudespy.pipepane.\(paneId)")
 
@@ -65,42 +102,31 @@
 
         // MARK: - Public API
 
-        /// Sets the handler for incoming raw data.
-        func setDataHandler(_ handler: @escaping @Sendable (Data) -> Void) {
-            dataHandler = handler
-        }
-
-        /// Sets the handler for terminal notifications (OSC 9/777).
-        func setNotificationHandler(_ handler: @escaping @Sendable (TerminalStreamMessage.TerminalNotification) -> Void) {
-            notificationHandler = handler
-        }
-
-        /// Sets the handler for terminal title changes (OSC 0/2).
-        func setTitleChangeHandler(_ handler: @escaping @Sendable (String) -> Void) {
-            titleChangeHandler = handler
-        }
-
-        /// Sets the handler for clipboard content (OSC 52).
-        func setClipboardHandler(_ handler: @escaping @Sendable (String) -> Void) {
-            clipboardHandler = handler
+        /// Sets the delegate that receives parsed events. Stored weakly; the
+        /// delegate must outlive the reader.
+        func setDelegate(_ delegate: (any PipePaneReaderDelegate)?) {
+            self.delegate = delegate
         }
 
         /// Starts pipe-pane for this pane, creating the FIFO and opening it for reading.
         ///
+        /// The reader begins in scan-only mode — bytes are parsed for OSC events
+        /// but discarded otherwise. Use `setBuffering(true)` + `flushBuffer()`
+        /// when a subscriber attaches and wants live bytes.
+        ///
         /// - Parameter controlClientManager: Used to send the pipe-pane command
         /// - Parameter sessionName: The tmux session name for the control client
-        /// - Parameter buffering: If true, data is buffered until `stopBufferingAndFlush()` is called
         func startPipePane(
             controlClientManager: TmuxControlClientManager,
-            sessionName: String,
-            buffering: Bool = true
+            sessionName: String
         ) async throws {
             guard !isRunning else {
                 logger.warning("pipe-pane already running for \(paneId)")
                 return
             }
 
-            isBuffering = buffering
+            mode = .scanOnly
+            notificationParser.scanOnly = true
             buffer = []
 
             // Clean up any stale FIFO from a previous crash
@@ -161,7 +187,7 @@
 
             // Note: readabilityHandler captures `continuation` strongly, so the handler
             // keeps yielding if PipePaneReader is deallocated without stopPipePane().
-            // Callers MUST call stopPipePane() to clean up — see PaneStream.disconnect().
+            // Callers MUST call stopPipePane() to clean up — see PaneStreamManager.
             let fd = handle.fileDescriptor
             handle.readabilityHandler = { [weak self] _ in
                 // Read directly from the file descriptor to avoid NSFileHandle's
@@ -191,19 +217,52 @@
             logger.info("pipe-pane started for \(paneId)")
         }
 
-        /// Stops buffering and flushes all buffered data to the handler.
-        func stopBufferingAndFlush() {
-            guard isBuffering else { return }
-            isBuffering = false
-
-            let bufferedData = buffer
+        /// Switches data-delivery mode.
+        ///
+        /// - `true`: Switch to buffering mode. The parser starts building
+        ///   `filteredData` and incoming bytes are queued instead of forwarded
+        ///   to the delegate. Drop any prior buffered bytes first — buffering
+        ///   is meant to start clean before a `capture-pane` snapshot.
+        /// - `false`: Switch back to scan-only mode. The parser stops building
+        ///   `filteredData`, the queue is discarded, and only OSC events keep
+        ///   flowing. Call when the last subscriber leaves.
+        ///
+        /// Use `flushBuffer()` to drain the queue and transition into live mode
+        /// (bytes flow directly to the delegate).
+        func setBuffering(_ enabled: Bool) {
             buffer = []
-
-            for data in bufferedData {
-                dataHandler?(data)
+            if enabled {
+                notificationParser.scanOnly = false
+                mode = .buffering
+            } else {
+                notificationParser.scanOnly = true
+                mode = .scanOnly
             }
+        }
 
-            logger.debug("Flushed \(bufferedData.count) buffered chunks for \(paneId)")
+        /// Drains any queued bytes through the delegate in the order they were
+        /// received, then transitions to live mode (subsequent bytes flow
+        /// directly to the delegate). The buffer is empty after this call.
+        ///
+        /// Delivery is fire-and-forget: chunks are dispatched as a single
+        /// MainActor Task per call, so the actor never suspends mid-flush
+        /// and concurrent writers can't interleave with the buffered chunks.
+        /// Subsequent `processIncomingData` calls in `.live` mode dispatch
+        /// their own Tasks; MainActor processes them in submission order
+        /// after this flush Task completes.
+        func flushBuffer() {
+            notificationParser.scanOnly = false
+            let toFlush = buffer
+            buffer = []
+            mode = .live
+            if !toFlush.isEmpty {
+                dispatchToDelegate { [paneId] delegate in
+                    for chunk in toFlush {
+                        delegate.pipePaneReader(paneId, didReceiveData: chunk)
+                    }
+                }
+            }
+            logger.debug("Flushed \(toFlush.count) buffered chunks for \(paneId)")
         }
 
         /// Stops pipe-pane and cleans up all resources.
@@ -237,14 +296,12 @@
             cleanupFifo()
 
             isRunning = false
-            isBuffering = false
+            mode = .scanOnly
             buffer = []
             tmuxEscapeBuffer = Data()
             notificationParser.reset()
-            dataHandler = nil
-            notificationHandler = nil
-            titleChangeHandler = nil
-            clipboardHandler = nil
+            notificationParser.scanOnly = true
+            delegate = nil
 
             logger.info("pipe-pane stopped for \(paneId)")
         }
@@ -261,36 +318,84 @@
             let daFiltered = TerminalResponseFilter.stripDAQueries(tmuxFiltered)
             guard !daFiltered.isEmpty else { return }
 
+            // Strip DSR query sequences (CPR, DECXCPR, status) for the same reason.
+            let dsrFiltered = TerminalResponseFilter.stripDSRQueries(daFiltered)
+            guard !dsrFiltered.isEmpty else { return }
+
+            // Strip DECRQM (Request Mode) queries — e.g. mode 2026 synchronized output.
+            let decrqmFiltered = TerminalResponseFilter.stripDECRQMQueries(dsrFiltered)
+            guard !decrqmFiltered.isEmpty else { return }
+
             // Strip Kitty keyboard protocol negotiation sequences so mirroring
             // SwiftTerm instances never enter an unsupported keyboard mode.
-            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(daFiltered)
+            let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(decrqmFiltered)
             guard !kittyFiltered.isEmpty else { return }
 
             // Parse and strip OSC 9/777 notification sequences
             let parseResult = notificationParser.parse(kittyFiltered)
 
-            // Report any detected notifications
-            for notification in parseResult.notifications {
-                notificationHandler?(notification)
-            }
-
-            // Report title changes (OSC 0/2)
-            if let title = parseResult.titleChange {
-                titleChangeHandler?(title)
-            }
-
-            // Report clipboard content (OSC 52)
-            if let clipboardContent = parseResult.clipboardContent {
-                clipboardHandler?(clipboardContent)
-            }
-
+            // Determine what (if any) data goes to the live delegate; for
+            // buffering mode we append synchronously so the buffer's order
+            // is determined by actor serialization, not by MainActor timing.
             let filtered = parseResult.filteredData
-            guard !filtered.isEmpty else { return }
+            let liveData: Data?
+            switch mode {
+            case .scanOnly:
+                liveData = nil
+            case .buffering:
+                if !filtered.isEmpty { buffer.append(filtered) }
+                liveData = nil
+            case .live:
+                liveData = filtered.isEmpty ? nil : filtered
+            }
 
-            if isBuffering {
-                buffer.append(filtered)
-            } else {
-                dataHandler?(filtered)
+            let notifications = parseResult.notifications
+            let title = parseResult.titleChange
+            let clipboard = parseResult.clipboardContent
+            let progress = parseResult.progressUpdate
+
+            guard
+                !notifications.isEmpty
+                || title != nil
+                || clipboard != nil
+                || progress != nil
+                || liveData != nil
+            else { return }
+
+            dispatchToDelegate { [paneId] delegate in
+                for notification in notifications {
+                    delegate.pipePaneReader(paneId, didReceiveNotification: notification)
+                }
+                if let title { delegate.pipePaneReader(paneId, didReceiveTitle: title) }
+                if let clipboard { delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard) }
+                if let progress { delegate.pipePaneReader(paneId, didReceiveProgress: progress) }
+                if let liveData { delegate.pipePaneReader(paneId, didReceiveData: liveData) }
+            }
+        }
+
+        /// Dispatches a fire-and-forget MainActor Task that delivers events
+        /// for one chunk to the delegate, in the order the closure invokes
+        /// methods. Tasks at the same priority dispatched from this actor run
+        /// in submission order on MainActor, so cross-chunk stream order is
+        /// preserved without blocking the FIFO consumer task.
+        private func dispatchToDelegate(
+            _ deliver: @escaping @Sendable @MainActor (any PipePaneReaderDelegate) -> Void
+        ) {
+            // `delegate` is weak; capture it inside the Task so a deallocation
+            // between dispatch and execution simply drops the events.
+            let weakRef = WeakDelegate(delegate)
+            Task { @MainActor in
+                guard let delegate = weakRef.value else { return }
+                deliver(delegate)
+            }
+        }
+
+        /// Tiny weak holder so we can capture the delegate reference into a
+        /// `Sendable` closure without retaining it.
+        private struct WeakDelegate: @unchecked Sendable {
+            weak var value: (any PipePaneReaderDelegate)?
+            init(_ value: (any PipePaneReaderDelegate)?) {
+                self.value = value
             }
         }
 
@@ -369,9 +474,22 @@
             filterTmuxEscapeSequences(data)
         }
 
-        /// Exposes processIncomingData for testing.
+        /// Exposes processIncomingData for testing. The data path itself is
+        /// synchronous, but delegate delivery is fire-and-forget on MainActor;
+        /// tests must call `testWaitForDelivery()` before asserting on the
+        /// delegate so any dispatched Tasks have run.
         func testProcessIncomingData(_ data: Data) {
             processIncomingData(data)
+        }
+
+        /// Drains any MainActor delivery Tasks dispatched by prior
+        /// `testProcessIncomingData` / `flushBuffer` calls. Tests assert on
+        /// delegate state only after this returns.
+        func testWaitForDelivery() async {
+            // Hop to MainActor and back. Tasks at the same priority dispatched
+            // from this actor run on MainActor in submission order; this trip
+            // queues behind them, so by the time we resume, they've all run.
+            await Task { @MainActor in }.value
         }
 
         /// Exposes fifoPath for testing.
@@ -379,19 +497,11 @@
             fifoPath
         }
 
-        /// Sets buffering state for testing.
-        func testSetBuffering(_ enabled: Bool) {
-            isBuffering = enabled
-            if enabled {
-                buffer = []
-            }
-        }
-
         // MARK: - Lifecycle
 
         private func handleEOF() {
             logger.warning("EOF on pipe-pane FIFO for \(paneId) — cat process may have died")
-            // Don't clean up here — the caller (PaneStream) should handle reconnection
+            // Don't clean up here — the caller (PaneStreamManager) should handle reconnection
             // or cleanup via stopPipePane()
             fileHandle?.readabilityHandler = nil
         }

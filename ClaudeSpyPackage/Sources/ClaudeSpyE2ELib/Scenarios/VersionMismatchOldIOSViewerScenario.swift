@@ -19,7 +19,8 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.startServer
         TestStep.verifyServerHealth
 
-        // 3. Launch Mac host with default version (1.23, requires viewer 1.23)
+        // 3. Launch Mac host with the current default version (its default
+        //    minimum requires an up-to-date viewer).
         TestStep.launchMacApp()
 
         // 4. Launch iOS viewer pretending to be an old build (version 0.1).
@@ -43,7 +44,6 @@ public enum VersionMismatchOldIOSViewerScenario {
         // 6. Enter the code on iOS — the pairing REST call succeeds, but the
         //    peer-to-peer `peerHello` exchange that follows will surface the mismatch.
         TestStep.iosType(text: "${pairingCode}")
-        TestStep.wait(seconds: 3)
 
         // 7. Server accepted the pair record (versions are enforced in peerHello, not pairing)
         TestStep.verifyServerHasPairings(count: 1)
@@ -61,10 +61,10 @@ public enum VersionMismatchOldIOSViewerScenario {
         //    should surface the HostVersionMismatchRow callout ("Update this app"
         //    + the required version) so the user sees why they can't connect
         //    without having to drill into Settings.
-        TestStep.wait(seconds: 3)
         TestStep.iosWaitForElement(.identifier("host-version-mismatch-row"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("Update this app"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("requires version 1.23"), timeout: 5)
+        // swiftlint:disable:next custom_no_number_decimals
+        TestStep.iosWaitForElement(.labelContains("requires version 2.0"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-version-mismatch-state")
 
         // 10. Simulate the user "updating" the iOS viewer: clear its version
@@ -89,7 +89,7 @@ public enum VersionMismatchOldIOSViewerScenario {
         TestStep.iosWaitForElementToDisappear(.identifier("host-version-mismatch-row"), timeout: 20)
         TestStep.iosWaitForElement(.labelContains("No active sessions"), timeout: 20)
         TestStep.macWaitForElementToDisappear(titled: "running version 0.1", timeout: 20)
-        TestStep.macWaitForElement(titled: "Connected", timeout: 20)
+        TestStep.macWaitForElement(titled: "Viewer connected", timeout: 20)
         TestStep.iosScreenshot(label: "ios-after-upgrade")
         TestStep.macScreenshot(label: "mac-after-ios-upgrade", tolerance: 5)
     }

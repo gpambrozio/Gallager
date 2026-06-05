@@ -58,21 +58,37 @@ public enum DockIconConfig {
 
 /// Internal class that manages the dock icon visibility based on window state.
 @MainActor
-final private class LiveDockIconManager {
+final class LiveDockIconManager {
+    /// Default debounce window between rapid `handleWindowClosing` events and
+    /// the resulting `updateActivationPolicy` call.
+    static let defaultClosingDebounce: Duration = .milliseconds(100)
+
     private var observationTask: Task<Void, Never>?
     private var updatePolicyTask: Task<Void, Never>?
 
     /// Window identifiers to ignore when counting visible windows
-    private let ignoredWindowClasses: Set<String> = [
+    private let ignoredWindowClasses: Set = [
         "NSStatusBarWindow",
         "_NSPopoverWindow",
         "NSMenuWindowManagerWindow",
     ]
 
-    init() { }
+    private let closingDebounce: Duration
+
+    @Dependency(\.continuousClock) private var clock
+
+    /// Test hook fired immediately after the debounce timer resolves and
+    /// `updateActivationPolicy()` runs. `nil` in production so there's no
+    /// observable cost; tests substitute it to count debounced fires.
+    var onActivationPolicyUpdated: (@MainActor () -> Void)?
+
+    init(closingDebounce: Duration = LiveDockIconManager.defaultClosingDebounce) {
+        self.closingDebounce = closingDebounce
+    }
 
     deinit {
         observationTask?.cancel()
+        updatePolicyTask?.cancel()
     }
 
     func startObserving() {
@@ -142,15 +158,16 @@ final private class LiveDockIconManager {
         updateActivationPolicy()
     }
 
-    private func handleWindowClosing() {
+    func handleWindowClosing() {
         // Cancel any pending update and schedule a new one.
         // This ensures we only update once after rapid window close events.
         updatePolicyTask?.cancel()
-        updatePolicyTask = Task {
+        let interval = closingDebounce
+        updatePolicyTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled else { return }
-                updateActivationPolicy()
+                try await self?.clock.sleep(for: interval)
+                self?.updateActivationPolicy()
+                self?.onActivationPolicyUpdated?()
             } catch {
                 // Task was cancelled
             }
@@ -174,23 +191,33 @@ final private class LiveDockIconManager {
     }
 
     private func countVisibleAppWindows() -> Int {
-        return NSApp.windows.filter { window in
+        // `NSApp` is an implicitly-unwrapped global that is nil until the shared
+        // application instance exists. It is always live in the running app, but
+        // can be nil in a headless unit-test process (where this would otherwise
+        // trap). Treat "no application" as zero windows.
+        guard let app = NSApp else { return 0 }
+        return app.windows.filter { window in
             isRelevantWindow(window) && window.isVisible
         }.count
     }
 
     private func updateActivationPolicy() {
         guard !DockIconConfig.isE2ETestMode else { return }
+        // No shared application instance (e.g. a headless unit-test process where
+        // the `NSApp` IUO global is nil) → there is no dock icon to manage. The
+        // caller still fires `onActivationPolicyUpdated`, so debounce-counting
+        // tests are unaffected.
+        guard let app = NSApp else { return }
         let visibleCount = countVisibleAppWindows()
-        let currentPolicy = NSApp.activationPolicy()
+        let currentPolicy = app.activationPolicy()
 
         if visibleCount > 0 {
             if currentPolicy != .regular {
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: false)
+                app.setActivationPolicy(.regular)
+                app.activate(ignoringOtherApps: false)
             }
         } else if currentPolicy != .accessory {
-            NSApp.setActivationPolicy(.accessory)
+            app.setActivationPolicy(.accessory)
         }
     }
 }

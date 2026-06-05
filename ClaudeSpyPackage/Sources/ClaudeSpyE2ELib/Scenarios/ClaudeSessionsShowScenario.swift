@@ -16,7 +16,6 @@ public enum ClaudeSessionsShowScenario {
         // 2. Create 2 tmux sessions
         TestStep.tmuxCreateSession(name: "session-1", width: 80, height: 24)
         TestStep.tmuxCreateSession(name: "session-2", width: 80, height: 24)
-        TestStep.wait(seconds: 3)
 
         // 3. Store the pane IDs for later use in hook events
         TestStep.tmuxStorePaneId(target: "session-1:0.0", storeAs: "pane1Id")
@@ -24,7 +23,7 @@ public enum ClaudeSessionsShowScenario {
 
         // 4. Verify iOS shows both sessions as plain terminals
         TestStep.iosWaitForElement(.labelContains("session-1"), timeout: 15)
-        TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 15)
         TestStep.iosScreenshot(label: "ios-plain-terminals")
 
         // 5. Send a SessionStart hook event for pane 1
@@ -39,14 +38,13 @@ public enum ClaudeSessionsShowScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
-        // 6. Verify iOS now shows pane 1 as a Claude Code session
-        //    - The session row should display the project folder name "MyProject"
-        //    - After SessionStart, the indicator is red (needsAttention = true
-        //      because SessionStart triggers a notification)
+        // 6. Verify iOS now shows pane 1 as an agent session named after the
+        //    project folder ("MyProject"). The agent-blind iOS no longer renders
+        //    per-event rows (e.g. a "Session Started" label); the session's
+        //    presence + its attention state (captured by the baseline screenshot
+        //    in step 7) is the same flow.
         TestStep.iosWaitForElement(.labelContains("MyProject"), timeout: 10)
-        TestStep.iosWaitForElement(.labelContains("Session Started"), timeout: 5)
 
         // 7. Verify pane 2 is still shown as a plain terminal
         TestStep.iosWaitForElement(.labelContains("session-2"), timeout: 5)

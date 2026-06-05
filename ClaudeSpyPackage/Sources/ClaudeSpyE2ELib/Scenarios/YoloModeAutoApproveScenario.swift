@@ -21,7 +21,6 @@ public enum YoloModeAutoApproveScenario {
 
         // Open the Claude session terminal view on iOS
         TestStep.iosTap(.labelContains("MyProject"))
-        TestStep.wait(seconds: 5)
         TestStep.iosWaitForElement(.labelContains("Commands"), timeout: 15)
 
         // ══════════════════════════════════════════════════════════════
@@ -36,12 +35,11 @@ public enum YoloModeAutoApproveScenario {
         Shortcut.iosVerifyCommandsMenuItem("Disable Yolo Mode", timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-enabled")
 
-        // Verify macOS also reflects yolo mode enabled
-        TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Available Windows", timeout: 5)
-        TestStep.wait(seconds: 2)
+        // Verify macOS also reflects yolo mode enabled.
+        // Use openPanesWindow so the window is sized deterministically — the
+        // Mac screenshots later in this scenario depend on a known frame.
+        Shortcut.openPanesWindow()
         TestStep.macClickButton(titled: "session-1")
-        TestStep.wait(seconds: 1)
         TestStep.macWaitForElement(
             titled: "Yolo mode: auto-approving permissions (click to disable)",
             timeout: 10
@@ -76,7 +74,6 @@ public enum YoloModeAutoApproveScenario {
         )
 
         // Wait for the auto-approve delay (500ms) plus processing time
-        TestStep.wait(seconds: 3)
 
         // The response UI ("Run Command", "Accept") should NOT appear
         // because yolo mode auto-approves it.
@@ -84,12 +81,15 @@ public enum YoloModeAutoApproveScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("Run Command"), timeout: 3)
         TestStep.iosScreenshot(label: "ios-yolo-no-response-ui")
 
-        // Verify no push notification was sent for the auto-approved event
+        // Verify no push notification was sent for the auto-approved event.
+        // The push log records the agent-blind notification title; a Bash
+        // permission would log "Permission: Bash|<pane>" — yolo must suppress it.
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterYolo")
-        TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredNotContains(key: "pushLogAfterYolo", substring: "Permission: Bash|${pane1Id}")
 
-        // Session should NOT be in "Attention" state — yolo auto-approved it (#338)
-        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        // Session should NOT show the "Permission" form — yolo auto-approved it and
+        // kept the session `.working` (the awaiting* transition is dropped) (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // ══════════════════════════════════════════════════════════════
@@ -138,15 +138,15 @@ public enum YoloModeAutoApproveScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // AskUserQuestion is NOT yolo-auto-approvable, so UI should appear
         TestStep.iosWaitForElement(.labelContains("Which framework"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-yolo-ask-user-still-shows")
 
-        // Verify a push notification WAS sent for the non-auto-approvable event
+        // Verify a push notification WAS sent for the non-auto-approvable event.
+        // AskUserQuestion logs the dedicated "<agent> wants answers" title.
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterAsk")
-        TestStep.assertStoredContains(key: "pushLogAfterAsk", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredContains(key: "pushLogAfterAsk", substring: "Claude wants answers|${pane1Id}")
 
         // ══════════════════════════════════════════════════════════════
         // Phase 6: Disable yolo mode, send another auto-approvable event,
@@ -193,7 +193,6 @@ public enum YoloModeAutoApproveScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.wait(seconds: 3)
 
         // Without yolo mode, the response UI SHOULD appear
         TestStep.iosWaitForElement(.labelContains("Run Command"), timeout: 10)
@@ -202,7 +201,7 @@ public enum YoloModeAutoApproveScenario {
 
         // Verify a push notification WAS sent (yolo mode is off)
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterNonYolo")
-        TestStep.assertStoredContains(key: "pushLogAfterNonYolo", substring: "PermissionRequest|${pane1Id}")
+        TestStep.assertStoredContains(key: "pushLogAfterNonYolo", substring: "Permission: Bash|${pane1Id}")
 
         // ══════════════════════════════════════════════════════════════
         // Phase 7: With a pending auto-approvable request, enabling
@@ -221,7 +220,6 @@ public enum YoloModeAutoApproveScenario {
         Shortcut.iosTapCommandsMenuItem("Enable Yolo Mode")
 
         // Give it the 500ms auto-approve delay + processing time
-        TestStep.wait(seconds: 3)
 
         // iOS response UI should disappear — the pending event was auto-approved
         TestStep.iosWaitForElementToDisappear(.labelContains("Run Command"), timeout: 5)
@@ -236,8 +234,9 @@ public enum YoloModeAutoApproveScenario {
         )
         TestStep.macScreenshot(label: "mac-yolo-pending-auto-approved")
 
-        // Session should NOT be in "Attention" state — yolo auto-approved the pending request (#338)
-        TestStep.macWaitForElementToDisappear(titled: "Attention", timeout: 5)
+        // Session should NOT show the "Permission" form — yolo auto-approved the
+        // pending request and kept the session `.working` (#338)
+        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
 
         // Yolo mode should now show enabled on both platforms

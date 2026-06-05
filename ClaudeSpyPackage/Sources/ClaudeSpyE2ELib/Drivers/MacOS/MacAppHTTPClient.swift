@@ -4,10 +4,16 @@ import Logging
 /// Minimal HTTP client for macOS app endpoints that require in-process access.
 ///
 /// Most UI interaction has moved to `MacOSAccessibility` (external AX APIs).
-/// This client only handles:
+/// This client only handles the in-process test endpoints on the
+/// `TestAccessibilityServer` port:
 /// - `/set-sidebar-width` — NSSplitView.setPosition() requires in-process access
 /// - `/unpair` — Posts a NotificationCenter notification inside the app
-/// - Hook server communication (separate port)
+/// - `/reconnect` — runtime version-override changes
+/// - `/drop-files` — simulated Finder drop onto a pane
+///
+/// Hook delivery no longer goes through HTTP: the legacy `HookServerService`
+/// was deleted in the plugin-system flip, and hooks now arrive as length-prefixed
+/// `IngressFrame`s on the app's ingress socket (see `IngressSocketClient`).
 enum MacAppHTTPClient {
     private static let logger = Logger(label: "e2e.mac-http")
     static let defaultPort: UInt16 = 18_081
@@ -64,50 +70,25 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
-    /// Send a hook event to the macOS app's real hook server (`/api/hooks`).
-    /// Reads the hook server port from the given port file (defaults to `~/.claudespy-port`).
+    /// Trigger a simulated Finder file drop on the given tmux pane.
+    /// Calls the in-process `/drop-files` test endpoint, which finds the
+    /// matching `InteractiveTerminalView` and invokes `simulateFileDrop`.
+    /// Body format is `paneId\npath1\npath2…`.
     @discardableResult
-    static func sendHook(json: String, tmuxPane: String, projectPath: String?, hookPortFile: String? = nil) async throws -> Bool {
-        let hookPort = try readHookServerPort(portFilePath: hookPortFile)
-
-        var components = URLComponents(string: "http://localhost:\(hookPort)/api/hooks")!
-        var queryItems = [URLQueryItem(name: "tmux_pane", value: tmuxPane)]
-        if let projectPath {
-            queryItems.append(URLQueryItem(name: "project_path", value: projectPath))
-        }
-        components.queryItems = queryItems
-
-        var request = URLRequest(url: components.url!)
+    static func dropFilesOnPane(
+        paneId: String,
+        paths: [String],
+        port: UInt16 = defaultPort
+    ) async throws -> Bool {
+        let url = URL(string: "http://127.0.0.1:\(port)/drop-files")!
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(json.utf8)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        logger.info("Hook event sent to server on port \(hookPort), status: \(statusCode)")
-        return statusCode == 200
-    }
-
-    /// Read the hook server port from the given file path, falling back to `~/.claudespy-port`.
-    private static func readHookServerPort(portFilePath: String? = nil) throws -> Int {
-        let portFilePath = portFilePath ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claudespy-port").path
-        guard
-            let contents = try? String(contentsOfFile: portFilePath, encoding: .utf8),
-            let port = Int(contents.trimmingCharacters(in: .whitespacesAndNewlines))
-        else {
-            throw MacAppHTTPError.hookServerPortUnavailable
-        }
-        return port
-    }
-}
-
-enum MacAppHTTPError: Error, LocalizedError {
-    case hookServerPortUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .hookServerPortUnavailable:
-            "Hook server port file not found or unreadable"
-        }
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        let body = ([paneId] + paths).joined(separator: "\n")
+        request.httpBody = Data(body.utf8)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let responseBody = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP drop-files paneId=\(paneId) paths=\(paths.count): \(responseBody)")
+        return responseBody == "ok"
     }
 }

@@ -63,58 +63,66 @@ Multiple panes in the same session share one control client connection. The cont
 
 ### PipePaneReader (`ClaudeSpyServerFeature/Services/PipePaneReader.swift`)
 
-`actor` managing FIFO-based raw byte delivery from tmux `pipe-pane` for a single pane.
+`actor` managing FIFO-based raw byte delivery from tmux `pipe-pane` for a single pane. One reader instance lives for the pane's full lifetime — mirror toggling never restarts it.
 
 **Features:**
 - Creates per-pane FIFO (`/tmp/claudespy-pipe-<id>.fifo`)
 - Starts `pipe-pane -O "cat > fifo"` via control mode command
-- Reads raw PTY bytes, filtering only tmux `ESC k ... ESC \` title sequences
+- Reads raw PTY bytes, filtering tmux `ESC k ... ESC \` title sequences and parsing OSC 9/777/9;4/0/2/52 events
 - AsyncStream + single consumer task for strict FIFO ordering
-- Supports buffering during initial capture (collects without delivering, then flushes)
+- Forwards events through a single `PipePaneReaderDelegate` (`@MainActor` protocol, one method per event type)
+
+**Three data-delivery modes:**
+- **`scanOnly`** (default after `startPipePane`): parser doesn't build `filteredData`, data bytes are discarded. OSC events still flow.
+- **`buffering`** (`setBuffering(true)`): bytes queued instead of forwarded. Used while a `capture-pane` snapshot is being taken.
+- **`live`** (`flushBuffer`): drains the queue to the delegate in order, then forwards subsequent bytes directly.
 
 **Lifecycle:**
-- `startPipePane(buffering:)` - create FIFO, send pipe-pane command, open for reading
-- `stopBufferingAndFlush()` - deliver buffered data and switch to live delivery
-- `stopPipePane()` - clean up FIFO, close file handle (must be called for cleanup)
-
-### PaneStream (`ClaudeSpyServerFeature/Services/PaneStream.swift`)
-
-`@Observable @MainActor` class managing streaming to a single pane.
-
-**States:** `disconnected` → `connecting` → `connected` | `error`
-
-**Data Flow:**
-```
-tmux PTY ──pipe-pane──→ FIFO ──→ PipePaneReader ──→ PaneStream.onData
-                                                            ↓
-                                                   subscriber callbacks
-
-TmuxControlClient ──%layout-change──→ dimension change callback
-```
-
-**Connection Flow:**
-1. Start PipePaneReader with buffering (raw bytes collected but not delivered)
-2. Capture initial state via control mode (`capture-pane` through `TmuxControlClientManager`)
-3. Flush buffered pipe-pane data (switch to live delivery)
-
-**Features:** Initial content capture via control mode, live data via pipe-pane, dimension tracking via control mode events
+- `setDelegate(_:)` - attach the delegate that receives data + OSC events
+- `startPipePane(controlClientManager:sessionName:)` - create FIFO, send pipe-pane command, open for reading. Reader starts in scan-only mode
+- `setBuffering(_:)` - flip into buffering mode (bytes queued) or back to scan-only mode (queue dropped, bytes discarded)
+- `flushBuffer()` - drain the queue through the delegate and switch to live mode
+- `stopPipePane()` - clean up FIFO, close file handle (called when the pane disappears)
 
 ### PaneStreamManager (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
 
-`@Observable @MainActor` multiplexing streams to multiple subscribers.
+`@Observable @MainActor` owning one `PipePaneReader` per known pane and multiplexing its events to subscribers. Conforms to `PipePaneReaderDelegate`, so all event wiring lives in one place.
 
-**Subscription Model:**
-- Multiple consumers (mirror windows, TerminalStreamService) subscribe to the same pane
-- Single PaneStream per pane, shared by all subscribers
-- Returns `SubscriptionResult` with initial content captured atomically with subscription
-- Stream auto-disconnects when last subscriber unsubscribes
+**Per-pane lifecycle:**
+- New pane discovered → `startReader` creates a `PipePaneReader`, attaches the manager as delegate, calls `startPipePane()` (scan-only mode)
+- Pane disappears → `tearDownReader` calls `stopPipePane`, unregisters dimensions, drops the entry
+
+**Data Flow:**
+```
+tmux PTY ──pipe-pane──→ FIFO ──→ PipePaneReader ──→ PipePaneReaderDelegate
+                                                            ↓
+                                                   subscriber callbacks
+
+TmuxControlClient ──%layout-change──→ updateDimensions → subscriber onDimensionChange
+```
+
+**Subscribe flow (first subscriber on a pane):**
+1. `setBuffering(true)` — start retaining live bytes
+2. Refresh dimensions via `tmuxService.getPaneDimensions`, register pane for control-mode dimension tracking
+3. `capture-pane` snapshot via control mode
+4. Add subscriber to the reader's context
+5. `flushBuffer()` — buffered bytes flow through `didReceiveData` → `forwardData` → subscriber's `onData`. Subsequent bytes flow live.
+
+**Unsubscribe flow (last subscriber leaves):**
+- `setBuffering(false)` returns the reader to scan-only mode. The reader stays attached to the FIFO so OSC events keep flowing for desktop notifications + sidebar UI.
 
 **Methods:**
-- `subscribe(paneId:target:onData:onDimensionChange:)` - subscribe with callbacks
-- `unsubscribe(_:)` - remove subscription (disconnects stream if last)
+- `startMonitoring(panes:)` - create readers for all initial panes (called once on startup)
+- `updateMonitoring(panes:)` - tear down readers for dead panes, start readers for new panes (called on periodic refresh and on `%session-changed`)
+- `subscribe(paneId:target:onData:onDimensionChange:onTitleChange:onNotification:onClipboard:)` - subscribe with callbacks
+- `unsubscribe(_:)` - remove subscription (returns reader to scan-only if last)
 - `currentContent(for:)` - capture current terminal content without subscribing (for multi-device initial state)
 - `updateDimensions(paneId:width:height:)` - propagate dimension changes
+- `reportTitleChange(paneId:title:fromSubscription:)` - forward a title detected by a subscriber's SwiftTerm to other subscribers
+- `mouseModeSequences(for:)` - DEC private mode escape sequences for the pane's current mouse tracking mode
 - `disconnectAll()` - shutdown cleanup
+
+**Internal state:** A single `readers: [String: ReaderContext]` dictionary keyed by paneId. Each context holds the reader, target, sessionName, dimensions, subscriber UUIDs, and the latest known title.
 
 ### MirrorWindowManager (`ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift`)
 
@@ -138,17 +146,23 @@ TmuxControlClient ──%layout-change──→ dimension change callback
 
 ### HookServerService (`ClaudeSpyServerFeature/Hooks/HookServerService.swift`)
 
-`actor` HTTP server on a dynamically allocated port (written to `~/.claudespy-port`).
+`actor` HTTP server on a dynamically allocated port (written to `~/.claudespy-port`). Accepts hook events from both Claude Code and Codex CLI.
 
 **Endpoints:**
 - `GET /health` - Health check
 - `POST /api/hooks` - Hook event receiver
 
+**Query params on `/api/hooks`:**
+- `tmux_pane` - tmux pane target (e.g. `main:0.1`)
+- `agent` - `claude-code` (default) or `codex`. Resolved via `HookQueryParams.resolvedAgent()` and stamped onto the resulting `HookEvent` so downstream UI and notification copy can branch on agent.
+
 **Events:**
 - `SessionStart` - auto-opens mirror window
-- `SessionEnd` - auto-closes window
+- `SessionEnd` - auto-closes window (Claude Code only; Codex has no `SessionEnd` — see `docs/codex-cli-integration-plan.md` §5)
 - `NotificationSend` - notification events
 - `Stop` - stop events
+
+Codex contributes additional events (`PreCompact`/`PostCompact`, `SubagentStart`, `PermissionRequest`); the server accepts any JSON payload of the right shape and does not validate event names against a Claude-specific enum.
 
 ### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
 
@@ -227,6 +241,15 @@ Actor executing commands from iOS devices.
 - Installs bundled plugin from app resources
 - First-launch setup flow via `PluginSetupView`
 
+### CodexPluginInstaller (`ClaudeSpyServerFeature/Services/CodexPluginInstaller.swift`)
+
+`Sendable struct` (Point-Free `@DependencyClient`) that installs the bundled `gallager` Codex plugin so Codex forwards hook events to the local hook server.
+
+- Locates the bundled marketplace under `~/.claudespy/marketplaces/gallager/` (copied out of the app resources at install time so Codex can re-discover it)
+- Registers the marketplace via `codex plugin marketplace add` and installs the plugin via `codex plugin install gallager`
+- Writes hooks at the **global layer** (`~/.codex/hooks.json`) to avoid per-project trust prompts on every repo
+- Exposes `install` / `uninstall` / `isInstalled` closures; surfaced in Settings via `CodexPluginInstallerRow`
+
 ### ClaudeProjectScanner (`ClaudeSpyServerFeature/Services/ClaudeProjectScanner.swift`)
 
 Actor scanning for Claude Code projects.
@@ -234,7 +257,17 @@ Actor scanning for Claude Code projects.
 - Reads `~/.claude.json` for project paths
 - Validates projects have `.claude` subdirectory
 - Sorts by most recently used (session timestamps)
-- Results sent to iOS for project list display
+- Tags each result with `agent: .claudeCode`
+- Results merged with `CodexProjectScanner` output by `AppCoordinator.scanProjects()` and sent to iOS for project list display
+
+### CodexProjectScanner (`ClaudeSpyServerFeature/Services/CodexProjectScanner.swift`)
+
+`Sendable struct` (Point-Free `@DependencyClient`) discovering Codex projects.
+
+- Walks `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, honoring `CODEX_HOME` if set (rollouts are date-partitioned, not project-partitioned, so the scanner must read each file's header)
+- Reads each rollout's first JSON line (a `SessionMetaLine`) to recover the working directory. Accepts `cwd`, `working_directory`, or `payload.cwd` because Codex's schema is evolving
+- Groups rollouts by working directory and emits one `ClaudeProjectInfo` per project with `agent: .codex`
+- Output is merged with `ClaudeProjectScanner` results in `AppCoordinator.scanProjects()` and the project-list relay payload, so the iOS picker shows a unified "most recently used" list with a per-row agent badge
 
 ### ClaudePathDetector (`ClaudeSpyServerFeature/Services/ClaudePathDetector.swift`)
 
@@ -242,6 +275,7 @@ Static utility detecting the `claude` CLI path.
 
 - Checks common locations (`/usr/local/bin/claude`, homebrew paths, etc.)
 - Used by `TerminalLauncher` for auto-running Claude in new sessions
+- The matching `codex` path is resolved against `AppSettings.codexCommandPath` (default `codex`) rather than auto-detection
 
 ### TerminalLauncher (`ClaudeSpyServerFeature/Services/TerminalLauncher.swift`)
 
@@ -273,6 +307,21 @@ Static utility for launch-at-login management.
 
 - Uses `SMAppService.mainApp` for registration
 - Appears in System Settings > General > Login Items
+
+### GitWorkbenchProviderClient (`ClaudeSpyServerFeature/Services/GitWorkbenchProviderClient.swift`)
+
+`@Dependency` factory that vends a `GitWorkbenchProvider` for the Git tab (the
+[GitWorkbench](https://github.com/gpambrozio/GitWorkbench) component embedded to
+the right of the file explorer).
+
+- `provider(repositoryURL:)` returns a provider rooted at a repo directory (the
+  same folder the file explorer uses for the session)
+- `liveValue` → `CLIGitProvider` (system `git` CLI, from `GitWorkbenchGitKit`)
+- `mock` / `previewValue` / `testValue` → `MockGitProvider` (stable fixtures,
+  zero latency); the E2E entry point installs `.mock` under `--e2e-test`
+- `MainView` retains one `GitWorkbenchStore` per session (`gitWorkbenchStores`),
+  rebuilt when the working directory changes, so the git UI state survives
+  tab/session switches like `FileBrowserState`
 
 ### UpdaterController (`ClaudeSpyServerFeature/Services/UpdaterController.swift`)
 
@@ -313,6 +362,23 @@ Actor for external processes.
 
 ## Models
 
+### CodingAgent (`ClaudeSpyNetworking/Models/CodingAgent.swift`)
+
+```swift
+public enum CodingAgent: String, Codable, Sendable, CaseIterable, Hashable {
+    case claudeCode = "claude-code"   // Anthropic Claude Code CLI (`claude`)
+    case codex                         // OpenAI Codex CLI (`codex`)
+}
+```
+
+Carries display metadata used to render agent-aware UI:
+
+- `displayName` — `"Claude Code"` / `"Codex"` (full notification titles)
+- `shortName` — `"Claude"` / `"Codex"` (sidebar badges, compact toasts)
+- `processName` — `"claude"` / `"codex"` (matched against tmux pane process trees in `TmuxService.detectAgentPanes`)
+
+`HookEvent`, `ClaudeSession`, and `ClaudeProjectInfo` all carry an `agent` field that defaults to `.claudeCode` when missing, so older Mac builds and older relay payloads still decode cleanly.
+
 ### PaneInfo (`ClaudeSpyServerFeature/Models/PaneInfo.swift`)
 
 ```swift
@@ -328,7 +394,7 @@ command, currentPath, width, height, isActive
 - **Behavior:** openPanesWindowOnLaunch, showStatusBar, autoConnectToServer, preventSleepDuringSessions
 - **Tmux:** tmuxPath, tmuxSocket
 - **Remote Access:** externalServerURL, deviceId, pairedDevices
-- **Claude:** autoRunClaudeInProjects, claudeCommandPath
+- **Coding agents:** autoRunClaudeInProjects, claudeCommandPath, codexCommandPath. `commandPath(for: CodingAgent)` returns the right binary path for an agent
 - **Plugin:** hasCompletedPluginSetup
 
 ### PairedDevice (`ClaudeSpyServerFeature/Models/Settings.swift`)

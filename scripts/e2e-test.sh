@@ -5,13 +5,25 @@
 
 set -eo pipefail
 
+# Add Homebrew to PATH if not already present (needed on CI VMs)
+if [[ ":$PATH:" != *":/opt/homebrew/bin:"* ]] && [ -d /opt/homebrew/bin ]; then
+    export PATH="/opt/homebrew/bin:$PATH"
+fi
+
+# Unlock the login keychain so codesign can access signing certificates in SSH/CI sessions.
+# Uses KEYCHAIN_PASSWORD env var if set, otherwise tries the default CI password.
+if [ -f ~/Library/Keychains/login.keychain-db ]; then
+    security unlock-keychain -p "${KEYCHAIN_PASSWORD:-admin}" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
+fi
+
 # =====================================================
 # CONFIGURATION
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
-DERIVED_DATA="${SANDBOX_DERIVED_DATA:-$PROJECT_ROOT/build/e2e-derived-data}"
+_E2E_DD_DEFAULT="${TMPDIR:-/tmp}/claudespy-e2e-derived-data"
+DERIVED_DATA="${REPORT_DERIVED_DATA:-${SANDBOX_DERIVED_DATA:-$_E2E_DD_DEFAULT}}"
 SIM_NAME="iPhone 17 Pro"
 E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
 mkdir -p "$E2E_TMPDIR"
@@ -136,6 +148,88 @@ ok()   { echo "  ${_GREEN}OK${_RESET}  $1"; }
 fail() { echo "  ${_RED}FAIL${_RESET}  $1"; }
 warn() { echo "  ${_YELLOW}WARN${_RESET}  $1"; }
 
+# XCUITest writes screenshot/video attachments into the simulator's
+# InternalDaemon Attachments folders. They are never reaped automatically and
+# can grow to many GB across repeated runs. Clear them at the end of every run.
+cleanup_simulator_attachments() {
+    [ -n "$SIM_UDID" ] || return 0
+    local sim_root="$HOME/Library/Developer/CoreSimulator/Devices/$SIM_UDID/data/Containers/Data/InternalDaemon"
+    [ -d "$sim_root" ] || return 0
+    find "$sim_root" -mindepth 2 -maxdepth 2 -type d -name Attachments -print0 \
+        | xargs -0 -I{} find {} -mindepth 1 -delete 2>/dev/null || true
+}
+
+cleanup() {
+    kill "$CAFFEINATE_PID" 2>/dev/null || true
+    cleanup_simulator_attachments
+}
+
+# CI machines occasionally show system auth or notification dialogs
+# (SecurityAgent admin prompts, software-update nags, "App from the internet"
+# warnings) that float above the test apps and block clicks. Dismiss known
+# offenders before launching the test so they don't break scenarios. Only
+# touches known system processes — never user-facing apps.
+dismiss_system_dialogs() {
+    # Write the AppleScript to a temp file rather than inlining it as a heredoc
+    # inside $(...). macOS ships bash 3.2, whose parser breaks on `$(... <<EOF ... )`
+    # when the heredoc body contains `)` — and AppleScript is full of them.
+    # The whole script failed to parse, so e2e runs aborted before producing any
+    # JSON output and the report falsely labelled them as build failures.
+    local script_file
+    script_file=$(mktemp -t dismiss-dialogs).scpt
+    cat > "$script_file" <<'APPLESCRIPT'
+on dismissProcessDialogs(procName)
+    set dismissed to {}
+    tell application "System Events"
+        if not (exists process procName) then return dismissed
+        tell process procName
+            repeat with w in windows
+                try
+                    set winName to name of w
+                on error
+                    set winName to "<untitled>"
+                end try
+                set clicked to false
+                repeat with btnLabel in {"Cancel", "Don't Allow", "Not Now", "Later", "Close"}
+                    if not clicked then
+                        try
+                            if exists button btnLabel of w then
+                                click button btnLabel of w
+                                set end of dismissed to (procName & ": " & winName & " [" & btnLabel & "]")
+                                set clicked to true
+                            end if
+                        end try
+                    end if
+                end repeat
+            end repeat
+        end tell
+    end tell
+    return dismissed
+end dismissProcessDialogs
+
+set allDismissed to {}
+repeat with procName in {"SecurityAgent", "UserNotificationCenter", "CoreServicesUIAgent", "loginwindow", "Software Update", "ScreenSaverEngine"}
+    try
+        set allDismissed to allDismissed & dismissProcessDialogs(procName)
+    end try
+end repeat
+
+set AppleScript's text item delimiters to linefeed
+return allDismissed as text
+APPLESCRIPT
+    local result
+    result=$(osascript "$script_file" 2>/dev/null || true)
+    rm -f "$script_file"
+    if [ -n "$result" ]; then
+        warn "Dismissed blocking system dialog(s):"
+        while IFS= read -r line; do
+            [ -n "$line" ] && echo "        - $line"
+        done <<< "$result"
+    else
+        ok "No blocking system dialogs"
+    fi
+}
+
 # Find a booted or available simulator UDID by name
 find_simulator_udid() {
     xcrun simctl list devices available -j \
@@ -239,6 +333,17 @@ print('Unknown')
 }
 
 if [ "$LIST_SCENARIOS" != true ]; then
+    # Prevent screensaver and sleep for the entire run (build + tests).
+    # -d prevents display sleep, -i prevents idle sleep, -s prevents system sleep,
+    # -u asserts "user is active" which also blocks the screen saver (requires -t).
+    # 86400s (24h) is far more than any real test run; the EXIT trap kills it sooner.
+    # disown drops it from bash's job table so the EXIT trap's kill doesn't
+    # print "Terminated: 15".
+    caffeinate -disu -t 86400 &
+    CAFFEINATE_PID=$!
+    disown "$CAFFEINATE_PID" 2>/dev/null || true
+    trap cleanup EXIT
+
     step "Checking GUI session"
 
     if check_gui_session; then
@@ -315,6 +420,18 @@ PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
 MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
 IOS_APP="$PRODUCTS_SIM/Gallager.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
+E2E_HOST_APP="$PRODUCTS_SIM/ClaudeSpyE2EHost.app"
+
+# Assert that an xcodebuild step produced its expected artifact. xcsift
+# reports "status: success" whenever no compile errors were parsed, even
+# when no executable was emitted — so a missing binary slips through to
+# the run step otherwise.
+verify_artifact() {
+    if [ ! -e "$1" ]; then
+        fail "Build reported success but expected artifact is missing: $1"
+        exit 1
+    fi
+}
 
 XCODEBUILD_FLAGS=(
     -workspace "$WORKSPACE"
@@ -322,7 +439,12 @@ XCODEBUILD_FLAGS=(
     -skipPackagePluginValidation
 )
 
-if [ -z "$SANDBOX_DERIVED_DATA" ]; then
+# Under the XcodeBuildTools sandbox, the `xcodebuild` wrapper on PATH already
+# injects `-derivedDataPath` (pointing at $SANDBOX_DERIVED_DATA, which
+# DERIVED_DATA resolves to above). Passing it a second time fails with
+# "option '-derivedDataPath' may only be provided once", so only set it
+# ourselves when not running under that sandbox.
+if [ -z "${SANDBOX_DERIVED_DATA:-}" ]; then
     XCODEBUILD_FLAGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
 
@@ -372,29 +494,38 @@ else
     fi
     ok "Simulator: ${_BOLD}$SIM_NAME${_RESET} ($SIM_UDID)"
 
+    # Build macOS targets contiguously so the Sparkle precompiled module stays
+    # consistent between consumers. Interleaving an iOS build between the macOS
+    # app and the E2E coordinator caused intermittent "header has been modified"
+    # PCM-cache failures because the iOS build path regenerates Sparkle's
+    # umbrella header.
     step "Building macOS app (ClaudeSpyServer)"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyServer \
         -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
-
-    step "Building iOS app (ClaudeSpy)"
-    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
-        -scheme ClaudeSpy \
-        -destination "id=$SIM_UDID" \
-        build 2>&1 | xcsift --format toon --warnings --executable
-
-    step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
-    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
-        -scheme ClaudeSpyE2EHost \
-        -destination "id=$SIM_UDID" \
-        build-for-testing 2>&1 | xcsift --format toon --warnings --executable
+        build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$MACOS_APP"
 
     step "Building E2E coordinator"
     xcodebuild "${XCODEBUILD_FLAGS[@]}" \
         -scheme ClaudeSpyE2E \
         -destination 'platform=macOS' \
-        build 2>&1 | xcsift --format toon --warnings --executable
+        build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$E2E_BIN"
+
+    step "Building iOS app (ClaudeSpy)"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpy \
+        -destination "id=$SIM_UDID" \
+        build 2>&1 | xcsift --format toon --executable
+    verify_artifact "$IOS_APP"
+
+    step "Building E2E XCUITest runner (ClaudeSpyE2EHost)"
+    xcodebuild "${XCODEBUILD_FLAGS[@]}" \
+        -scheme ClaudeSpyE2EHost \
+        -destination "id=$SIM_UDID" \
+        build-for-testing 2>&1 | xcsift --format toon --executable
+    verify_artifact "$E2E_HOST_APP"
 fi
 
 # =====================================================
@@ -428,6 +559,12 @@ if [ -n "$stale_pids" ]; then
     done
     ok "Stale processes cleaned up"
 fi
+
+# =====================================================
+# DISMISS BLOCKING SYSTEM DIALOGS
+# =====================================================
+step "Dismissing blocking system dialogs"
+dismiss_system_dialogs
 
 # =====================================================
 # RUN E2E TEST
@@ -483,14 +620,5 @@ fi
 if [ -n "$DASHBOARD_PR_TITLE" ]; then
     E2E_ARGS+=(--dashboard-pr-title "$DASHBOARD_PR_TITLE")
 fi
-
-# Prevent screensaver and sleep while tests run.
-# -d prevents display sleep, -i prevents idle sleep, -s prevents system sleep.
-caffeinate -dis &
-CAFFEINATE_PID=$!
-cleanup_caffeinate() {
-    kill "$CAFFEINATE_PID" 2>/dev/null || true
-}
-trap cleanup_caffeinate EXIT
 
 DYLD_FRAMEWORK_PATH="$PRODUCTS_DEBUG" "$E2E_BIN" "${E2E_ARGS[@]}"

@@ -64,34 +64,24 @@ public struct EncryptedPushPayload: Codable, Sendable, Equatable {
     /// This is intentionally duplicated from NotificationContent for server access.
     public let pairId: String
 
-    public init(encryptedContent: EncryptedPayload, pairId: String) {
+    /// Absolute APNs badge value to set on the iOS app, or `nil` to leave the
+    /// badge unchanged. Unencrypted because the APS payload needs it in the clear.
+    public let badge: Int?
+
+    /// When `true`, server sends a background (silent) APNs push: no alert, no
+    /// sound, no Notification Service Extension — only the `badge` is applied.
+    /// Used to update the badge after `markSessionHandled` clears a session.
+    public let silent: Bool
+
+    public init(
+        encryptedContent: EncryptedPayload,
+        pairId: String,
+        badge: Int? = nil,
+        silent: Bool = false
+    ) {
         self.encryptedContent = encryptedContent
         self.pairId = pairId
-    }
-}
-
-// MARK: - Convenience Extensions
-
-public extension NotificationContent {
-    /// Creates notification content from a HookEventMessage.
-    ///
-    /// - Parameters:
-    ///   - eventMessage: The hook event message
-    ///   - title: The notification title
-    ///   - body: The notification body
-    /// - Returns: NotificationContent ready for encryption
-    static func from(
-        eventMessage: HookEventMessage,
-        title: String,
-        body: String
-    ) -> NotificationContent {
-        NotificationContent(
-            title: title,
-            body: body,
-            eventType: eventMessage.event.action.eventName,
-            pairId: eventMessage.pairId,
-            paneId: eventMessage.event.tmuxPane,
-            timestamp: eventMessage.event.timestamp
-        )
+        self.badge = badge
+        self.silent = silent
     }
 }

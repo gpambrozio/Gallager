@@ -23,6 +23,9 @@ gallager send "echo hello\n"
 # Send a desktop notification from a script
 gallager notify --title "Build done" --body "Tests passed"
 
+# Same notification, also pushed to paired iOS devices
+gallager notify --title "Build done" --body "Tests passed" --push
+
 # Open a file in the in-app prompt editor (blocks until submitted)
 gallager edit /tmp/prompt.txt
 ```
@@ -84,17 +87,20 @@ gallager list-sessions
 
 #### `new-session`
 
-Create a new tmux session. Use `--path` to set the starting directory for the first pane; if omitted, the session opens in the user's home directory.
+Create a new tmux session. Use `--path` to set the starting directory for the first pane; if omitted, the session opens in the user's home directory. Use `--title` to set the sidebar description and `--color` to set the sidebar dot at creation time so a single command lands the session fully labelled.
 
 ```bash
 gallager new-session
 gallager new-session --name myproject
 gallager new-session --name myproject --path /Users/me/code/myproject
+gallager new-session --name myproject --title "My project" --color blue
 ```
+
+Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray`. Aliases `violet` (→ purple), `magenta` (→ pink), and `grey` (→ gray) are accepted; case is ignored.
 
 **JSON-RPC**
 - Method: `session.create`
-- Params: `{ "name": "myproject", "path": "/Users/me/code/myproject" }` _(both optional; `path` defaults to `$HOME`)_
+- Params: `{ "name": "myproject", "path": "/Users/me/code/myproject", "title": "My project", "color": "blue" }` _(all optional; `path` defaults to `$HOME`; unknown color names return `invalid_params`)_
 - Response:
 ```json
 {
@@ -158,6 +164,83 @@ gallager close-session work
 
 ---
 
+#### `set-title <text>`
+
+Set or clear the sidebar title for a session. The title is persisted as the `@gallager-description` tmux user option so it survives an app restart. Pass an empty string to clear.
+
+Titles always apply at session scope — every window in the session shows the same title. To rename the tab label of a single window, use [`rename-window`](#rename-window-id-name) instead.
+
+```bash
+gallager set-title "Workers" --session work    # explicit session
+gallager set-title "Builds"                    # current pane's session via $TMUX_PANE
+gallager set-title ""                          # clear
+```
+
+**JSON-RPC**
+- Method: `session.set_title`
+- Params: `{ "title"?: string, "session_id"?: string, "pane_id"?: string }` _(omit or pass empty `title` to clear; `pane_id` is used to look up the calling pane's session and is sent automatically from `$TMUX_PANE` when no flag is given)_
+- Response: `{ "ok": true }`
+
+---
+
+#### `set-color <color>`
+
+Set or clear the sidebar dot for a session. The choice is persisted as the `@gallager-color` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
+
+Like `set-title`, colors always apply at session scope.
+
+```bash
+gallager set-color blue --session work          # explicit session
+gallager set-color purple                       # current pane's session via $TMUX_PANE
+gallager set-color none                         # clear
+```
+
+Valid colors: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `gray` (plus the `violet`/`magenta`/`grey` aliases accepted by `new-session --color`).
+
+**JSON-RPC**
+- Method: `session.set_color`
+- Params: `{ "color": string, "session_id"?: string, "pane_id"?: string }` _(empty `color` clears; unknown colors return `invalid_params`)_
+- Response: `{ "ok": true }`
+
+---
+
+#### `set-emoji <emoji-or-name>`
+
+Set or clear the sidebar emoji icon for a session. The choice is persisted as the `@gallager-emoji` tmux user option so it survives an app restart. Pass `none` (or an empty string) to clear.
+
+Like `set-title` and `set-color`, emoji icons always apply at session scope. The argument accepts either an emoji character directly (`"🚀"`, `"🐛"`) or a Unicode name / description (`rocket`, `bug`, `"smiling face heart"`). Name lookup uses `Unicode.Scalar.Properties.name` locally — an exact match short-circuits to a single result, ambiguous queries print the candidate glyphs with their names and exit non-zero so you can rerun with a more specific phrase. Use `find-emoji` to browse matches without committing. Input that's neither an emoji nor a recognised Unicode name is rejected with a validation error so arbitrary text doesn't get persisted.
+
+```bash
+gallager set-emoji "🚀" --session work          # literal emoji character
+gallager set-emoji rocket --session work        # same — looked up by Unicode name
+gallager set-emoji "smiling face heart"         # any word-set substring of a Unicode name works
+gallager set-emoji "🐛"                         # current pane's session via $TMUX_PANE
+gallager set-emoji none                         # clear
+```
+
+**JSON-RPC**
+- Method: `session.set_emoji`
+- Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }` _(empty `emoji` clears)_
+- Response: `{ "ok": true }`
+
+---
+
+#### `find-emoji <query>`
+
+Search the Unicode emoji database by name and print one match per line as `<glyph>  <name>`. Every whitespace-separated word in the query must appear in the candidate's name (case-insensitive); results are sorted shortest-name-first so the most canonical candidate floats to the top. Pure local lookup — this command does not contact the relay or tmux, so it works even when Gallager isn't running.
+
+```bash
+gallager find-emoji rocket
+gallager find-emoji "smiling face"
+gallager find-emoji heart --json
+```
+
+With `--json` the output is a JSON array of `{ "emoji", "name" }` entries. An empty match set is `[]` with exit 0 (so scripts can pipe through `jq`); the human-readable mode exits 1 with a stderr message instead so shell branches like `if gallager find-emoji foo > /dev/null` work the way you'd expect.
+
+**JSON-RPC**: this command is CLI-only — no JSON-RPC method, since name lookup happens entirely in the CLI process.
+
+---
+
 ### Windows
 
 #### `list-windows`
@@ -190,17 +273,18 @@ gallager list-windows --session work
 
 #### `new-window`
 
-Create a new window in the current session, or a specific session with `--session`. Use `--path` to set the starting directory for the new window; if omitted, it opens in the user's home directory.
+Create a new window in the current session, or a specific session with `--session`. Use `--path` to set the starting directory for the new window; if omitted, it opens in the user's home directory. Use `--name` to set the tmux window name (tab label) — without it, the daemon auto-generates `terminal N`. To change the tab label later, use [`rename-window`](#rename-window-id-name).
 
 ```bash
 gallager new-window
 gallager new-window --session work
 gallager new-window --session work --path /Users/me/code/work
+gallager new-window --name editor
 ```
 
 **JSON-RPC**
 - Method: `window.create`
-- Params: `{ "session_id": "work", "path": "/Users/me/code/work" }` _(both optional; `path` defaults to `$HOME`)_
+- Params: `{ "session_id": "work", "path": "/Users/me/code/work", "name": "editor" }` _(all optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -223,6 +307,23 @@ gallager select-window main:1
 **JSON-RPC**
 - Method: `window.select`
 - Params: `{ "window_id": "main:1" }`
+- Response: `{ "ok": true }`
+
+---
+
+#### `rename-window <id> <name>`
+
+Set a window's tmux name (the tab label). The only window-scoped CLI mutation — for the session-wide sidebar title, use [`set-title`](#set-title-text). Empty names are rejected.
+
+Under the hood this calls `tmux rename-window`, which also disables tmux's automatic-rename for that window so the tab stops tracking the running command.
+
+```bash
+gallager rename-window work:1 logs
+```
+
+**JSON-RPC**
+- Method: `window.set_name`
+- Params: `{ "window_id": "work:1", "name": "logs" }`
 - Response: `{ "ok": true }`
 
 ---
@@ -278,18 +379,19 @@ gallager list-panes --window main:0
 
 #### `split-pane [direction]`
 
-Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane. Use `--path` to set the starting directory for the new pane; if omitted, it opens in the user's home directory.
+Split the current pane. Direction is `left`, `right`, `up`, or `down` (default: `right`). Use `--pane` to target a specific pane. Use `--path` to set the starting directory for the new pane; if omitted, it opens in the user's home directory. Use `--shell` to run a custom shell or command as the new pane's process instead of the default shell — useful for spinning up a fish, nushell, or bespoke command pane.
 
 ```bash
 gallager split-pane
 gallager split-pane down
 gallager split-pane right --pane %3
 gallager split-pane down --path /Users/me/code/work
+gallager split-pane right --shell /opt/homebrew/bin/fish
 ```
 
 **JSON-RPC**
 - Method: `pane.split`
-- Params: `{ "direction": "down", "pane_id": "%3", "path": "/Users/me/code/work" }` _(all optional; `path` defaults to `$HOME`)_
+- Params: `{ "direction": "down", "pane_id": "%3", "path": "/Users/me/code/work", "shell": "/bin/fish" }` _(all optional; `path` defaults to `$HOME`)_
 - Response:
 ```json
 {
@@ -318,6 +420,32 @@ gallager select-pane %3
 - Method: `pane.select`
 - Params: `{ "pane_id": "%3" }`
 - Response: `{ "ok": true }`
+
+---
+
+#### `set-progress <value>`
+
+Set or clear the per-pane sidebar progress bar that the host normally derives from `OSC 9;4` terminal sequences. The override syncs through the same path the OSC reader uses, so every connected viewer (host sidebar, Mac viewer, iOS) sees the same bar.
+
+CLI and OSC updates share `PaneState.progress` and last-write-wins each other — a script can set the bar before kicking off a task, and a subsequent `OSC 9;4` sequence emitted by the running program replaces it (and vice versa).
+
+```bash
+gallager set-progress 50                  # 50% determinate (blue)
+gallager set-progress 75 --pane %3        # explicit pane target
+gallager set-progress indeterminate       # animated blue scanner (no specific %)
+gallager set-progress warning             # full yellow warning bar
+gallager set-progress error               # full red error bar
+gallager set-progress clear               # remove the bar (alias: none, "")
+```
+
+Accepted values: `0`–`100` (with or without a trailing `%`), `indeterminate`, `warning`, `error`, `clear` / `none` / empty string.
+
+**JSON-RPC**
+- Method: `pane.set_progress`
+- Params: `{ "value": "50", "pane_id": "%3" }` _(pane_id is optional; the CLI fills it from `$TMUX_PANE` when no `--pane` flag is given)_
+- Response: `{ "ok": true }`
+
+This value can also be set declaratively inside `gallager apply` YAML — set `progress: 50` (or `progress: warning`, `progress: indeterminate`) on a pane spec to apply the value at session-creation time. Re-applying syncs the value (and clearing the field clears the bar).
 
 ---
 
@@ -363,15 +491,96 @@ gallager send-key escape --pane %3
 
 Send a desktop notification through Gallager's notification system. Notifications appear identically to terminal-triggered ones. If `$TMUX_PANE` is set, the notification includes pane context so tapping it navigates to that pane.
 
+Pass `--push` to also forward the notification to every paired iOS viewer through the relay server. This reuses the same encrypted-push pipeline that Claude hook events use, so the alert falls back to APNs whenever the viewer is offline. Without `--push` the notification stays local to macOS Notification Center.
+
 ```bash
 gallager notify --title "Deploy done" --body "Production updated successfully"
-gallager notify --title "Alert" --subtitle "CI" --body "Tests failed on main"
+gallager notify --title "Build green" --body "All checks passed" --push
 ```
 
 **JSON-RPC**
 - Method: `notification.create`
-- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "subtitle": "CI" }` _(subtitle is optional)_
+- Params: `{ "title": "Deploy done", "body": "Production updated successfully", "push": true }` _(`push` is optional)_
 - Response: `{ "ok": true }`
+
+---
+
+### Layouts
+
+#### `apply <file>`
+
+Build a tmux session from a declarative YAML or JSON layout file. Idempotent by default — re-applying selects an existing session instead of duplicating it. The schema is a strict superset of [tmuxp](https://tmuxp.git-pull.com)'s YAML; existing tmuxp configs work without modification.
+
+```bash
+gallager apply workers.yml
+gallager apply ~/projects/foo --rebuild       # close-then-build
+gallager apply layout.yml --detach            # don't switch
+gallager apply layout.yml --dry-run           # parse + plan, no tmux
+gallager apply layout.yml --lenient           # warn on unknown keys
+gallager apply layout.yml --require-create    # exit 3 if session exists
+gallager apply -                              # read from stdin
+envsubst < layout.tmpl.yml | gallager apply -
+```
+
+When the file argument is a directory, gallager looks for `.gallager.yaml`, `.gallager.yml`, `.tmuxp.yaml`, `.tmuxp.yml` (in that order).
+
+**Exit codes**
+- `0` — applied (built or selected)
+- `1` — generic failure (parse error, RPC failure)
+- `2` — validation error (schema invalid, unknown required field)
+- `3` — already exists, in `--require-create` mode
+
+**File format**
+
+```yaml
+session_name: workers           # required
+description: "Worker scripts"   # sidebar description (Gallager extension)
+color: blue                     # sidebar dot color (Gallager extension); omit or "" to leave unset
+start_directory: ~/code         # default cwd; relative resolves against the file's dir
+environment:                    # tmux set-environment for the session
+  FOO: bar
+shell_command_before:           # commands prepended to every pane (string or array)
+  - source ~/.env
+before_script: ./bootstrap.sh   # ran once before the session is created (cold start only)
+options: {}                     # tmux session options — passed through
+suppress_history: true          # default for all panes; prefix sent commands with " "
+windows:
+  - window_name: editor         # also accepted: `name`
+    layout: main-vertical
+    focus: true
+    options: {}
+    panes:
+      - vim                     # bare string = shell_command
+      - shell_command: ["tail -f log"]
+        start_directory: ./logs
+        progress: 50            # Gallager extension; 0-100, indeterminate, warning, error, or clear
+      - claude:                 # Gallager extension
+          project: ~/code/foo
+          args: ["--resume"]
+on_create:                      # cold-start hooks (run once)
+  - "echo bootstrap >> /tmp/log"
+on_apply:                       # always-run hooks
+  - "gallager notify --title workers --body 'ready'"
+```
+
+Variable expansion: every string-valued field is run through a `${VAR}` / `$VAR` expander. `${VAR:-default}` provides inline defaults. No command substitution, no ERB.
+
+**JSON-RPC**
+- Method: `layout.apply`
+- Params: `{ "config": <parsed YAML/JSON>, "rebuild": false, "detach": false, "dry_run": false, "lenient": false, "require_create": false, "config_path": "/abs/path/to/file.yaml" }`
+- Response:
+```json
+{
+  "id": "10",
+  "ok": true,
+  "result": {
+    "session_name": "workers",
+    "created": true,
+    "warnings": [],
+    "planned_actions": ["session.create name=workers path=$HOME", "..."]
+  }
+}
+```
 
 ---
 
@@ -431,16 +640,41 @@ gallager capabilities --json | jq '.result.methods[]'
   "result": {
     "methods": [
       "session.list", "session.create", "session.select", "session.current", "session.close",
-      "window.list", "window.create", "window.select", "window.close",
-      "pane.list", "pane.split", "pane.select",
+      "session.set_state", "session.set_title", "session.set_color",
+      "window.list", "window.create", "window.select", "window.close", "window.set_name",
+      "pane.list", "pane.split", "pane.select", "pane.capture", "pane.set_layout", "pane.set_progress",
       "input.send_text", "input.send_key",
       "notification.create",
       "editor.open",
-      "system.ping", "system.capabilities", "system.identify"
+      "system.ping", "system.capabilities", "system.identify", "system.set_env",
+      "project.list", "project.start",
+      "layout.apply"
     ]
   }
 }
 ```
+
+---
+
+#### `system.set_env` (RPC-only)
+
+Set or unset session-scoped tmux environment variables. New shells spawned in the session inherit the values; already-running panes keep their existing environment. Used internally by `gallager apply` to honor the `environment:` block in a layout config.
+
+**JSON-RPC**
+- Method: `system.set_env`
+- Params: `{ "session_id": "workers", "vars": { "FOO": "bar", "OLD": null } }` _(value `null` unsets the variable)_
+- Response: `{ "ok": true }`
+
+---
+
+#### `pane.set_layout` (RPC-only)
+
+Apply a tmux layout (preset name or hex layout string) to a window. Used internally by `gallager apply` for `windows[].layout:` but also useful for scripted retiling.
+
+**JSON-RPC**
+- Method: `pane.set_layout`
+- Params: `{ "target": "workers:0", "layout": "main-vertical" }`
+- Response: `{ "ok": true }`
 
 ---
 
@@ -477,9 +711,11 @@ gallager identify
 | `--socket <path>` | Override the socket path (takes priority over `$GALLAGER_SOCKET` and the default fallback) |
 | `--json` | Print the raw JSON-RPC response instead of formatted output |
 | `--pane <id>` | Target a specific pane by tmux pane ID (e.g. `%3`). Overrides the active pane for input commands |
-| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window` |
+| `--session <id>` | Target a specific session. Used by `list-windows`, `new-window`, `set-title`, `set-color`, `set-emoji` |
 | `--window <id>` | Target a specific window. Used by `list-panes` |
 | `--path <dir>` | Starting directory for `new-session`, `new-window`, and `split-pane`. Defaults to `$HOME` when omitted. |
+| `--name <name>` | tmux window name (tab label) for `new-window`. Without it, the daemon auto-generates `terminal N`. |
+| `--shell <cmd>` | Run this command/shell as the new pane's process for `split-pane`. |
 
 ---
 
@@ -536,4 +772,6 @@ Methods follow a `domain.action` convention:
 | `not_found` | The requested resource (session, window, pane) does not exist |
 | `invalid_params` | A required parameter is missing or has an invalid value |
 | `method_not_found` | The requested method string is not recognized |
+| `validation_error` | `layout.apply` config failed schema validation (CLI maps to exit 2) |
+| `session_exists` | `layout.apply` was called with `require_create` and the session already exists (CLI maps to exit 3) |
 | `internal_error` | An unexpected error occurred inside the app |

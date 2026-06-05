@@ -24,7 +24,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Simulator device name")
     var simName = "iPhone 16"
 
-    @Option(name: .long, help: "Run specific scenario by name (in interactive mode, runs it before waiting)")
+    @Option(name: .long, help: "Run specific scenario(s) by name; comma-separated for multiple (in interactive mode, runs the first one before waiting)")
     var scenario: String?
 
     @Option(name: .long, help: "Directory for screenshots")
@@ -48,8 +48,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Option(name: .long, help: "Write detailed JSON results to this file path")
     var jsonOutput: String?
 
-    @Option(name: .long, help: "Path to the hook server port file (default: ~/.claudespy-port-test)")
-    var hookPortFile: String?
+    @Option(
+        name: .long,
+        help: "Base directory for per-instance --gallager-state-root (plugin ingress socket + state). Default: <tmpdir>/claudespy-e2e-gallager"
+    )
+    var gallagerStateRoot: String?
 
     @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/claudespy-e2e/e2e.log)")
     var logFile: String?
@@ -79,12 +82,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         E2ELogging.bootstrapFileLogging(to: logPath)
 
         // Determine which scenarios we'll run to validate required paths
-        let selectedScenarios: [TestScenario]
-        if let scenarioName = scenario {
-            selectedScenarios = Self.allScenarios.filter { $0.name == scenarioName }
-        } else {
-            selectedScenarios = Self.allScenarios
-        }
+        let selectedScenarios: [TestScenario] = resolveScenarios()
         let needsIOS = selectedScenarios.contains { !$0.tags.contains("macos-only") }
 
         if needsIOS {
@@ -113,7 +111,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Compare:     \(noCompare ? "disabled" : "enabled")\n", stderr)
         fputs("  Tmux socket: \(tmuxSocket ?? "(default)")\n", stderr)
         fputs("  E2E runner:  \(e2eRunnerPath ?? "(none)")\n", stderr)
-        fputs("  Hook port:   \(hookPortFile ?? "(default: ~/.claudespy-port-test)")\n", stderr)
+        fputs("  State root:  \(gallagerStateRoot ?? "(default: <tmpdir>/claudespy-e2e-gallager)")\n", stderr)
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
         var reporters: [any TestProgressReporter] = [TerminalReporter()]
@@ -123,6 +121,14 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             dashboardReporter = dr
             reporters.append(dr)
         }
+
+        // Resolve scenarios up front for the non-interactive run so the
+        // Gallager progress reporter knows the total count.
+        let scenariosToRun: [TestScenario] = interactive ? [] : resolveScenarios()
+        if !interactive {
+            reporters.append(GallagerProgressReporter(totalScenarios: scenariosToRun.count))
+        }
+
         let reporter = CompositeReporter(reporters)
 
         let orchestrator = TestOrchestrator(
@@ -134,7 +140,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
             skipComparison: noCompare,
-            hookPortFile: hookPortFile,
+            gallagerStateRootBase: gallagerStateRoot,
             reporter: reporter
         )
 
@@ -144,7 +150,6 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
         } else {
-            let scenariosToRun = resolveScenarios()
             await dashboardReporter?.sendRunStarted(totalScenarios: scenariosToRun.count)
             try await runTests(scenarios: scenariosToRun, orchestrator: orchestrator)
         }
@@ -198,15 +203,14 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
         let result = await orchestrator.run(setupScenario)
 
-        guard result.success else {
-            print("Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
-            await orchestrator.cleanup()
-            throw ExitCode.failure
-        }
-
         print()
         print("==========================================")
-        print("  Everything is running!")
+        if result.success {
+            print("  Everything is running!")
+        } else {
+            print("  Setup failed at step \(result.failedStep ?? 0): \(result.error ?? "Unknown")")
+            print("  Apps are still running so you can inspect state.")
+        }
         print("  Press Enter to shut down...")
         print("==========================================")
         print()
@@ -216,6 +220,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         print("Shutting down...")
         await orchestrator.cleanup()
         print("Done.")
+
+        if !result.success {
+            throw ExitCode.failure
+        }
     }
 
     private static let allScenarios: [TestScenario] = [
@@ -237,6 +245,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         RapidKeystrokeOrderScenario.scenario,
         StopHookSummaryScenario.scenario,
         TerminalLinksScenario.scenario,
+        TerminalFileLinkScenario.scenario,
         TerminalTitleMacToMacScenario.scenario,
         TerminalTitleMacToIOSScenario.scenario,
         TerminalTitleInitialConnectionScenario.scenario,
@@ -254,6 +263,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MultiPaneWindowScenario.scenario,
         DAResponseLeakScenario.scenario,
         MarkHandledScenario.scenario,
+        BadgeAggregationScenario.scenario,
         WindowDescriptionSyncScenario.scenario,
         MultiPaneIOSScenario.scenario,
         KittyKeyboardProtocolScenario.scenario,
@@ -266,6 +276,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         MouseSupportScenario.scenario,
         RemoteMouseSupportScenario.scenario,
         FileBrowserScenario.scenario,
+        GitBrowserScenario.scenario,
+        OpenInEditorScenario.scenario,
         SidebarLayoutScenario.scenario,
         HostDisconnectClearsSessionsScenario.scenario,
         PromptEditorScenario.scenario,
@@ -276,18 +288,66 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CloseRemoteWindowMacScenario.scenario,
         ClipboardSyncScenario.scenario,
         ClipboardSyncMacViewerScenario.scenario,
+        ImagePasteRemoteScenario.scenario,
+        FileDropLocalScenario.scenario,
+        FileDropRemoteScenario.scenario,
         UnderlineLeakScenario.scenario,
+        BackgroundLeakScenario.scenario,
         VersionMismatchOldIOSViewerScenario.scenario,
         VersionMismatchOldMacHostScenario.scenario,
         VersionMismatchOldMacViewerScenario.scenario,
         VersionMismatchOldMacHostIOSViewerScenario.scenario,
+        AskUserQuestionScenario.scenario,
+        MarkdownWriteOpenSuggestionScenario.scenario,
+        TerminalFileLinkMouseModeScenario.scenario,
+        CloseFirstWindowAfterNavigationScenario.scenario,
+        IOSMouseModeDragScenario.scenario,
+        MirrorAttachExtraNewlinesScenario.scenario,
+        TerminalProgressBarScenario.scenario,
+        SessionColorSyncScenario.scenario,
+        SessionEmojiSyncScenario.scenario,
+        AppearanceModeScenario.scenario,
+        RenameViewerDeviceScenario.scenario,
+        TerminalEnvVarsScenario.scenario,
+        BrowserTabFromTerminalLinkScenario.scenario,
+        FileTextSearchScenario.scenario,
+        SplitTabScenario.scenario,
+        TabReorderScenario.scenario,
+        RemoteTabReorderScenario.scenario,
+        RemoteSplitCollapseResizeScenario.scenario,
+        ProjectPickerArrowNavScenario.scenario,
+        NewLocalSessionAfterRemoteScenario.scenario,
+        CloseBrowserTabReturnsToParentScenario.scenario,
+        TerminalFileLinkStaleCacheScenario.scenario,
+        OSCBackgroundProbeScenario.scenario,
+        EchoIngressRoundTripScenario.scenario,
+        EchoResponseRoundTripScenario.scenario,
+        PluginCLIScenario.scenario,
+        PluginEnableDisableScenario.scenario,
+        ClosePaneOnSessionEndScenario.scenario,
+        CodexSessionUpdatesScenario.scenario,
+        CodexResponseRoundTripScenario.scenario,
+        MultiPluginPresentationsScenario.scenario,
+        CreateFromProjectLaunchScenario.scenario,
+        MultiPluginCoexistenceScenario.scenario,
+        CodexFormsParityScenario.scenario,
+        PermissionSuggestionDenyScenario.scenario,
+        AgentsSettingsTabScenario.scenario,
+        TabCycleReorderScenario.scenario,
+        BadgeClearsOnAgentResumeScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
-        if let scenarioName = scenario {
-            return Self.allScenarios.filter { $0.name == scenarioName }
+        guard let scenario else { return Self.allScenarios }
+        let requested = scenario
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // Preserve the user-provided order so scenarios run in the sequence
+        // the caller asked for, regardless of `allScenarios` ordering.
+        return requested.compactMap { name in
+            Self.allScenarios.first { $0.name == name }
         }
-        return Self.allScenarios
     }
 
     private func runTests(scenarios scenariosToRun: [TestScenario], orchestrator: TestOrchestrator) async throws {

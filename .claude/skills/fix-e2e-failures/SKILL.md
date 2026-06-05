@@ -33,10 +33,18 @@ Run the bundled script to pull latest results and extract failures in one step:
 ${CLAUDE_SKILL_DIR}/scripts/find_failures.py --results-dir ../ClaudeSpyTestResults
 ```
 
+**Optional PR-number argument:** If the user invoked the skill with a PR number (e.g. `/fix-e2e-failures 444`), pass it through with `--pr` so the **newest run associated with that PR** is analyzed instead of the most recent failing run across all PRs:
+
+```bash
+${CLAUDE_SKILL_DIR}/scripts/find_failures.py --results-dir ../ClaudeSpyTestResults --pr 444
+```
+
+The number matches the `prNumber` field on entries in `ClaudeSpyTestResults/results/index.json`. If no argument is provided, the script defaults to the latest failing run across all PRs.
+
 The script outputs JSON with one of these statuses:
-- `"all_passed"` — No failures found. Tell the user and stop.
+- `"all_passed"` — No failures found (or the specified PR's latest run passed). Tell the user and stop.
 - `"build_failed"` — The build itself failed, no test results. Inform the user.
-- `"no_results"` — Results directory not found. Check the path.
+- `"no_results"` — Results directory not found, or `--pr` was given but no run for that PR exists in `index.json`. Check the path or PR number.
 - `"failures_found"` — Failures detected. Continue to Step 2.
 
 When `status` is `"failures_found"`, the output includes:
@@ -45,7 +53,7 @@ When `status` is `"failures_found"`, the output includes:
   - `scenarioName`
   - `error` — the scenario's top-level error (typically from the first failure)
   - `failedStep` — first failed step number (back-compat field)
-  - `failedSteps[]` — **every** failed step in the scenario, each with `stepNumber`, `description`, `error`, `type` (`"functional"` or `"screenshot_mismatch"`), and `screenshot` (with paths to `actualImage`/`baselineImage`/`diffImage` when applicable)
+  - `failedSteps[]` — **every** failed step in the scenario, each with `stepNumber`, `description`, `error`, `type` (`"functional"` or `"screenshot_mismatch"`), `screenshot` (with paths to `actualImage`/`baselineImage`/`diffImage` when applicable), and `failureScreenshots[]` (diagnostic captures — see below)
   - `hasFatalFailure` — `true` if any failed step was non-screenshot (scenario aborted early)
 - `message` — human-readable summary grouped by scenario
 
@@ -84,7 +92,15 @@ For each failed scenario, walk through **every** entry in `failedSteps[]`:
    - Image size mismatch (window dimensions changed)
    - Assertion failures (stored values don't match)
 
-4. **The scenario source** — find it in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/` and read the relevant steps around each failure point.
+4. **Failure screenshots** — when a step has a non-empty `failureScreenshots[]`, the orchestrator captured the UI of every running platform that was relevant to the failed step's scope. Each entry has `target` (`"ios"`, `"mac"`, `"mac2"`, ...) and `image` (a path to a PNG in the results image store). **Always view these with the Read tool before deciding the cause** — they show what was on screen at the moment the step failed and are usually the fastest way to tell:
+   - Whether an element really wasn't there (vs. being there with a different label/identifier)
+   - Whether the app got stuck on a modal/sheet/alert that the test wasn't expecting
+   - Which platform diverged when an assertion fails on a value synced across iOS + macOS instances
+   - Whether two-Mac scenarios show the host and viewer in different states
+
+   `.universal`-scope step failures (assertions, server, tmux, generic helpers) capture every running platform, so expect multiple images. `.ios`/`.macOS(N)`-scope step failures capture only the targeted platform.
+
+5. **The scenario source** — find it in `ClaudeSpyPackage/Sources/ClaudeSpyE2ELib/Scenarios/` and read the relevant steps around each failure point.
 
 ## Step 4: Ask the User How to Proceed
 
@@ -126,6 +142,8 @@ When the user chooses to investigate and fix:
    - Renamed accessibility labels breaking element queries
    - Changed state management affecting UI timing
    - New UI elements overlapping existing ones
+
+   When the failure is "element not found" or "renamed accessibility label" and the failure screenshot doesn't make the new label obvious, switch to the **`e2e-manual-debugging`** skill: it boots an interactive e2e instance and walks through inspecting the live UI (XCUITest hierarchy, AppleScript dump, Xcode Accessibility Inspector) to discover the actual `AXLabel` / `AXHelp` / `accessibilityIdentifier` you need to put in the scenario. Faster than re-running the scenario with guesses.
 
 4. **Fix the code** — Make the minimal fix needed. This might be in the app code (if there's a genuine regression) or in the test scenario (if the test expectations need adjustment).
 

@@ -14,6 +14,7 @@
     /// View displaying a list of active Claude sessions and terminals from all paired hosts.
     struct SessionListView: View {
         @Binding var navigationPath: NavigationPath
+        let onOpenSettings: () -> Void
 
         @Environment(SessionStore.self) private var sessionStore
         @Environment(ViewerConnectionManager.self) private var connectionManager
@@ -46,6 +47,14 @@
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        onOpenSettings()
+                    } label: {
+                        Symbols.gearshape.image
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     overallConnectionStatusView
                 }
@@ -90,6 +99,18 @@
                         onSetDescription: { sessionName, description in
                             Task {
                                 let command = SetSessionDescription(sessionName: sessionName, description: description)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
+                        },
+                        onSetColor: { sessionName, color in
+                            Task {
+                                let command = SetSessionColor(sessionName: sessionName, color: color)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
+                        },
+                        onSetEmoji: { sessionName, emoji in
+                            Task {
+                                let command = SetSessionEmoji(sessionName: sessionName, emoji: emoji)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
                         }
@@ -161,7 +182,7 @@
 
         // MARK: - New Session Creation
 
-        private func createNewSession(on host: PairedHost, inProject project: ClaudeProjectInfo?) async {
+        private func createNewSession(on host: PairedHost, inProject project: AgentProject?) async {
             guard creatingSelection == nil else { return }
 
             // Track which item was selected for the spinner
@@ -175,7 +196,8 @@
                 width: settings.newSessionWidth,
                 height: settings.newSessionHeight,
                 workingDirectory: project?.path,
-                claudeConfigDir: project?.claudeConfigDir
+                configDir: project?.configDir,
+                pluginID: project?.pluginID ?? "claude-code"
             )
 
             // paneId is not used for session creation, pass empty string
@@ -215,6 +237,8 @@
         var showUsername = false
         let onNewSession: () -> Void
         var onSetDescription: (String, String?) -> Void = { _, _ in }
+        var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
+        var onSetEmoji: (String, String?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -274,28 +298,80 @@
             let activeWindow = session.activeWindow
             let activePaneInSession = activeWindow?.activePane ?? activeWindow?.panes.first
             // Find the first pane with a Claude session (may differ from the active pane)
-            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.claudeSession != nil })
+            let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
+            // CLI-driven state override propagated from the host, if any pane has one set.
+            let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
+            // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
+            let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
-                if let claudePane = claudePaneInSession, let claudeSession = claudePane.claudeSession {
-                    SessionRowView(
-                        paneId: claudePane.paneId,
-                        session: claudeSession,
-                        isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
-                        customDescription: session.customDescription,
-                        windowCount: session.windows.count
-                    )
-                } else if let pane = activePaneInSession {
-                    TerminalRowView(pane: pane, windowCount: session.windows.count)
+                VStack(spacing: 0) {
+                    if let claudePane = claudePaneInSession, let claudeSession = claudePane.agentSession {
+                        SessionRowView(
+                            paneId: claudePane.paneId,
+                            session: claudeSession,
+                            cliSessionState: cliSessionState,
+                            isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
+                            customDescription: session.customDescription,
+                            customEmoji: session.customEmoji,
+                            windowCount: session.windows.count
+                        )
+                    } else if let pane = activePaneInSession {
+                        TerminalRowView(
+                            pane: pane,
+                            customEmoji: session.customEmoji,
+                            windowCount: session.windows.count
+                        )
+                    }
+                }
+                // The visual progress bar is rendered as an .overlay outside
+                // the NavigationLink (below) so the cell stays compact, but
+                // overlays sit outside the row's combined Button AX element.
+                // Mirror the bar's label/value into the button via an
+                // invisible label so e2e queries (and VoiceOver) can find it.
+                .overlay {
+                    if let sessionProgress {
+                        Text("Terminal progress \(sessionProgress.accessibilityValueString)")
+                            .accessibilityLabel("Terminal progress")
+                            .accessibilityValue(sessionProgress.accessibilityValueString)
+                            .font(.system(size: 1))
+                            .opacity(0)
+                    }
                 }
             }
-            .accessibilityValue(claudePaneInSession?.claudeSession?.statusLabel ?? "")
+            .padding(.leading, 16)
+            .padding(.bottom, 16)
+            .overlay(alignment: .leading) {
+                SessionColorBar(color: session.customColor)
+                    .padding(.top, -8)
+                    .padding(.bottom, 8)
+            }
+            .overlay(alignment: .bottom) {
+                if let sessionProgress {
+                    TerminalProgressBar(state: sessionProgress)
+                        .padding(.leading, 16)
+                }
+            }
+            .accessibilityValue(cliSessionState?.statusLabel ?? claudePaneInSession?.agentSession?.statusLabel ?? "")
             .modifier(DescriptionEditingModifier(
                 sessionName: session.sessionName,
                 currentDescription: session.customDescription,
+                currentEmoji: session.customEmoji,
                 isDisabled: connection?.isHostConnected != true,
-                onSetDescription: onSetDescription
+                onSetDescription: onSetDescription,
+                onSetEmoji: onSetEmoji,
+                additionalMenu: {
+                    ColorContextMenuButtons(
+                        currentColor: session.customColor,
+                        isDisabled: connection?.isHostConnected != true
+                    ) { newColor in
+                        onSetColor(session.sessionName, newColor)
+                    }
+                }
             ))
+            .listRowInsets(
+                EdgeInsets(top: 15, leading: 0, bottom: 0, trailing: 16)
+            )
         }
     }
 
@@ -446,15 +522,31 @@
 
     struct SessionRowView: View {
         let paneId: String
-        let session: ClaudeSession
+        let session: AgentSession
+        var cliSessionState: CLISessionState?
         let isActive: Bool
         var customDescription: String?
+        var customEmoji: String?
         var windowCount = 1
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                SessionStatusIndicator(session: session)
+                VStack(spacing: 8) {
+                    Group {
+                        if let cliSessionState {
+                            SessionStatusIndicator(cliState: cliSessionState)
+                        } else {
+                            SessionStatusIndicator(session: session)
+                        }
+                    }
                     .frame(width: 20, height: 20)
+
+                    if let customEmoji {
+                        SessionEmojiBadge(emoji: customEmoji)
+                            .font(.system(size: 16))
+                    }
+                }
+                .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
@@ -491,27 +583,14 @@
                         }
                     }
 
-                    // Latest event summary
-                    if let latestEvent = session.latestEvent {
-                        HStack {
-                            Text(latestEvent.action.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-
-                            Spacer()
-
-                            Text(DateFormatters.relativeTime(for: latestEvent.timestamp))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-
-                    // Event count
-                    Text("\(session.events.count) recent events")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    // Status label (the plugin model dropped the per-event buffer,
+                    // so the row shows the live status rather than an event feed).
+                    Text(session.statusLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -522,6 +601,7 @@
     /// Row view for plain terminals (no Claude session)
     struct TerminalRowView: View {
         let pane: PaneState
+        var customEmoji: String?
         var windowCount = 1
 
         /// Display name derived from current path or pane ID
@@ -539,10 +619,24 @@
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
-                // Terminal icon instead of activity indicator
-                Symbols.terminal.image
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 8) {
+                    Group {
+                        if let cliState = pane.cliSessionState {
+                            SessionStatusIndicator(cliState: cliState)
+                        } else {
+                            // Terminal icon instead of activity indicator
+                            Symbols.terminal.image
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     .frame(width: 20, height: 20)
+
+                    if let customEmoji {
+                        SessionEmojiBadge(emoji: customEmoji)
+                            .font(.system(size: 16))
+                    }
+                }
+                .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     // Custom description shown prominently if set
@@ -600,6 +694,8 @@
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+
+                Spacer()
             }
             .padding(.vertical, 4)
         }
@@ -618,7 +714,7 @@
         let host: PairedHost
         /// The currently selected item (shows spinner), nil if nothing selected yet
         let creatingSelection: ProjectPickerSelection?
-        let onSelect: (ClaudeProjectInfo?) -> Void
+        let onSelect: (AgentProject?) -> Void
 
         @Environment(\.dismiss) private var dismiss
         @Environment(SessionStore.self) private var sessionStore
@@ -629,13 +725,19 @@
         }
 
         /// Projects for this host, read from SessionStore to auto-update when state arrives
-        private var projects: [ClaudeProjectInfo] {
+        private var projects: [AgentProject] {
             sessionStore.projects(for: host.id)
         }
 
-        private var filteredProjects: [ClaudeProjectInfo] {
+        private var filteredProjects: [AgentProject] {
             guard !searchText.isEmpty else { return projects }
             return projects.filter { $0.name.fuzzyMatches(searchText) }
+        }
+
+        /// Short display name for a plugin, from the presentation cache (spec §7.3);
+        /// falls back to the plugin id when no presentation has been pushed yet.
+        private func presentationShortName(for pluginID: String) -> String {
+            sessionStore.presentation(forPluginID: pluginID)?.shortName ?? pluginID
         }
 
         var body: some View {
@@ -674,7 +776,7 @@
 
                     // Project list
                     if !filteredProjects.isEmpty {
-                        Section("Claude Projects") {
+                        Section("Projects") {
                             ForEach(filteredProjects) { project in
                                 Button {
                                     onSelect(project)
@@ -685,8 +787,21 @@
                                             .frame(width: 24)
 
                                         VStack(alignment: .leading) {
-                                            Text(project.name)
-                                                .foregroundStyle(.primary)
+                                            HStack(spacing: 6) {
+                                                Text(project.name)
+                                                    .foregroundStyle(.primary)
+
+                                                if project.pluginID != "claude-code" {
+                                                    Text(presentationShortName(for: project.pluginID))
+                                                        .font(.caption2.weight(.semibold))
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(
+                                                            Capsule().fill(Color.accentColor.opacity(0.18))
+                                                        )
+                                                        .foregroundStyle(Color.accentColor)
+                                                }
+                                            }
                                             Text(project.path)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
@@ -711,7 +826,7 @@
                                 .foregroundStyle(.secondary)
                         }
                     } else if !sessionStore.hasReceivedState(for: host.id) {
-                        Section("Claude Projects") {
+                        Section("Projects") {
                             HStack {
                                 ProgressView()
                                     .controlSize(.small)
@@ -739,6 +854,92 @@
                 }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Preview
+
+    #Preview("Session List") {
+        SessionListPreview()
+    }
+
+    @MainActor
+    private struct SessionListPreview: View {
+        @State private var navigationPath = NavigationPath()
+        @State private var sessionStore = SessionStore()
+        @State private var settings = IOSSettings()
+        @State private var connectionManager: ViewerConnectionManager?
+
+        private let host = PairedHost(
+            id: "preview-host",
+            hostName: "Preview Mac",
+            username: "preview",
+            partnerPublicKey: "",
+            partnerPublicKeyId: ""
+        )
+
+        var body: some View {
+            Group {
+                if let connectionManager {
+                    NavigationStack(path: $navigationPath) {
+                        SessionListView(navigationPath: $navigationPath, onOpenSettings: { })
+                            .environment(sessionStore)
+                            .environment(connectionManager)
+                            .environment(settings)
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .task {
+                settings.addPairing(host)
+
+                let panes: [String: PaneState] = [
+                    "%1": PaneState(
+                        paneId: "%1",
+                        target: "alpha:0.0",
+                        sessionName: "alpha",
+                        currentPath: "/Users/preview/AlphaProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .blue,
+                        agentSession: AgentSession(
+                            paneId: "%1",
+                            detectedProjectPath: "/Users/preview/AlphaProject"
+                        )
+                    ),
+                    "%2": PaneState(
+                        paneId: "%2",
+                        target: "bravo:0.0",
+                        sessionName: "bravo",
+                        currentPath: "/Users/preview/BravoProject",
+                        isActive: true,
+                        isWindowActive: true,
+                        customColor: .red,
+                        agentSession: AgentSession(
+                            paneId: "%2",
+                            detectedProjectPath: "/Users/preview/BravoProject"
+                        ),
+                        progress: .normal(50)
+                    ),
+                    "%3": PaneState(
+                        paneId: "%3",
+                        target: "scratch:0.0",
+                        sessionName: "scratch",
+                        command: "zsh",
+                        currentPath: "/Users/preview",
+                        isActive: true,
+                        isWindowActive: true
+                    ),
+                ]
+                sessionStore.handleStateUpdate(SessionStateMessage(
+                    pairId: host.id,
+                    paneStates: panes,
+                    homeDirectory: "/Users/preview"
+                ))
+
+                connectionManager = try? await ViewerConnectionManager()
+            }
         }
     }
 #endif

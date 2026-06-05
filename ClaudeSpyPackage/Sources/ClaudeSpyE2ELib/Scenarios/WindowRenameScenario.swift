@@ -46,7 +46,6 @@ public enum WindowRenameScenario {
 
         TestStep.macWaitForElement(titled: "e2e-rename", timeout: 10)
         TestStep.macClickButton(titled: "e2e-rename")
-        TestStep.wait(seconds: 3)
 
         // Tabs show the tmux window name as their title (not the shell/command name).
         TestStep.macWaitForElement(titled: "win0", timeout: 10)
@@ -59,7 +58,6 @@ public enum WindowRenameScenario {
 
         TestStep.macWaitForElement(titled: "e2e-rename", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-rename", instance: 1)
-        TestStep.wait(seconds: 3)
 
         TestStep.macWaitForElement(titled: "win0", timeout: 10, instance: 1)
         TestStep.macWaitForElement(titled: "win1", timeout: 10, instance: 1)
@@ -73,12 +71,11 @@ public enum WindowRenameScenario {
         TestStep.macContextMenuClick(elementTitle: "e2e-rename:0", menuItem: "Rename Window")
         TestStep.macWaitForElement(titled: "Rename Window", timeout: 5)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab()
-        TestStep.macSelectAll()
+        TestStep.macPressKey(.tab)
+        TestStep.macPressKey(.character("a"), modifiers: .command)
         TestStep.macType(text: "HostRenamed", pressReturn: false)
         TestStep.macScreenshot(label: "host-rename-alert-typed")
         TestStep.macClickButton(titled: "Save")
-        TestStep.wait(seconds: 2)
 
         // Host tab updates to the new name.
         TestStep.macWaitForElement(titled: "HostRenamed", timeout: 10)
@@ -93,12 +90,11 @@ public enum WindowRenameScenario {
         TestStep.macContextMenuClick(elementTitle: "e2e-rename:1", menuItem: "Rename Window", instance: 1)
         TestStep.macWaitForElement(titled: "Rename Window", timeout: 5, instance: 1)
         TestStep.wait(seconds: 0.5)
-        TestStep.macPressTab(instance: 1)
-        TestStep.macSelectAll(instance: 1)
+        TestStep.macPressKey(.tab, instance: 1)
+        TestStep.macPressKey(.character("a"), modifiers: .command, instance: 1)
         TestStep.macType(text: "ViewerRenamed", pressReturn: false, instance: 1)
         TestStep.macScreenshot(label: "viewer-rename-alert-typed", instance: 1)
         TestStep.macClickButton(titled: "Save", instance: 1)
-        TestStep.wait(seconds: 2)
 
         // Viewer tab updates to the new name.
         TestStep.macWaitForElement(titled: "ViewerRenamed", timeout: 10, instance: 1)
@@ -108,10 +104,14 @@ public enum WindowRenameScenario {
         TestStep.macWaitForElement(titled: "ViewerRenamed", timeout: 15)
         TestStep.macScreenshot(label: "host-after-viewer-rename")
 
-        // ── Phase 7: New windows get "terminal N" names via the + button ──
-        TestStep.log("Phase 7: Create new window via + button — expect 'terminal 1' name")
-        TestStep.macClickButton(titled: "New Window", instance: 1)
-        TestStep.wait(seconds: 5)
+        // ── Phase 7: New windows get "terminal N" names via the + menu ──
+        TestStep.log("Phase 7: Create new window via + menu — expect 'terminal 1' name")
+        // Viewer side `RemoteWindowTabBar` now matches the local bar: the
+        // "+" button is a Menu offering "New Terminal" / "New Browser"
+        // (issue #521). Open the menu, then pick "New Terminal".
+        TestStep.macCGClickElement(query: .label("New Tab"), instance: 1)
+        TestStep.wait(seconds: 1)
+        TestStep.macClickButton(titled: "New Terminal", instance: 1)
 
         // No existing `terminal N` names in the session yet, so the next one is `terminal 1`.
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 15, instance: 1)

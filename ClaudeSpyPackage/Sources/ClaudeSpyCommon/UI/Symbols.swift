@@ -12,10 +12,12 @@ public enum Symbols: String {
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
+    case arrowLeft = "arrow.left"
     case arrowRight = "arrow.right"
     case arrowTriangleBranch = "arrow.triangle.branch"
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
+    case arrowUpRightSquare = "arrow.up.right.square"
     case bellBadgeFill = "bell.badge.fill"
     case bellFill = "bell.fill"
     case bolt
@@ -30,6 +32,7 @@ public enum Symbols: String {
     case chevronRight = "chevron.right"
     case chevronUp = "chevron.up"
     case circle
+    case circleLefthalfFilled = "circle.lefthalf.filled"
     case docBadgeGearshapeFill = "doc.badge.gearshape.fill"
     case docOnClipboard = "doc.on.clipboard"
     case docPlaintextFill = "doc.plaintext.fill"
@@ -37,12 +40,15 @@ public enum Symbols: String {
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"
+    case faceSmiling = "face.smiling"
     case figureRun = "figure.run"
     case folder
     case folderBadgeGearshape = "folder.badge.gearshape"
     case folderBadgePlus = "folder.badge.plus"
     case folderFill = "folder.fill"
     case gearshape
+    case gearshapeFill = "gearshape.fill"
+    case globe
     case handsAndSparklesFill = "hands.and.sparkles.fill"
     case house
     case infoCircle = "info.circle"
@@ -60,6 +66,7 @@ public enum Symbols: String {
     case magnifyingglass
     case minusCircleFill = "minus.circle.fill"
     case moonFill = "moon.fill"
+    case paintpalette
     case paperplaneFill = "paperplane.fill"
     case pause
     case pauseCircleFill = "pause.circle.fill"
@@ -80,6 +87,7 @@ public enum Symbols: String {
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"
+    case squareFill = "square.fill"
     case stopCircleFill = "stop.circle.fill"
     case stopFill = "stop.fill"
     case terminal

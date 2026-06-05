@@ -140,8 +140,15 @@ final public class ViewerRelayClient {
 
     // MARK: - Callbacks
 
-    /// Called when a hook event is received from host
-    public var onHookEvent: (@Sendable (HookEventMessage) -> Void)?
+    /// Called when a per-session state update arrives (carries the open form).
+    public var onAgentSessionStatus: (@Sendable (AgentSessionStatusMessage) -> Void)?
+
+    /// Called when the host pushes the complete enabled-plugin presentation set.
+    public var onPluginPresentations: (@Sendable (PluginPresentationsMessage) -> Void)?
+
+    /// Called when the host pushes a pre-baked notification over the live socket
+    /// (so a backgrounded-but-connected viewer can show a local notification).
+    public var onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)?
 
     /// Called when session state is received from host
     public var onSessionState: (@Sendable (SessionStateMessage) -> Void)?
@@ -385,7 +392,13 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .setSessionDescription(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .setSessionColor(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .setSessionEmoji(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .setWindowName(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .moveTmuxWindows(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .splitTmuxPane(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
@@ -407,6 +420,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .killTmuxSession(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
+        case let .sendDroppedFiles(spec):
+            return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         }
     }
 
@@ -449,6 +464,28 @@ final public class ViewerRelayClient {
         logger.info("Sending push token to relay server")
         let message = WebSocketMessage.registerPushToken(RegisterPushTokenMessage(deviceToken: token))
         await send(message)
+    }
+
+    /// Submit a structured response for a previously-emitted response request.
+    /// The host matches `requestId` and calls `core.deliverResponse(...)`.
+    public func submitAgentResponse(
+        sessionId: String,
+        pluginId: String,
+        requestId: String,
+        response: AgentResponse
+    ) async {
+        guard state.isConnected else {
+            logger.debug("Not connected, cannot submit agent response")
+            return
+        }
+        let message = AgentResponseSubmissionMessage(
+            pairId: pairId ?? "",
+            sessionId: sessionId,
+            pluginId: pluginId,
+            requestId: requestId,
+            response: response
+        )
+        await sendEncrypted(.agentResponseSubmission(message))
     }
 
     // MARK: - Private Methods
@@ -645,9 +682,17 @@ final public class ViewerRelayClient {
                 await disconnect()
             }
 
-        case let .hookEvent(event):
-            logger.info("Received hook event from host")
-            onHookEvent?(event)
+        case let .agentSessionStatus(status):
+            logger.trace("Received agent session status from host")
+            onAgentSessionStatus?(status)
+
+        case let .pluginPresentations(presentations):
+            logger.info("Received plugin presentations from host")
+            onPluginPresentations?(presentations)
+
+        case let .agentNotification(notification):
+            logger.info("Received agent notification from host")
+            onAgentNotification?(notification)
 
         case let .sessionState(sessionState):
             logger.info("Received session state from host")

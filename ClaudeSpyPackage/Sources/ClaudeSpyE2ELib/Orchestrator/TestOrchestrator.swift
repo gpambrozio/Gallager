@@ -21,10 +21,11 @@ public actor TestOrchestrator {
     private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
     private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
     private let serverPort = 8_765
-    /// Base path for the hook server port file. E2E tests use a separate file
-    /// (`~/.claudespy-port-test`) to avoid colliding with a production instance.
-    /// Instance 0 uses this path directly; instance N uses `\(hookPortFile)-\(N)`.
-    private let hookPortFile: String
+    /// Base directory for the per-instance `--gallager-state-root`. Each instance
+    /// gets its own subdirectory so the plugin runtime's ingress socket + state
+    /// is isolated. Instance 0 uses `<base>/0`; instance N uses `<base>/N`. The
+    /// hook-delivery DSL step writes frames to `<stateRoot>/ingress.sock`.
+    private let gallagerStateRootBase: String
     private let skipComparison: Bool
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
@@ -38,6 +39,26 @@ public actor TestOrchestrator {
         public let success: Bool
         public let error: String?
         public let screenshot: ScreenshotResult?
+        /// Diagnostic screenshots captured when a non-screenshot-comparison
+        /// step fails. Empty for passing steps and for screenshot-comparison
+        /// failures (which already carry baseline/actual/diff in `screenshot`).
+        public let failureScreenshots: [FailureScreenshot]
+
+        public init(
+            stepNumber: Int,
+            description: String,
+            success: Bool,
+            error: String?,
+            screenshot: ScreenshotResult?,
+            failureScreenshots: [FailureScreenshot] = []
+        ) {
+            self.stepNumber = stepNumber
+            self.description = description
+            self.success = success
+            self.error = error
+            self.screenshot = screenshot
+            self.failureScreenshots = failureScreenshots
+        }
     }
 
     /// Result of a screenshot comparison
@@ -49,6 +70,23 @@ public actor TestOrchestrator {
         public let diffPercentage: Double?
         public let passed: Bool
         public let baselineCreated: Bool
+    }
+
+    /// Diagnostic screenshot captured at the moment a step fails. Unlike
+    /// `ScreenshotResult`, there is no baseline or diff — just a snapshot of
+    /// the current UI state to help understand what went wrong.
+    public struct FailureScreenshot: Sendable, Codable {
+        /// Identifies which app this captures, e.g. `"ios"`, `"mac"`,
+        /// `"mac2"` (for the second macOS instance). Used as the screenshot
+        /// label / display title in reports.
+        public let target: String
+        /// Filesystem path where the PNG was written.
+        public let path: String
+
+        public init(target: String, path: String) {
+            self.target = target
+            self.path = path
+        }
     }
 
     /// Result of running a scenario
@@ -72,7 +110,7 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
-        hookPortFile: String? = nil,
+        gallagerStateRootBase: String? = nil,
         reporter: (any TestProgressReporter)? = nil
     ) {
         self.iosAppPath = iosAppPath
@@ -84,10 +122,8 @@ public actor TestOrchestrator {
         self.e2eRunnerPath = e2eRunnerPath
         self.skipComparison = skipComparison
         self.reporter = reporter
-        self.hookPortFile = hookPortFile ?? {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            return "\(home)/.claudespy-port-test"
-        }()
+        self.gallagerStateRootBase = gallagerStateRootBase
+            ?? (NSTemporaryDirectory() + "claudespy-e2e-gallager")
     }
 
     // MARK: - Run Scenarios
@@ -115,8 +151,20 @@ public actor TestOrchestrator {
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
         context.set("pushLogPath", value: pushLogPath(for: 0))
+        context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
+        context.set("defaultBrowserLogPath", value: defaultBrowserLogPath(for: 0))
+        // Per-instance default-browser log paths. Two-Mac scenarios that flip
+        // a viewer's `browserLinkBehavior` to `.alwaysInDefaultBrowser` need
+        // the viewer's path to assert against; instance 0 stays available
+        // under the unsuffixed `defaultBrowserLogPath` for backwards-compat
+        // with existing scenarios.
+        context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
+
+        // Clear any leftover fake-editor log from a previous run so scenario
+        // assertions don't see stale entries.
+        try? FileManager.default.removeItem(atPath: fakeEditorLogPath(for: 0))
 
         var stepResults: [StepResult] = []
         var firstFailedStep: Int?
@@ -141,19 +189,33 @@ public actor TestOrchestrator {
                 logger.error("  FAILED at step \(stepNumber): \(error)")
                 // Extract screenshot result from mismatch errors
                 let screenshotResult: ScreenshotResult?
+                let failureScreenshots: [FailureScreenshot]
                 if case let OrchestratorError.screenshotMismatch(result, _) = error {
                     screenshotResult = result
+                    // Screenshot-comparison failures already include actual /
+                    // baseline / diff — no extra diagnostic capture needed.
+                    failureScreenshots = []
                 } else {
                     screenshotResult = nil
+                    failureScreenshots = await captureFailureScreenshots(
+                        for: step,
+                        stepNumber: stepNumber
+                    )
                 }
                 stepResults.append(StepResult(
                     stepNumber: stepNumber,
                     description: "\(step)",
                     success: false,
                     error: error.localizedDescription,
-                    screenshot: screenshotResult
+                    screenshot: screenshotResult,
+                    failureScreenshots: failureScreenshots
                 ))
-                await reporter?.stepFailed(stepNumber, error: error.localizedDescription, screenshot: screenshotResult)
+                await reporter?.stepFailed(
+                    stepNumber,
+                    error: error.localizedDescription,
+                    screenshot: screenshotResult,
+                    failureScreenshots: failureScreenshots
+                )
 
                 if firstFailedStep == nil {
                     firstFailedStep = stepNumber
@@ -218,6 +280,7 @@ public actor TestOrchestrator {
     /// Remove all E2E apps from the simulator after test runs complete
     private func uninstallSimulatorApps() async {
         logger.info("=== Uninstalling simulator apps ===")
+        await simulatorDriver.resetStatusBar()
         await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         try? await simulatorDriver.uninstallApp()
@@ -228,12 +291,19 @@ public actor TestOrchestrator {
         logger.info("=== Simulator apps uninstalled ===")
     }
 
-    /// Tear down all running processes regardless of scenario outcome
+    /// Tear down all running processes regardless of scenario outcome.
+    ///
+    /// Between scenarios we deliberately keep the simulator booted, the iOS
+    /// app installed, and the XCTest runner alive. The iOS app uses fully
+    /// in-memory `PreferencesService` and `SecretsService` in `--e2e-test`
+    /// mode, so `terminateApp` is enough to wipe app state — the next
+    /// `launchIOSApp` gives a clean slate without paying the simulator-boot
+    /// (~3s), app-install (~5s) and `xcodebuild test-without-building` cold
+    /// start (~15–30s) costs each time. Final per-suite uninstall happens in
+    /// `uninstallSimulatorApps` once all scenarios are done.
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
         cleanupInjectedScripts()
-        await simulatorDriver.resetStatusBar()
-        await simulatorDriver.stopE2ERunner()
         try? await simulatorDriver.terminateApp()
         let instanceKeys = Array(macDrivers.keys)
         for driver in macDrivers.values {
@@ -253,6 +323,10 @@ public actor TestOrchestrator {
             let runner = processRunner
             _ = try? await runner.run("tmux", arguments: ["-S", socket, "kill-server"])
             try? FileManager.default.removeItem(atPath: socket)
+
+            // Remove the instance's `--gallager-state-root` tree (incl. the
+            // stale ingress socket) so the next scenario binds a fresh socket.
+            try? FileManager.default.removeItem(atPath: gallagerStateRootPath(for: idx))
         }
 
         logger.info("=== Cleanup complete ===")
@@ -311,6 +385,74 @@ public actor TestOrchestrator {
         case .stopServer:
             try await serverDriver.stop()
 
+        case let .waitForAPNSPushCount(count, timeout):
+            try await serverDriver.waitForAPNSPushLog(count: count, timeout: timeout)
+
+        case let .verifyLastAPNSPush(expectedAggregated, expectedSilent, expectedPushType):
+            let entries = await serverDriver.readAPNSPushLog()
+            guard let last = entries.last else {
+                throw OrchestratorError.assertionFailed("APNs push log is empty")
+            }
+            if last.aggregatedBadge != expectedAggregated {
+                throw OrchestratorError.assertionFailed(
+                    "Expected aggregatedBadge=\(expectedAggregated.map(String.init) ?? "nil"), " +
+                        "got \(last.aggregatedBadge.map(String.init) ?? "nil") " +
+                        "(pairId=\(last.pairId), silent=\(last.silent), pushType=\(last.pushType))"
+                )
+            }
+            if last.silent != expectedSilent {
+                throw OrchestratorError.assertionFailed(
+                    "Expected silent=\(expectedSilent), got \(last.silent)"
+                )
+            }
+            if last.pushType != expectedPushType {
+                throw OrchestratorError.assertionFailed(
+                    "Expected pushType=\(expectedPushType), got \(last.pushType)"
+                )
+            }
+
+        case .clearAPNSPushLog:
+            try? FileManager.default.removeItem(atPath: ServerDriver.defaultAPNSLogPath)
+
+        case let .serverReadFirstViewerIdentity(prefix):
+            guard let identity = await serverDriver.firstViewerIdentity() else {
+                throw OrchestratorError.assertionFailed(
+                    "serverReadFirstViewerIdentity: no active pair on the relay"
+                )
+            }
+            context.set("\(prefix)PairId", value: identity.pairId)
+            context.set("\(prefix)DeviceId", value: identity.deviceId)
+            context.set("\(prefix)DeviceName", value: identity.deviceName)
+            context.set("\(prefix)PublicKey", value: identity.publicKey)
+            context.set("\(prefix)PublicKeyId", value: identity.publicKeyId)
+            context.set("\(prefix)PushToken", value: identity.pushToken ?? "")
+
+        case let .serverCompletePairingAsViewer(codeKey, pushTokenKey, viewerPrefix, storeAs):
+            let code = context.resolve("${\(codeKey)}")
+            let pushToken = context.resolve("${\(pushTokenKey)}")
+            let identity = ViewerIdentity(
+                pairId: context.resolve("${\(viewerPrefix)PairId}"),
+                deviceId: context.resolve("${\(viewerPrefix)DeviceId}"),
+                deviceName: context.resolve("${\(viewerPrefix)DeviceName}"),
+                publicKey: context.resolve("${\(viewerPrefix)PublicKey}"),
+                publicKeyId: context.resolve("${\(viewerPrefix)PublicKeyId}"),
+                pushToken: pushToken.isEmpty ? nil : pushToken
+            )
+            let pairId = try await serverDriver.completePairingAsViewer(
+                code: code,
+                viewer: identity,
+                pushToken: pushToken
+            )
+            context.set(storeAs, value: pairId)
+
+        case let .serverInjectPush(pairIdKey, hostBadge, silent):
+            let pairId = context.resolve("${\(pairIdKey)}")
+            try await serverDriver.injectPush(
+                pairId: pairId,
+                hostBadge: hostBadge,
+                silent: silent
+            )
+
         // iOS Simulator
         case let .launchIOSApp(appVersion, minRequiredPartnerVersion):
             guard let iosAppPath else {
@@ -340,14 +482,22 @@ public actor TestOrchestrator {
             try await simulatorDriver.terminateApp()
 
         case .uninstallIOSApp:
+            // Historically this fully uninstalled the app to guarantee a clean
+            // state. The iOS app now uses in-memory `PreferencesService` and
+            // `SecretsService` under `--e2e-test`, so terminating the process
+            // is sufficient — the next launch starts from empty stores. Skipping
+            // the real uninstall lets `installApp` short-circuit on the next
+            // `launchIOSApp` and saves ~5s per scenario.
             try await simulatorDriver.terminateApp()
-            try await simulatorDriver.uninstallApp()
 
         case let .iosWaitForElement(query, timeout):
             _ = try await simulatorDriver.waitForElement(matching: query, timeout: timeout)
 
         case let .iosTap(query):
             try await simulatorDriver.tap(query: query)
+
+        case let .iosLongPress(query, duration):
+            try await simulatorDriver.longPress(query: query, duration: duration)
 
         case let .iosTapCoordinate(x, y):
             try await simulatorDriver.tap(x: x, y: y)
@@ -362,6 +512,13 @@ public actor TestOrchestrator {
             // and confirmation dialog — the XCUITest runner can see all UI elements.
             let element = try await simulatorDriver.waitForElement(matching: query, timeout: 5)
             try await simulatorDriver.swipeLeft(on: element)
+
+        case let .iosSwipe(fromX, fromY, toX, toY, duration):
+            try await simulatorDriver.swipe(
+                fromX: fromX, fromY: fromY,
+                toX: toX, toY: toY,
+                duration: duration
+            )
 
         case let .iosWaitForElementToDisappear(query, timeout):
             try await simulatorDriver.waitForElementToDisappear(matching: query, timeout: timeout)
@@ -380,6 +537,10 @@ public actor TestOrchestrator {
             let value = try await simulatorDriver.readClipboard()
             context.set(storeAs, value: value)
             logger.info("Stored iOS clipboard as '\(storeAs)': \(value)")
+
+        case .iosClearClipboard:
+            try await simulatorDriver.clearClipboard()
+            logger.info("Cleared iOS clipboard")
 
         case let .iosSetAppVersion(appVersion, minRequiredPartnerVersion):
             try await simulatorDriver.setAppVersion(
@@ -403,16 +564,31 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
+            // Each instance gets its own `--gallager-state-root` so the plugin
+            // runtime's ingress socket + per-plugin state is isolated per
+            // scenario/instance (replaces the deleted `--hook-port-file`). The
+            // DSL hook-delivery step writes frames to `<stateRoot>/ingress.sock`.
+            let stateRoot = gallagerStateRootPath(for: instance)
+            try? FileManager.default.createDirectory(
+                atPath: stateRoot,
+                withIntermediateDirectories: true
+            )
             var arguments = [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
-                "--hook-port-file", hookPortFilePath(for: instance),
+                "--gallager-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
+                "--default-browser-log", defaultBrowserLogPath(for: instance),
             ]
+            // Seed deterministic projects so project-list / project-search
+            // scenarios see a stable set (the in-memory scanners that used to
+            // do this were deleted in the plugin-system flip). Honoured only in
+            // `--e2e-test` + DEBUG builds.
+            arguments += ["--e2e-seed-projects"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }
@@ -424,6 +600,18 @@ public actor TestOrchestrator {
                 FileManager.default.fileExists(atPath: sampleDir) {
                 arguments += ["--sample-files-dir", sampleDir]
             }
+            if
+                let fakeEditor = Bundle.module.url(
+                    forResource: "fake_editor",
+                    withExtension: "py",
+                    subdirectory: "Scripts"
+                ) {
+                let logPath = fakeEditorLogPath(for: instance)
+                arguments += [
+                    "--fake-editor-script", fakeEditor.path,
+                    "--fake-editor-log", logPath,
+                ]
+            }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
 
         case let .terminateMacApp(instance):
@@ -431,6 +619,9 @@ public actor TestOrchestrator {
 
         case let .macActivate(instance):
             try await macDriver(for: instance).activate()
+
+        case let .macDeactivate(instance):
+            try await macDriver(for: instance).deactivate()
 
         case let .macOpenSettings(instance):
             try await macDriver(for: instance).openSettings()
@@ -441,6 +632,9 @@ public actor TestOrchestrator {
         case let .macWaitForWindow(titled, timeout, instance):
             try await macDriver(for: instance).waitForWindow(titled: titled, timeout: timeout)
 
+        case let .macAssertWindowTitle(equals, timeout, instance):
+            try await macDriver(for: instance).waitForWindowTitle(equals: equals, timeout: timeout)
+
         case let .macSelectSettingsTab(tab, instance):
             try await macDriver(for: instance).selectSettingsTab(tab)
 
@@ -450,29 +644,27 @@ public actor TestOrchestrator {
         case let .macClickMenuItem(menuButtonTitle, itemTitle, instance):
             try await macDriver(for: instance).clickMenuItem(menuButtonTitle: menuButtonTitle, itemTitle: itemTitle)
 
-        case let .macPressTab(instance):
-            try await macDriver(for: instance).pressTab()
-
-        case let .macPressEscape(instance):
-            try await macDriver(for: instance).pressEscape()
-
-        case let .macPressReturn(instance):
-            try await macDriver(for: instance).pressReturn()
-
-        case let .macPressSpace(instance):
-            try await macDriver(for: instance).pressSpace()
-
-        case let .macSelectAll(instance):
-            try await macDriver(for: instance).selectAll()
+        case let .macPressKey(key, modifiers, instance):
+            try await macDriver(for: instance).pressKey(key, modifiers: modifiers)
 
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
+
+        case let .macCGClickElement(query, pointInRect, instance):
+            try await macDriver(for: instance).cgClick(matching: query, pointInRect: pointInRect)
 
         case let .macRightClick(titled, instance):
             try await macDriver(for: instance).rightClick(titled: titled)
 
         case let .macContextMenuClick(elementTitle, menuItem, instance):
             try await macDriver(for: instance).contextMenuClick(elementTitle: elementTitle, menuItem: menuItem)
+
+        case let .macContextSubmenuClick(elementTitle, parentMenuItem, submenuItem, instance):
+            try await macDriver(for: instance).contextSubmenuClick(
+                elementTitle: elementTitle,
+                parentMenuItem: parentMenuItem,
+                submenuItem: submenuItem
+            )
 
         case let .macUnpair(instance):
             try await macDriver(for: instance).unpair()
@@ -496,6 +688,62 @@ public actor TestOrchestrator {
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Clipboard value\(suffix): \(value) → stored as ${\(storeAs)}")
             context.set(storeAs, value: value)
+
+        case let .macWriteClipboard(text, instance):
+            let resolved = context.resolve(text)
+            try await macDriver(for: instance).writeClipboard(text: resolved)
+
+        case let .macWriteClipboardImage(base64, format, instance):
+            let resolvedBase64 = context.resolve(base64)
+            guard let data = Data(base64Encoded: resolvedBase64) else {
+                throw NSError(
+                    domain: "ImagePasteScenario",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid base64 image data"]
+                )
+            }
+            let basePath = clipboardFilePath(for: instance)
+            try data.write(to: URL(fileURLWithPath: basePath + ".image"), options: .atomic)
+            try format.write(
+                toFile: basePath + ".image.format",
+                atomically: true,
+                encoding: .utf8
+            )
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Wrote image to clipboard\(suffix): \(data.count) bytes (\(format))")
+
+        case let .macReadClipboardImage(storeAs, instance):
+            let basePath = clipboardFilePath(for: instance)
+            let imagePath = basePath + ".image"
+            let value: String
+            if
+                let data = FileManager.default.contents(atPath: imagePath), !data.isEmpty {
+                value = data.base64EncodedString()
+            } else {
+                value = ""
+            }
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Clipboard image\(suffix): \(value.count) base64 chars → stored as ${\(storeAs)}")
+            context.set(storeAs, value: value)
+
+        case let .macClearClipboard(instance):
+            let basePath = clipboardFilePath(for: instance)
+            try? "".write(toFile: basePath, atomically: true, encoding: .utf8)
+            try? FileManager.default.removeItem(atPath: basePath + ".image")
+            try? FileManager.default.removeItem(atPath: basePath + ".image.format")
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Cleared file-backed clipboard\(suffix)")
+
+        case let .macPaste(instance):
+            try await macDriver(for: instance).paste()
+
+        case let .macDropFilesOnPane(paneId, paths, instance):
+            let resolvedPaneId = context.resolve(paneId)
+            let resolvedPaths = paths.map { context.resolve($0) }
+            try await macDriver(for: instance).dropFilesOnPane(
+                paneId: resolvedPaneId,
+                paths: resolvedPaths
+            )
 
         case let .macWaitForElement(titled, timeout, instance):
             let resolvedTitle = context.resolve(titled)
@@ -542,6 +790,9 @@ public actor TestOrchestrator {
         case let .macDrag(fromX, fromY, toX, toY, instance):
             try await macDriver(for: instance).drag(fromX: fromX, fromY: fromY, toX: toX, toY: toY)
 
+        case let .macDragElement(fromQuery, toQuery, instance):
+            try await macDriver(for: instance).dragElement(from: fromQuery, to: toQuery)
+
         case let .macScreenshot(label, compare, tolerance, perPixelThreshold, instance):
             let numberedLabel = nextScreenshotLabel(label)
             let actualPath = screenshotPath(for: numberedLabel)
@@ -560,9 +811,14 @@ public actor TestOrchestrator {
             // Use -f /dev/null to ignore user's tmux.conf (avoids base-index/pane-base-index
             // being set to non-zero values which would change pane targets).
             // Set DISABLE_AUTO_UPDATE to suppress oh-my-zsh update prompts that block the shell.
+            // Pin TMPDIR to the runner's temp dir so `injectScript` (which copies to
+            // NSTemporaryDirectory()) and the pane's `$TMPDIR/<script>` references resolve to the
+            // SAME directory. We used to rely on the tmux server inheriting the runner's TMPDIR, but
+            // that breaks when the runner and the tmux server have different temp dirs (e.g. under a
+            // sandbox), leaving injected scripts unfindable.
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
@@ -662,16 +918,36 @@ public actor TestOrchestrator {
                 return value.contains(resolvedContains)
             }
 
-        // Hook Events
-        case let .macSendHookEvent(json, tmuxPane, projectPath, instance):
+        case let .waitForTmuxDisplayMessageNotEqual(target, format, notEqualTo, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedFormat = context.resolve(format)
+            let resolvedNotEqualTo = context.resolve(notEqualTo)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux display-message '\(resolvedFormat)' differs from '\(resolvedNotEqualTo)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "display-message", "-t", resolvedTarget, "-p", resolvedFormat]
+                )
+                let value = result?.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return !value.isEmpty && value != resolvedNotEqualTo
+            }
+
+        // Hook Events (ingress socket)
+        case let .macSendHookEvent(pluginID, json, tmuxPane, projectPath, instance):
             let resolvedJson = context.resolve(json)
             let resolvedPane = context.resolve(tmuxPane)
             let resolvedPath = projectPath.map { context.resolve($0) }
             try await macDriver(for: instance).sendHookEvent(
+                pluginID: pluginID,
                 json: resolvedJson,
                 tmuxPane: resolvedPane,
                 projectPath: resolvedPath,
-                hookPortFile: hookPortFilePath(for: instance)
+                socketPath: ingressSocketPath(for: instance)
             )
 
         // Assertions
@@ -761,6 +1037,11 @@ public actor TestOrchestrator {
             context.set(storeAs, value: content)
             logger.info("  Read file (\(content.count) chars) → stored as ${\(storeAs)}")
 
+        case let .removeFile(path):
+            let resolvedPath = context.resolve(path)
+            try? FileManager.default.removeItem(atPath: resolvedPath)
+            logger.info("  Removed file (if present): \(resolvedPath)")
+
         case let .waitForFileContains(path, substring, storeAs, timeout, pollInterval):
             let resolvedPath = context.resolve(path)
             let resolvedSubstring = context.resolve(substring)
@@ -800,10 +1081,19 @@ public actor TestOrchestrator {
         return driver
     }
 
-    /// Return the hook port file path for the given instance number.
-    /// Instance 0 uses the base `hookPortFile`; instance N uses `hookPortFile-N`.
-    private func hookPortFilePath(for instance: Int) -> String {
-        instance == 0 ? hookPortFile : "\(hookPortFile)-\(instance)"
+    /// Return the `--gallager-state-root` directory for the given instance.
+    /// Each instance gets its own subdirectory so the plugin runtime's ingress
+    /// socket and per-plugin state stay isolated between instances and scenarios.
+    private func gallagerStateRootPath(for instance: Int) -> String {
+        "\(gallagerStateRootBase)/\(instance)"
+    }
+
+    /// Return the ingress socket path for the given instance — the
+    /// `ingress.sock` under that instance's `--gallager-state-root` (mirrors
+    /// `GallagerPaths.ingressSocketPath`). The hook-delivery DSL step connects
+    /// here to write length-prefixed frames.
+    private func ingressSocketPath(for instance: Int) -> String {
+        "\(gallagerStateRootPath(for: instance))/ingress.sock"
     }
 
     /// Return the tmux socket path for the given instance number.
@@ -836,6 +1126,24 @@ public actor TestOrchestrator {
     /// isolating clipboards between instances on the same machine.
     func clipboardFilePath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
+    }
+
+    /// Return the path scenarios should read to verify the fake editor was
+    /// invoked with a given file. Each "Open in Editor" appends a line.
+    public static func fakeEditorLogPath(for instance: Int = 0) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-fake-editor-\(instance).log"
+    }
+
+    private func fakeEditorLogPath(for instance: Int) -> String {
+        Self.fakeEditorLogPath(for: instance)
+    }
+
+    /// Return the default-browser log path for the given instance number.
+    /// The macOS app appends URLs to this file instead of calling
+    /// `NSWorkspace.shared.open` so scenarios can verify
+    /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
+    func defaultBrowserLogPath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
     }
 
     // MARK: - Script Cleanup
@@ -953,6 +1261,76 @@ public actor TestOrchestrator {
         return screenshotResult
     }
 
+    // MARK: - Failure Screenshots
+
+    /// Capture diagnostic screenshots from running platforms after a step fails.
+    /// Best-effort: any single capture that throws is logged and skipped so the
+    /// orchestrator can still report the original failure with whatever
+    /// screenshots succeeded.
+    private func captureFailureScreenshots(
+        for step: TestStep,
+        stepNumber: Int
+    ) async -> [FailureScreenshot] {
+        let scope = step.failureScope
+        var captures: [FailureScreenshot] = []
+
+        // iOS sim — captured for `.ios` and `.universal` if the sim is booted.
+        if scope == .ios || scope == .universal {
+            let booted = await simulatorDriver.isBooted
+            if booted {
+                let path = failureScreenshotPath(stepNumber: stepNumber, target: "ios")
+                do {
+                    _ = try await simulatorDriver.screenshot(output: path)
+                    captures.append(FailureScreenshot(target: "ios", path: path))
+                } catch {
+                    logger.warning("  Failed to capture iOS failure screenshot: \(error)")
+                }
+            }
+        }
+
+        // macOS — captured for `.macOS(N)` (just that instance) and
+        // `.universal` (every instance). Only instances whose drivers we've
+        // already created are considered: anything not in `macDrivers` was
+        // never launched.
+        let macTargets: [Int]
+        switch scope {
+        case let .macOS(instance):
+            macTargets = [instance]
+        case .universal:
+            macTargets = macDrivers.keys.sorted()
+        case .ios:
+            macTargets = []
+        }
+        for instance in macTargets {
+            guard let driver = macDrivers[instance] else { continue }
+            let launched = await driver.isLaunched
+            guard launched else { continue }
+            let label = macTargetLabel(for: instance)
+            let path = failureScreenshotPath(stepNumber: stepNumber, target: label)
+            do {
+                try await driver.screenshot(output: path)
+                captures.append(FailureScreenshot(target: label, path: path))
+            } catch {
+                logger.warning("  Failed to capture \(label) failure screenshot: \(error)")
+            }
+        }
+
+        return captures
+    }
+
+    /// Build a path for a failure screenshot scoped to the current scenario.
+    private func failureScreenshotPath(stepNumber: Int, target: String) -> String {
+        let filename = String(format: "failure-step-%02d-%@.png", stepNumber, target)
+        return "\(scenarioDir(in: screenshotsDir))/\(filename)"
+    }
+
+    /// Display label for a macOS app instance. Instance 0 is `mac`; instance
+    /// N>0 is `macN+1` to match the user-facing instance numbering used in
+    /// `MacOSDriver` log labels (`e2e.macos-driver-2` for the second instance).
+    private func macTargetLabel(for instance: Int) -> String {
+        instance == 0 ? "mac" : "mac\(instance + 1)"
+    }
+
     /// Copy a screenshot to a destination, creating parent directories and overwriting if needed.
     private func saveScreenshot(from sourcePath: String, to destPath: String) throws {
         let fm = FileManager.default
@@ -972,14 +1350,20 @@ public actor TestOrchestrator {
 
     /// Build the full path for a screenshot file, scoped to the current scenario
     private func screenshotPath(for label: String) -> String {
-        let scenarioName = context.resolve("${scenarioName}")
-        return "\(screenshotsDir)/\(scenarioName)/\(label).png"
+        "\(scenarioDir(in: screenshotsDir))/\(label).png"
     }
 
     /// Build the full path for a baseline file, scoped to the current scenario
     private func baselinePath(for label: String) -> String {
+        "\(scenarioDir(in: baselinesDir))/\(label).png"
+    }
+
+    /// Per-scenario subdirectory under a base dir (screenshots, baselines,
+    /// failure screenshots — all share this layout). Centralized so the layout
+    /// only needs to change in one place.
+    private func scenarioDir(in baseDir: String) -> String {
         let scenarioName = context.resolve("${scenarioName}")
-        return "\(baselinesDir)/\(scenarioName)/\(label).png"
+        return "\(baseDir)/\(scenarioName)"
     }
 
     /// Convert a scenario name into a safe directory name

@@ -1,7 +1,7 @@
 # ClaudeSpy
 
-Distributed system for monitoring Claude Code sessions. Three components:
-1. **Mac App** - tmux pane mirroring, receives hooks, forwards to server
+Distributed system for monitoring coding-agent sessions (Anthropic Claude Code and OpenAI Codex CLI, behind a shared `CodingAgent` abstraction in `ClaudeSpyNetworking`). Three components:
+1. **Mac App** - tmux pane mirroring, receives hooks from both agents, forwards to server
 2. **External Server** - Vapor relay (Docker/Linux), device pairing, WebSocket routing
 3. **iOS App** - Remote monitoring, command dispatch
 
@@ -120,14 +120,18 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 
 **Killing Mac app:** Use `osascript -e 'quit app "Gallager"'` — `pkill`/`killall` don't work reliably.
 
+**Opening a PR:** A `PostToolUse` hook (`.claude/hooks/pr-checklist.py`) fires on `gh pr create` and injects a checklist of post-PR chores (docs, CLAUDE.md, CLI/`gallager`-skill, e2e scenarios). Work through it before stopping. See `docs/repo-hooks.md`.
+
 ## Reference Docs
 
 - **Code examples:** `docs/swift-patterns.md` - SwiftUI patterns, Sendable, Dependencies, testing
-- **Services:** `docs/services-reference.md` - TmuxService, PaneStream, etc.
-- **Architecture:** `docs/distributed-architecture-plan.md`
+- **Services:** `docs/services-reference.md` - TmuxService, PaneStream, CodingAgent, project scanners, etc.
+- **Architecture:** `docs/architecture.md` (Mac app) and `docs/distributed-architecture-plan.md` (Mac/Server/iOS)
+- **Codex CLI integration:** `docs/codex-cli-integration-plan.md` - `CodingAgent` abstraction, hook bridge, project discovery
 - **Encryption:** `docs/e2ee-encryption-plan.md`
 - **E2E testing:** `docs/e2e-testing.md` - Test framework, running tests, writing scenarios
 - **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server
+- **Repo hooks:** `docs/repo-hooks.md` - Project-scoped Claude Code hooks (swiftformat, PR checklist)
 - **Known issues:** `docs/known-issues.md`
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
 - **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`

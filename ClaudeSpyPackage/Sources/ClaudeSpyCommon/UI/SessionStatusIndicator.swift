@@ -1,30 +1,54 @@
 import ClaudeSpyNetworking
 import SwiftUI
 
-/// Visual indicator for a Claude session's current state:
+/// Visual indicator for an agent session's current state:
 /// - Needs attention: orange bell badge
 /// - Working: spinning progress indicator
 /// - Idle: gray moon
 public struct SessionStatusIndicator: View {
-    let session: ClaudeSession
+    private enum DisplayState {
+        case attention
+        case working
+        case idle
+    }
 
-    public init(session: ClaudeSession) {
-        self.session = session
+    private let displayState: DisplayState
+    private let label: String
+
+    public init(session: AgentSession) {
+        if session.needsAttention {
+            self.displayState = .attention
+        } else if session.isWorking {
+            self.displayState = .working
+        } else {
+            self.displayState = .idle
+        }
+        self.label = session.statusLabel
+    }
+
+    public init(cliState: CLISessionState) {
+        switch cliState {
+        case .working: self.displayState = .working
+        case .idle: self.displayState = .idle
+        case .waiting: self.displayState = .attention
+        }
+        self.label = cliState.statusLabel
     }
 
     public var body: some View {
         Group {
-            if session.needsAttention {
+            switch displayState {
+            case .attention:
                 Symbols.bellBadgeFill.image
                     .foregroundStyle(.orange)
-            } else if session.isWorking {
+            case .working:
                 ProgressView()
                     .controlSize(.small)
-            } else {
+            case .idle:
                 Symbols.moonFill.image
                     .foregroundStyle(.secondary)
             }
         }
-        .accessibilityLabel(session.statusLabel)
+        .accessibilityLabel(label)
     }
 }

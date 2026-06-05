@@ -31,6 +31,10 @@
             let titleChange: String?
             /// Last clipboard content detected via OSC 52 (nil if none found)
             let clipboardContent: String?
+            /// Last progress update detected via OSC 9;4 (nil if none found).
+            /// When multiple updates arrive in one chunk, only the latest is reported —
+            /// the UI doesn't need intermediate values.
+            let progressUpdate: TerminalProgressState?
         }
 
         /// Maximum OSC buffer size (8 KB) before discarding as pass-through data.
@@ -38,7 +42,9 @@
         private static let maxBufferSize = 8_192
 
         /// When true, skips building filtered output data — only extracts notifications.
-        let scanOnly: Bool
+        /// Mutable so a long-lived parser can flip between modes without being rebuilt
+        /// (e.g. when a pane gains its first subscriber and starts forwarding bytes).
+        var scanOnly: Bool
 
         /// Buffer for incomplete OSC sequences split across reads
         private var oscBuffer = Data()
@@ -58,6 +64,7 @@
             var notifications: [TerminalStreamMessage.TerminalNotification] = []
             var lastTitleChange: String?
             var lastClipboardContent: String?
+            var lastProgressUpdate: TerminalProgressState?
 
             // Prepend any buffered incomplete sequence from previous read
             var dataToProcess = data
@@ -119,7 +126,7 @@
                         if j + 1 >= dataToProcess.endIndex {
                             // ESC at end inside OSC — buffer entire sequence
                             oscBuffer = Data(dataToProcess[oscStart...])
-                            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent)
+                            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent, progressUpdate: lastProgressUpdate)
                         }
                         if dataToProcess[j + 1] == 0x5C { // '\'
                             foundTerminator = true
@@ -147,11 +154,14 @@
                 let content = dataToProcess[contentStart..<j]
 
                 // Check if this is a notification, title, or clipboard OSC sequence
-                let (isNotificationSequence, notification) = parseNotificationContent(content)
+                let (isNotificationSequence, notification, progress) = parseNotificationContent(content)
                 if isNotificationSequence {
                     // Strip notification sequences from output
                     if let notification {
                         notifications.append(notification)
+                    }
+                    if let progress {
+                        lastProgressUpdate = progress
                     }
                 } else if let clipboardText = parseClipboardContent(content) {
                     // OSC 52 clipboard — strip from output and capture
@@ -178,7 +188,7 @@
                 oscBuffer = Data()
             }
 
-            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent)
+            return ParseResult(filteredData: result, notifications: notifications, titleChange: lastTitleChange, clipboardContent: lastClipboardContent, progressUpdate: lastProgressUpdate)
         }
 
         /// Attempt to parse OSC content as a terminal title change (OSC 0 or OSC 2).
@@ -244,37 +254,49 @@
             return text
         }
 
-        /// Attempt to parse OSC content as a notification.
+        /// Attempt to parse OSC content as a notification or a progress update.
         ///
-        /// Returns a tuple: (isNotificationSequence, notification).
+        /// Returns a tuple: (isNotificationSequence, notification, progress).
         /// `isNotificationSequence` is true if the sequence format matches OSC 9 or OSC 777
-        /// (used for stripping). `notification` is non-nil only if a valid notification was parsed.
+        /// (used for stripping). `notification` and `progress` are independently nilable —
+        /// a single OSC sequence can produce at most one of them.
         ///
         /// - OSC 9: Content is `9;<message>`
+        /// - OSC 9;4: Content is `9;4;<state>;<progress>` — ConEmu-style progress
         /// - OSC 777: Content is `777;notify;<title>;<body>`
         private func parseNotificationContent(
             _ content: Data
-        ) -> (isNotificationSequence: Bool, notification: TerminalStreamMessage.TerminalNotification?) {
+        ) -> (
+            isNotificationSequence: Bool,
+            notification: TerminalStreamMessage.TerminalNotification?,
+            progress: TerminalProgressState?
+        ) {
             guard let string = String(bytes: content, encoding: .utf8) else {
-                return (false, nil)
+                return (false, nil, nil)
             }
 
             // OSC 9: "9;<message>"
             if string.hasPrefix("9;") {
                 let message = String(string.dropFirst(2))
 
-                // Skip ConEmu-style OSC 9 sub-commands (e.g. "4;0;" for progress state,
-                // "1;filename" for tab title). These have a numeric prefix before the first
+                // ConEmu-style OSC 9 sub-commands have a numeric prefix before the first
                 // semicolon, while real notifications start with readable text.
+                // - "4;<state>;<progress>" — progress bar
+                // - "1;<filename>"          — tab title (ignored)
                 if
                     let semicolonIndex = message.firstIndex(of: ";"),
                     message[message.startIndex..<semicolonIndex].allSatisfy(\.isNumber) {
-                    return (true, nil)
+                    let subcommand = String(message[message.startIndex..<semicolonIndex])
+                    let payload = String(message[message.index(after: semicolonIndex)...])
+                    if subcommand == "4" {
+                        return (true, nil, parseProgressPayload(payload))
+                    }
+                    return (true, nil, nil)
                 }
 
-                guard let sanitized = sanitizeNotificationText(message) else { return (true, nil) }
-                if isIdlePromptNotification(body: sanitized) { return (true, nil) }
-                return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
+                guard let sanitized = sanitizeNotificationText(message) else { return (true, nil, nil) }
+                if isIdlePromptNotification(body: sanitized) { return (true, nil, nil) }
+                return (true, TerminalStreamMessage.TerminalNotification(body: sanitized), nil)
             }
 
             // OSC 777: "777;notify;<title>;<body>"
@@ -283,19 +305,45 @@
                 let parts = payload.split(separator: ";", maxSplits: 1)
                 guard parts.count == 2 else {
                     // Malformed — treat entire payload as body
-                    guard let sanitized = sanitizeNotificationText(payload) else { return (true, nil) }
-                    if isIdlePromptNotification(body: sanitized) { return (true, nil) }
-                    return (true, TerminalStreamMessage.TerminalNotification(body: sanitized))
+                    guard let sanitized = sanitizeNotificationText(payload) else { return (true, nil, nil) }
+                    if isIdlePromptNotification(body: sanitized) { return (true, nil, nil) }
+                    return (true, TerminalStreamMessage.TerminalNotification(body: sanitized), nil)
                 }
                 let title = sanitizeNotificationText(String(parts[0]))
                 let body = sanitizeNotificationText(String(parts[1]))
-                guard let body else { return (true, nil) }
-                if isIdlePromptNotification(body: body) { return (true, nil) }
-                return (true, TerminalStreamMessage.TerminalNotification(title: title, body: body))
+                guard let body else { return (true, nil, nil) }
+                if isIdlePromptNotification(body: body) { return (true, nil, nil) }
+                return (true, TerminalStreamMessage.TerminalNotification(title: title, body: body), nil)
             }
 
             // Not a notification sequence
-            return (false, nil)
+            return (false, nil, nil)
+        }
+
+        /// Parses the `<state>;<progress>` payload of an `OSC 9;4` sequence.
+        /// Some emitters omit the progress value for non-determinate states (e.g. just
+        /// `9;4;0`), so the second field is optional. The progress value is clamped to
+        /// 0–100 to defend against malformed input.
+        private func parseProgressPayload(_ payload: String) -> TerminalProgressState? {
+            let parts = payload.split(separator: ";", omittingEmptySubsequences: false)
+            guard let stateString = parts.first, let stateValue = Int(stateString) else {
+                return nil
+            }
+            switch stateValue {
+            case 0:
+                return .removed
+            case 1:
+                let raw = parts.count >= 2 ? Int(parts[1]) ?? 0 : 0
+                return .normal(min(100, max(0, raw)))
+            case 2:
+                return .error
+            case 3:
+                return .indeterminate
+            case 4:
+                return .warning
+            default:
+                return nil
+            }
         }
 
         /// Checks if a notification body matches a known idle prompt pattern.

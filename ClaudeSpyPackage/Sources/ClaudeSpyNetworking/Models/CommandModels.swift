@@ -31,6 +31,10 @@ public enum TmuxKey: Codable, Sendable, Equatable {
 
     /// Special keys that tmux interprets
     case enter
+    /// Shift+Enter — distinct from `.enter`. With `set -s extended-keys on`,
+    /// tmux delivers this as the kitty CSI u sequence (`\e[13;2u`) so apps
+    /// like Claude Code can map it to "insert newline" rather than "submit".
+    case shiftEnter
     case escape
     case tab
     case backtab
@@ -67,6 +71,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "Enter"
+        case .shiftEnter: "S-Enter"
         case .escape: "Escape"
         case .tab: "Tab"
         case .backtab: "BTab"
@@ -93,6 +98,7 @@ public enum TmuxKey: Codable, Sendable, Equatable {
         switch self {
         case let .text(string): string
         case .enter: "⏎"
+        case .shiftEnter: "⇧⏎"
         case .space: "␣"
         default: "[\(tmuxKeyName)]"
         }
@@ -343,7 +349,7 @@ private extension TmuxKey {
         // passed as the base key since TmuxKey has no representation for them.
         switch codepoint {
         case 9: return CsiParseResult(keys: [hasShift ? .backtab : .tab], nextIndex: nextIndex)
-        case 13: return CsiParseResult(keys: [.enter], nextIndex: nextIndex)
+        case 13: return CsiParseResult(keys: [hasShift ? .shiftEnter : .enter], nextIndex: nextIndex)
         case 27: return CsiParseResult(keys: [.escape], nextIndex: nextIndex)
         case 32: return CsiParseResult(keys: [.space], nextIndex: nextIndex)
         case 127: return CsiParseResult(keys: [.backspace], nextIndex: nextIndex)
@@ -472,27 +478,58 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     /// Optional working directory to start the session in
     public let workingDirectory: String?
 
-    /// Optional `CLAUDE_CONFIG_DIR` value to set on the session. Used when the
-    /// project being launched was discovered under a non-default `.claude` folder
-    /// so that `claude` picks up the right config.
-    public let claudeConfigDir: String?
+    /// Optional config-dir value (e.g. `CLAUDE_CONFIG_DIR`) to set on the session.
+    /// Used when the project being launched was discovered under a non-default
+    /// config folder so the agent picks up the right config.
+    public let configDir: String?
+
+    /// Id of the plugin whose agent to launch when `workingDirectory` is supplied
+    /// (and the plugin's auto-run setting is enabled). Defaults to "claude-code"
+    /// for backward compatibility with viewers built before the plugin system.
+    public let pluginID: String
 
     public init(
         sessionName: String,
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil
+        configDir: String? = nil,
+        pluginID: String = "claude-code"
     ) {
         self.sessionName = sessionName
         self.width = width
         self.height = height
         self.workingDirectory = workingDirectory
-        self.claudeConfigDir = claudeConfigDir
+        self.configDir = configDir
+        self.pluginID = pluginID
     }
 
     public var commandType: CommandType {
         .createTmuxSession(self)
+    }
+
+    // MARK: - Codable
+
+    /// Custom decoder so this build can talk to an older host that predates the
+    /// `pluginID` field. Treat absence as "claude-code" — the only agent older
+    /// versions know about.
+    private enum CodingKeys: String, CodingKey {
+        case sessionName
+        case width
+        case height
+        case workingDirectory
+        case configDir
+        case pluginID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionName = try container.decode(String.self, forKey: .sessionName)
+        self.width = try container.decode(Int.self, forKey: .width)
+        self.height = try container.decode(Int.self, forKey: .height)
+        self.workingDirectory = try container.decodeIfPresent(String.self, forKey: .workingDirectory)
+        self.configDir = try container.decodeIfPresent(String.self, forKey: .configDir)
+        self.pluginID = try container.decodeIfPresent(String.self, forKey: .pluginID) ?? "claude-code"
     }
 }
 
@@ -519,6 +556,50 @@ public struct SetSessionDescription: CommandSpec, Equatable {
     }
 }
 
+/// Set a custom color for a tmux session. Returns success/failure.
+/// Persisted as the tmux `@gallager-color` user option so the dot in the
+/// sidebar comes back after restarting the host app.
+public struct SetSessionColor: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the color for
+    public let sessionName: String
+
+    /// The color, or nil to clear
+    public let color: SessionColor?
+
+    public init(sessionName: String, color: SessionColor?) {
+        self.sessionName = sessionName
+        self.color = color
+    }
+
+    public var commandType: CommandType {
+        .setSessionColor(self)
+    }
+}
+
+/// Set a custom emoji icon for a tmux session. Returns success/failure.
+/// Persisted as the tmux `@gallager-emoji` user option so the icon in the
+/// sidebar comes back after restarting the host app.
+public struct SetSessionEmoji: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the emoji for
+    public let sessionName: String
+
+    /// The emoji string, or nil to clear
+    public let emoji: String?
+
+    public init(sessionName: String, emoji: String?) {
+        self.sessionName = sessionName
+        self.emoji = emoji
+    }
+
+    public var commandType: CommandType {
+        .setSessionEmoji(self)
+    }
+}
+
 /// Rename a tmux window. Returns success/failure.
 /// Applied on the host via `tmux rename-window`, which also implicitly disables
 /// tmux's automatic-rename so the tab stops tracking the running command.
@@ -538,6 +619,34 @@ public struct SetWindowName: CommandSpec, Equatable {
 
     public var commandType: CommandType {
         .setWindowName(self)
+    }
+}
+
+/// Reorder tmux windows inside a remote session so the windows match the
+/// supplied id list. Applied on the host via `TmuxService.moveWindows` (a
+/// two-phase park-then-place that rewrites the session's window indices).
+///
+/// The viewer renders an optimistic order locally and then sends this command
+/// to make the host's tmux state match. On success the host pushes a fresh
+/// session state to every connected viewer, so the new order propagates back.
+public struct MoveTmuxWindows: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session whose windows are being reordered.
+    public let sessionName: String
+
+    /// The desired window order, listed as the current window ids
+    /// (`sessionName:N`). Every window in the session must appear; partial
+    /// reorders are rejected by the host.
+    public let windowIds: [String]
+
+    public init(sessionName: String, windowIds: [String]) {
+        self.sessionName = sessionName
+        self.windowIds = windowIds
+    }
+
+    public var commandType: CommandType {
+        .moveTmuxWindows(self)
     }
 }
 
@@ -633,6 +742,55 @@ public struct SendRawInput: CommandSpec, Equatable {
 
     public var commandType: CommandType {
         .sendRawInput(self)
+    }
+}
+
+/// One file in a `SendDroppedFiles` payload — original filename plus base64-encoded bytes.
+/// Used for both Finder file drops and Cmd+V image pastes (an image paste is
+/// shipped as a single synthetic `DroppedFile`).
+public struct DroppedFile: Codable, Sendable, Equatable {
+    /// The original filename as it appeared in Finder. The host saves to a
+    /// per-drop subdirectory of `$TMPDIR` so collisions across drops can't
+    /// clobber each other; the filename itself is preserved so Claude Code (or
+    /// any other in-pane reader) sees a human-readable path.
+    public let name: String
+
+    /// Base64-encoded file bytes.
+    public let dataBase64: String
+
+    public init(name: String, data: Data) {
+        self.name = name
+        self.dataBase64 = data.base64EncodedString()
+    }
+
+    public var data: Data? {
+        Data(base64Encoded: dataBase64)
+    }
+}
+
+/// Forward a Finder file drop from a Mac viewer to a remote Mac host. The
+/// host saves each file to `$TMPDIR/gallager-drop-<UUID>/<name>`, joins the
+/// resolved paths into a shell-escaped string, and pastes the result into
+/// the target tmux pane via `tmux load-buffer` + `paste-buffer -p` so apps
+/// that have enabled bracketed-paste mode see it as a paste event.
+public struct SendDroppedFiles: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Maximum total raw bytes a viewer should attempt to send across all
+    /// files in one drop. The relay enforces a 1 MiB max WebSocket frame and
+    /// base64 adds ~33% overhead, so 700 KiB raw stays under the ceiling.
+    /// Mirrors `SendImage.maxRawBytes` so both upload paths share one limit.
+    public static let maxRawBytes = 700 * 1_024
+
+    /// The dropped files in the order the user dropped them.
+    public let files: [DroppedFile]
+
+    public init(files: [DroppedFile]) {
+        self.files = files
+    }
+
+    public var commandType: CommandType {
+        .sendDroppedFiles(self)
     }
 }
 
@@ -763,8 +921,14 @@ public enum CommandType: Codable, Sendable, Equatable {
     case markHandled(MarkHandled)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
+    /// Set a custom color dot for a tmux session
+    case setSessionColor(SetSessionColor)
+    /// Set a custom emoji icon for a tmux session
+    case setSessionEmoji(SetSessionEmoji)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
+    /// Reorder tmux windows inside a session
+    case moveTmuxWindows(MoveTmuxWindows)
     /// Split a tmux pane
     case splitTmuxPane(SplitTmuxPane)
     /// Select (focus) a tmux pane
@@ -785,6 +949,10 @@ public enum CommandType: Codable, Sendable, Equatable {
     case killTmuxWindow(KillTmuxWindow)
     /// Kill (close) a tmux session
     case killTmuxSession(KillTmuxSession)
+    /// Forward a Finder file drop or Cmd+V image paste from a Mac viewer; host
+    /// saves the bytes to `$TMPDIR` and pastes the resolved paths into the
+    /// target tmux pane via tmux's bracketed-paste buffer.
+    case sendDroppedFiles(SendDroppedFiles)
 
     // MARK: - Convenience Factory Methods
 
@@ -819,14 +987,16 @@ public enum CommandType: Codable, Sendable, Equatable {
         width: Int,
         height: Int,
         workingDirectory: String? = nil,
-        claudeConfigDir: String? = nil
+        configDir: String? = nil,
+        pluginID: String = "claude-code"
     ) -> CommandType {
         .createTmuxSession(CreateTmuxSession(
             sessionName: sessionName,
             width: width,
             height: height,
             workingDirectory: workingDirectory,
-            claudeConfigDir: claudeConfigDir
+            configDir: configDir,
+            pluginID: pluginID
         ))
     }
 
@@ -845,9 +1015,24 @@ public enum CommandType: Codable, Sendable, Equatable {
         .setSessionDescription(SetSessionDescription(sessionName: sessionName, description: description))
     }
 
+    /// Create a setSessionColor command
+    public static func setSessionColor(sessionName: String, color: SessionColor?) -> CommandType {
+        .setSessionColor(SetSessionColor(sessionName: sessionName, color: color))
+    }
+
+    /// Create a setSessionEmoji command
+    public static func setSessionEmoji(sessionName: String, emoji: String?) -> CommandType {
+        .setSessionEmoji(SetSessionEmoji(sessionName: sessionName, emoji: emoji))
+    }
+
     /// Create a setWindowName command
     public static func setWindowName(windowId: String, name: String) -> CommandType {
         .setWindowName(SetWindowName(windowId: windowId, name: name))
+    }
+
+    /// Create a moveTmuxWindows command
+    public static func moveTmuxWindows(sessionName: String, windowIds: [String]) -> CommandType {
+        .moveTmuxWindows(MoveTmuxWindows(sessionName: sessionName, windowIds: windowIds))
     }
 
     /// Create a splitTmuxPane command
@@ -883,6 +1068,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a sendRawInput command
     public static func sendRawInput(data: Data) -> CommandType {
         .sendRawInput(SendRawInput(data: data))
+    }
+
+    /// Create a sendDroppedFiles command
+    public static func sendDroppedFiles(_ files: [DroppedFile]) -> CommandType {
+        .sendDroppedFiles(SendDroppedFiles(files: files))
     }
 
     /// Create a checkRunningProcesses command

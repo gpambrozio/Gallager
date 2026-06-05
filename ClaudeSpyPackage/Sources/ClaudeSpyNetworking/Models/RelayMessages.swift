@@ -18,27 +18,6 @@ public struct PeerHelloMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Hook Event Relay
-
-/// A hook event wrapped for relay through the external server
-public struct HookEventMessage: Codable, Sendable {
-    public let pairId: String
-    public let event: HookEvent
-
-    public init(pairId: String, event: HookEvent) {
-        self.pairId = pairId
-        self.event = event
-    }
-
-    /// Project name extracted from the event's project path
-    public var projectName: String? {
-        guard let projectPath = event.projectPath, !projectPath.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: projectPath).lastPathComponent
-    }
-}
-
 // MARK: - Session State
 
 /// Complete session state for sync between host and viewer
@@ -46,21 +25,36 @@ public struct SessionStateMessage: Codable, Sendable {
     public let pairId: String
     /// Unified per-pane state keyed by pane ID
     public let paneStates: [String: PaneState]
-    /// Discovered Claude projects on the host
-    public let claudeProjects: [ClaudeProjectInfo]?
+    /// Discovered agent projects on the host (each tagged by `pluginID`).
+    /// Carries the merged per-plugin project lists pushed via `host.setProjects`
+    /// (spec §7.2 — the project list rides this existing message).
+    public let agentProjects: [AgentProject]?
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
 
     public init(
         pairId: String,
         paneStates: [String: PaneState],
-        claudeProjects: [ClaudeProjectInfo]? = nil,
+        agentProjects: [AgentProject]? = nil,
         homeDirectory: String = ""
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
-        self.claudeProjects = claudeProjects
+        self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
+    }
+
+    /// Returns a copy with the `pairId` replaced. Centralises the per-connection
+    /// rebuild so adding a new field can only forget to forward it in one place
+    /// (here) — call sites can't silently drop fields by reconstructing the
+    /// initialiser from memory.
+    public func withPairId(_ pairId: String) -> SessionStateMessage {
+        SessionStateMessage(
+            pairId: pairId,
+            paneStates: paneStates,
+            agentProjects: agentProjects,
+            homeDirectory: homeDirectory
+        )
     }
 }
 
@@ -115,6 +109,19 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// User-defined description for this window, shown prominently in the sidebar
     public var customDescription: String?
 
+    // MARK: - Custom Color
+
+    /// User-assigned color for this session, shown as a dot in the sidebar.
+    /// Persisted via the tmux `@gallager-color` user option.
+    public var customColor: SessionColor?
+
+    // MARK: - Custom Emoji
+
+    /// User-assigned emoji for this session, shown as a small icon in the
+    /// sidebar. Free-form text so any platform-supported emoji works.
+    /// Persisted via the tmux `@gallager-emoji` user option.
+    public var customEmoji: String?
+
     // MARK: - Terminal State
 
     /// Terminal title detected via OSC escape sequences
@@ -125,20 +132,34 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The git branch name for this pane's current working directory, if it's a git repo
     public var gitBranch: String?
 
-    // MARK: - Claude Session
+    // MARK: - Agent Session
 
-    /// The Claude Code session running in this pane, if any
-    public var claudeSession: ClaudeSession?
+    /// The coding-agent session running in this pane, if any
+    public var agentSession: AgentSession?
 
     // MARK: - Behavior Flags
 
     /// Whether yolo mode is enabled (auto-approve permissions)
     public var yoloMode: Bool
 
+    // MARK: - CLI Session State Override
+
+    /// Pane state set via the gallager CLI's `session-state` command.
+    /// Overrides the indicator shown in the sidebar until cleared, either
+    /// explicitly or by a hook event that updates the underlying session.
+    public var cliSessionState: CLISessionState?
+
     // MARK: - Editor Session
 
     /// Active prompt editor session (Ctrl-G), if any
     public var editorSession: EditorSessionInfo?
+
+    // MARK: - Progress
+
+    /// Latest `OSC 9;4` progress emitted by this pane, if any. Drives the
+    /// session-row progress bar on the host's local sidebar and on remote
+    /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
+    public var progress: TerminalProgressState?
 
     // MARK: - Computed Properties
 
@@ -166,11 +187,15 @@ public struct PaneState: Codable, Sendable, Identifiable {
         windowName: String = "",
         isWindowActive: Bool = false,
         customDescription: String? = nil,
+        customColor: SessionColor? = nil,
+        customEmoji: String? = nil,
         terminalTitle: String? = nil,
         gitBranch: String? = nil,
-        claudeSession: ClaudeSession? = nil,
+        agentSession: AgentSession? = nil,
         yoloMode: Bool = false,
-        editorSession: EditorSessionInfo? = nil
+        cliSessionState: CLISessionState? = nil,
+        editorSession: EditorSessionInfo? = nil,
+        progress: TerminalProgressState? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -186,11 +211,15 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.windowName = windowName
         self.isWindowActive = isWindowActive
         self.customDescription = customDescription
+        self.customColor = customColor
+        self.customEmoji = customEmoji
         self.terminalTitle = terminalTitle
         self.gitBranch = gitBranch
-        self.claudeSession = claudeSession
+        self.agentSession = agentSession
         self.yoloMode = yoloMode
+        self.cliSessionState = cliSessionState
         self.editorSession = editorSession
+        self.progress = progress
     }
 }
 
@@ -233,37 +262,6 @@ public struct PushTokenRegisteredMessage: Codable, Sendable {
     }
 }
 
-// MARK: - Claude Projects
-
-/// Information about a discovered Claude project
-public struct ClaudeProjectInfo: Codable, Sendable, Identifiable, Hashable {
-    /// Unique identifier (based on path)
-    public var id: String {
-        path
-    }
-
-    /// Project name (last component of path)
-    public let name: String
-
-    /// Full path to project directory
-    public let path: String
-
-    /// Timestamp of last activity in this project (for sorting by recency)
-    public let lastUsed: Date?
-
-    /// Custom `CLAUDE_CONFIG_DIR` for this project, if the project was discovered
-    /// in a non-default `.claude` folder. `nil` when the project lives in the
-    /// default `~/.claude` location.
-    public let claudeConfigDir: String?
-
-    public init(name: String, path: String, lastUsed: Date? = nil, claudeConfigDir: String? = nil) {
-        self.name = name
-        self.path = path
-        self.lastUsed = lastUsed
-        self.claudeConfigDir = claudeConfigDir
-    }
-}
-
 // MARK: - Viewer Connection Notifications
 
 /// Message sent when a paired viewer connects, includes public key for E2EE session establishment
@@ -274,8 +272,16 @@ public struct ViewerConnectedMessage: Codable, Sendable {
     /// Unique identifier for the public key
     public let publicKeyId: String
 
-    public init(publicKey: String, publicKeyId: String) {
+    /// Device name the partner is reporting (viewer name when sent to host,
+    /// host name when sent to viewer). `nil` when the partner hasn't been seen
+    /// before or when the relay is using the legacy notification path that
+    /// doesn't carry a name. Lets either side update the stored device name
+    /// without waiting for a full re-pair.
+    public let deviceName: String?
+
+    public init(publicKey: String, publicKeyId: String, deviceName: String? = nil) {
         self.publicKey = publicKey
         self.publicKeyId = publicKeyId
+        self.deviceName = deviceName
     }
 }

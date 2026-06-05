@@ -26,6 +26,15 @@ public actor ServerDriver {
             logger.info("Removed stale pairs.json before starting server")
         }
 
+        // Wire the relay's APNs push log file. APNsService picks this up via
+        // `APNS_E2E_LOG_PATH` and records every outgoing push as a JSON line
+        // there, including the aggregated badge value — so scenarios can
+        // assert on what the relay would have sent without needing real APNs.
+        let logPath = Self.defaultAPNSLogPath
+        try? FileManager.default.removeItem(atPath: logPath)
+        setenv("APNS_E2E_LOG_PATH", logPath, 1)
+        logger.info("APNs E2E log path: \(logPath)")
+
         var env = Environment.testing
         env.arguments = ["vapor", "serve", "--port", "\(port)", "--hostname", "127.0.0.1"]
 
@@ -158,6 +167,118 @@ public actor ServerDriver {
             pollInterval: 1
         ) {
             await self.getActivePairingCount() == 0
+        }
+    }
+
+    // MARK: - APNs E2E Log
+
+    /// Filesystem path where `APNsService` records outgoing pushes in E2E mode.
+    public static let defaultAPNSLogPath: String =
+        NSTemporaryDirectory() + "claudespy-e2e-apns.log"
+
+    /// Decode the JSON-lines push log written by the relay's `APNsService` in
+    /// E2E mode. Returns one entry per outgoing push, in the order recorded.
+    public func readAPNSPushLog() -> [APNsPushLogEntry] {
+        let path = Self.defaultAPNSLogPath
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        return data.split(separator: 0x0A).compactMap { line in
+            try? decoder.decode(APNsPushLogEntry.self, from: Data(line))
+        }
+    }
+
+    /// Wait until the APNs log has at least `count` entries.
+    public func waitForAPNSPushLog(count: Int, timeout: TimeInterval = 10) async throws {
+        try await Polling.waitUntil(
+            description: "APNs E2E log has \(count) entries",
+            timeout: timeout,
+            pollInterval: 0.2
+        ) {
+            await self.readAPNSPushLog().count >= count
+        }
+    }
+
+    // MARK: - Synthetic Pairing
+
+    /// Read the viewer identity (deviceId / public key / push token) from the
+    /// first active pair on the relay. Lets a second-host pairing reuse the
+    /// real iOS app's public key and APNs token, so the relay's badge
+    /// aggregation treats both pairs as siblings of the same device.
+    public func firstViewerIdentity() async -> ViewerIdentity? {
+        guard let app else { return nil }
+        guard let raw = await app.firstViewerIdentity() else { return nil }
+        return ViewerIdentity(
+            pairId: raw.pairId,
+            deviceId: raw.deviceId,
+            deviceName: raw.deviceName,
+            publicKey: raw.publicKey,
+            publicKeyId: raw.publicKeyId,
+            pushToken: raw.pushToken
+        )
+    }
+
+    /// Complete a host's pending pairing as if a viewer had submitted the code.
+    /// Use after a second Mac generates a pair code to wire it to the existing
+    /// iOS viewer without driving the iOS "Add Host" UI.
+    @discardableResult
+    public func completePairingAsViewer(
+        code: String,
+        viewer: ViewerIdentity,
+        pushToken: String
+    ) async throws -> String {
+        guard let app else {
+            throw ServerDriverError.notRunning
+        }
+        return try await app.completePairingAsViewer(
+            code: code,
+            deviceId: viewer.deviceId,
+            deviceName: viewer.deviceName,
+            publicKey: viewer.publicKey,
+            publicKeyId: viewer.publicKeyId,
+            pushToken: pushToken
+        )
+    }
+
+    /// Inject a push as if a host had sent it. Used by badge-aggregation
+    /// scenarios to fire "Mac1"'s pushes for a synthesized pair without
+    /// running a second Mac host process. The placeholder ciphertext is fine
+    /// because the relay's E2E path doesn't actually send to APNs.
+    public func injectPush(
+        pairId: String,
+        hostBadge: Int?,
+        silent: Bool
+    ) async throws {
+        guard let app else {
+            throw ServerDriverError.notRunning
+        }
+        try await app.injectE2EPush(
+            pairId: pairId,
+            hostBadge: hostBadge,
+            silent: silent
+        )
+    }
+}
+
+/// Viewer-side identity snapshot returned from `firstViewerIdentity()`.
+public struct ViewerIdentity: Sendable {
+    public let pairId: String
+    public let deviceId: String
+    public let deviceName: String
+    public let publicKey: String
+    public let publicKeyId: String
+    public let pushToken: String?
+}
+
+/// Errors thrown by `ServerDriver` test helpers.
+public enum ServerDriverError: Error, CustomStringConvertible {
+    case notRunning
+
+    public var description: String {
+        switch self {
+        case .notRunning:
+            "ServerDriver is not running"
         }
     }
 }

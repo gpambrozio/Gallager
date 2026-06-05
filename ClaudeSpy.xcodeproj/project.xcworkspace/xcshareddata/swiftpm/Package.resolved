@@ -78,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mchakravarty/ProjectNavigator",
       "state" : {
-        "revision" : "c62003c4c79e92b8dea9efb8d08c55db1a2e9cce",
-        "version" : "1.7.0"
+        "revision" : "db61ea6f3e93157eb13356916514d18804c7e554",
+        "version" : "1.10.1"
       }
     },
     {
@@ -105,8 +105,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "21d8df80440b1ca3b65fa82e40782f1e5a9e6ba2",
-        "version" : "2.9.0"
+        "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b",
+        "version" : "2.9.2"
       }
     },
     {

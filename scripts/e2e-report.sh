@@ -12,7 +12,9 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 RESULTS_REPO="git@github.com:gpambrozio/ClaudeSpyTestResults.git"
-RESULTS_DIR="$(cd "$PROJECT_ROOT/.." && pwd)/ClaudeSpyTestResults"
+# Anchor to the main worktree's parent so all worktrees share one results clone.
+MAIN_WORKTREE_ROOT="$(cd "$(git -C "$PROJECT_ROOT" rev-parse --git-common-dir)/.." && pwd)"
+RESULTS_DIR="$(dirname "$MAIN_WORKTREE_ROOT")/ClaudeSpyTestResults"
 E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
 mkdir -p "$E2E_TMPDIR"
 JSON_OUTPUT="$E2E_TMPDIR/e2e-results.json"
@@ -21,6 +23,15 @@ BASELINES_DIR="$PROJECT_ROOT/E2ETests"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 DATE_DISPLAY=$(date +"%Y-%m-%d %H:%M:%S")
 E2E_ARGS=()
+
+# Use a dedicated DerivedData folder for the report run and wipe it on exit.
+# This forces a fresh SPM resolution every report so a stale package checkout
+# from another branch (e.g. ProjectNavigator 1.8.0 left over from a different
+# PR's build) can't carry into this run. e2e-test.sh already honors
+# SANDBOX_DERIVED_DATA as its DerivedData override.
+REPORT_DERIVED_DATA="${TMPDIR:-/tmp}/claudespy-e2e-report-derived-data"
+export REPORT_DERIVED_DATA
+trap 'rm -rf "$REPORT_DERIVED_DATA"' EXIT
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -97,10 +108,12 @@ COMMIT_MSG=$(git log -1 --pretty=%s 2>/dev/null || echo "")
 # Try to find an associated PR
 PR_NUMBER=""
 PR_URL=""
+PR_TITLE=""
 if command -v gh &>/dev/null; then
-    PR_INFO=$(gh pr list --head "$BRANCH" --json number,url --limit 1 2>/dev/null || echo "[]")
-    PR_NUMBER=$(echo "$PR_INFO" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['number'] if d else '')" 2>/dev/null || echo "")
-    PR_URL=$(echo "$PR_INFO" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['url'] if d else '')" 2>/dev/null || echo "")
+    PR_INFO=$(gh pr list --head "$BRANCH" --json number,url,title --limit 1 2>/dev/null || echo "[]")
+    PR_NUMBER=$(jq -r '.[0].number // ""' <<< "$PR_INFO")
+    PR_URL=$(jq -r '.[0].url // ""' <<< "$PR_INFO")
+    PR_TITLE=$(jq -r '.[0].title // ""' <<< "$PR_INFO")
 fi
 
 SAFE_BRANCH=$(echo "$BRANCH" | sed 's/[^a-zA-Z0-9._-]/-/g')
@@ -211,6 +224,7 @@ COMMIT_FULL="$COMMIT_FULL" \
 COMMIT_MSG="$COMMIT_MSG" \
 PR_NUMBER="$PR_NUMBER" \
 PR_URL="$PR_URL" \
+PR_TITLE="$PR_TITLE" \
 TIMESTAMP="$TIMESTAMP" \
 DATE_DISPLAY="$DATE_DISPLAY" \
 RESULT_FOLDER="$RESULT_FOLDER" \
@@ -230,6 +244,7 @@ metadata = {
     "commitMessage": os.environ["COMMIT_MSG"],
     "prNumber": os.environ["PR_NUMBER"] or None,
     "prUrl": os.environ["PR_URL"] or None,
+    "prTitle": os.environ["PR_TITLE"] or None,
     "timestamp": os.environ["TIMESTAMP"],
     "date": os.environ["DATE_DISPLAY"],
     "folder": os.environ["RESULT_FOLDER"],
@@ -303,6 +318,16 @@ def process_screenshot(ss):
         "baselineCreated": baseline_created,
     }
 
+def process_failure_screenshot(fs):
+    """Convert a path-based failure screenshot dict to a hash-based field."""
+    target = fs.get("target", "")
+    path = fs.get("path")
+    image_hash = store_image(path) if path else None
+    return {
+        "target": target,
+        "imageHash": image_hash,
+    }
+
 results = []
 try:
     with open(os.path.join(report_dir, "results.json")) as f:
@@ -310,12 +335,17 @@ try:
 except Exception as e:
     print(f"Warning: could not read results.json: {e}", file=sys.stderr)
 
-# Process screenshot in each scenario's steps
+# Process screenshot + failure screenshots in each scenario's steps
 for scenario in results:
     for step in scenario.get("steps", []):
         ss = step.get("screenshot")
         if ss:
             step["screenshot"] = process_screenshot(ss)
+        failures = step.get("failureScreenshots") or []
+        if failures:
+            step["failureScreenshots"] = [
+                process_failure_screenshot(f) for f in failures
+            ]
 
 report = {"metadata": metadata, "scenarios": results}
 with open(os.path.join(report_dir, "report.json"), "w") as f:
@@ -330,42 +360,32 @@ PYEOF
 # =====================================================
 step "Updating results index"
 
-RESULTS_DIR="$RESULTS_DIR" python3 << 'PYEOF'
-import json, os, glob
+shopt -s nullglob
+REPORTS=("$RESULTS_DIR"/results/*/report.json)
+shopt -u nullglob
 
-results_base = os.path.join(os.environ["RESULTS_DIR"], "results")
-runs = []
-
-for report_file in sorted(glob.glob(os.path.join(results_base, "*/report.json")), reverse=True):
-    try:
-        with open(report_file) as f:
-            report = json.load(f)
-        meta = report.get("metadata", {})
-        scenarios = report.get("scenarios", [])
-        total = len(scenarios)
-        passed = sum(1 for s in scenarios if s.get("success", False))
-        runs.append({
-            "folder": meta.get("folder", os.path.basename(os.path.dirname(report_file))),
-            "branch": meta.get("branch", "unknown"),
-            "commit": meta.get("commit", "unknown"),
-            "commitMessage": meta.get("commitMessage", ""),
-            "prNumber": meta.get("prNumber"),
-            "prUrl": meta.get("prUrl"),
-            "date": meta.get("date", ""),
-            "timestamp": meta.get("timestamp", ""),
-            "allPassed": meta.get("allPassed", False),
-            "buildFailed": meta.get("buildFailed", False),
-            "totalScenarios": total,
-            "passedScenarios": passed,
-            "failedScenarios": total - passed,
-        })
-    except Exception as e:
-        print(f"Warning: Failed to read {report_file}: {e}")
-
-with open(os.path.join(results_base, "index.json"), "w") as f:
-    json.dump(runs, f, indent=2)
-print(f"Updated index.json with {len(runs)} run(s)")
-PYEOF
+if [ ${#REPORTS[@]} -eq 0 ]; then
+    echo "[]" > "$RESULTS_DIR/results/index.json"
+    echo "Updated index.json with 0 run(s)"
+else
+    jq -s 'map({
+        folder:          .metadata.folder,
+        branch:          .metadata.branch,
+        commit:          .metadata.commit,
+        commitMessage:   .metadata.commitMessage,
+        prNumber:        .metadata.prNumber,
+        prUrl:           .metadata.prUrl,
+        prTitle:         .metadata.prTitle,
+        date:            .metadata.date,
+        timestamp:       .metadata.timestamp,
+        allPassed:       .metadata.allPassed,
+        buildFailed:     .metadata.buildFailed,
+        totalScenarios:  (.scenarios | length),
+        passedScenarios: ([.scenarios[] | select(.success)] | length),
+        failedScenarios: ([.scenarios[] | select(.success | not)] | length)
+    }) | sort_by(.timestamp) | reverse' "${REPORTS[@]}" > "$RESULTS_DIR/results/index.json"
+    echo "Updated index.json with ${#REPORTS[@]} run(s)"
+fi
 
 # =====================================================
 # COMMIT AND PUSH TO RESULTS REPO
@@ -400,23 +420,11 @@ if [ -n "$PR_NUMBER" ] && command -v gh &>/dev/null; then
     step "Posting PR comment"
 
     # Build scenario summary from results JSON
-    SCENARIO_SUMMARY=$(REPORT_DIR="$REPORT_DIR" python3 << 'PYEOF'
-import json, os
-
-report_dir = os.environ["REPORT_DIR"]
-try:
-    with open(os.path.join(report_dir, "report.json")) as f:
-        report = json.load(f)
-    lines = []
-    for s in report.get("scenarios", []):
-        icon = "\u2705" if s.get("success") else "\u274c"
-        name = s.get("scenarioName", "unknown")
-        lines.append(f"| {icon} | {name} |")
-    print("\n".join(lines))
-except Exception:
-    print("| \u26a0\ufe0f | Could not parse results |")
-PYEOF
-    )
+    SCENARIO_SUMMARY=$(jq -r '
+        .scenarios
+        | map("| " + (if .success then "\u2705" else "\u274c" end) + " | " + (.scenarioName // "unknown") + " |")
+        | join("\n")
+    ' "$REPORT_DIR/report.json" 2>/dev/null) || SCENARIO_SUMMARY="| \u26a0\ufe0f | Could not parse results |"
 
     if [ "$BUILD_FAILED" = true ]; then
         COMMENT_TITLE="## E2E Build Failure"
