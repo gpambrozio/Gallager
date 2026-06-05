@@ -374,11 +374,6 @@ if [ "$LIST_SCENARIOS" != true ]; then
         missing=true
     fi
 
-    # No macOS 15+ "Local Network" check needed: the --e2e-test test server is
-    # loopback-bound so it never trips that prompt, and the orchestrator fails
-    # fast with instructions if the app doesn't come up (MacOSDriver.launchApp).
-    # See docs/known-issues.md.
-
     if [ "$missing" = true ]; then
         echo ""
         warn "The e2e tests require macOS permissions that haven't been granted yet."
