@@ -1393,7 +1393,7 @@ public struct MainView: View {
     private func ensureGitStore(sessionName: String, directoryPath: String) {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath { return }
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
-        let store = GitWorkbenchStore(provider: provider)
+        let store = GitWorkbenchStore(provider: provider, configuration: .claudeSpy)
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
     }
 

@@ -17,3 +17,18 @@ struct GitBrowserView: View {
             .accessibilityIdentifier("git-workbench")
     }
 }
+
+extension WorkbenchConfiguration {
+    /// The Git tab's configuration: the package's standard light/dark identity
+    /// recolored to the app's accent color (`Color.accentColor` — the terracotta
+    /// `AccentColor` asset) via the package-provided
+    /// ``WorkbenchTheme/withAccent(_:)``, so the embedded GitWorkbench matches the
+    /// rest of ClaudeSpy instead of rendering in the package's default purple.
+    /// `withAccent` derives the soft/ring/deep accent variants from the base color.
+    static var claudeSpy: WorkbenchConfiguration {
+        var configuration = WorkbenchConfiguration()
+        configuration.theme = .standard.withAccent(.accentColor)
+        configuration.darkTheme = .darkStandard.withAccent(.accentColor)
+        return configuration
+    }
+}
