@@ -308,6 +308,21 @@ Static utility for launch-at-login management.
 - Uses `SMAppService.mainApp` for registration
 - Appears in System Settings > General > Login Items
 
+### GitWorkbenchProviderClient (`ClaudeSpyServerFeature/Services/GitWorkbenchProviderClient.swift`)
+
+`@Dependency` factory that vends a `GitWorkbenchProvider` for the Git tab (the
+[GitWorkbench](https://github.com/gpambrozio/GitWorkbench) component embedded to
+the right of the file explorer).
+
+- `provider(repositoryURL:)` returns a provider rooted at a repo directory (the
+  same folder the file explorer uses for the session)
+- `liveValue` → `CLIGitProvider` (system `git` CLI, from `GitWorkbenchGitKit`)
+- `mock` / `previewValue` / `testValue` → `MockGitProvider` (stable fixtures,
+  zero latency); the E2E entry point installs `.mock` under `--e2e-test`
+- `MainView` retains one `GitWorkbenchStore` per session (`gitWorkbenchStores`),
+  rebuilt when the working directory changes, so the git UI state survives
+  tab/session switches like `FileBrowserState`
+
 ### UpdaterController (`ClaudeSpyServerFeature/Services/UpdaterController.swift`)
 
 `@Observable @MainActor` wrapping Sparkle updater for SwiftUI.

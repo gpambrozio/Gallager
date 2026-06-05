@@ -88,8 +88,9 @@ struct RemoteWindowTabBar: View {
     /// discovered entries are slotted in and removed entries drop out without
     /// rewriting the array elsewhere. New windows insert at the end of the
     /// windows subsequence (right before the first browser tab); new browser
-    /// tabs append at the very end. Remote sessions have no file explorer or
-    /// file tabs, hence `includeFileExplorer: false`.
+    /// tabs append at the very end. Remote sessions have no file explorer, file
+    /// tabs, or Git tab, hence `includeFileExplorer: false` and
+    /// `includeGit: false`.
     ///
     /// Shares `TabDragPayload.reconciledOrder` with the local strip and both
     /// keyboard cyclers so all four surfaces stay in lockstep (issue #566).
@@ -99,7 +100,8 @@ struct RemoteWindowTabBar: View {
             fileTabIds: [],
             browserTabIds: openBrowserTabs.map(\.id),
             storedOrder: sessionTabs?.tabOrder ?? [],
-            includeFileExplorer: false
+            includeFileExplorer: false,
+            includeGit: false
         )
     }
 
@@ -245,6 +247,7 @@ struct RemoteWindowTabBar: View {
                 openBrowserTabView(tab)
             }
         case .fileExplorer,
+             .git,
              .file:
             EmptyView()
         }

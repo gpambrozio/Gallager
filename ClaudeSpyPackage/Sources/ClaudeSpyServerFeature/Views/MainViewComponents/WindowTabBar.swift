@@ -13,6 +13,8 @@ struct WindowTabBar: View {
     /// True only when the Files (tree) tab is the active view — i.e. the file browser
     /// is open and no file tab is currently selected.
     let isFileBrowserSelected: Bool
+    /// True only when the Git tab is the active view (issue #258).
+    let isGitBrowserSelected: Bool
     /// True when any non-terminal view is showing (file tree, a file tab, or a
     /// browser tab). Used to deselect the underlying tmux window tab so it
     /// doesn't render as concurrently selected with another tab.
@@ -29,6 +31,8 @@ struct WindowTabBar: View {
     let onNewBrowser: () -> Void
     let onRenameWindow: (LocalTmuxWindow, String) -> Void
     let onSelectFileBrowser: () -> Void
+    /// Activates the Git tab for the current window (issue #258).
+    let onSelectGitBrowser: () -> Void
     let onSelectFileTab: (UUID) -> Void
     let onCloseFileTab: (UUID) -> Void
     let onSelectBrowserTab: (UUID) -> Void
@@ -119,6 +123,9 @@ struct WindowTabBar: View {
     /// this and the `.onChange` below writes it back into `sessionTabs` so the
     /// order survives session switches.
     private var effectiveTabOrder: [TabDragPayload] {
+        // Local sessions get both the file-explorer and Git singletons
+        // (`includeGit` defaults to true), so the Git tab takes part in
+        // drag-reordering and keyboard cycling alongside everything else.
         TabDragPayload.reconciledOrder(
             windowIds: session.windows.map(\.id),
             fileTabIds: openFileTabs.map(\.id),
@@ -295,6 +302,8 @@ struct WindowTabBar: View {
             }
         case .fileExplorer:
             fileBrowserButton
+        case .git:
+            gitBrowserButton
         case let .file(id):
             if let tab = openFileTabs.first(where: { $0.id == id }) {
                 openFileTabView(tab)
@@ -357,6 +366,51 @@ struct WindowTabBar: View {
             handleDrop(payloads: payloads, target: .fileExplorer)
         } isTargeted: { isTargeted in
             updateDropIndicator(target: isTargeted ? .fileExplorer : nil, for: .fileExplorer)
+        }
+    }
+
+    /// The Git tab button (issue #258). A singleton like `fileBrowserButton`,
+    /// living immediately to its right, with the same split-toggle and
+    /// drag-and-drop affordances.
+    private var gitBrowserButton: some View {
+        let tabIsOnRight = isOnRight(.git)
+        let isSelected = tabIsOnRight
+            ? selectedRight == .git
+            : isGitBrowserSelected
+        return HStack(spacing: 0) {
+            Button(action: onSelectGitBrowser) {
+                Symbols.arrowTriangleBranch.image
+                    .font(.caption)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Git changes for \(session.sessionName)")
+            .accessibilityLabel("Git")
+            .accessibilityValue(isSelected ? "selected" : "")
+
+            TabSplitToggleButton(
+                isSplit: isSplit,
+                isOnRight: tabIsOnRight,
+                tabKind: "git",
+                tabName: "Git",
+                action: { onToggleSplit(.git) }
+            )
+            .padding(.trailing, 6)
+        }
+        .tabStripItemStyle(isSelected: isSelected, isOnRightSplit: tabIsOnRight, isSplit: isSplit)
+        .overlay(alignment: .leading) {
+            DropIndicator(visible: dropIndicator == .git)
+        }
+        .draggable(TabDragPayload.git) {
+            TabDragPreview(label: "Git", symbol: .arrowTriangleBranch)
+        }
+        .dropDestination(for: TabDragPayload.self) { payloads, _ in
+            handleDrop(payloads: payloads, target: .git)
+        } isTargeted: { isTargeted in
+            updateDropIndicator(target: isTargeted ? .git : nil, for: .git)
         }
     }
 
@@ -719,6 +773,9 @@ struct WindowTabBar: View {
 enum TabDragPayload: Codable, Hashable, Transferable {
     case window(String)
     case fileExplorer
+    /// The Git tab (issue #258). A singleton like `.fileExplorer` — one per
+    /// session, no associated id.
+    case git
     case file(UUID)
     case browser(UUID)
 
@@ -729,6 +786,7 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     enum Kind: Hashable {
         case window
         case fileExplorer
+        case git
         case file
         case browser
     }
@@ -737,6 +795,7 @@ enum TabDragPayload: Codable, Hashable, Transferable {
         switch self {
         case .window: .window
         case .fileExplorer: .fileExplorer
+        case .git: .git
         case .file: .file
         case .browser: .browser
         }
@@ -762,12 +821,18 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     /// `includeFileExplorer: false` for them so the synthetic `.fileExplorer`
     /// entry is neither kept nor inserted and new windows slot in before the
     /// first browser tab instead of before the (absent) explorer.
+    ///
+    /// The Git tab (issue #258) is another local-only singleton: it sits
+    /// immediately to the right of the file explorer in the default layout and,
+    /// like the explorer, doesn't exist on remote sessions. Pass
+    /// `includeGit: false` for remote so `.git` is neither kept nor inserted.
     static func reconciledOrder(
         windowIds: [String],
         fileTabIds: [UUID],
         browserTabIds: [UUID],
         storedOrder: [TabDragPayload],
-        includeFileExplorer: Bool = true
+        includeFileExplorer: Bool = true,
+        includeGit: Bool = true
     ) -> [TabDragPayload] {
         let liveWindows = windowIds.map { TabDragPayload.window($0) }
         let liveFiles = fileTabIds.map { TabDragPayload.file($0) }
@@ -775,6 +840,9 @@ enum TabDragPayload: Codable, Hashable, Transferable {
         var live: Set<TabDragPayload> = Set(liveWindows + liveFiles + liveBrowsers)
         if includeFileExplorer {
             live.insert(.fileExplorer)
+        }
+        if includeGit {
+            live.insert(.git)
         }
 
         // Keep stored entries whose underlying data still exists, dedup'd.
@@ -786,8 +854,8 @@ enum TabDragPayload: Codable, Hashable, Transferable {
 
         // New windows slot in just before the file-explorer button (or, on
         // remote sessions with no explorer, the first browser tab) — preserves
-        // the default layout (windows, folder, files/browsers) for first runs
-        // and late-joining tmux windows.
+        // the default layout (windows, folder, git, files/browsers) for first
+        // runs and late-joining tmux windows.
         var insertAt: Int
         if includeFileExplorer {
             insertAt = order.firstIndex(of: .fileExplorer) ?? order.count
@@ -800,6 +868,16 @@ enum TabDragPayload: Codable, Hashable, Transferable {
         }
         if includeFileExplorer, seen.insert(.fileExplorer).inserted {
             order.insert(.fileExplorer, at: insertAt)
+        }
+        // The Git button sits immediately to the right of the file-explorer
+        // button (issue #258); for a new git entry not yet in the stored order,
+        // slot it just after the explorer (or at the front of the singletons
+        // when the explorer is absent).
+        if includeGit, seen.insert(.git).inserted {
+            let gitInsertAt = includeFileExplorer
+                ? (order.firstIndex(of: .fileExplorer).map { $0 + 1 } ?? order.count)
+                : insertAt
+            order.insert(.git, at: min(gitInsertAt, order.count))
         }
         // New file/browser tabs append at the end.
         for tab in liveFiles + liveBrowsers where seen.insert(tab).inserted {

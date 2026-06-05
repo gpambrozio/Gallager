@@ -9,7 +9,7 @@ import Testing
 /// instead of regrouping by kind.
 @Suite("TabDragPayload.reconciledOrder")
 struct TabStripOrderTests {
-    @Test("Empty stored order falls back to windows, file explorer, files, browsers")
+    @Test("Empty stored order falls back to windows, file explorer, git, files, browsers")
     func defaultOrder() {
         let w1 = "win-1"
         let w2 = "win-2"
@@ -23,10 +23,13 @@ struct TabStripOrderTests {
             storedOrder: []
         )
 
+        // The Git tab (issue #258) is a local-only singleton that slots in
+        // immediately to the right of the file explorer.
         #expect(order == [
             .window(w1),
             .window(w2),
             .fileExplorer,
+            .git,
             .file(file),
             .browser(browser),
         ])
@@ -54,7 +57,9 @@ struct TabStripOrderTests {
             storedOrder: reordered
         )
 
-        #expect(order == reordered)
+        // The interleaved browser keeps its dragged spot; the Git tab the
+        // stored order didn't yet know about slots in after the file explorer.
+        #expect(order == reordered + [.git])
     }
 
     @Test("New windows slot in just before the file explorer")
@@ -83,6 +88,7 @@ struct TabStripOrderTests {
             .browser(browser),
             .window(t2),
             .fileExplorer,
+            .git,
         ])
     }
 
@@ -106,7 +112,7 @@ struct TabStripOrderTests {
             storedOrder: stored
         )
 
-        #expect(order == [.window(t1), .fileExplorer])
+        #expect(order == [.window(t1), .fileExplorer, .git])
     }
 
     @Test("Reconciliation is idempotent")
@@ -158,7 +164,7 @@ struct TabStripOrderTests {
             storedOrder: stored
         )
 
-        #expect(order == [.window(t1), .fileExplorer, .browser(browser)])
+        #expect(order == [.window(t1), .fileExplorer, .git, .browser(browser)])
     }
 
     @Test("New windows append before an absent file explorer falls back to the end")
@@ -177,10 +183,10 @@ struct TabStripOrderTests {
             storedOrder: stored
         )
 
-        #expect(order == [.window(t1), .window(t2), .fileExplorer])
+        #expect(order == [.window(t1), .window(t2), .fileExplorer, .git])
     }
 
-    @Test("Remote sessions omit the file explorer entirely")
+    @Test("Remote sessions omit the file explorer and git tab entirely")
     func remoteDefaultOrderHasNoFileExplorer() {
         let t1 = "win-1"
         let t2 = "win-2"
@@ -191,7 +197,8 @@ struct TabStripOrderTests {
             fileTabIds: [],
             browserTabIds: [browser],
             storedOrder: [],
-            includeFileExplorer: false
+            includeFileExplorer: false,
+            includeGit: false
         )
 
         #expect(order == [.window(t1), .window(t2), .browser(browser)])
@@ -216,9 +223,55 @@ struct TabStripOrderTests {
             fileTabIds: [],
             browserTabIds: [browser],
             storedOrder: stored,
-            includeFileExplorer: false
+            includeFileExplorer: false,
+            includeGit: false
         )
 
         #expect(order == [.window(t1), .window(t2), .browser(browser)])
+    }
+
+    @Test("A dragged Git tab keeps its interleaved position")
+    func gitTabInterleaveIsPreserved() {
+        let t1 = "win-1"
+        let t2 = "win-2"
+
+        // The user dragged the Git tab to sit between the two terminals.
+        let reordered: [TabDragPayload] = [
+            .window(t1),
+            .git,
+            .window(t2),
+            .fileExplorer,
+        ]
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1, t2],
+            fileTabIds: [],
+            browserTabIds: [],
+            storedOrder: reordered
+        )
+
+        #expect(order == reordered)
+    }
+
+    @Test("A new git entry slots in just after the file explorer")
+    func newGitSlotsInAfterFileExplorer() {
+        let t1 = "win-1"
+
+        // Stored order predates the Git tab (issue #258) — only the window and
+        // explorer are known; the synthetic git entry must land right after the
+        // explorer rather than at the end.
+        let stored: [TabDragPayload] = [
+            .window(t1),
+            .fileExplorer,
+        ]
+
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: [t1],
+            fileTabIds: [],
+            browserTabIds: [],
+            storedOrder: stored
+        )
+
+        #expect(order == [.window(t1), .fileExplorer, .git])
     }
 }

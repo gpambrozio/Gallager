@@ -243,6 +243,10 @@ struct TmuxPaneMirrorApp: App {
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
+                // Git tab (issue #258): stable in-memory fixtures so the
+                // GitWorkbench view renders deterministic content for scenarios
+                // instead of running `git` against the fake filesystem.
+                $0[GitWorkbenchProviderClient.self] = .mock
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
