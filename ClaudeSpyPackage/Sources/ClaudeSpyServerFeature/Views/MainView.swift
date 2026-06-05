@@ -2131,13 +2131,31 @@ public struct MainView: View {
         session: LocalTmuxSession,
         sessionTabs: SessionFileTabsState?
     ) -> [TabStripEntry] {
-        var entries: [TabStripEntry] = session.windows.map { .window($0) }
-        entries.append(.fileBrowser)
-        if let sessionTabs {
-            entries.append(contentsOf: sessionTabs.openFileTabs.map { .fileTab($0.id) })
-            entries.append(contentsOf: sessionTabs.openBrowserTabs.map { .browserTab($0.id) })
+        // Walk the same reconciled, drag-reordered order the visible
+        // `WindowTabBar` renders — sharing `reconciledOrder` keeps keyboard
+        // cycling and the on-screen strip from drifting apart (issue #566).
+        let order = TabDragPayload.reconciledOrder(
+            windowIds: session.windows.map(\.id),
+            fileTabIds: sessionTabs?.openFileTabs.map(\.id) ?? [],
+            browserTabIds: sessionTabs?.openBrowserTabs.map(\.id) ?? [],
+            storedOrder: sessionTabs?.tabOrder ?? []
+        )
+        let windowsById = Dictionary(
+            session.windows.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return order.compactMap { payload in
+            switch payload {
+            case let .window(id):
+                windowsById[id].map(TabStripEntry.window)
+            case .fileExplorer:
+                .fileBrowser
+            case let .file(id):
+                .fileTab(id)
+            case let .browser(id):
+                .browserTab(id)
+            }
         }
-        return entries
     }
 
     private func currentTabIndex(
