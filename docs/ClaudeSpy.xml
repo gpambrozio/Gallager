@@ -6,6 +6,32 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.1</title>
+         <sparkle:version>34</sparkle:version>
+         <sparkle:shortVersionString>2.1</sparkle:shortVersionString>
+         <pubDate>Fri, 05 Jun 2026 06:42:32 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.1
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Git browser tab</strong> — A new horizontal tab provides a built-in Git browser, letting you inspect repository state directly within a monitored session without leaving the app.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li><strong>Tab navigation shortcuts</strong> — `Cmd-Shift-[` and `Cmd-Shift-]` now move between tabs in their displayed order after tabs have been reordered, so cycling matches what you see on screen.</li>
+<li><strong>iOS notification badge</strong> — The app-icon badge on iOS now clears correctly when a session's attention state is resolved through the agent flow, preventing a lingering badge after items have been handled.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.1.dmg"
+                    sparkle:edSignature="opbEO8MH8Cz7DIO4qYd3SpDjkmZwnIahtZ/TFRqlnOYFiF2PwWJuCUTRHKAvDQX1HCEHE1RTfrKr2nPPyFeHDw=="
+                    length="32316112"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 1.32</title>
          <sparkle:version>32</sparkle:version>
          <sparkle:shortVersionString>1.32</sparkle:shortVersionString>
