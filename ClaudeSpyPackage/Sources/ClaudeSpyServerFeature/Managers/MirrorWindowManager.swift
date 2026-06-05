@@ -278,6 +278,32 @@ final public class MirrorWindowManager {
         paneStates.values.filter { $0.agentSession?.needsAttention == true }.count
     }
 
+    /// The `pendingSessionCount` high-water mark last observed by
+    /// `pendingCountDecrease()`. Seeded at 0 (a fresh launch has no pending
+    /// sessions; even if it did, the first call self-corrects).
+    private var lastPendingCount = 0
+
+    /// Returns the current `pendingSessionCount` *only when it has dropped*
+    /// since the previous call, otherwise `nil` — and advances the high-water
+    /// mark either way.
+    ///
+    /// The iOS app icon badge is driven solely by APNs pushes carrying a badge.
+    /// A needs-attention *increase* always arrives with its own notification
+    /// (Stop / permission / question), whose alert push carries the badge up;
+    /// a *decrease* — the agent resumed, a session ended, or the user handled
+    /// it on another device — has no notification of its own, so it is the only
+    /// case that needs an explicit silent badge push. Reporting decreases only
+    /// (and deduplicating against the high-water mark) keeps the badge in sync
+    /// without flooding APNs' background-push budget on every state tick.
+    ///
+    /// Not `@discardableResult`: dropping the return value would advance the
+    /// high-water mark *and* swallow the decrease, so callers must broadcast it.
+    public func pendingCountDecrease() -> Int? {
+        let count = pendingSessionCount
+        defer { lastPendingCount = count }
+        return count < lastPendingCount ? count : nil
+    }
+
     /// All sessions sorted with attention-needing sessions first
     public var sortedSessions: [AgentSession] {
         paneStates.values
