@@ -1019,22 +1019,8 @@ public enum MacOSDriverError: Error, LocalizedError {
         case let .unsupportedShortcutKey(key):
             "Unsupported keyboard shortcut key: \(key)"
         case let .appServerNotReady(port):
-            """
-            macOS app launched but its in-process test server never responded on \
-            127.0.0.1:\(port), so the app did not finish starting.
-
-            On a fresh macOS 15+ machine the usual cause is the Local Network \
-            privacy prompt ("Gallager would like to find and connect to devices on \
-            your local network") floating over the app and blocking it. The E2E \
-            test listener is bound to loopback to avoid this, so if you still see \
-            the prompt:
-              1. Rebuild so the loopback-bound TestAccessibilityServer is in the \
-            app under test, then
-              2. If a prompt is already showing, grant it once in System Settings ▸ \
-            Privacy & Security ▸ Local Network (enable Gallager). This grant is not \
-            TCC, so it can't be pre-seeded via profile/tccutil — it persists per \
-            machine once allowed.
-            """
+            "macOS app launched but its in-process test server never responded on " +
+                "127.0.0.1:\(port), so the app did not finish starting."
         }
     }
 }

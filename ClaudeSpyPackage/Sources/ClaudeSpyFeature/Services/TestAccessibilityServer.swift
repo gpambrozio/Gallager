@@ -48,15 +48,7 @@
                     print("[TestAccessibilityServer-iOS] Invalid port: \(port)")
                     return
                 }
-                // Bind to loopback only. The E2E orchestrator reaches this server via
-                // 127.0.0.1 (the Simulator shares the host loopback), so it never needs
-                // LAN visibility. Listening on a broadcast-capable interface would trip
-                // the OS "find devices on your local network" privacy prompt; loopback
-                // is exempt. Mirrors the macOS TestAccessibilityServer.
-                params.requiredLocalEndpoint = NWEndpoint.hostPort(
-                    host: "127.0.0.1", port: nwPort
-                )
-                listener = try NWListener(using: params)
+                listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-iOS] Listener failed: \(error)")

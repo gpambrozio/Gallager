@@ -35,6 +35,21 @@ enum MacAppHTTPClient {
         }
     }
 
+    /// Query the app's self-reported macOS Local Network access status
+    /// ("granted" / "denied" / "pending"). Returns nil on a transport error.
+    static func localNetworkStatus(port: UInt16 = defaultPort) async -> String? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/local-network-status") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 2
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
     /// Trigger unpair on the first paired viewer via the test endpoint.
     /// Posts a NotificationCenter notification inside the app process.
     @discardableResult

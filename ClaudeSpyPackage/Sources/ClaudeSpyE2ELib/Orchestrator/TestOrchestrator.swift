@@ -277,6 +277,70 @@ public actor TestOrchestrator {
         return results
     }
 
+    /// Verify the macOS app has Local Network access *before* running any
+    /// scenario, and abort the whole run with instructions if it doesn't.
+    ///
+    /// macOS 15+ blocks the app's local-network operations (e.g. resolving the
+    /// machine's `.local` hostname during pane seeding) until the user grants
+    /// the Local Network privilege. On a fresh machine that produces a system
+    /// prompt that floats over the app and stalls scenarios mid-run. This grant
+    /// is not TCC, so it can't be pre-seeded via profile/tccutil.
+    ///
+    /// We launch a throwaway app instance, which both *triggers* that prompt and
+    /// self-reports its access via `/local-network-status`. If access is denied
+    /// we leave the instance (and its prompt) up and throw, so the operator can
+    /// click Allow (or grant it in System Settings) and re-run — no scenarios run.
+    public func preflightLocalNetwork() async throws {
+        let driver = macDriver(for: 0)
+        let port = driver.testAccessibilityPort
+        let stateRoot = gallagerStateRootPath(for: 0)
+        try? FileManager.default.createDirectory(atPath: stateRoot, withIntermediateDirectories: true)
+        let arguments = [
+            "--e2e-test",
+            "--server-url", "ws://127.0.0.1:\(serverPort)",
+            "--tmux-socket", tmuxSocketPath(for: 0),
+            "--gallager-state-root", stateRoot,
+            "--test-accessibility-port", "\(port)",
+        ]
+
+        do {
+            try await driver.launchApp(path: macOSAppPath, arguments: arguments)
+        } catch {
+            // If the app can't even launch, don't block the suite on the preflight —
+            // the first real scenario will surface the launch failure with context.
+            logger.warning("Local-network preflight skipped: app launch failed (\(error))")
+            try? await driver.terminateApp()
+            macDrivers.removeValue(forKey: 0)
+            return
+        }
+
+        // Poll the app's self-reported status until it resolves or we give up.
+        var status = "unknown"
+        let deadline = ContinuousClock.now + .seconds(15)
+        while ContinuousClock.now < deadline {
+            if let reported = await MacAppHTTPClient.localNetworkStatus(port: port), reported != "pending" {
+                status = reported
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        logger.info("Local-network preflight: status=\(status)")
+
+        if status == "denied" {
+            // Leave the instance (and its prompt) running so the operator can grant
+            // access; the next run kills stale --e2e-test instances on startup.
+            throw OrchestratorError.localNetworkAccessRequired
+        }
+
+        // Granted / unknown: tear down the preflight instance so the first real
+        // scenario starts from a clean slate.
+        try? await driver.terminateApp()
+        macDrivers.removeValue(forKey: 0)
+        let socket = tmuxSocketPath(for: 0)
+        _ = try? await processRunner.run("tmux", arguments: ["-S", socket, "kill-server"])
+        try? FileManager.default.removeItem(atPath: socket)
+    }
+
     /// Remove all E2E apps from the simulator after test runs complete
     private func uninstallSimulatorApps() async {
         logger.info("=== Uninstalling simulator apps ===")
@@ -1398,11 +1462,27 @@ public enum OrchestratorError: Error, LocalizedError {
     case configurationError(String)
     case stepFailed(step: Int, underlying: Error)
     case screenshotMismatch(TestOrchestrator.ScreenshotResult, String)
+    case localNetworkAccessRequired
 
     public var errorDescription: String? {
         switch self {
         case let .assertionFailed(message):
             "Assertion failed: \(message)"
+        case .localNetworkAccessRequired:
+            """
+            Local Network access is required but not granted for Gallager — no scenarios were run.
+
+            macOS 15+ blocks the app's local-network operations (such as resolving the
+            machine's .local hostname) until you allow it. A "Gallager would like to find
+            and connect to devices on your local network" prompt should have appeared.
+
+            To fix, do EITHER:
+              • Click "Allow" on that system prompt, or
+              • Open System Settings > Privacy & Security > Local Network and enable Gallager.
+
+            Then re-run the E2E suite. This grant is not TCC, so it can't be pre-seeded via
+            a configuration profile or tccutil; it persists for this machine once allowed.
+            """
         case let .configurationError(message):
             "Configuration error: \(message)"
         case let .stepFailed(step, underlying):

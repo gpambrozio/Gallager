@@ -101,49 +101,65 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
 3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline
 
-## ~~E2E runs stall on a fresh CI machine with a "Local Network" prompt~~ FIXED
+## E2E first run on a fresh macOS 15+ machine: a one-time "Local Network" grant
 
-**Status:** Fixed
+**Status:** Handled — the E2E harness fails fast with instructions on the first run.
 
 ### Description
 
-On a brand-new macOS 15+ CI machine, `./scripts/e2e-test.sh` could stall: the
-macOS app launched but never "fully started." macOS was showing a **Local
-Network privacy** prompt — *"Gallager would like to find and connect to devices
-on your local network."* On an unattended machine nobody clicks Allow, so the
-dialog floats over the app, blocks the orchestrator's UI automation, and the run
-hangs/fails.
+On a brand-new macOS 15+ machine, `./scripts/e2e-test.sh` would stall *during* a
+scenario: the Gallager app under test triggers the macOS **Local Network privacy**
+prompt — *"Gallager would like to find and connect to devices on your local
+network."* On an unattended machine nobody clicks Allow, so the dialog floats over
+the app and blocks the orchestrator's UI automation mid-test.
 
 ### Root Cause
 
-The only thing requesting local-network access during E2E was the test harness
-itself. `TestAccessibilityServer` (DEBUG + `--e2e-test` only, port 18081) opened
-an `NWListener` with plain `NWParameters.tcp`, which binds to **all interfaces**.
-On macOS 15+, listening on a broadcast-capable interface (Wi-Fi/Ethernet) trips
-the Local Network privacy prompt — even though the orchestrator only ever
-connects to it over `127.0.0.1`. Existing machines never saw it because they had
-already granted the permission long ago.
+Per Apple's [TN3179 *Understanding local network privacy*](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),
+local network privacy gates **outgoing** local-network operations — making an
+outgoing connection to a local-network address, resolving a `.local` DNS name,
+Bonjour — but **not** merely listening for inbound connections. Gallager hits it
+during normal use: e.g. `PaneStreamManager` reads `ProcessInfo.processInfo.hostName`,
+which resolves the machine's `.local` name (a local-network DNS operation) while
+seeding default pane titles.
+
+The macOS app is launched via LaunchServices (`NSWorkspace.openApplication`), so it
+does **not** inherit the automatic local-network allowance that TN3179 grants to
+command-line tools (and their child processes) run from Terminal/SSH — hence the
+prompt. Existing machines never saw it because they granted it long ago.
 
 ### Why it can't be "pre-granted"
 
-Local Network privacy **does not use TCC** (confirmed by Apple DTS). So it can't
-be allowed via a PPPC/MDM configuration profile and can't be seeded or reset with
-`tccutil`. The only "pre-trust" is to stop requesting local-network access.
+Local Network privacy **does not use TCC** (per TN3179). It can't be allowed via a
+PPPC/MDM configuration profile and can't be seeded or reset with `tccutil`. On
+macOS there's no way to reset a program's Local Network state short of a VM
+snapshot or a fresh user account. So the only options are to grant it once per
+machine, or to not request local-network access at all.
 
-### Fix
+### Fix: fail fast before tests, instead of stalling mid-test
 
-- **Eliminate the trigger:** the test listener is now bound to loopback via
-  `NWParameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", …)`.
-  Loopback is exempt from Local Network privacy, so the prompt never appears.
-  (`ClaudeSpyServerFeature/Services/TestAccessibilityServer.swift`)
-- **Fail fast with instructions:** `MacOSDriver.launchApp` now polls the app's
-  loopback `/healthz` endpoint after launch and throws
-  `MacOSDriverError.appServerNotReady` — with step-by-step remediation — if the
-  app never finishes coming up, instead of failing opaquely several steps later.
-  (`ClaudeSpyE2ELib/Drivers/MacOS/MacOSDriver.swift`, `MacAppHTTPClient.swift`)
+The orchestrator runs a **Local Network preflight before any scenario**
+(`TestOrchestrator.preflightLocalNetwork`, wired in `ClaudeSpyE2ECommand`):
 
-### Fresh-machine fallback
+1. It launches a throwaway `--e2e-test` Gallager instance. On startup the app runs
+   `LocalNetworkProbe` (`ClaudeSpyServerFeature`), which attempts a UDP connection
+   to guaranteed local-network addresses (the IPv4 broadcast + an mDNS multicast
+   address) and inspects the path for the documented `.localNetworkDenied`
+   unsatisfied reason (TN3179). This both **triggers** the system prompt on an
+   undecided machine and **detects** whether access is denied.
+2. The result is served on the app's `/local-network-status` test endpoint.
+3. If the probe reports `denied`, the preflight throws
+   `OrchestratorError.localNetworkAccessRequired` and the run aborts — **no
+   scenarios run** — printing instructions. The instance is left up so the prompt
+   stays clickable.
 
-If a machine still shows the prompt (e.g. it's running an older build from before
-this fix), allow it once in **System Settings ▸ Privacy & Security ▸ Local
-Network** (enable Gallager). The grant persists for that machine.
+So on a fresh machine: **run once → prompt appears + run aborts with instructions
+→ click Allow (or enable Gallager in System Settings ▸ Privacy & Security ▸ Local
+Network) → re-run → scenarios run.** The grant persists for that machine.
+
+### Why the test listener is *not* the cause
+
+An earlier attempt loopback-bound the `--e2e-test` `TestAccessibilityServer`
+listener, on the theory that listening triggered the prompt. TN3179 is explicit
+that *listening for/accepting incoming TCP connections does not require local
+network access*, so that change was a no-op for this bug and was reverted.

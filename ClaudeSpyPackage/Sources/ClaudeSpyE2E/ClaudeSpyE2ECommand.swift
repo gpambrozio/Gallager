@@ -147,6 +147,17 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         // Handle Ctrl-C: clean up processes then exit
         setupSignalHandler(orchestrator: orchestrator)
 
+        // Local Network preflight (macOS 15+): runs before any scenario. If
+        // Gallager lacks Local Network access, the system prompt is triggered and
+        // we abort the whole run with instructions so the operator can grant it
+        // and re-run. Does nothing on already-granted machines.
+        do {
+            try await orchestrator.preflightLocalNetwork()
+        } catch {
+            fputs("\n\(error.localizedDescription)\n\n", stderr)
+            throw ExitCode.failure
+        }
+
         if interactive {
             try await runInteractive(orchestrator: orchestrator)
         } else {

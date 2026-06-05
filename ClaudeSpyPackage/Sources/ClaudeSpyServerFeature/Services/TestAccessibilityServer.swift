@@ -32,6 +32,12 @@
                     port = parsed
                 }
 
+                // Probe Local Network access in the background. This both records
+                // the result for the `/local-network-status` endpoint AND triggers
+                // the system Local Network prompt on a machine that hasn't decided
+                // yet — which the E2E orchestrator's preflight relies on.
+                LocalNetworkProbe.runAndCache()
+
                 let server = TestAccessibilityServer()
                 do {
                     try server.start(port: port)
@@ -48,19 +54,7 @@
                     print("[TestAccessibilityServer-Mac] Invalid port: \(port)")
                     return
                 }
-                // Bind to the loopback interface only. The E2E orchestrator always
-                // reaches this server via 127.0.0.1, so it never needs to be visible
-                // on the LAN. Crucially, on macOS 15+ an NWListener bound to a
-                // broadcast-capable interface (Wi-Fi/Ethernet) trips the "find and
-                // connect to devices on your local network" privacy prompt — which
-                // floats over the app and stalls the whole run on a fresh CI machine
-                // (Local Network privacy is not TCC, so it can't be pre-granted via
-                // profile or tccutil). Loopback is exempt from Local Network privacy,
-                // so binding here keeps that prompt from ever appearing.
-                params.requiredLocalEndpoint = NWEndpoint.hostPort(
-                    host: "127.0.0.1", port: nwPort
-                )
-                listener = try NWListener(using: params)
+                listener = try NWListener(using: params, on: nwPort)
                 listener?.stateUpdateHandler = { state in
                     if case let .failed(error) = state {
                         print("[TestAccessibilityServer-Mac] Listener failed: \(error)")
@@ -157,9 +151,22 @@
                 if request.hasPrefix("GET /healthz") {
                     // Liveness probe used by the E2E orchestrator to confirm the app
                     // finished launching (see MacOSDriver.launchApp). Any HTTP reply
-                    // proves the loopback listener is up.
+                    // proves the listener is up.
                     let response = Data(
                         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                            .utf8
+                    )
+                    connection.send(content: response, completion: .contentProcessed { _ in
+                        connection.cancel()
+                    })
+                } else if request.hasPrefix("GET /local-network-status") {
+                    // Reports this app's macOS Local Network access ("granted" /
+                    // "denied" / "pending"), used by the E2E orchestrator's preflight
+                    // to fail fast before running scenarios when access hasn't been
+                    // granted yet. See LocalNetworkProbe.
+                    let body = LocalNetworkProbe.lastStatus?.rawValue ?? "pending"
+                    let response = Data(
+                        "HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
                             .utf8
                     )
                     connection.send(content: response, completion: .contentProcessed { _ in

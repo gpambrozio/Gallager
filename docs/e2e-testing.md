@@ -168,7 +168,7 @@ ClaudeSpyE2E --scenario "Fresh Pairing" ...
 - The simulator named in `--sim-name` must exist (`xcrun simctl list devices available`)
 - Accessibility permissions for Terminal/IDE (System Settings > Privacy > Accessibility)
 - `xcsift` installed (`brew install xcsift`) for build output filtering
-- **macOS 15+ Local Network:** handled automatically — the `--e2e-test` test server is loopback-bound so the "find devices on your local network" prompt never appears. It's not TCC, so it can't be pre-granted; if an older build still shows it for Gallager, allow it once in System Settings > Privacy & Security > Local Network. See [known-issues.md](known-issues.md).
+- **macOS 15+ Local Network:** the first E2E run on a fresh machine triggers the "Gallager would like to find and connect to devices on your local network" prompt and **aborts before any scenario** with instructions (a preflight check). Click **Allow** (or enable Gallager in System Settings > Privacy & Security > Local Network), then re-run. It's not TCC, so it can't be pre-granted via profile/`tccutil`; the grant persists per machine. See [known-issues.md](known-issues.md).
 
 ## Writing scenarios
 
