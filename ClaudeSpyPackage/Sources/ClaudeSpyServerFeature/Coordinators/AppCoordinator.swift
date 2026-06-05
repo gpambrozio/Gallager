@@ -924,6 +924,23 @@
                 )
             }
             await connectedViewerManager?.pushSessionStateToAll()
+            // The two pushes above only reach *connected* viewers over the live
+            // WebSocket. When this state change CLEARS attention (the agent
+            // resumed on its own, or the user answered in the Mac terminal while
+            // the app was backgrounded), a disconnected phone gets nothing — so
+            // its app-icon badge would stay stuck at the old count. Send the
+            // lowered badge over the silent-push path so APNs carries it down.
+            await broadcastBadgeDecreaseIfNeeded()
+        }
+
+        /// Pushes the host's pending-attention count to viewers as a silent
+        /// badge update *only when it has dropped* (see
+        /// `MirrorWindowManager.pendingCountDecrease`). Needs-attention increases
+        /// ride their own notification's alert push; a clear has no notification,
+        /// so this is the only signal that brings the iOS badge back down.
+        func broadcastBadgeDecreaseIfNeeded() async {
+            guard let badge = windowManager.pendingCountDecrease() else { return }
+            await connectedViewerManager?.broadcastBadgeUpdate(badge: badge)
         }
 
         /// NotificationSink → show a Mac desktop notification using the
@@ -996,6 +1013,9 @@
                 if sessionStateChanged {
                     await connectedViewerManager?.pushSessionStateToAll()
                 }
+                // A session that was needing attention when it ended lowers the
+                // pending count without any notification — clear the iOS badge.
+                await broadcastBadgeDecreaseIfNeeded()
                 // Close the pane when the core signals eligibility (the core folds
                 // in both the clean-exit check and the per-agent pref).
                 guard closePaneEligible else { return }
@@ -1967,6 +1987,11 @@
                         )
                     }
                     await connectionManager?.pushSessionStateToAll()
+                    // Auto-approving an open permission above clears its attention
+                    // without a notification — bring the iOS badge down with it.
+                    if let badge = winManager.pendingCountDecrease() {
+                        await connectionManager?.broadcastBadgeUpdate(badge: badge)
+                    }
                     return .success(for: command.id)
                 }
 
@@ -1976,7 +2001,12 @@
                     winManager.markSessionHandled(paneId: command.paneId)
                     if wasNeeding {
                         await connectionManager?.pushSessionStateToAll()
-                        await connectionManager?.broadcastBadgeUpdate(badge: winManager.pendingSessionCount)
+                        // Route through the shared high-water mark so this clear
+                        // and the agent-driven ones in `handlePluginState` don't
+                        // double-push the same badge.
+                        if let badge = winManager.pendingCountDecrease() {
+                            await connectionManager?.broadcastBadgeUpdate(badge: badge)
+                        }
                     }
                     return .success(for: command.id)
                 }
