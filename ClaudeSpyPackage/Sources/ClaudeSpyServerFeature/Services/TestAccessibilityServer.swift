@@ -32,12 +32,6 @@
                     port = parsed
                 }
 
-                // Probe Local Network access in the background. This both records
-                // the result for the `/local-network-status` endpoint AND triggers
-                // the system Local Network prompt on a machine that hasn't decided
-                // yet — which the E2E orchestrator's preflight relies on.
-                LocalNetworkProbe.runAndCache()
-
                 let server = TestAccessibilityServer()
                 do {
                     try server.start(port: port)
@@ -154,19 +148,6 @@
                     // proves the listener is up.
                     let response = Data(
                         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-                            .utf8
-                    )
-                    connection.send(content: response, completion: .contentProcessed { _ in
-                        connection.cancel()
-                    })
-                } else if request.hasPrefix("GET /local-network-status") {
-                    // Reports this app's macOS Local Network access ("granted" /
-                    // "denied" / "pending"), used by the E2E orchestrator's preflight
-                    // to fail fast before running scenarios when access hasn't been
-                    // granted yet. See LocalNetworkProbe.
-                    let body = LocalNetworkProbe.lastStatus?.rawValue ?? "pending"
-                    let response = Data(
-                        "HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
                             .utf8
                     )
                     connection.send(content: response, completion: .contentProcessed { _ in

@@ -101,65 +101,62 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
 3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline
 
-## E2E first run on a fresh macOS 15+ machine: a one-time "Local Network" grant
+## ~~E2E on a fresh macOS 15+ machine: app hangs at startup ("app never fully started")~~ FIXED
 
-**Status:** Handled — the E2E harness fails fast with instructions on the first run.
+**Status:** Fixed — the app no longer does a blocking local-network call at startup,
+plus a preflight fails fast if the app ever doesn't come up.
 
 ### Description
 
-On a brand-new macOS 15+ machine, `./scripts/e2e-test.sh` would stall *during* a
-scenario: the Gallager app under test triggers the macOS **Local Network privacy**
-prompt — *"Gallager would like to find and connect to devices on your local
-network."* On an unattended machine nobody clicks Allow, so the dialog floats over
-the app and blocks the orchestrator's UI automation mid-test.
+On a brand-new macOS 15+ machine, `./scripts/e2e-test.sh` failed every scenario at
+its launch step with *"macOS app launched but its in-process test server never
+responded… the app did not finish starting."* The original report was *"the system
+was asking for an authorization and the app never fully started"* — i.e. the **app
+itself hung during startup**, not a prompt floating over a running app.
 
 ### Root Cause
 
-Per Apple's [TN3179 *Understanding local network privacy*](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),
-local network privacy gates **outgoing** local-network operations — making an
-outgoing connection to a local-network address, resolving a `.local` DNS name,
-Bonjour — but **not** merely listening for inbound connections. Gallager hits it
-during normal use: e.g. `PaneStreamManager` reads `ProcessInfo.processInfo.hostName`,
-which resolves the machine's `.local` name (a local-network DNS operation) while
-seeding default pane titles.
+`PaneStreamManager.defaultPaneTitles` is a stored property (an immediately-evaluated
+closure) that called `ProcessInfo.processInfo.hostName`. Per Apple's
+[TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),
+resolving the machine's `.local` name is a **local-network DNS operation**, and on a
+macOS 15+ machine that hasn't decided Local Network access it **blocks the calling
+thread** until the user answers the prompt.
 
-The macOS app is launched via LaunchServices (`NSWorkspace.openApplication`), so it
-does **not** inherit the automatic local-network allowance that TN3179 grants to
-command-line tools (and their child processes) run from Terminal/SSH — hence the
-prompt. Existing machines never saw it because they granted it long ago.
+That property is evaluated synchronously on the **main thread** during
+`AppCoordinator.init` (itself inside the SwiftUI `App.init`). Meanwhile
+`TestAccessibilityServer.start` schedules its `NWListener` on `.main` via
+`listener.start(queue: .main)`. So the sequence is: schedule the listener on the
+main queue → keep running `init` synchronously → hit the blocking `.local`
+resolution → the main thread is now stuck → the main queue never processes the
+listener bind → the test server never responds → the orchestrator times out. The
+app is launched via LaunchServices, so it doesn't inherit the automatic
+local-network allowance TN3179 grants to CLI tools run from Terminal/SSH. Machines
+that granted Local Network long ago never blocked, which is why it only bit fresh
+ones.
 
-### Why it can't be "pre-granted"
+### Fix
 
-Local Network privacy **does not use TCC** (per TN3179). It can't be allowed via a
-PPPC/MDM configuration profile and can't be seeded or reset with `tccutil`. On
-macOS there's no way to reset a program's Local Network state short of a VM
-snapshot or a fresh user account. So the only options are to grant it once per
-machine, or to not request local-network access at all.
+1. **Don't block.** `defaultPaneTitles` now uses only `gethostname()` (a pure
+   syscall — no DNS, no Local Network), which is what tmux uses for the default
+   `pane_title` anyway. The blocking `ProcessInfo.hostName` call is removed. With no
+   local-network operation at startup, the prompt no longer appears on a fresh
+   machine and the app starts normally.
+   (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
+2. **Fail fast if startup ever hangs.** `TestOrchestrator.preflightLocalNetwork`
+   (wired in `ClaudeSpyE2ECommand`, before any scenario) launches one throwaway
+   instance and waits for its test server. If it never comes up, it throws
+   `OrchestratorError.localNetworkAccessRequired` — aborting with instructions and
+   leaving the instance (and any prompt) up — so **no scenarios run** and any future
+   blocking local-network call surfaces as one clear, actionable error instead of
+   N opaque per-scenario failures.
 
-### Fix: fail fast before tests, instead of stalling mid-test
+### Notes
 
-The orchestrator runs a **Local Network preflight before any scenario**
-(`TestOrchestrator.preflightLocalNetwork`, wired in `ClaudeSpyE2ECommand`):
-
-1. It launches a throwaway `--e2e-test` Gallager instance. On startup the app runs
-   `LocalNetworkProbe` (`ClaudeSpyServerFeature`), which attempts a UDP connection
-   to guaranteed local-network addresses (the IPv4 broadcast + an mDNS multicast
-   address) and inspects the path for the documented `.localNetworkDenied`
-   unsatisfied reason (TN3179). This both **triggers** the system prompt on an
-   undecided machine and **detects** whether access is denied.
-2. The result is served on the app's `/local-network-status` test endpoint.
-3. If the probe reports `denied`, the preflight throws
-   `OrchestratorError.localNetworkAccessRequired` and the run aborts — **no
-   scenarios run** — printing instructions. The instance is left up so the prompt
-   stays clickable.
-
-So on a fresh machine: **run once → prompt appears + run aborts with instructions
-→ click Allow (or enable Gallager in System Settings ▸ Privacy & Security ▸ Local
-Network) → re-run → scenarios run.** The grant persists for that machine.
-
-### Why the test listener is *not* the cause
-
-An earlier attempt loopback-bound the `--e2e-test` `TestAccessibilityServer`
-listener, on the theory that listening triggered the prompt. TN3179 is explicit
-that *listening for/accepting incoming TCP connections does not require local
-network access*, so that change was a no-op for this bug and was reverted.
+- Local Network privacy **isn't TCC** (per TN3179): it can't be pre-granted via a
+  PPPC/MDM profile or `tccutil`, and there's no reset short of a VM snapshot or a
+  fresh user account. So the durable fix is to not perform the operation at all.
+- An earlier attempt loopback-bound the `TestAccessibilityServer` listener, on the
+  theory that *listening* triggered the prompt. TN3179 is explicit that listening
+  for/accepting incoming connections does **not** require local network access — a
+  no-op for this bug, reverted.

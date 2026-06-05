@@ -1020,7 +1020,9 @@ public enum MacOSDriverError: Error, LocalizedError {
             "Unsupported keyboard shortcut key: \(key)"
         case let .appServerNotReady(port):
             "macOS app launched but its in-process test server never responded on " +
-                "127.0.0.1:\(port), so the app did not finish starting."
+                "127.0.0.1:\(port), so the app did not finish starting. On macOS 15+ this " +
+                "is usually a pending Local Network prompt blocking startup — grant Gallager " +
+                "in System Settings > Privacy & Security > Local Network and re-run."
         }
     }
 }
