@@ -14,6 +14,9 @@ import Foundation
 ///    left on (a freshly-created store would default back to Changes).
 /// 5. The Git tab can be moved into the split-view right pane and back, exactly
 ///    like the file-explorer tab.
+/// 6. The Git tab's state also survives a full session switch: selecting a
+///    different session in the sidebar and returning restores the History view
+///    (the per-session store is keyed by session name, not recreated).
 ///
 /// The provider is the deterministic `MockGitProvider` (wired in
 /// `ClaudeSpyServerApp` under `--e2e-test` via `GitWorkbenchProviderClient.mock`,
@@ -102,8 +105,38 @@ public enum GitBrowserScenario {
         TestStep.macWaitForElement(titled: "aurora-cli", timeout: 5)
         TestStep.macScreenshot(label: "mac-git-split-collapsed")
 
+        // ── Phase 6: State persists across a SESSION switch ──────
+        //
+        // The GitWorkbench store is keyed by session name and the Git-active
+        // flag by window id, so selecting a *different* session in the sidebar
+        // and returning must also restore the History view — without even
+        // re-clicking the Git tab. Phase 4 only covered a same-session tab
+        // round-trip; this guards retention across a full session switch.
+        TestStep.log("Phase 6: Git state persists across a session switch")
+
+        // A second session to switch to. Created here (not in setup) so the
+        // earlier phases' screenshots aren't disturbed by an extra sidebar row.
+        // The name avoids the substring "git" for the same reason as above.
+        TestStep.tmuxCreateSession(name: "otherproj", width: 160, height: 50)
+        Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "echo '=== OTHER PROJECT ==='")
+
+        // Select the other session — its terminal replaces the Git view.
+        TestStep.macWaitForElement(titled: "otherproj", timeout: 5)
+        TestStep.macClickButton(titled: "otherproj")
+        TestStep.wait(seconds: 2)
+        TestStep.macScreenshot(label: "mac-git-other-session")
+
+        // Return to repobrowse: the Git tab is still active and still on
+        // History (the commit list renders with no re-selection), proving the
+        // per-session store survived the session switch.
+        TestStep.macClickButton(titled: "repobrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Add structured Logger"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-session-preserved")
+
         // ── Tear down ────────────────────────────────────────────
         Shortcut.tmuxRunCommand(target: "repobrowse:0.0", command: "exit")
+        Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "exit")
         TestStep.wait(seconds: 2)
     }
 }

@@ -866,6 +866,9 @@ public struct MainView: View {
                         session: session,
                         selectedWindow: window,
                         isFileBrowserSelected: isFileBrowserActive && selectedFileTab == nil && selectedBrowserTab == nil,
+                        // No tab-active guard needed (unlike the file browser above):
+                        // selecting any file/browser tab calls gitActiveWindowIds.remove,
+                        // so isGitActive is already false whenever a tab is selected.
                         isGitBrowserSelected: isGitActive,
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
@@ -937,6 +940,13 @@ public struct MainView: View {
                             tabs?.selectedBrowserTabId = nil
                         },
                         onSelectGitBrowser: {
+                            // Build the per-session store synchronously now (it's
+                            // cheap) so gitPane takes its `if` branch and renders
+                            // GitBrowserView immediately, instead of flashing a
+                            // ProgressView for one frame while a `.task` runs.
+                            // ensureGitStore is idempotent, so this is harmless when
+                            // the store already exists for this folder.
+                            ensureGitStore(sessionName: session.sessionName, directoryPath: directoryPath)
                             if sessionFileTabsStates[session.sessionName] == nil {
                                 sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
                             }
@@ -1385,6 +1395,16 @@ public struct MainView: View {
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
         let store = GitWorkbenchStore(provider: provider)
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
+    }
+
+    /// The working directory a window's Git tab should track — the active
+    /// pane's cwd, with the home directory as a fallback. Mirrors the
+    /// `directoryPath` derivation used when rendering a window's panes, so an
+    /// eagerly built store matches the folder `gitPane` would otherwise build.
+    @MainActor
+    private func gitDirectoryPath(forWindowId windowId: String) -> String {
+        tmuxService.windows.first(where: { $0.id == windowId })?.activePane?.currentPath
+            ?? NSHomeDirectory()
     }
 
     /// Renders the right pane of the split layout by dispatching on the
@@ -2288,6 +2308,12 @@ public struct MainView: View {
             sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
             sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
         case .gitBrowser:
+            // Build the store before the state flip so gitPane renders
+            // GitBrowserView immediately (no one-frame ProgressView flash).
+            ensureGitStore(
+                sessionName: session.sessionName,
+                directoryPath: gitDirectoryPath(forWindowId: currentWindow.id)
+            )
             gitActiveWindowIds.insert(currentWindow.id)
             fileBrowserActiveWindowIds.remove(currentWindow.id)
             if sessionFileTabsStates[session.sessionName] == nil {
@@ -2506,6 +2532,13 @@ public struct MainView: View {
         case let .file(id) where !tabs.openFileTabs.contains(where: { $0.id == id }): return
         case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
         default: break
+        }
+
+        // Build the Git store before either branch flips state, so whichever
+        // pane ends up showing git renders GitBrowserView immediately rather
+        // than flashing a ProgressView for one frame.
+        if case .git = payload {
+            ensureGitStore(sessionName: sessionName, directoryPath: gitDirectoryPath(forWindowId: windowId))
         }
 
         if tabs.rightSide.contains(payload) {
