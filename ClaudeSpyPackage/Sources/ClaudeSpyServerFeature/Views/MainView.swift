@@ -1928,10 +1928,9 @@ public struct MainView: View {
                 stateChanged = true
             }
             if stateChanged {
-                let newBadge = windowManager.pendingSessionCount
                 Task {
                     await coordinator.connectedViewerManager?.pushSessionStateToAll()
-                    await coordinator.connectedViewerManager?.broadcastBadgeUpdate(badge: newBadge)
+                    await coordinator.broadcastBadgeDecreaseIfNeeded()
                 }
             }
         }

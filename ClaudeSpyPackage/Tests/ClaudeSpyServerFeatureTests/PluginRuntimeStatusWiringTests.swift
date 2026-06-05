@@ -232,6 +232,70 @@
             #expect(windowManager.paneStates["%1"]?.agentSession?.needsAttention == false)
         }
 
+        // MARK: - Badge decrease tracking
+
+        @Test("pendingCountDecrease reports the lowered count only when attention clears — not on a rise or a steady count")
+        func pendingCountDecreaseReportsDropsOnly() {
+            let windowManager = makeWindowManager()
+
+            // No sessions → nothing to report.
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // A session needs attention: 0 → 1 is a RISE. No silent badge push is
+            // owed — the matching notification's alert push carries the badge up.
+            windowManager.applyState(
+                pluginID: "echo",
+                sessionID: "s1",
+                state: .doneWorking(summary: nil),
+                tmuxPane: "%1",
+                projectPath: nil
+            )
+            #expect(windowManager.pendingSessionCount == 1)
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // Steady at 1 → still nothing to report.
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // The agent moves on (working, no notification): 1 → 0 is a DROP, so the
+            // new count is returned for the host to push as a cleared badge.
+            windowManager.applyState(
+                pluginID: "echo",
+                sessionID: "s1",
+                state: .working,
+                tmuxPane: "%1",
+                projectPath: nil
+            )
+            #expect(windowManager.pendingSessionCount == 0)
+            #expect(windowManager.pendingCountDecrease() == 0)
+
+            // Already reported → not pushed twice.
+            #expect(windowManager.pendingCountDecrease() == nil)
+        }
+
+        @Test("pendingCountDecrease returns the remaining count when one of several pending sessions clears")
+        func pendingCountDecreasePartialDrop() {
+            let windowManager = makeWindowManager()
+
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "a",
+                state: .doneWorking(summary: nil), tmuxPane: "%1", projectPath: nil
+            )
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "b",
+                state: .doneWorking(summary: nil), tmuxPane: "%2", projectPath: nil
+            )
+            #expect(windowManager.pendingSessionCount == 2)
+            // Seed the high-water mark at 2 (a rise → nil).
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // One of two clears → drop to 1: the badge must show 1, not 0.
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "a",
+                state: .working, tmuxPane: "%1", projectPath: nil
+            )
+            #expect(windowManager.pendingCountDecrease() == 1)
+        }
+
         // MARK: - Open form rides the session state
 
         @Test("an awaiting state exposes the open form on the session; a working state clears it")
