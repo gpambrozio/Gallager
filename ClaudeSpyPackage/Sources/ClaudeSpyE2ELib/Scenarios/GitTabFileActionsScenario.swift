@@ -81,6 +81,24 @@ public enum GitTabFileActionsScenario {
         TestStep.assertStoredContains(key: "gitMenuLog", substring: "/package.json")
         TestStep.macScreenshot(label: "mac-git-menu-fake-editor-launched")
 
+        // ── Phase 3: "Open in New Tab" returns to the Git tab on close ──
+        //
+        // Opening a changed file in a new tab forces file-browser mode (that's
+        // where open file tabs live), so the tab must remember it came from the
+        // Git tab and restore it on close — otherwise closing drops the user on
+        // the File Explorer instead of back on the Git tab they started from.
+        TestStep.log("Phase 3: 'Open in New Tab' from Git, then close, returns to the Git tab")
+        TestStep.macContextMenuClick(elementTitle: "package.json", menuItem: "Open in New Tab")
+        TestStep.macWaitForElement(titled: "File tab: package.json", timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-file-tab-open")
+
+        // Close the file tab. We must land back on the Git tab (mock repo
+        // "aurora-cli" + the Changes rows), NOT the File Explorer tree.
+        TestStep.macClickButton(titled: "Close file tab: package.json")
+        TestStep.macWaitForElement(titled: "aurora-cli", timeout: 5)
+        TestStep.macWaitForElement(titled: "package.json", timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-restored-after-close")
+
         // Tear down.
         Shortcut.tmuxRunCommand(target: "repoactions:0.0", command: "exit")
         TestStep.wait(seconds: 2)

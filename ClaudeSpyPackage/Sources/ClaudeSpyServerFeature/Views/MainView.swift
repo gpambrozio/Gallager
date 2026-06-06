@@ -1382,7 +1382,10 @@ public struct MainView: View {
                         path: path,
                         directoryPath: directoryPath,
                         sessionName: sessionName,
-                        windowId: windowId
+                        windowId: windowId,
+                        // Remember the file came from the Git tab so closing it
+                        // returns here instead of the File Explorer.
+                        origin: .gitTab(windowId: windowId)
                     )
                 },
                 onShowInFileExplorer: { path in
@@ -2483,18 +2486,18 @@ public struct MainView: View {
     /// selected — its `directoryChanges` task is what drives tab deletion
     /// state, so it must continue running underneath the visible file content.
     ///
-    /// `originWindowId` records which tmux window initiated the open when the
-    /// tab is opened from a terminal click; closing the tab routes the user
-    /// back there instead of leaving them on the file browser tree. When an
-    /// existing tab is re-opened, only a non-nil incoming origin overwrites
-    /// the stored value — a tree/context-menu re-open carries no origin and
-    /// must not silently clear the previously-recorded terminal return target.
+    /// `origin` records where the open came from (a terminal click, or the Git
+    /// tab); closing the tab routes the user back there instead of leaving them
+    /// on the file browser tree. When an existing tab is re-opened, only a
+    /// non-nil incoming origin overwrites the stored value — a tree/context-menu
+    /// re-open carries no origin and must not silently clear the
+    /// previously-recorded return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
         sessionName: String,
         windowId: String,
-        originWindowId: String? = nil
+        origin: FileTabOrigin? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
         gitActiveWindowIds.remove(windowId)
@@ -2507,8 +2510,8 @@ public struct MainView: View {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         let useSplit = settings.alwaysOpenFilesInSplit
         if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
-            if let originWindowId {
-                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            if let origin {
+                tabs.openFileTabs[existingIndex].origin = origin
             }
             let existingId = tabs.openFileTabs[existingIndex].id
             if tabs.rightSide.contains(.file(existingId)) {
@@ -2521,7 +2524,7 @@ public struct MainView: View {
         let newTab = OpenFileTab(
             path: path,
             directoryPath: directoryPath,
-            originWindowId: originWindowId
+            origin: origin
         )
         tabs.openFileTabs.append(newTab)
         if useSplit {
@@ -2723,7 +2726,7 @@ public struct MainView: View {
                 directoryPath: directoryPath,
                 sessionName: session.sessionName,
                 windowId: window.id,
-                originWindowId: window.id
+                origin: .terminalWindow(window.id)
             )
             return true
         }
@@ -3578,16 +3581,35 @@ public struct MainView: View {
         // Right-side close flow doesn't reroute focus to a terminal window.
         guard !wasOnRight else { return }
 
-        guard let originWindowId = closedTab.originWindowId else { return }
+        switch closedTab.origin {
+        case nil:
+            return
+        case let .terminalWindow(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: false)
+        case let .gitTab(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: true)
+        }
+    }
 
+    /// On closing the left-pane file tab, returns the left pane to where the tab
+    /// was opened from: the origin window's terminal, or — when `showGit` — its
+    /// Git tab. Opening a file tab forces file-browser mode, so this undoes that
+    /// and reselects the origin window if focus drifted.
+    @MainActor
+    private func restoreFileTabOrigin(windowId: String, showGit: Bool) {
         // Drop membership unconditionally so the content area falls off the
         // tree even when the origin window is gone (closed/renamed). The
         // entry is otherwise only cleaned up by the panes-change observer,
         // which would briefly keep the tree visible.
-        fileBrowserActiveWindowIds.remove(originWindowId)
+        fileBrowserActiveWindowIds.remove(windowId)
 
-        guard let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId }) else {
+        guard let originWindow = tmuxService.windows.first(where: { $0.id == windowId }) else {
             return
+        }
+        // Only restore the Git tab for a live window; a gone window falls back
+        // to the terminal/default like the terminal-origin case.
+        if showGit {
+            gitActiveWindowIds.insert(windowId)
         }
         if selectedWindow?.id != originWindow.id {
             selectedRemoteSession = nil
