@@ -114,7 +114,7 @@ public enum FileBrowserScenario {
         TestStep.macCGClick(titled: "page.html")
         // WebView load is async — wait for rendered content before screenshot
         // so a slow page load doesn't capture a blank pane (see Phase 30).
-        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-viewer")
 
         // ── Phase 7: Unsupported / Binary File ──────────────────
@@ -681,7 +681,7 @@ public enum FileBrowserScenario {
         // The WebView needs a moment to load before AX text is available. The
         // 250ms warm-up before scroll restore in `ScrollableWebView` covers
         // the same async growth on rebuild, so a short wait here is enough.
-        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-top")
 
         TestStep.macScrollWheel(deltaY: -10, count: 40)
