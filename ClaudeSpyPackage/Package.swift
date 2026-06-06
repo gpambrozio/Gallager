@@ -24,11 +24,7 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
             .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
-            // TEMP: testing the unmerged PR gpambrozio/GitWorkbench#2 (Changes-tab
-            // right-click / double-click hooks). The PR is from a fork, so the
-            // branch lives there. Revert to `gpambrozio/GitWorkbench` at a tagged
-            // release once it merges.
-            .package(url: "https://github.com/marvin-ambrozio/GitWorkbench", branch: "claude/issue-1"),
+            .package(url: "https://github.com/gpambrozio/GitWorkbench", from: "1.0.1"),
         ]
     #else
         return []
