@@ -142,6 +142,25 @@ final private class StableContextMenu: NSMenu {
     }
 }
 
+/// Pops up the same native ``NSMenu`` that ``View/stableContextMenu(_:)``
+/// builds as a contextual menu for `event` over `view`, via AppKit's own
+/// `popUpContextMenu(_:with:for:)`.
+///
+/// Used where a host hook — not ClaudeSpy's own catcher view — reports the
+/// right-click, e.g. the Git tab's Changes rows surfacing it through
+/// GitWorkbench's `onChangesRightClick`. Routing through AppKit (rather than a
+/// bare `NSMenu.popUp`) matters: it tracks the click's press/release correctly
+/// (a bare pop-up gets dismissed by the trailing `rightMouseUp`) and exposes
+/// the menu in the accessibility tree — the same path `menu(for:)` takes for
+/// the File Explorer. The menu retains its action dispatcher for its lifetime
+/// (see ``StableContextMenu``). No-op for an empty item list.
+@MainActor
+func presentStableContextMenu(items: [ContextMenuItem], with event: NSEvent, for view: NSView) {
+    guard !items.isEmpty else { return }
+    let menu = makeNSMenu(items: items)
+    NSMenu.popUpContextMenu(menu, with: event, for: view)
+}
+
 @MainActor
 private func makeNSMenu(items: [ContextMenuItem]) -> NSMenu {
     let dispatcher = ContextMenuActionDispatcher()

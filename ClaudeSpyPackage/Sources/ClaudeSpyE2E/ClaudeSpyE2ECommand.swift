@@ -335,6 +335,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AgentsSettingsTabScenario.scenario,
         TabCycleReorderScenario.scenario,
         BadgeClearsOnAgentResumeScenario.scenario,
+        GitTabFileActionsScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

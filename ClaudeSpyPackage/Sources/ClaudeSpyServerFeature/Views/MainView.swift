@@ -979,17 +979,11 @@ public struct MainView: View {
                             toggleSplit(payload, sessionName: session.sessionName, windowId: window.id)
                         },
                         onShowInFileExplorer: { path in
-                            fileBrowserActiveWindowIds.insert(window.id)
-                            gitActiveWindowIds.remove(window.id)
-                            if fileBrowserStates[session.sessionName] == nil {
-                                fileBrowserStates[session.sessionName] = FileBrowserState()
-                            }
-                            if sessionFileTabsStates[session.sessionName] == nil {
-                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
-                            }
-                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
-                            fileBrowserStates[session.sessionName]?.pendingRevealPath = path
+                            revealInFileExplorer(
+                                path: path,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
@@ -1352,7 +1346,7 @@ public struct MainView: View {
                 }
             )
         } else if isGitActive, let session {
-            gitPane(sessionName: session.sessionName, directoryPath: directoryPath)
+            gitPane(windowId: window.id, sessionName: session.sessionName, directoryPath: directoryPath)
         } else {
             WindowPaneLayoutView(
                 window: window,
@@ -1374,9 +1368,31 @@ public struct MainView: View {
     /// survives tab/session switches, and rebuilt when the working directory
     /// changes so it tracks the same folder as the file explorer.
     @ViewBuilder
-    private func gitPane(sessionName: String, directoryPath: String) -> some View {
+    private func gitPane(
+        windowId: String,
+        sessionName: String,
+        directoryPath: String
+    ) -> some View {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath {
-            GitBrowserView(store: entry.store)
+            GitBrowserView(
+                store: entry.store,
+                directoryPath: directoryPath,
+                onOpenFileInNewTab: { path in
+                    openFileInNewTab(
+                        path: path,
+                        directoryPath: directoryPath,
+                        sessionName: sessionName,
+                        windowId: windowId
+                    )
+                },
+                onShowInFileExplorer: { path in
+                    revealInFileExplorer(
+                        path: path,
+                        sessionName: sessionName,
+                        windowId: windowId
+                    )
+                }
+            )
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1388,13 +1404,36 @@ public struct MainView: View {
 
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
     /// store for a session. Safe to call from `.task`/event handlers; never call
-    /// it during `body` evaluation since it mutates `@State`.
+    /// it during `body` evaluation since it mutates `@State`. The working-tree
+    /// root is passed as `repositoryURL` so the Changes-tab file callbacks get
+    /// absolute URLs.
     @MainActor
     private func ensureGitStore(sessionName: String, directoryPath: String) {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath { return }
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
-        let store = GitWorkbenchStore(provider: provider, configuration: .claudeSpy)
+        let store = GitWorkbenchStore(
+            provider: provider,
+            configuration: .claudeSpy(repositoryURL: URL(fileURLWithPath: directoryPath))
+        )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
+    }
+
+    /// Switches the given window to the File Explorer and asks it to reveal
+    /// `path`. Shared by the tab bar's "Show in File Explorer" affordance and
+    /// the Git tab's right-click menu so both behave identically.
+    @MainActor
+    private func revealInFileExplorer(path: String, sessionName: String, windowId: String) {
+        fileBrowserActiveWindowIds.insert(windowId)
+        gitActiveWindowIds.remove(windowId)
+        if fileBrowserStates[sessionName] == nil {
+            fileBrowserStates[sessionName] = FileBrowserState()
+        }
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        sessionFileTabsStates[sessionName]?.selectedFileTabId = nil
+        sessionFileTabsStates[sessionName]?.selectedBrowserTabId = nil
+        fileBrowserStates[sessionName]?.pendingRevealPath = path
     }
 
     /// The working directory a window's Git tab should track — the active
@@ -1458,7 +1497,7 @@ public struct MainView: View {
                 rightPanePlaceholder
             }
         case .git:
-            gitPane(sessionName: sessionName, directoryPath: directoryPath)
+            gitPane(windowId: selectedWindow?.id ?? "", sessionName: sessionName, directoryPath: directoryPath)
                 .id("right-git")
                 .accessibilityIdentifier("split-right-pane")
         case let .browser(id):
