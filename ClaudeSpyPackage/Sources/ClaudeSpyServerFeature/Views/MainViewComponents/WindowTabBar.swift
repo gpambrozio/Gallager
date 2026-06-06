@@ -379,7 +379,7 @@ struct WindowTabBar: View {
             : isGitBrowserSelected
         return HStack(spacing: 0) {
             Button(action: onSelectGitBrowser) {
-                Symbols.arrowTriangleBranch.image
+                CustomSymbol.gitLogo.image
                     .font(.caption)
                     .padding(.leading, 12)
                     .padding(.trailing, 4)
@@ -405,7 +405,7 @@ struct WindowTabBar: View {
             DropIndicator(visible: dropIndicator == .git)
         }
         .draggable(TabDragPayload.git) {
-            TabDragPreview(label: "Git", symbol: .arrowTriangleBranch)
+            TabDragPreview(label: "Git", image: CustomSymbol.gitLogo.image)
         }
         .dropDestination(for: TabDragPayload.self) { payloads, _ in
             handleDrop(payloads: payloads, target: .git)
