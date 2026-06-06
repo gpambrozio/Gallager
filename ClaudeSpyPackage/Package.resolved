@@ -58,10 +58,10 @@
     {
       "identity" : "gitworkbench",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gpambrozio/GitWorkbench",
+      "location" : "https://github.com/marvin-ambrozio/GitWorkbench",
       "state" : {
-        "revision" : "dad2d85a92fe1c96bcdf4ca97d809d05859cd369",
-        "version" : "1.0.0"
+        "branch" : "claude/issue-1",
+        "revision" : "9520611566d132ec3efd98020a999e61375e2d0c"
       }
     },
     {
