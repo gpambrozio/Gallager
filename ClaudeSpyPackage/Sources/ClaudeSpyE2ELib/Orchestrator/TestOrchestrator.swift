@@ -589,6 +589,10 @@ public actor TestOrchestrator {
             // do this were deleted in the plugin-system flip). Honoured only in
             // `--e2e-test` + DEBUG builds.
             arguments += ["--e2e-seed-projects"]
+            // Pin the advertised device name so screenshots are portable across
+            // machines whose real `ComputerName` differs. "MacMini" matches the
+            // name the existing baselines were captured with, so they stay valid.
+            arguments += ["--e2e-device-name", "MacMini"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }

@@ -169,6 +169,9 @@
         @ObservationIgnored
         @Dependency(SleepPreventionService.self) private var sleepPreventionService
 
+        @ObservationIgnored
+        @Dependency(DeviceNameClient.self) private var deviceNameClient
+
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -781,9 +784,9 @@
             }
         }
 
-        /// The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
-        /// behind `#if DEBUG`, so its id is mirrored as a literal for Release where
-        /// echo is never registered anyway (the filter is then a harmless no-op).
+        // The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
+        // behind `#if DEBUG`, so its id is mirrored as a literal for Release where
+        // echo is never registered anyway (the filter is then a harmless no-op).
         #if DEBUG
             private static let echoPluginID = EchoPluginCore.pluginID
         #else
@@ -2717,7 +2720,7 @@
                 to: host,
                 serverURL: serverURL,
                 deviceId: settings.deviceId,
-                deviceName: Host.current().localizedName ?? "Mac"
+                deviceName: deviceNameClient.current()
             )
         }
 
@@ -2740,7 +2743,7 @@
                     pairedHosts: settings.pairedHosts,
                     serverURL: serverURL,
                     deviceId: settings.deviceId,
-                    deviceName: Host.current().localizedName ?? "Mac"
+                    deviceName: deviceNameClient.current()
                 )
             }
         }
