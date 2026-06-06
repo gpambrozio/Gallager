@@ -16,7 +16,7 @@ private let skippedNavigatorEntries: Set = [
 ]
 
 /// Which kind of search the file browser is currently performing.
-enum FileSearchMode: String, CaseIterable, Sendable {
+enum FileSearchMode: String, CaseIterable {
     /// Match file names / paths (existing behavior).
     case name
     /// Match the contents of files (issue #432).
@@ -1377,6 +1377,10 @@ private struct ScrollableWebView: View {
     @State private var position = ScrollPosition()
     @State private var localScrollY: CGFloat = 0
     @State private var isTrackingUserScroll = false
+    /// Latest content offset reported by the scroll-geometry observer. Tracked
+    /// unconditionally (even while restoring) so the restore loop can tell when
+    /// `scrollTo` actually landed on the target instead of being clamped.
+    @State private var observedOffsetY: CGFloat = 0
 
     private var scrollY: Binding<CGFloat> {
         savedScrollY ?? $localScrollY
@@ -1388,22 +1392,33 @@ private struct ScrollableWebView: View {
             .webViewOnScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y
             } action: { _, newValue in
+                observedOffsetY = newValue
                 guard isTrackingUserScroll else { return }
                 scrollY.wrappedValue = newValue
             }
             .task(id: url) {
                 // The web content loads asynchronously, so the scroll view's
-                // contentSize starts at 0 and grows as HTML/CSS resolves.
-                // Wait for layout to settle before applying the saved offset
-                // (otherwise WebView clamps the target to a tiny content size)
-                // and then re-enable user-scroll tracking.
+                // contentSize starts at 0 and grows as HTML/CSS resolves. A
+                // single `scrollTo` after a fixed warm-up clamps the target to
+                // the not-yet-grown content size and lands at the top — which
+                // happens on a slow CI machine, and can also bite a fast
+                // machine with large/slow HTML. Retry the restore until the
+                // offset actually reaches the target (content has grown tall
+                // enough) or we exhaust the budget, then re-enable user-scroll
+                // tracking.
                 let target = scrollY.wrappedValue
                 isTrackingUserScroll = false
-                try? await Task.sleep(for: .milliseconds(250))
-                guard !Task.isCancelled else { return }
-                position.scrollTo(y: target)
-                try? await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled else { return }
+                if target > 0 {
+                    for _ in 0..<60 {
+                        position.scrollTo(y: target)
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard !Task.isCancelled else { return }
+                        if abs(observedOffsetY - target) <= 2 { break }
+                    }
+                } else {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard !Task.isCancelled else { return }
+                }
                 isTrackingUserScroll = true
             }
     }
