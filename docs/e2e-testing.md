@@ -168,7 +168,7 @@ ClaudeSpyE2E --scenario "Fresh Pairing" ...
 - The simulator named in `--sim-name` must exist (`xcrun simctl list devices available`)
 - Accessibility permissions for Terminal/IDE (System Settings > Privacy > Accessibility)
 - `xcsift` installed (`brew install xcsift`) for build output filtering
-- **macOS 15+ Local Network:** the app no longer does a blocking local-network call at startup, so a fresh machine runs without a prompt. As a safety net, a preflight aborts the whole run before any scenario (with instructions) if the app ever fails to finish starting — usually a pending Local Network prompt; grant Gallager in System Settings > Privacy & Security > Local Network and re-run. See [known-issues.md](known-issues.md).
+- **macOS 15+ Local Network:** the app no longer does a blocking local-network call at startup, so a fresh machine runs without a Local Network prompt. (If you ever do see Gallager hang at launch with a "find devices on your local network" prompt, allow it once in System Settings > Privacy & Security > Local Network and re-run.) See [known-issues.md](known-issues.md).
 
 ## Writing scenarios
 

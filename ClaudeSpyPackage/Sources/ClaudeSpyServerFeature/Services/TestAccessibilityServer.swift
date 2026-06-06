@@ -142,18 +142,7 @@
                     return
                 }
 
-                if request.hasPrefix("GET /healthz") {
-                    // Liveness probe used by the E2E orchestrator to confirm the app
-                    // finished launching (see MacOSDriver.launchApp). Any HTTP reply
-                    // proves the listener is up.
-                    let response = Data(
-                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-                            .utf8
-                    )
-                    connection.send(content: response, completion: .contentProcessed { _ in
-                        connection.cancel()
-                    })
-                } else if request.hasPrefix("POST /unpair") {
+                if request.hasPrefix("POST /unpair") {
                     Task { @MainActor in
                         NotificationCenter.default.post(
                             name: .init("com.claudespy.e2e.unpairViewer"), object: nil

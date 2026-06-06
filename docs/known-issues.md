@@ -103,8 +103,7 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 
 ## ~~E2E on a fresh macOS 15+ machine: app hangs at startup ("app never fully started")~~ FIXED
 
-**Status:** Fixed — the app no longer does a blocking local-network call at startup,
-plus a preflight fails fast if the app ever doesn't come up.
+**Status:** Fixed — the app no longer does a blocking local-network call at startup.
 
 ### Description
 
@@ -137,19 +136,11 @@ ones.
 
 ### Fix
 
-1. **Don't block.** `defaultPaneTitles` now uses only `gethostname()` (a pure
-   syscall — no DNS, no Local Network), which is what tmux uses for the default
-   `pane_title` anyway. The blocking `ProcessInfo.hostName` call is removed. With no
-   local-network operation at startup, the prompt no longer appears on a fresh
-   machine and the app starts normally.
-   (`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
-2. **Fail fast if startup ever hangs.** `TestOrchestrator.preflightLocalNetwork`
-   (wired in `ClaudeSpyE2ECommand`, before any scenario) launches one throwaway
-   instance and waits for its test server. If it never comes up, it throws
-   `OrchestratorError.localNetworkAccessRequired` — aborting with instructions and
-   leaving the instance (and any prompt) up — so **no scenarios run** and any future
-   blocking local-network call surfaces as one clear, actionable error instead of
-   N opaque per-scenario failures.
+`defaultPaneTitles` now uses only `gethostname()` (a pure syscall — no DNS, no Local
+Network), which is what tmux uses for the default `pane_title` anyway. The blocking
+`ProcessInfo.hostName` call is removed. With no local-network operation at startup,
+the prompt no longer appears on a fresh machine and the app starts normally.
+(`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
 
 ### Notes
 

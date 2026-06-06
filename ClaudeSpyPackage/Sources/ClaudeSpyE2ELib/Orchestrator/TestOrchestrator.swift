@@ -277,50 +277,6 @@ public actor TestOrchestrator {
         return results
     }
 
-    /// Verify the macOS app actually finishes starting *before* running any
-    /// scenario, and abort the whole run with instructions if it doesn't.
-    ///
-    /// On a fresh macOS 15+ machine the app can hang during startup: a synchronous
-    /// local-network operation (resolving the machine's `.local` name) blocks the
-    /// main thread until the user answers the Local Network prompt, so the app's
-    /// in-process test server never comes up. That grant is not TCC, so it can't be
-    /// pre-seeded via profile/tccutil.
-    ///
-    /// We launch one throwaway instance and wait for its test server. If it never
-    /// responds we leave the instance (and any prompt) up and throw, so the
-    /// operator can grant access and re-run — no scenarios run.
-    public func preflightLocalNetwork() async throws {
-        let driver = macDriver(for: 0)
-        let stateRoot = gallagerStateRootPath(for: 0)
-        try? FileManager.default.createDirectory(atPath: stateRoot, withIntermediateDirectories: true)
-        let arguments = [
-            "--e2e-test",
-            "--server-url", "ws://127.0.0.1:\(serverPort)",
-            "--tmux-socket", tmuxSocketPath(for: 0),
-            "--gallager-state-root", stateRoot,
-            "--test-accessibility-port", "\(driver.testAccessibilityPort)",
-        ]
-
-        do {
-            // launchApp polls the in-process test server for readiness and throws
-            // if it never responds (the app didn't finish starting).
-            try await driver.launchApp(path: macOSAppPath, arguments: arguments)
-        } catch {
-            // Leave the instance (and any Local Network prompt) up so the operator
-            // can grant access; the next run kills stale --e2e-test instances.
-            logger.warning("Local-network preflight: app did not finish starting (\(error))")
-            throw OrchestratorError.localNetworkAccessRequired
-        }
-
-        // Started cleanly — tear down so the first real scenario starts fresh.
-        logger.info("Local-network preflight: app started OK")
-        try? await driver.terminateApp()
-        macDrivers.removeValue(forKey: 0)
-        let socket = tmuxSocketPath(for: 0)
-        _ = try? await processRunner.run("tmux", arguments: ["-S", socket, "kill-server"])
-        try? FileManager.default.removeItem(atPath: socket)
-    }
-
     /// Remove all E2E apps from the simulator after test runs complete
     private func uninstallSimulatorApps() async {
         logger.info("=== Uninstalling simulator apps ===")
@@ -1442,31 +1398,11 @@ public enum OrchestratorError: Error, LocalizedError {
     case configurationError(String)
     case stepFailed(step: Int, underlying: Error)
     case screenshotMismatch(TestOrchestrator.ScreenshotResult, String)
-    case localNetworkAccessRequired
 
     public var errorDescription: String? {
         switch self {
         case let .assertionFailed(message):
             "Assertion failed: \(message)"
-        case .localNetworkAccessRequired:
-            """
-            The macOS app did not finish starting — no scenarios were run.
-
-            On a fresh macOS 15+ machine this is almost always a pending Local Network
-            privacy prompt: the app blocks on a startup operation until you allow it, and
-            a "Gallager would like to find and connect to devices on your local network"
-            prompt should be showing.
-
-            To fix, do EITHER:
-              • Click "Allow" on that system prompt, or
-              • Open System Settings > Privacy & Security > Local Network and enable Gallager.
-
-            Then re-run the E2E suite. This grant is not TCC, so it can't be pre-seeded via
-            a configuration profile or tccutil; it persists for this machine once allowed.
-
-            If no prompt appears and this persists, capture a `sample` of the hung Gallager
-            process to see where startup is blocked.
-            """
         case let .configurationError(message):
             "Configuration error: \(message)"
         case let .stepFailed(step, underlying):
