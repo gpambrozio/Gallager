@@ -111,6 +111,8 @@ public enum FileBrowserScenario {
 
         // ── Phase 6: HTML Viewer ─────────────────────────────────
         TestStep.log("Phase 6: HTML viewer (WebView)")
+        // Frontmost before the WebView renders so it isn't throttled (see Phase 30).
+        TestStep.macActivate()
         TestStep.macCGClick(titled: "page.html")
         // WebView load is async — wait for rendered content before screenshot
         // so a slow page load doesn't capture a blank pane (see Phase 30).
@@ -676,6 +678,11 @@ public enum FileBrowserScenario {
         TestStep.log("Phase 30: HTML viewer preserves scroll (window 1)")
 
         TestStep.macWaitForElement(titled: "page.html", timeout: 5)
+        // Bring Gallager frontmost so the WKWebView isn't render-throttled while
+        // it loads and scrolls. On a CI box that doesn't keep the app active the
+        // web content process pauses when the window is occluded, leaving a blank
+        // pane; `macActivate` un-occludes it before each render-dependent wait.
+        TestStep.macActivate()
         TestStep.macContextMenuClick(elementTitle: "page.html", menuItem: "Open in New Tab")
         TestStep.macWaitForElement(titled: "File tab: page.html", timeout: 5)
         // The WebView needs a moment to load before AX text is available. The
@@ -684,15 +691,17 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-top")
 
+        TestStep.macActivate()
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-bottom-initial")
 
         // Tab round trip via window 1's terminal.
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macActivate()
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-tab-switch")
 
         // Session round trip via the shared `scrollalt`.
@@ -701,7 +710,8 @@ public enum FileBrowserScenario {
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macActivate()
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-session-switch")
 
         // Close the tab so the next phase starts fresh.
