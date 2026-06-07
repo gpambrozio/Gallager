@@ -87,7 +87,9 @@ public enum MultiWindowTabsMacViewerScenario {
         // Verify host tab also updated to window 1 (synced via tmux active window)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("e2e-mw-mac:1"), .valueContains("selected")]),
-            timeout: 15
+            // Cross-instance sync (viewer → relay → host) can exceed 15s on a
+            // slow CI VM, so give the host time to follow the window switch.
+            timeout: 30
         )
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-follows-viewer-to-window1")
@@ -125,7 +127,9 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.log("Phase 7: Verify host shows window 1 selected")
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("e2e-mw-mac:1"), .valueContains("selected")]),
-            timeout: 15
+            // Cross-instance sync (viewer → relay → host) can exceed 15s on a
+            // slow CI VM, so give the host time to follow the window switch.
+            timeout: 30
         )
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-reflects-window1")
