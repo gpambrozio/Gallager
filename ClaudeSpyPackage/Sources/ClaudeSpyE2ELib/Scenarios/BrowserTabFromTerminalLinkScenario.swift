@@ -84,21 +84,23 @@ import Foundation
 ///     `?v=4`, asserting the click routed through `URLOpener` on the viewer
 ///     side (not the host's).
 public enum BrowserTabFromTerminalLinkScenario {
-    /// Window at (10, 10), size 1_200×700, sidebar 250. Title bar + tab bar
-    /// take ~100 pt; SF Mono 12 cells are ~14 pt tall. Each `printf`
-    /// produces two viewport rows (command echo + output), so the link
-    /// rows after seven sequential prints are 1, 3, 5, 7, 9, 11, 13.
-    /// `x = 400` lands inside the link text for every row (the visible
-    /// label is padded so the click target is wide enough to absorb
-    /// sub-pixel font drift).
+    /// Link clicks land inside a large multi-line OSC 8 block painted by
+    /// `link_block.py` — a single hyperlink filling an 18×72 region of the pane —
+    /// so a fixed `(x, y)` near the terminal's upper-middle reliably hits the
+    /// link even as content shifts a row or two. (A one-row-tall target is
+    /// fragile: the tab-bar height changing — e.g. the Git brand-mark icon grew
+    /// the bar — or the Panes window auto-growing after session creation both
+    /// move terminal rows enough to land a fixed click on the wrong line.) The
+    /// script advances to the next URL on each keystroke (sent via
+    /// `tmuxSendKeys`), so all seven links are driven from one long-lived
+    /// process; the visible block contains only `OPEN-LINK-n` tokens (never the
+    /// raw URL — that rides the non-printing OSC 8 escape), so a stray click can
+    /// never scrape link text instead of opening the intended target.
+    ///
+    /// `(400, 200)` is a global-screen coordinate (window pinned at (10, 10),
+    /// 1_200×700) comfortably inside the block.
     private static let linkClickX: Double = 400
-    private static let link1Y: Double = 130
-    private static let link2Y: Double = 158
-    private static let link3Y: Double = 186
-    private static let link4Y: Double = 214
-    private static let link5Y: Double = 242
-    private static let link6Y: Double = 270
-    private static let link7Y: Double = 298
+    private static let linkClickY: Double = 200
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Browser Tab From Terminal Link",
@@ -111,24 +113,24 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.verifyServerHealth
 
         // ── Two tmux sessions ────────────────────────────────────
-        TestStep.log("Setup: Create two tmux sessions; populate weblinks with seven OSC 8 hyperlinks")
+        TestStep.log("Setup: Create two tmux sessions; render seven OSC 8 hyperlinks via link_block.py")
         TestStep.tmuxCreateSession(name: "weblinks", width: 100, height: 30)
         Shortcut.tmuxClearAndSetPrompt(target: "weblinks:0")
 
-        // Seven OSC 8 hyperlinks to the relay server. Each URL is unique so
-        // the browser-tab de-dup (`currentURL == url`) keeps a separate tab
-        // per click. The visible label is wide enough that the fixed
-        // `x = 400` click reliably hits the link span. All links share the
-        // host `127.0.0.1`, so a single per-domain rule applies to every
-        // one of them — exactly what the Phase 10–14 leg needs.
+        // Seven OSC 8 hyperlinks to the relay server, driven by `link_block.py`:
+        // it paints the current URL as a large multi-line block (a wide, drift-
+        // tolerant click target) and advances to the next URL on each keystroke
+        // (sent via `tmuxSendKeys`). Each URL is unique so the browser-tab de-dup
+        // (`currentURL == url`) keeps a separate tab per click; all share host
+        // `127.0.0.1` so one per-domain rule covers them (Phase 10–14). The URLs
+        // are single-quoted so the shell doesn't glob the `?` in `?v=N`.
         let healthURL = "http://127.0.0.1:8765/health"
-        for index in 1...7 {
-            let suffix = index == 1 ? "" : "?v=\(index)"
-            Shortcut.tmuxRunCommand(
-                target: "weblinks:0",
-                command: #"printf '\e]8;;\#(healthURL)\#(suffix)\aOPEN-LINK-\#(index)-EASY-CLICK-TARGET\e]8;;\a\n'"#
-            )
-        }
+        let linkURLs = (1...7).map { "'\(healthURL)\($0 == 1 ? "" : "?v=\($0)")'" }.joined(separator: " ")
+        TestStep.injectScript(name: "link_block.py")
+        Shortcut.tmuxRunCommand(
+            target: "weblinks:0",
+            command: "python3 $TMPDIR/link_block.py \(linkURLs)"
+        )
         TestStep.wait(seconds: 1)
 
         // Second session — its only role is to host the "switch away and
@@ -152,7 +154,7 @@ public enum BrowserTabFromTerminalLinkScenario {
 
         // ── Phase 1: .ask → confirmation sheet, pick "In App" ───
         TestStep.log("Phase 1: Click link 1 with default .ask → confirmation sheet")
-        TestStep.macClickAtPoint(x: linkClickX, y: link1Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
         TestStep.macScreenshot(label: "mac-confirmation-sheet")
 
@@ -181,11 +183,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 3: Click link 2; toggle 'Don't ask again' + In App → setting flips to .alwaysInApp")
         // Switch back to the terminal window-tab so the link is clickable.
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 2
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link2Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
         TestStep.macClickButton(titled: "Don't ask again.")
         TestStep.wait(seconds: 0.5)
@@ -211,11 +214,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 5: With .alwaysInApp, clicking link 3 opens directly (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 3
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link3Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Confirmation sheet must NOT appear.
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3)
         TestStep.wait(seconds: 2)
@@ -245,11 +249,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 7: With .alwaysInDefaultBrowser, clicking link 4 routes via URLOpener — no new in-app tab")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 4
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link4Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Neither the confirmation sheet nor a new in-app tab should appear.
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3)
         // The terminal must still be the selected view (we just clicked it),
@@ -294,11 +299,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 9: With global .ask + no domain rule, clicking link 5 shows the sheet")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 5
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-5")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link5Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
 
         // ── Phase 10: Add a per-domain rule via the dialog ───────
@@ -329,11 +335,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 12: Click link 6 → opens directly via the per-domain rule (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 6
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-6")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link6Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Confirmation sheet must NOT appear — the per-domain rule short-circuits .ask.
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3)
         TestStep.wait(seconds: 2)
@@ -356,11 +363,12 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 14: With the rule gone (global .ask), clicking link 7 shows the sheet again")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 7
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-7")]),
             timeout: 5
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link7Y)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
         TestStep.macScreenshot(label: "mac-confirmation-sheet-after-rule-removed")
         TestStep.macClickButton(titled: "Cancel")
@@ -441,6 +449,9 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 16: Viewer opens weblinks remote session; click link 1 → viewer's confirmation sheet appears")
         TestStep.macWaitForElement(titled: "weblinks", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "weblinks", instance: 1)
+        // Cycle link_block.py (on the host) back to link 1 — it wraps from 7 —
+        // and let the change mirror to the viewer.
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space")
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
             timeout: 15,
@@ -448,7 +459,7 @@ public enum BrowserTabFromTerminalLinkScenario {
         )
         TestStep.macScreenshot(label: "viewer-weblinks-remote-pane", instance: 1)
 
-        TestStep.macClickAtPoint(x: linkClickX, y: link1Y, instance: 1)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, instance: 1)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5, instance: 1)
         TestStep.macScreenshot(label: "viewer-confirmation-sheet", instance: 1)
 
@@ -484,12 +495,13 @@ public enum BrowserTabFromTerminalLinkScenario {
         // browser tab and re-exposes the terminal.
         TestStep.log("Phase 18: Click link 2 on viewer; toggle 'Don't ask again' + In App → viewer's global flips to .alwaysInApp")
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 2
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
             timeout: 5,
             instance: 1
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link2Y, instance: 1)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, instance: 1)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5, instance: 1)
         TestStep.macClickButton(titled: "Don't ask again.", instance: 1)
         TestStep.wait(seconds: 0.5)
@@ -501,12 +513,13 @@ public enum BrowserTabFromTerminalLinkScenario {
         // ── Phase 19: .alwaysInApp on viewer → link 3 opens directly ─
         TestStep.log("Phase 19: With viewer global .alwaysInApp, clicking link 3 opens directly")
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 3
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
             timeout: 5,
             instance: 1
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link3Y, instance: 1)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, instance: 1)
         // Confirmation sheet must NOT appear — `.alwaysInApp` short-circuits .ask.
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3, instance: 1)
         TestStep.wait(seconds: 2)
@@ -555,12 +568,13 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 22: With viewer .alwaysInDefaultBrowser, link 4 routes via URLOpener; no in-app tab")
         TestStep.macClickButton(titled: "weblinks", instance: 1)
         TestStep.macClickButton(titled: "weblinks:0", instance: 1)
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 4
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
             timeout: 5,
             instance: 1
         )
-        TestStep.macClickAtPoint(x: linkClickX, y: link4Y, instance: 1)
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, instance: 1)
         TestStep.macWaitForElementToDisappear(titled: "Open this link?", timeout: 3, instance: 1)
         // Terminal must still own the detail pane — proves no in-app browser
         // tab grabbed it.
@@ -582,7 +596,10 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.assertStoredNotContains(key: "viewerDefaultBrowserLog", substring: "\(healthURL)?v=2")
         TestStep.assertStoredNotContains(key: "viewerDefaultBrowserLog", substring: "\(healthURL)?v=3")
 
-        // Tear down so we don't carry state into the next scenario.
+        // Tear down so we don't carry state into the next scenario. `weblinks:0`
+        // is running link_block.py (reading single keys), so send `q` to exit the
+        // script back to the shell rather than a shell `exit` command.
+        TestStep.tmuxSendKeys(target: "weblinks:0", keys: "q")
         Shortcut.tmuxRunCommand(target: "weblinks:0", command: "exit")
         Shortcut.tmuxRunCommand(target: "other:0", command: "exit")
         TestStep.wait(seconds: 2)
