@@ -23,6 +23,19 @@ enum FileSearchMode: String, CaseIterable, Sendable {
     case content
 }
 
+/// Where an ``OpenFileTab`` was opened from, so closing it can return there
+/// rather than dropping the user on the file-explorer tree. Opening a file in a
+/// new tab always switches the left pane into file-browser mode (that's where
+/// open file tabs render), so without a recorded origin a close would leave the
+/// user stranded in the file explorer.
+enum FileTabOrigin: Equatable {
+    /// Opened from a tmux window's terminal (e.g. a file link); closing returns
+    /// to that window's terminal.
+    case terminalWindow(String)
+    /// Opened from a window's Git tab; closing restores that Git tab.
+    case gitTab(windowId: String)
+}
+
 /// A file opened as its own tab to the right of the file explorer tab.
 /// Identified by a stable UUID so re-opens select the existing tab and
 /// deletion state can be tracked without losing the tab.
@@ -31,28 +44,27 @@ enum FileSearchMode: String, CaseIterable, Sendable {
 /// header renders relative to this so the displayed path stays stable when the
 /// user switches to a sibling tmux window with a different cwd.
 ///
-/// `originWindowId` is the tmux window that initiated the tab open via a
-/// terminal click. When set, closing the tab returns the user to that
-/// terminal instead of falling back to the file browser tree.
+/// `origin` records where the tab was opened from so closing it returns there
+/// instead of falling back to the file-browser tree (see ``FileTabOrigin``).
 struct OpenFileTab: Identifiable, Equatable {
     let id: UUID
     let path: String
     let directoryPath: String
     var isDeleted: Bool
-    var originWindowId: String?
+    var origin: FileTabOrigin?
 
     init(
         id: UUID = UUID(),
         path: String,
         directoryPath: String,
         isDeleted: Bool = false,
-        originWindowId: String? = nil
+        origin: FileTabOrigin? = nil
     ) {
         self.id = id
         self.path = path
         self.directoryPath = directoryPath
         self.isDeleted = isDeleted
-        self.originWindowId = originWindowId
+        self.origin = origin
     }
 
     var name: String {

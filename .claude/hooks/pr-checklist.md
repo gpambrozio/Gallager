@@ -19,3 +19,5 @@ Use the Task tool to work through these items before stopping:
     * Run the scenario to make sure it passes.
     * Remove baselines that will change so that ci updates them
     * If the behavior has no scenario testing it then create it, make sure it passes and make sure the screenshots show what you'd expect.
+7. Make sure no scenario baslines are pushed
+    * If e2e scenarios are added or updated do not push any baseline screenshots created on this machine. Only ci runs must update baselines. Removing baselines that need to be updated is OK.

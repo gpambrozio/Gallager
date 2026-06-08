@@ -323,6 +323,24 @@ the right of the file explorer).
   rebuilt when the working directory changes, so the git UI state survives
   tab/session switches like `FileBrowserState`
 
+**Changes-tab file actions** (`GitBrowserView`): right-clicking a changed file
+shows the *same* native context menu as the file explorer, and double-clicking
+opens it in its default app.
+
+- The store's `WorkbenchConfiguration.repositoryURL` is set to the working-tree
+  root so GitWorkbench's `onChangesRightClick` / `onChangesDoubleClick` hooks
+  hand back **absolute** file URLs.
+- The right-click menu is built by the shared `fileContextMenuItems(…)`
+  (extracted from `FileContextMenu`, also used by the file tree / search list /
+  tab strips) and shown via `presentStableContextMenu(items:with:for:)`, which
+  goes through AppKit's `NSMenu.popUpContextMenu(_:with:for:)`. GitWorkbench
+  reports the click from `rightMouseDown`; the AppKit contextual-menu path keeps
+  the menu open across the press/release and exposes it to accessibility,
+  whereas a bare `NSMenu.popUp` would be dismissed by the trailing mouse-up.
+- `MainView.gitPane` supplies the "Open in New Tab" / "Show in File Explorer"
+  handlers (the reveal logic is the shared `revealInFileExplorer`) so the menu
+  reaches full parity with the file explorer.
+
 ### UpdaterController (`ClaudeSpyServerFeature/Services/UpdaterController.swift`)
 
 `@Observable @MainActor` wrapping Sparkle updater for SwiftUI.
