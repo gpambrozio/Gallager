@@ -704,3 +704,26 @@ These approaches were used during the investigation and can be re-created if nee
 - **Frame capture**: Binary capture of all frames fed to SwiftTerm to `/tmp/claudespy-frames.bin` with 4-byte little-endian length prefix per frame. Enables offline replay and analysis.
 - **Frame replay**: `terminal-debug/replay-frames.py` replays captured binary frames in a real terminal for visual comparison against the mirror window.
 - **Buffer dump**: Direct SwiftTerm buffer content extraction immediately after `feed()` calls, comparing buffer state against expected content. Confirms whether data reaches the terminal buffer correctly.
+
+---
+
+## Resolved: multi-row background band loses all but its first row after a re-capture
+
+**Symptom:** A Codex composer's full-width background band — a run of rows that set only the bg (`\e[48;2;53;53;53m`) with no printable characters — renders correctly on first attach, but after navigating away from the pane and back, only the **first** band row stays gray and the rest go **black** ("the 3rd line of the prompt doesn't render the correct background"). It's a whole-row vertical loss, not a horizontal truncation.
+
+**Root cause (confirmed against `tmux capture-pane -e -p` output):**
+- `capture-pane -e -p` emits SGR as **deltas**. For a run of identical full-width glyph-free bg rows it writes the bg setter on the FIRST row and leaves the rest **empty**, relying on the terminal carrying the bg across the line breaks:
+
+  ```
+  row 0: \e[48;2;53;53;53m   (setter; trailing cells trimmed)
+  row 1: (empty)
+  row 2: (empty)
+  ```
+
+- `processCapturePaneForStreaming` emitted `\e[0m` after **every** row (added to stop a band leaking into a *different* next row, #411). That reset killed the carried bg, so each trimmed-empty continuation row's `\e[K` (BCE) cleared with the **default** background → black. First band row gray, the rest black.
+- The live stream writes real space cells, so the first render is correct; the loss only appears on a **re-capture** (away & back), which re-runs `processCapturePaneForStreaming`.
+- (Earlier dead ends: a "reserved scroller-margin" theory and a `FloorWidthTerminalView` reflow fix — both targeted a *horizontal* truncation that does not occur. The bug is purely in the capture rebuild.)
+
+**Fix (`processCapturePaneForStreaming`):** carry the background across the trimmed-empty band rows. The visible-area loop tracks `carriedBackground` (via `trailingBackgroundSGR`) and re-emits it at the start of each captured row so `\e[K` keeps painting the band. The per-row `\e[0m` reset stays (it still prevents the #411 leak). The carry **stops at the first row with printable content** (`visibleColumns > 0`): a content row's trailing bg is the row's own fill, not a band that should bleed into the blank line below it (e.g. the gap between the composer's input row and the footer). A clean `\e[0m` is emitted after `\e[H`, before the visible area, so an empty first row starts from default.
+
+**Tests:** `consecutiveBackgroundBandRowsSurvive` (band rows all stay gray, content row resets) and `backgroundDoesNotBleedBelowContentRow` (the blank row below a bg content row stays default) in `TerminalRenderingTests.swift`; the existing #411/#352/#429/H12 tests still pass. E2E: `BandRecaptureScenario` ("Background Band Recapture") draws a 3-row band live, forces a re-capture via a window-tab away & back, and screenshots — without the fix the band drops from 3 rows to 1; with it all 3 survive.

@@ -831,6 +831,9 @@ final public class TmuxService {
         // above (when scrollback exists), the visible area is clear and ready
         // for the visible content to be drawn from the top.
         output += "\u{1b}[H" // Cursor to home (row 1, col 1)
+        output += "\u{1b}[0m" // Known default before the visible area so the
+        // carried-background tracking below starts from a clean slate (an empty
+        // first row must paint default, not inherit a stale bg from prior feeds).
 
         // Output visible lines sequentially. Filter each line to keep only color
         // codes (remove cursor positioning that could interfere).
@@ -883,21 +886,53 @@ final public class TmuxService {
         //   and skipping extraction on empty cursor lines) is unchanged and
         //   still prevents the underline-state leak into live-streamed data
         //   regardless of padding strategy.
+        // `capture-pane -e -p` emits SGR as DELTAS: for a run of identical
+        // full-width background ROWS WITH NO GLYPHS (e.g. the Codex composer's
+        // top-padding band) it writes the bg setter on the FIRST row and leaves
+        // the rest empty, relying on the terminal carrying the bg across the
+        // line breaks (verified against tmux). The per-row `\e[0m` below would
+        // otherwise kill that carry, so each trimmed-empty continuation row's
+        // `\e[K` would clear to default — the reported "composer band row goes
+        // black" bug. We carry the background across those empty band rows and
+        // re-emit it at the start of each captured row so `\e[K` keeps painting
+        // the band.
+        //
+        // The carry STOPS at the first row with printable content. tmux also
+        // leaves a default empty row trimmed-empty (so it too carries the prior
+        // bg in the capture stream), but a CONTENT row's trailing bg is the
+        // row's own fill — not a band that should bleed into the blank line
+        // below it (e.g. the gap between the composer's input row and the
+        // footer). Resetting the carry after any content row keeps those blanks
+        // default while still letting a glyph-free band span multiple rows.
+        //
+        // The per-row `\e[0m` reset stays — it stops a band leaking into a
+        // *different*-content next row (#411); re-establishing the carried bg
+        // first is what lets a glyph-free band span multiple rows.
         let padTarget = max(0, width - 1)
+        var carriedBackground = ""
         for index in 0..<linesToOutput {
             var visibleColumns = 0
             var needsExplicitPadding = false
             if index < visibleLines.count {
                 let filtered = filterToColorCodesOnly(visibleLines[index])
+                if !carriedBackground.isEmpty {
+                    output += carriedBackground
+                }
                 output += filtered
                 visibleColumns = countVisibleColumns(filtered)
                 needsExplicitPadding = lineHasNonBgSGRActiveAtEnd(filtered)
+                carriedBackground = visibleColumns > 0
+                    ? "" // content row: its bg is the row's own fill, don't carry it down
+                    : trailingBackgroundSGR(carried: carriedBackground, applying: filtered)
+            } else {
+                // Beyond the captured content the area below is empty (default).
+                carriedBackground = ""
             }
             if needsExplicitPadding, visibleColumns < padTarget {
                 output += String(repeating: " ", count: padTarget - visibleColumns)
             }
-            output += "\u{1b}[K" // BCE-clear trailing cells (preserves bg band; no real chars when not padded)
-            output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
+            output += "\u{1b}[K" // BCE-clear trailing cells (carried/own bg paints the band)
+            output += "\u{1b}[0m" // Reset before newline so a band can't leak into a different next row
             if index < linesToOutput - 1 {
                 output += "\r\n"
             }
@@ -1100,6 +1135,82 @@ final public class TmuxService {
             i = filtered.index(after: end)
         }
         return hasNonBgActive
+    }
+
+    /// Returns the background SGR active at the END of `filtered`, given the
+    /// background `carried` into the row (a canonical bg SGR string such as
+    /// `"\u{1b}[48;2;53;53;53m"`, or `""` for the default background).
+    ///
+    /// Used by `processCapturePaneForStreaming` to carry a background band
+    /// across the trimmed-empty continuation rows that `capture-pane -e -p`
+    /// emits with the setter only on the first row of the run. Only the
+    /// background is tracked — empty rows carry nothing else (no glyphs to
+    /// style), and `\e[K` cannot render non-bg attributes regardless.
+    func trailingBackgroundSGR(carried: String, applying filtered: String) -> String {
+        var background = carried
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            guard
+                filtered[i] == "\u{1b}",
+                filtered.index(after: i) < filtered.endIndex,
+                filtered[filtered.index(after: i)] == "[" else {
+                i = filtered.index(after: i)
+                continue
+            }
+            let paramsStart = filtered.index(after: filtered.index(after: i))
+            var end = paramsStart
+            while end < filtered.endIndex {
+                let c = filtered[end]
+                if c >= "@", c <= "~" { break }
+                end = filtered.index(after: end)
+            }
+            if end >= filtered.endIndex { break }
+            if filtered[end] == "m" {
+                let paramStr = String(filtered[paramsStart..<end])
+                let params: [Int] = paramStr.isEmpty
+                    ? [0]
+                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
+                    .map { Int($0) ?? 0 }
+                var idx = 0
+                while idx < params.count {
+                    let p = params[idx]
+                    switch p {
+                    case 0,
+                         49:
+                        // Reset all / default bg — band ends.
+                        background = ""
+                    case 40...47,
+                         100...107:
+                        // 8-color and bright bg.
+                        background = "\u{1b}[\(p)m"
+                    case 48:
+                        // Extended bg: 48;5;N or 48;2;R;G;B.
+                        if idx + 1 < params.count {
+                            switch params[idx + 1] {
+                            case 5:
+                                if idx + 2 < params.count {
+                                    background = "\u{1b}[48;5;\(params[idx + 2])m"
+                                }
+                                idx += 2
+                            case 2:
+                                if idx + 4 < params.count {
+                                    background = "\u{1b}[48;2;\(params[idx + 2]);\(params[idx + 3]);\(params[idx + 4])m"
+                                }
+                                idx += 4
+                            default:
+                                break
+                            }
+                        }
+                    default:
+                        // fg / style codes don't affect the background.
+                        break
+                    }
+                    idx += 1
+                }
+            }
+            i = filtered.index(after: end)
+        }
+        return background
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.

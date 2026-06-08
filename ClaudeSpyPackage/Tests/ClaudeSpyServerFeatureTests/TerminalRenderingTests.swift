@@ -533,6 +533,97 @@
                     "Row 1 col 20 must not be underlined"
                 )
             }
+
+            @Test("Consecutive bg-only rows all keep the band — capture emits the setter once (#411)")
+            @MainActor
+            func consecutiveBackgroundBandRowsSurvive() {
+                let service = TmuxService()
+                // `tmux capture-pane -p -e` emits the bg setter on the FIRST row
+                // of a run of identical full-width bg rows and leaves the rest
+                // EMPTY, relying on SGR carryover (verified against tmux):
+                //   row 0: \e[48;2;53;53;53m   (setter, trailing cells trimmed)
+                //   row 1: (empty)
+                //   row 2: (empty)
+                // The Codex composer's multi-row background band has this shape.
+                // The rebuild must paint ALL three rows, not just the first —
+                // the per-row `\e[0m` reset (from the #411 leak fix) otherwise
+                // kills the carried bg so rows 1–2 `\e[K`-clear to default.
+                let gray = "\u{1b}[48;2;53;53;53m"
+                let visibleLines = [
+                    gray, // band setter (trimmed)
+                    "", // carried band row
+                    "", // carried band row
+                    "\u{1b}[0m> prompt", // content row resets the band
+                ]
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleLines.joined(separator: "\n"),
+                    cursorOutput: "8,3,1",
+                    width: 80,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // All three band rows must carry the bg across the full width.
+                for row in 0...2 {
+                    let bgStart = getBgColor(terminal, col: 0, row: row)
+                    let bgMid = getBgColor(terminal, col: 40, row: row)
+                    #expect(bgStart != .defaultColor, "Band row \(row) col 0 must have bg, got: \(bgStart)")
+                    #expect(bgMid != .defaultColor, "Band row \(row) col 40 must have bg, got: \(bgMid)")
+                }
+
+                // The content row that reset the band must NOT inherit it.
+                #expect(
+                    getBgColor(terminal, col: 40, row: 3) == .defaultColor,
+                    "Content row must not inherit the band bg after \\e[0m"
+                )
+            }
+
+            @Test("Background does not bleed into the blank row below a bg content row")
+            @MainActor
+            func backgroundDoesNotBleedBelowContentRow() {
+                let service = TmuxService()
+                // The REAL Codex composer shape (verified via capture-pane):
+                //   row 0: \e[0m\e[48;..m              (bg-only band row)
+                //   row 1: › input … \e[0m\e[48;..m    (input row: content, ends on bg)
+                //   row 2: (empty)                     (blank line before the footer)
+                //   row 3: \e[49m footer               (footer resets bg)
+                // The blank row 2 must stay DEFAULT: a content row's trailing bg
+                // is the row's own fill, not a band that should bleed downward.
+                // (Guards the carried-background fix from over-extending.)
+                let gray = "\u{1b}[48;2;53;53;53m"
+                let visibleLines = [
+                    "\u{1b}[0m\(gray)",
+                    "\u{1b}[1m> \u{1b}[0m\(gray) input text\u{1b}[0m\(gray)",
+                    "",
+                    "\u{1b}[49m footer",
+                ]
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleLines.joined(separator: "\n"),
+                    cursorOutput: "8,1,1",
+                    width: 80,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: 80, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // Band row 0 and the input row 1 are gray.
+                #expect(getBgColor(terminal, col: 0, row: 0) != .defaultColor, "Band row must be gray")
+                #expect(getBgColor(terminal, col: 0, row: 1) != .defaultColor, "Input row must be gray")
+                // The blank row 2 must be DEFAULT (no bleed from the input row).
+                #expect(
+                    getBgColor(terminal, col: 0, row: 2) == .defaultColor,
+                    "Blank row below the input must not inherit the band bg"
+                )
+                #expect(
+                    getBgColor(terminal, col: 40, row: 2) == .defaultColor,
+                    "Blank row below the input must not inherit the band bg"
+                )
+            }
         }
 
         // MARK: - H9: OSC sequences in filterToColorCodesOnly
