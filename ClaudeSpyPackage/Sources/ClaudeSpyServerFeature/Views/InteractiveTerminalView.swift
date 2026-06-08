@@ -38,6 +38,43 @@
         }
     }
 
+    // MARK: - Right Edge Background Fill
+
+    /// Paints the strip between the rightmost terminal cell and the view's right
+    /// edge with each visible row's trailing-cell background color.
+    ///
+    /// SwiftTerm reserves ~1 column of width for its (unused) internal legacy
+    /// scroller, so the drawn cells stop short of the view's right edge by that
+    /// margin. Full-pane-width background bands — e.g. Codex's filled prompt
+    /// panels — then look truncated: the cells are filled, but the reserved
+    /// margin shows the default terminal background. This overlay extends each
+    /// row's trailing background into the margin so bands reach the edge, exactly
+    /// as they do in a terminal without a reserved scroller (iTerm, Terminal.app).
+    ///
+    /// The view is non-interactive (events pass through to the terminal) and is
+    /// flipped so row 0 sits at the top, matching the terminal's row order.
+    final private class RightEdgeBackgroundView: NSView {
+        private var fills: [(rect: CGRect, color: CGColor)] = []
+
+        override var isFlipped: Bool { true }
+
+        // Transparent to hit-testing so mouse/scroll events reach the terminal.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func setFills(_ fills: [(rect: CGRect, color: CGColor)]) {
+            self.fills = fills
+            needsDisplay = true
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+            for fill in fills where fill.rect.intersects(dirtyRect) {
+                ctx.setFillColor(fill.color)
+                ctx.fill(fill.rect)
+            }
+        }
+    }
+
     // MARK: - Scroll Event Overlay
 
     /// Intercepts events: horizontal scrolls handled here, vertical/mouse forwarded to terminal.
@@ -326,6 +363,7 @@
         private var horizontalScroller: NSScroller?
         private var scrollOverlay: ScrollEventOverlay?
         private var focusBorderView: FocusBorderView?
+        private var rightEdgeFillView: RightEdgeBackgroundView?
         private var terminalWidth: CGFloat = 0
         private var horizontalOffset: CGFloat = 0
 
@@ -425,6 +463,7 @@
             terminalView.autoresizingMask = []
             terminalView.terminalDelegate = self
             addSubview(terminalView)
+            setupRightEdgeFill()
             setupScrollOverlay()
             setupHorizontalScroller()
             setupFocusBorder()
@@ -443,6 +482,13 @@
         }
 
         // MARK: - Setup
+
+        private func setupRightEdgeFill() {
+            let fillView = RightEdgeBackgroundView(frame: bounds)
+            fillView.autoresizingMask = [.width, .height]
+            addSubview(fillView)
+            rightEdgeFillView = fillView
+        }
 
         private func setupScrollOverlay() {
             let overlay = ScrollEventOverlay(frame: bounds)
@@ -1405,6 +1451,63 @@
             CATransaction.commit()
         }
 
+        // MARK: - Right Edge Background Fill
+
+        /// Recomputes the trailing-cell background fill for the reserved-scroller
+        /// margin on the right. Mirrors `updateURLUnderlines`' lifecycle — driven
+        /// from `layout()` whenever terminal content changes or scrolls.
+        ///
+        /// For each displayed row it extends that row's last cell's background
+        /// into the margin, so full-pane-width bands (Codex's filled panels)
+        /// reach the view's right edge instead of stopping at the last cell.
+        /// `getLine(row:)` is scroll-aware (`row + buffer.yDisp`), so the fill
+        /// tracks scrollback the same way the cell rendering does.
+        private func updateRightEdgeBackground() {
+            guard let fillView = rightEdgeFillView else { return }
+
+            let cs = cellSize
+            let terminal = terminalView.getTerminal()
+            let cols = terminal.cols
+            guard cs.width > 0, cs.height > 0, cols > 0 else {
+                fillView.setFills([])
+                return
+            }
+
+            // Right edge of the drawn cells, in this view's coordinate space.
+            let cellsRight = CGFloat(cols) * cs.width - horizontalOffset
+            let marginWidth = bounds.width - cellsRight
+            // Nothing to paint when the cells already reach (or overflow) the edge.
+            guard marginWidth > 0 else {
+                fillView.setFills([])
+                return
+            }
+
+            let defaultBg = terminalView.nativeBackgroundColor
+            let colorMapper = TerminalColorMapper(
+                defaultFg: terminalView.nativeForegroundColor,
+                defaultBg: defaultBg
+            )
+
+            var fills: [(rect: CGRect, color: CGColor)] = []
+            fills.reserveCapacity(terminal.rows)
+            for row in 0..<terminal.rows {
+                guard let line = terminal.getLine(row: row) else { continue }
+                let attr = line[cols - 1].attribute
+                let style = attr.style
+                // Trailing-cell background, honoring reverse video — matches the
+                // bg resolution in `buildAttributes`.
+                let bg: NSColor = style.contains(.inverse)
+                    ? colorMapper.mapColor(attr.fg, isFg: true, isBold: style.contains(.bold))
+                    : colorMapper.mapColor(attr.bg, isFg: false, isBold: false)
+                let y = CGFloat(row) * cs.height
+                fills.append((
+                    rect: CGRect(x: cellsRight, y: y, width: marginWidth, height: cs.height),
+                    color: bg.cgColor
+                ))
+            }
+            fillView.setFills(fills)
+        }
+
         // MARK: - Horizontal Scrolling
 
         @objc
@@ -1497,6 +1600,7 @@
             }
             updateHorizontalScroller()
             updateURLUnderlines()
+            updateRightEdgeBackground()
             onResize?(frame.size)
         }
 
