@@ -979,17 +979,11 @@ public struct MainView: View {
                             toggleSplit(payload, sessionName: session.sessionName, windowId: window.id)
                         },
                         onShowInFileExplorer: { path in
-                            fileBrowserActiveWindowIds.insert(window.id)
-                            gitActiveWindowIds.remove(window.id)
-                            if fileBrowserStates[session.sessionName] == nil {
-                                fileBrowserStates[session.sessionName] = FileBrowserState()
-                            }
-                            if sessionFileTabsStates[session.sessionName] == nil {
-                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
-                            }
-                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
-                            fileBrowserStates[session.sessionName]?.pendingRevealPath = path
+                            revealInFileExplorer(
+                                path: path,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
@@ -1352,7 +1346,7 @@ public struct MainView: View {
                 }
             )
         } else if isGitActive, let session {
-            gitPane(sessionName: session.sessionName, directoryPath: directoryPath)
+            gitPane(windowId: window.id, sessionName: session.sessionName, directoryPath: directoryPath)
         } else {
             WindowPaneLayoutView(
                 window: window,
@@ -1374,9 +1368,34 @@ public struct MainView: View {
     /// survives tab/session switches, and rebuilt when the working directory
     /// changes so it tracks the same folder as the file explorer.
     @ViewBuilder
-    private func gitPane(sessionName: String, directoryPath: String) -> some View {
+    private func gitPane(
+        windowId: String,
+        sessionName: String,
+        directoryPath: String
+    ) -> some View {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath {
-            GitBrowserView(store: entry.store)
+            GitBrowserView(
+                store: entry.store,
+                directoryPath: directoryPath,
+                onOpenFileInNewTab: { path in
+                    openFileInNewTab(
+                        path: path,
+                        directoryPath: directoryPath,
+                        sessionName: sessionName,
+                        windowId: windowId,
+                        // Remember the file came from the Git tab so closing it
+                        // returns here instead of the File Explorer.
+                        origin: .gitTab(windowId: windowId)
+                    )
+                },
+                onShowInFileExplorer: { path in
+                    revealInFileExplorer(
+                        path: path,
+                        sessionName: sessionName,
+                        windowId: windowId
+                    )
+                }
+            )
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1388,13 +1407,36 @@ public struct MainView: View {
 
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
     /// store for a session. Safe to call from `.task`/event handlers; never call
-    /// it during `body` evaluation since it mutates `@State`.
+    /// it during `body` evaluation since it mutates `@State`. The working-tree
+    /// root is passed as `repositoryURL` so the Changes-tab file callbacks get
+    /// absolute URLs.
     @MainActor
     private func ensureGitStore(sessionName: String, directoryPath: String) {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath { return }
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
-        let store = GitWorkbenchStore(provider: provider, configuration: .claudeSpy)
+        let store = GitWorkbenchStore(
+            provider: provider,
+            configuration: .claudeSpy(repositoryURL: URL(fileURLWithPath: directoryPath))
+        )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
+    }
+
+    /// Switches the given window to the File Explorer and asks it to reveal
+    /// `path`. Shared by the tab bar's "Show in File Explorer" affordance and
+    /// the Git tab's right-click menu so both behave identically.
+    @MainActor
+    private func revealInFileExplorer(path: String, sessionName: String, windowId: String) {
+        fileBrowserActiveWindowIds.insert(windowId)
+        gitActiveWindowIds.remove(windowId)
+        if fileBrowserStates[sessionName] == nil {
+            fileBrowserStates[sessionName] = FileBrowserState()
+        }
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        sessionFileTabsStates[sessionName]?.selectedFileTabId = nil
+        sessionFileTabsStates[sessionName]?.selectedBrowserTabId = nil
+        fileBrowserStates[sessionName]?.pendingRevealPath = path
     }
 
     /// The working directory a window's Git tab should track — the active
@@ -1458,7 +1500,7 @@ public struct MainView: View {
                 rightPanePlaceholder
             }
         case .git:
-            gitPane(sessionName: sessionName, directoryPath: directoryPath)
+            gitPane(windowId: selectedWindow?.id ?? "", sessionName: sessionName, directoryPath: directoryPath)
                 .id("right-git")
                 .accessibilityIdentifier("split-right-pane")
         case let .browser(id):
@@ -2444,18 +2486,18 @@ public struct MainView: View {
     /// selected — its `directoryChanges` task is what drives tab deletion
     /// state, so it must continue running underneath the visible file content.
     ///
-    /// `originWindowId` records which tmux window initiated the open when the
-    /// tab is opened from a terminal click; closing the tab routes the user
-    /// back there instead of leaving them on the file browser tree. When an
-    /// existing tab is re-opened, only a non-nil incoming origin overwrites
-    /// the stored value — a tree/context-menu re-open carries no origin and
-    /// must not silently clear the previously-recorded terminal return target.
+    /// `origin` records where the open came from (a terminal click, or the Git
+    /// tab); closing the tab routes the user back there instead of leaving them
+    /// on the file browser tree. When an existing tab is re-opened, only a
+    /// non-nil incoming origin overwrites the stored value — a tree/context-menu
+    /// re-open carries no origin and must not silently clear the
+    /// previously-recorded return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
         sessionName: String,
         windowId: String,
-        originWindowId: String? = nil
+        origin: FileTabOrigin? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
         gitActiveWindowIds.remove(windowId)
@@ -2468,8 +2510,8 @@ public struct MainView: View {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         let useSplit = settings.alwaysOpenFilesInSplit
         if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
-            if let originWindowId {
-                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            if let origin {
+                tabs.openFileTabs[existingIndex].origin = origin
             }
             let existingId = tabs.openFileTabs[existingIndex].id
             if tabs.rightSide.contains(.file(existingId)) {
@@ -2482,7 +2524,7 @@ public struct MainView: View {
         let newTab = OpenFileTab(
             path: path,
             directoryPath: directoryPath,
-            originWindowId: originWindowId
+            origin: origin
         )
         tabs.openFileTabs.append(newTab)
         if useSplit {
@@ -2684,7 +2726,7 @@ public struct MainView: View {
                 directoryPath: directoryPath,
                 sessionName: session.sessionName,
                 windowId: window.id,
-                originWindowId: window.id
+                origin: .terminalWindow(window.id)
             )
             return true
         }
@@ -3539,16 +3581,35 @@ public struct MainView: View {
         // Right-side close flow doesn't reroute focus to a terminal window.
         guard !wasOnRight else { return }
 
-        guard let originWindowId = closedTab.originWindowId else { return }
+        switch closedTab.origin {
+        case nil:
+            return
+        case let .terminalWindow(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: false)
+        case let .gitTab(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: true)
+        }
+    }
 
+    /// On closing the left-pane file tab, returns the left pane to where the tab
+    /// was opened from: the origin window's terminal, or — when `showGit` — its
+    /// Git tab. Opening a file tab forces file-browser mode, so this undoes that
+    /// and reselects the origin window if focus drifted.
+    @MainActor
+    private func restoreFileTabOrigin(windowId: String, showGit: Bool) {
         // Drop membership unconditionally so the content area falls off the
         // tree even when the origin window is gone (closed/renamed). The
         // entry is otherwise only cleaned up by the panes-change observer,
         // which would briefly keep the tree visible.
-        fileBrowserActiveWindowIds.remove(originWindowId)
+        fileBrowserActiveWindowIds.remove(windowId)
 
-        guard let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId }) else {
+        guard let originWindow = tmuxService.windows.first(where: { $0.id == windowId }) else {
             return
+        }
+        // Only restore the Git tab for a live window; a gone window falls back
+        // to the terminal/default like the terminal-origin case.
+        if showGit {
+            gitActiveWindowIds.insert(windowId)
         }
         if selectedWindow?.id != originWindow.id {
             selectedRemoteSession = nil

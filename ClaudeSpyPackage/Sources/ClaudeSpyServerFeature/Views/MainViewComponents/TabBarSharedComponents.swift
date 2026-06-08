@@ -31,11 +31,24 @@ struct DropIndicator: View {
 /// the tab they're moving.
 struct TabDragPreview: View {
     let label: String
-    let symbol: Symbols
+    private let image: Image
+
+    /// Preview for a tab whose icon is a system symbol (the common case).
+    init(label: String, symbol: Symbols) {
+        self.label = label
+        self.image = symbol.image
+    }
+
+    /// Preview for a tab whose icon is a custom (bundled) symbol — e.g. the Git
+    /// tab's ``CustomSymbol/gitLogo``, which can't go through ``Symbols``.
+    init(label: String, image: Image) {
+        self.label = label
+        self.image = image
+    }
 
     var body: some View {
         HStack(spacing: 4) {
-            symbol.image
+            image
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(label)
