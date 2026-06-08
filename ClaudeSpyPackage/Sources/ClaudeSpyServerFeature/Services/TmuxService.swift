@@ -647,8 +647,14 @@ final public class TmuxService {
         let scrollbackResult = try await runTmuxCommand(
             ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
         )
+        // `-N` preserves trailing spaces at each line's end (without `-J`'s
+        // wrapped-line joining). Without it, tmux trims trailing cells — which
+        // makes a multi-row background band that *continues* (a Codex composer
+        // box) indistinguishable from a single-row band followed by blank
+        // rows, dropping the band's background on its continuation rows when
+        // rebuilt. See `processCapturePaneForStreaming` and issue #578.
         let visibleResult = try await runTmuxCommand(
-            ["capture-pane", "-t", target, "-p", "-e"]
+            ["capture-pane", "-t", target, "-p", "-e", "-N"]
         )
         guard visibleResult.isSuccess else {
             throw TmuxError.invalidPane(target: target)
@@ -701,8 +707,11 @@ final public class TmuxService {
             sessionName: sessionName
         )
 
+        // `-N` preserves trailing spaces (see the matching note in
+        // `capturePaneWithScrollbackForStreaming`) so multi-row background
+        // bands survive the rebuild. Issue #578.
         let visibleResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(paneId)' -p -e",
+            "capture-pane -t '\(paneId)' -p -e -N",
             sessionName: sessionName
         )
 
@@ -835,68 +844,58 @@ final public class TmuxService {
         // Output visible lines sequentially. Filter each line to keep only color
         // codes (remove cursor positioning that could interfere).
         //
-        // Trailing-cell strategy: write the line's content, then EITHER pad
-        // out to `width - 1` with explicit spaces under the active SGR (when
-        // the line's end-of-line SGR state has non-bg attributes that need
-        // styling preservation), OR just `\e[K` (BCE-erase to end of line)
-        // when the bg band — or no styling at all — is sufficient. Reset SGR
-        // before `\r\n`.
+        // Cross-line SGR state carry (issue #578):
         //
-        // Why conditional and not always-or-never padding:
+        //   `tmux capture-pane -e` emits an SGR setter only when an attribute
+        //   *changes* and lets that state carry across line boundaries — it
+        //   never re-emits the setter at the start of each row. A multi-row
+        //   background band (e.g. a Codex composer box) therefore bears its
+        //   `\e[48;5;…m` setter only on its *first* row; every continuation
+        //   row carries the bg purely via that persisted state. With `-N` the
+        //   continuation rows now arrive with their real (preserved) trailing
+        //   spaces, but still no setter — so we must restore the carried SGR
+        //   state at the start of each rendered row, or those rows render with
+        //   the default (black) background.
         //
-        //   - `\e[K` (EL) is BCE: it paints trailing cells with the line's
-        //     active bg color (so issue #411 bg bands survive) but uses
-        //     `Terminal.eraseAttr()` which strips fg and style — i.e. it
-        //     CANNOT preserve underline / italic / fg-color bands from
-        //     trimmed-capture rows (the #352 trim shape: a lone `\e[4m` or
-        //     similar non-bg setter with no chars after).
+        //   We restore the carried state only on rows that actually render a
+        //   cell (`visibleColumns > 0`). A genuinely blank row arrives empty
+        //   from `-N` (its cells were never written, so tmux emits nothing for
+        //   it); restoring a carried bg there and letting `\e[K` BCE-fill it
+        //   would resurrect the #411 leak. `-N` makes this distinction
+        //   reliable: a band's continuation row carries explicit spaces (it is
+        //   non-empty), whereas a truly default row is captured empty.
         //
-        //   - Padding with real spaces under the active SGR preserves any
-        //     attribute on the trailing cells, including non-bg ones — but
-        //     every padded space is a real cell with `code != 0` in the
-        //     buffer. `BufferLine.getTrimmedLength` only trims cells with
-        //     `code == 0`, so padded rows have a trimmed length equal to the
-        //     pane width. When auto-resize fires after attach and SwiftTerm
-        //     reflows narrower, every padded row of `width - 1` chars wraps
-        //     into `ceil((width - 1) / newCols)` visual rows. The trailing
-        //     visual rows are pure pad spaces — visually blank — producing
-        //     the double/triple-spacing reported as issue #429.
-        //
-        //   So we restrict padding to the rows that actually need it: those
-        //   ending with a non-bg SGR setter that hasn't been reset. In
-        //   practice these are TUI bands (underlined separators, fg-colored
-        //   status lines), not ordinary log content. Ordinary content rows
-        //   skip padding → trimmed length stays at the actual content
-        //   length → reflow narrower trims trailing NULL cells → no blank
-        //   continuation rows. The few padded rows still produce blanks on
-        //   reflow, but those rows are also redrawn by the running TUI on
-        //   the SIGWINCH that auto-resize triggers, so the blanks are
-        //   transient — a much smaller blast radius than padding every row.
-        //
-        //   Padding stops one column short of `width` (then `\e[K` BCE-clears
-        //   the final cell) so the cursor can never land in the pending-wrap
-        //   position. The single-cell loss of non-bg styling on the rightmost
-        //   column is invisible in practice. This was the original intent of
-        //   the `width - 1` cap from PR #353/#413.
+        //   Trailing cells: `\e[K` (EL) is BCE — it paints from the cursor to
+        //   the right margin with the *current* bg. After a band's content it
+        //   extends the band's bg to the edge; after a partial band tmux has
+        //   already emitted `\e[49m`, so `\e[K` clears with the default bg;
+        //   after ordinary content the bg is default and `\e[K` simply clears
+        //   any stale cells from a previous rebuild. The `\e[0m` after it
+        //   resets so the SGR can't leak into the next row's BCE. Because the
+        //   real trailing spaces now come from `-N`, the old conditional
+        //   padding (PR #353/#413, issue #429) is no longer needed and is
+        //   gone — only genuine band rows carry full-width cells, so reflow
+        //   no longer manufactures blank continuation rows for plain content.
         //
         //   The SGR-leak fix from #352 (resetting SGR before extractActiveSGR
         //   and skipping extraction on empty cursor lines) is unchanged and
-        //   still prevents the underline-state leak into live-streamed data
-        //   regardless of padding strategy.
-        let padTarget = max(0, width - 1)
+        //   still prevents the underline-state leak into live-streamed data.
+        var carriedSGRs: [String] = []
         for index in 0..<linesToOutput {
-            var visibleColumns = 0
-            var needsExplicitPadding = false
             if index < visibleLines.count {
                 let filtered = filterToColorCodesOnly(visibleLines[index])
-                output += filtered
-                visibleColumns = countVisibleColumns(filtered)
-                needsExplicitPadding = lineHasNonBgSGRActiveAtEnd(filtered)
+                if countVisibleColumns(filtered) > 0 {
+                    // Restore the SGR state carried into this row (default for
+                    // the first band row, the band's bg for continuation rows),
+                    // then draw the row's real content and trailing spaces.
+                    output += carriedSGRs.joined()
+                    output += filtered
+                }
+                // Track state even for rows we don't render, so a band's bg
+                // carries to its continuation rows exactly as tmux intends.
+                accumulateSGRState(&carriedSGRs, from: filtered)
             }
-            if needsExplicitPadding, visibleColumns < padTarget {
-                output += String(repeating: " ", count: padTarget - visibleColumns)
-            }
-            output += "\u{1b}[K" // BCE-clear trailing cells (preserves bg band; no real chars when not padded)
+            output += "\u{1b}[K" // BCE-clear trailing cells (extends the row's active bg band; default after a band's `\e[49m`)
             output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
@@ -949,10 +948,10 @@ final public class TmuxService {
     /// via `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
     /// combining marks count as 0 — matching SwiftTerm's column accounting.
     ///
-    /// Used by `processCapturePaneForStreaming` when a row needs explicit
-    /// padding under the active SGR (see `lineHasNonBgSGRActiveAtEnd`) — the
-    /// pad amount is `padTarget - visibleColumns`, so over-counting wraps the
-    /// row and silently consumes a row of the rebuilt screen.
+    /// Used by `processCapturePaneForStreaming` to tell a row that renders a
+    /// cell (`> 0`) from a genuinely blank one: only the former gets the
+    /// carried SGR state restored, so a multi-row background band's
+    /// continuation rows keep their bg while truly default rows stay default.
     func countVisibleColumns(_ filtered: String) -> Int {
         var count = 0
         var i = filtered.startIndex
@@ -1005,101 +1004,6 @@ final public class TmuxService {
             }
         }
         return count
-    }
-
-    /// Returns true if the active SGR state at the end of `filtered` includes
-    /// any attribute that BCE (`\e[K`) cannot preserve — i.e. a style flag
-    /// (bold, dim, italic, underline, blink, reverse, hide, strikethrough,
-    /// double-underline, overline) or a non-default fg color.
-    ///
-    /// Used by `processCapturePaneForStreaming` to decide whether the
-    /// trailing cells of a rebuilt row need explicit padding under the active
-    /// SGR (preserving the issue #352 trim-shape bands like a lone `\e[4m`)
-    /// or whether `\e[K` alone suffices (issue #411 bg bands or default).
-    ///
-    /// The walker treats partial resets (22-29 style off, 39 default fg) as
-    /// no-ops, so it over-pads when a partial reset cancels the only active
-    /// attribute. That false positive is acceptable: the cost is reflow
-    /// blanks on a rare row, while a false negative would lose visible
-    /// styling on the rebuild.
-    func lineHasNonBgSGRActiveAtEnd(_ filtered: String) -> Bool {
-        var hasNonBgActive = false
-        var i = filtered.startIndex
-        while i < filtered.endIndex {
-            guard
-                filtered[i] == "\u{1b}",
-                filtered.index(after: i) < filtered.endIndex,
-                filtered[filtered.index(after: i)] == "[" else {
-                i = filtered.index(after: i)
-                continue
-            }
-            let paramsStart = filtered.index(after: filtered.index(after: i))
-            var end = paramsStart
-            while end < filtered.endIndex {
-                let c = filtered[end]
-                if c >= "@", c <= "~" { break }
-                end = filtered.index(after: end)
-            }
-            if end >= filtered.endIndex { break }
-            let terminator = filtered[end]
-            if terminator == "m" {
-                let paramStr = String(filtered[paramsStart..<end])
-                // `omittingEmptySubsequences: false` so trailing-empty
-                // params (e.g. `\e[1;m`) are treated as `0` per ECMA-48.
-                let params: [Int] = paramStr.isEmpty
-                    ? [0]
-                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
-                    .map { Int($0) ?? 0 }
-                var idx = 0
-                while idx < params.count {
-                    let p = params[idx]
-                    switch p {
-                    case 0:
-                        // Reset all attributes.
-                        hasNonBgActive = false
-                    case 1...9,
-                         21,
-                         53:
-                        // Style flags: bold, dim, italic, underline, blink,
-                        // fast-blink, reverse, hide, strikethrough,
-                        // double-underline, overline.
-                        hasNonBgActive = true
-                    case 30...37,
-                         90...97:
-                        // 8-color and bright fg.
-                        hasNonBgActive = true
-                    case 38:
-                        // Extended fg: 38;5;N or 38;2;R;G;B. Skip parameters.
-                        hasNonBgActive = true
-                        if idx + 1 < params.count {
-                            switch params[idx + 1] {
-                            case 5: idx += 2
-                            case 2: idx += 4
-                            default: break
-                            }
-                        }
-                    case 48:
-                        // Extended bg — doesn't affect non-bg state. Skip params.
-                        if idx + 1 < params.count {
-                            switch params[idx + 1] {
-                            case 5: idx += 2
-                            case 2: idx += 4
-                            default: break
-                            }
-                        }
-                    default:
-                        // 22-29 (style resetters), 39 (default fg), 40-47 / 49 /
-                        // 100-107 (bg-related). Conservative: leave the flag
-                        // unchanged — partial resets may not clear all non-bg
-                        // attributes and we'd rather over-pad than lose styling.
-                        break
-                    }
-                    idx += 1
-                }
-            }
-            i = filtered.index(after: end)
-        }
-        return hasNonBgActive
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
@@ -1249,6 +1153,52 @@ final public class TmuxService {
         case "}": return "\u{00a3}" // £
         case "~": return "\u{00b7}" // ·
         default: return char
+        }
+    }
+
+    /// Updates a running list of active SGR sequences by processing every SGR
+    /// code in `filtered` (a single `filterToColorCodesOnly` result). A full
+    /// reset (`\e[0m` / `\e[m`) clears the list; any other SGR sequence is
+    /// appended. Replaying the joined list reproduces the SGR state that
+    /// `tmux capture-pane -e` carries across line boundaries — used by
+    /// `processCapturePaneForStreaming` to restore a multi-row band's
+    /// background on its continuation rows (issue #578).
+    ///
+    /// Mirrors the SGR-tracking half of `extractActiveSGR`, but walks the whole
+    /// line (no cursor-column stop) and accumulates into caller-owned state so
+    /// it can be threaded across every rendered row.
+    ///
+    /// Internal for testing
+    func accumulateSGRState(_ activeSGRs: inout [String], from filtered: String) {
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            if
+                filtered[i] == "\u{1b}",
+                filtered.index(after: i) < filtered.endIndex,
+                filtered[filtered.index(after: i)] == "[" {
+                var endIdx = filtered.index(i, offsetBy: 2)
+                while endIdx < filtered.endIndex {
+                    let ch = filtered[endIdx]
+                    if ch >= "@", ch <= "~" {
+                        if ch == "m" {
+                            let sgr = String(filtered[i...endIdx])
+                            if sgr == "\u{1b}[0m" || sgr == "\u{1b}[m" {
+                                activeSGRs.removeAll()
+                            } else {
+                                activeSGRs.append(sgr)
+                            }
+                        }
+                        i = filtered.index(after: endIdx)
+                        break
+                    }
+                    endIdx = filtered.index(after: endIdx)
+                }
+                if endIdx >= filtered.endIndex {
+                    i = filtered.endIndex
+                }
+            } else {
+                i = filtered.index(after: i)
+            }
         }
     }
 

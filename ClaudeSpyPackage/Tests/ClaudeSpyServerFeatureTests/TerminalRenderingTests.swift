@@ -437,18 +437,17 @@
                 )
             }
 
-            @Test("Full-row bg band is preserved when capture trims trailing bg spaces (#411)")
+            @Test("Full-row bg band is preserved when capture keeps trailing bg spaces (#411/#578)")
             @MainActor
             func backgroundBandSurvivesTrimmedCapture() {
                 let service = TmuxService()
-                // Same trimmed-row shape as `backgroundDoesNotLeakViaEraseLine`
-                // (row 0 captured as a lone `\e[44m`), but here we assert the
-                // *positive* side: the band must still render across the entire
-                // row. The fix achieves this by writing content first, then
-                // emitting `\e[K` so EL erases with the line's active bg —
-                // even when capture-pane left no spaces to draw.
+                // With `-N`, tmux preserves the band's trailing bg-blue spaces,
+                // so row 0 arrives as `\e[44m` followed by `width` real spaces.
+                // Assert the *positive* side: the band must render across the
+                // entire row. The rebuild writes the row's real content and
+                // then `\e[K` (BCE) extends the active bg to the right edge.
                 let visibleLines = [
-                    "\u{1b}[44m", // trimmed bg-blue row — only the SGR setter remains
+                    "\u{1b}[44m" + String(repeating: " ", count: 80), // bg-blue row, spaces preserved by -N
                     "\u{1b}[0m> Input",
                 ]
                 let visibleOutput = visibleLines.joined(separator: "\n")
@@ -475,25 +474,20 @@
                 #expect(bgRow0End != .defaultColor, "Row 0 col 79 must have bg, got: \(bgRow0End)")
             }
 
-            @Test("Full-row underline band is preserved when capture trims trailing styled spaces (#352)")
+            @Test("Full-row underline band is preserved when capture keeps trailing styled spaces (#352)")
             @MainActor
             func underlineBandSurvivesTrimmedCapture() {
                 let service = TmuxService()
-                // tmux's `capture-pane -p` emits a lone `\e[4m` for a row whose
-                // trailing underlined cells were trimmed (e.g. a full-width
-                // underlined separator). Underline is NOT a BCE attribute —
-                // `\e[K`'s eraseAttr strips style, so `\e[K` alone would lose
-                // the band on the rebuild. `lineHasNonBgSGRActiveAtEnd` detects
-                // the unreset non-bg setter and pads with explicit spaces under
-                // the active SGR, putting the underline attribute on every
-                // padded cell.
-                //
-                // Padding stops at `width - 1` to avoid the pending-wrap edge
-                // case: the trailing cell (col `width - 1`) is BCE-cleared by
-                // `\e[K` and renders without the underline (single-cell loss
-                // — invisible in practice).
+                // With `-N`, tmux preserves the row's underlined spaces, so a
+                // full-width underlined separator arrives as `\e[4m` followed by
+                // `width` real spaces — each a genuine underlined cell. The
+                // rebuild writes them verbatim (no padding heuristic needed),
+                // so the underline band survives. Underline is NOT a BCE
+                // attribute, so the trailing `\e[K` clears the final cell
+                // (col `width - 1`) without underline — a single-cell loss that
+                // is invisible in practice and not asserted below.
                 let visibleLines = [
-                    "\u{1b}[4m", // trimmed underlined row — only the SGR setter remains
+                    "\u{1b}[4m" + String(repeating: " ", count: 80), // underlined row, spaces preserved by -N
                     "\u{1b}[0m> Input",
                 ]
                 let visibleOutput = visibleLines.joined(separator: "\n")
@@ -510,10 +504,10 @@
                 let (terminal, _) = makeTerminal(cols: 80, rows: 10)
                 terminal.feed(byteArray: Array(data))
 
-                // Every cell from col 0 up to col `width - 2` (= 78) on row 0
-                // should carry the underline attribute — including cells the
-                // capture didn't enumerate explicitly. Col 79 is the trailing
-                // BCE-cleared edge cell and is not asserted.
+                /// Every cell from col 0 up to col `width - 2` (= 78) on row 0
+                /// should carry the underline attribute — including cells the
+                /// capture didn't enumerate explicitly. Col 79 is the trailing
+                /// BCE-cleared edge cell and is not asserted.
                 func underlined(col: Int) -> Bool {
                     guard let line = terminal.getLine(row: 0) else { return false }
                     return line[col].attribute.style.contains(.underline)
@@ -532,6 +526,55 @@
                     !row1[20].attribute.style.contains(.underline),
                     "Row 1 col 20 must not be underlined"
                 )
+            }
+
+            @Test("Multi-row bg band keeps its background on continuation rows (#578)")
+            @MainActor
+            func multiRowBackgroundBandSurvivesCarriedState() {
+                let service = TmuxService()
+                let width = 40
+                /// `tmux capture-pane -e -N` for a multi-row composer band:
+                /// only the FIRST band row bears the `\e[48;5;243m` setter; the
+                /// continuation rows carry the bg purely via tmux's cross-line
+                /// SGR state, arriving as real spaces with NO setter of their
+                /// own. The rebuild must restore the carried state on each row,
+                /// or the continuation rows render black (issue #578).
+                func pad(_ s: String) -> String {
+                    s + String(repeating: " ", count: max(0, width - s.count))
+                }
+                let visibleLines = [
+                    pad("\u{1b}[48;5;243mopen file on my browser"), // setter + content + spaces
+                    pad(""), // continuation row: spaces only, NO setter
+                    pad("summarize recent commits"), // continuation row: content + spaces, NO setter
+                    pad(""), // continuation row: spaces only, NO setter
+                    "\u{1b}[0m", // band ends here
+                ]
+                let visibleOutput = visibleLines.joined(separator: "\n")
+                let cursorOutput = "0,5,1"
+
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleOutput,
+                    cursorOutput: cursorOutput,
+                    width: width,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: width, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // Every band row — including the continuation rows that carried
+                // no setter — must have a non-default background across its
+                // full width.
+                for row in 0...3 {
+                    for col in [0, width / 2, width - 1] {
+                        let bg = getBgColor(terminal, col: col, row: row)
+                        #expect(
+                            bg != .defaultColor,
+                            "Band row \(row) col \(col) must have bg, got: \(bg)"
+                        )
+                    }
+                }
             }
         }
 
@@ -1895,13 +1938,12 @@
             // Regression test for the issue #429 symptom in the
             // "rebuild width > mirror cols" feed-forward path.
             //
-            // Visible content has no SGR setters, so
-            // `lineHasNonBgSGRActiveAtEnd` returns false and the conditional
-            // padding is suppressed — rebuilt rows end after their actual
-            // content (plus a trailing `\e[K`) instead of being padded to
-            // `width`. Feeding that output into a SwiftTerm sized to one
-            // column less than `width` must NOT produce blank rows between
-            // consecutive content rows: with no padding, no row reaches the
+            // The rebuild no longer pads rows to `width`: with `-N` only
+            // genuine band rows carry full-width trailing cells, and this
+            // content has none, so each rebuilt row ends after its actual
+            // content (plus a trailing `\e[K`). Feeding that output into a
+            // SwiftTerm sized to one column less than `width` must NOT produce
+            // blank rows between consecutive content rows: no row reaches the
             // narrower terminal's right edge, so nothing wraps and the
             // trailing `\r\n` lands cleanly on the next row.
             let service = TmuxService()
@@ -1971,24 +2013,19 @@
             //   1. Mirror attaches with tmux pane at width=200 (wider than the
             //      mirror window can fit).
             //   2. SwiftTerm is sized to cols=200 to match.
-            //   3. processCapturePaneForStreaming runs with width=200 and pads
-            //      every visible row out to width-1 = 199 explicit space chars
-            //      followed by `\e[K` on col 199.
+            //   3. processCapturePaneForStreaming runs with width=200.
             //   4. Auto-resize fires → tmux pane is shrunk to fit the mirror
             //      window (e.g., 79 cols). Layout-change event arrives →
             //      SwiftTerm.resize(cols: 79) runs reflowNarrower.
-            //   5. Each padded row has trimmedLength == 199 (because explicit
-            //      space chars count as content per BufferLine.getTrimmedLength
-            //      — only NULL cells get trimmed). Reflow narrower wraps each
-            //      199-char row into ceil(199/79) = 3 visual rows: 1 with
-            //      content + trailing pad spaces, 2 with pure trailing pad
-            //      spaces. The trailing-pad rows render as visually blank.
+            //   5. A row whose trimmedLength reaches the full width wraps on
+            //      reflow into ceil(width/79) visual rows, the trailing ones
+            //      pure spaces — visually blank.
             //
-            // The earlier test `issue429NoBlankRowsOnColsMismatch` only covers
-            // the "feed rebuild into a smaller terminal directly" path. It
-            // does not exercise reflow, so it passes with the current padded
-            // output. This test exercises the reflow path — and FAILS until
-            // the rebuild stops emitting trailing space chars beyond content.
+            // The old pad-to-width heuristic made *every* plain content row
+            // full-width and so manufactured these blanks. Now the rebuild
+            // emits no trailing spaces beyond a row's real content (the real
+            // band cells come from `-N`), so plain content rows stay short and
+            // reflow trims their NULL tails — no blank continuation rows.
             let service = TmuxService()
             let height = 24
             let rebuildWidth = 200
@@ -2047,125 +2084,6 @@
                 Issue.record("Found \(blanksBetween) blank rows between content rows after resize \(rebuildWidth)→\(postResizeCols). First 20 rows:\n\(excerpt)")
             }
             #expect(blanksBetween == 0, "Expected no blank rows after reflow narrower (\(rebuildWidth)→\(postResizeCols)), got \(blanksBetween) blank rows")
-        }
-    }
-
-    // MARK: - lineHasNonBgSGRActiveAtEnd direct tests
-
-    @Suite("lineHasNonBgSGRActiveAtEnd SGR walker")
-    @MainActor
-    struct LineHasNonBgSGRActiveAtEndTests {
-        @Test("No SGR codes → false")
-        func plainTextIsFalse() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("plain log line") == false)
-        }
-
-        @Test("Style flag (bold) → true")
-        func boldIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mbold") == true)
-        }
-
-        @Test("Style flag (underline) → true (#352 trim shape)")
-        func underlineIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[4m") == true)
-        }
-
-        @Test("8-color fg (red) → true")
-        func fgRedIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[31mfoo") == true)
-        }
-
-        @Test("Bright fg (bright cyan) → true")
-        func brightFgIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[96mfoo") == true)
-        }
-
-        @Test("256-color fg (38;5;N) → true and skips index param")
-        func extendedFg256IsTrue() {
-            let service = TmuxService()
-            // After consuming 38;5;1, no further state changes — flag stays true.
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[38;5;1mfoo") == true)
-        }
-
-        @Test("Truecolor fg (38;2;R;G;B) → true and skips RGB params")
-        func extendedFgTruecolorIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[38;2;255;128;0mfoo") == true)
-        }
-
-        @Test("Bg-only setter (#411 band) → false (BCE handles it)")
-        func bgOnlyIsFalse() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[44m") == false)
-        }
-
-        @Test("Extended bg (48;5;N) → false and skips index param")
-        func extendedBg256IsFalse() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[48;5;1m") == false)
-        }
-
-        @Test("Truecolor bg (48;2;R;G;B) → false and skips RGB params")
-        func extendedBgTruecolorIsFalse() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[48;2;0;0;255m") == false)
-        }
-
-        @Test("Style + reset (\\e[0m) → false")
-        func fullResetClearsFlag() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[0m") == false)
-        }
-
-        @Test("Empty params (\\e[m) treated as full reset → false")
-        func emptyParamsIsReset() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[m") == false)
-        }
-
-        @Test("Trailing-empty param (\\e[1;m) treats trailing as 0 → false")
-        func trailingEmptyParamIsZero() {
-            let service = TmuxService()
-            // ECMA-48: trailing empty param is `0`, so 1;m sets bold then resets.
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1;m") == false)
-        }
-
-        @Test("Partial reset (39 default fg) is conservatively a no-op → over-pads")
-        func partialResetFgIsOverPad() {
-            let service = TmuxService()
-            // \e[31m sets red fg; \e[39m resets to default fg per ECMA-48, but
-            // the walker treats 39 as a no-op and stays true. This is the
-            // documented over-pad trade-off.
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[31mfoo\u{1b}[39m") == true)
-        }
-
-        @Test("Partial reset (24 underline off) is conservatively a no-op → over-pads")
-        func partialResetUnderlineIsOverPad() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[4mfoo\u{1b}[24m") == true)
-        }
-
-        @Test("Multi-param SGR (\\e[1;31m) → true")
-        func multiParamIsTrue() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1;31mfoo") == true)
-        }
-
-        @Test("Style then bg-only after reset → false")
-        func bgAfterResetIsFalse() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[1mfoo\u{1b}[0m\u{1b}[44m") == false)
-        }
-
-        @Test("Non-SGR CSI (e.g. \\e[H) is ignored → false")
-        func nonSgrCsiIgnored() {
-            let service = TmuxService()
-            #expect(service.lineHasNonBgSGRActiveAtEnd("\u{1b}[Hfoo") == false)
         }
     }
 
