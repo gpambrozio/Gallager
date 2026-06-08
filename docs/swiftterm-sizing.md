@@ -151,6 +151,30 @@ let contentWidth = CGFloat(paneInfo.width) * cellSize.width + horizontalBuffer
 | Rounding buffer | ~5px | Accounts for font metric rounding differences |
 | **Total** | **20px** | Current working value |
 
+### Background Fill in the Reserved Margin
+
+That ~20px reserved strip is **non-cell space**: SwiftTerm draws cells across
+`cols × cellWidth`, and the area beyond (its internal legacy scroller, which we
+don't use, plus the rounding buffer) is painted with the view's
+`nativeBackgroundColor` (the default terminal background).
+
+This is invisible for ordinary content, but a TUI that paints a **full-pane-width
+background band** (e.g. Codex/ratatui filled prompt and message panels) looks
+truncated: the cells are filled edge-to-edge with the band color, but the
+reserved margin stays default-bg, leaving a dark strip on the right. iTerm has no
+such reservation, so the same pane renders edge-to-edge there. It only appears on
+**auto-sized** panes (where `calculateOptimalTerminalDimensions` subtracts the
+buffer, so `cols × cellWidth < container width`); fixed-width panes hug their
+content, so there's no margin to expose.
+
+`InteractiveTerminalView.RightEdgeBackgroundView` fixes this without touching the
+sizing math: a non-interactive overlay above the terminal view that, on each
+`layout()` pass (beside `updateURLUnderlines`), extends **each displayed row's
+trailing-cell background** into the reserved margin. It reads the rightmost cell's
+attribute via `Terminal.getLine(row:)` (scroll-aware) and `TerminalColorMapper`
+(honoring reverse video), so it works for both the live `pipe-pane` render and the
+`capture-pane` re-capture rebuild. Regression test: `RightEdgeFillScenario`.
+
 ## Alternative Approaches
 
 ### 1. Dynamic Scroller Width Calculation (Implemented)
