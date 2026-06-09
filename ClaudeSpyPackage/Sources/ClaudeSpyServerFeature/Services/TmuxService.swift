@@ -1168,6 +1168,17 @@ final public class TmuxService {
     /// line (no cursor-column stop) and accumulates into caller-owned state so
     /// it can be threaded across every rendered row.
     ///
+    /// Partial resets (`\e[49m` default-bg, `\e[39m` default-fg, `\e[22m`–`29`
+    /// style-off) are appended like any other setter rather than pruning the
+    /// attribute they cancel. This keeps the accumulator a dumb, allocation-light
+    /// string list and stays correct because the list is replayed *in order*:
+    /// a later `\e[49m` always wins over an earlier `\e[48;5;Nm`, reproducing the
+    /// exact state tmux carried (this is what the `\e[K` note in
+    /// `processCapturePaneForStreaming` relies on). Growth is bounded per call —
+    /// the list lives only for one rebuild (≤ height rows) and is reset on every
+    /// full `\e[0m`, which `tmux capture-pane -e` emits at each band boundary —
+    /// so the joined prefix re-emitted per row stays small in practice.
+    ///
     /// Internal for testing
     func accumulateSGRState(_ activeSGRs: inout [String], from filtered: String) {
         var i = filtered.startIndex

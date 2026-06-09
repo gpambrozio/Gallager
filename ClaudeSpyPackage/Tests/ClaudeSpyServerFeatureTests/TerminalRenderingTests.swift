@@ -504,14 +504,14 @@
                 let (terminal, _) = makeTerminal(cols: 80, rows: 10)
                 terminal.feed(byteArray: Array(data))
 
-                /// Every cell from col 0 up to col `width - 2` (= 78) on row 0
-                /// should carry the underline attribute — including cells the
-                /// capture didn't enumerate explicitly. Col 79 is the trailing
-                /// BCE-cleared edge cell and is not asserted.
                 func underlined(col: Int) -> Bool {
                     guard let line = terminal.getLine(row: 0) else { return false }
                     return line[col].attribute.style.contains(.underline)
                 }
+                // Every cell from col 0 up to col `width - 2` (= 78) on row 0
+                // should carry the underline attribute — including cells the
+                // capture didn't enumerate explicitly. Col 79 is the trailing
+                // BCE-cleared edge cell and is not asserted.
                 #expect(underlined(col: 0), "Row 0 col 0 must be underlined")
                 #expect(underlined(col: 40), "Row 0 col 40 must be underlined")
                 #expect(underlined(col: 78), "Row 0 col 78 must be underlined")
@@ -533,15 +533,15 @@
             func multiRowBackgroundBandSurvivesCarriedState() {
                 let service = TmuxService()
                 let width = 40
-                /// `tmux capture-pane -e -N` for a multi-row composer band:
-                /// only the FIRST band row bears the `\e[48;5;243m` setter; the
-                /// continuation rows carry the bg purely via tmux's cross-line
-                /// SGR state, arriving as real spaces with NO setter of their
-                /// own. The rebuild must restore the carried state on each row,
-                /// or the continuation rows render black (issue #578).
                 func pad(_ s: String) -> String {
                     s + String(repeating: " ", count: max(0, width - s.count))
                 }
+                // `tmux capture-pane -e -N` for a multi-row composer band:
+                // only the FIRST band row bears the `\e[48;5;243m` setter; the
+                // continuation rows carry the bg purely via tmux's cross-line
+                // SGR state, arriving as real spaces with NO setter of their
+                // own. The rebuild must restore the carried state on each row,
+                // or the continuation rows render black (issue #578).
                 let visibleLines = [
                     pad("\u{1b}[48;5;243mopen file on my browser"), // setter + content + spaces
                     pad(""), // continuation row: spaces only, NO setter
@@ -574,6 +574,60 @@
                             "Band row \(row) col \(col) must have bg, got: \(bg)"
                         )
                     }
+                }
+            }
+
+            @Test("Blank row between two bg bands stays default on re-capture (#578/#411)")
+            @MainActor
+            func blankRowBetweenBandsStaysDefault() {
+                let service = TmuxService()
+                let width = 40
+                func pad(_ s: String) -> String {
+                    s + String(repeating: " ", count: max(0, width - s.count))
+                }
+                // The other half of the carry invariant: a genuinely-blank row
+                // arrives EMPTY from `-N` (its cells were never written, so tmux
+                // emits nothing for it). `countVisibleColumns == 0` must suppress
+                // the carried-state restore, leaving that row default — even
+                // though a band's bg is "active" in the accumulator. Without the
+                // guard, restoring the bg + `\e[K` BCE-fill would resurrect the
+                // #411 leak. The band resumes on the next row (bg re-emitted by
+                // tmux because the run was interrupted), so it stays gray.
+                let visibleLines = [
+                    pad("\u{1b}[48;5;243mopen file on my browser"), // band row: setter + content + spaces
+                    "", // genuinely-blank row: empty, NO content, NO setter
+                    pad("\u{1b}[48;5;243msummarize recent commits"), // band resumes: setter re-emitted
+                    "\u{1b}[0m", // band ends here
+                ]
+                let visibleOutput = visibleLines.joined(separator: "\n")
+                let cursorOutput = "0,4,1"
+
+                let data = service.processCapturePaneForStreaming(
+                    scrollbackOutput: nil,
+                    visibleOutput: visibleOutput,
+                    cursorOutput: cursorOutput,
+                    width: width,
+                    height: 10
+                )
+
+                let (terminal, _) = makeTerminal(cols: width, rows: 10)
+                terminal.feed(byteArray: Array(data))
+
+                // The two band rows (0 and 2) must keep their bg across the full
+                // width; the blank row (1) must stay default at every column.
+                for col in [0, width / 2, width - 1] {
+                    #expect(
+                        getBgColor(terminal, col: col, row: 0) != .defaultColor,
+                        "Band row 0 col \(col) must have bg"
+                    )
+                    #expect(
+                        getBgColor(terminal, col: col, row: 1) == .defaultColor,
+                        "Blank row 1 col \(col) must stay default, got: \(getBgColor(terminal, col: col, row: 1))"
+                    )
+                    #expect(
+                        getBgColor(terminal, col: col, row: 2) != .defaultColor,
+                        "Band row 2 col \(col) must have bg"
+                    )
                 }
             }
         }
@@ -2084,6 +2138,100 @@
                 Issue.record("Found \(blanksBetween) blank rows between content rows after resize \(rebuildWidth)→\(postResizeCols). First 20 rows:\n\(excerpt)")
             }
             #expect(blanksBetween == 0, "Expected no blank rows after reflow narrower (\(rebuildWidth)→\(postResizeCols)), got \(blanksBetween) blank rows")
+        }
+    }
+
+    // MARK: - accumulateSGRState direct tests
+
+    @Suite("accumulateSGRState SGR accumulator")
+    @MainActor
+    struct AccumulateSGRStateTests {
+        @Test("Empty input leaves the list unchanged")
+        func emptyInputNoop() {
+            let service = TmuxService()
+            var sgrs = ["\u{1b}[31m"]
+            service.accumulateSGRState(&sgrs, from: "")
+            #expect(sgrs == ["\u{1b}[31m"])
+        }
+
+        @Test("A single setter is appended")
+        func singleSetterAppended() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[31mfoo")
+            #expect(sgrs == ["\u{1b}[31m"])
+        }
+
+        @Test("Multiple setters accumulate in order")
+        func multipleSettersInOrder() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[1m\u{1b}[48;5;243mbar")
+            #expect(sgrs == ["\u{1b}[1m", "\u{1b}[48;5;243m"])
+        }
+
+        @Test("Full reset (\\e[0m) clears the list")
+        func fullResetClears() {
+            let service = TmuxService()
+            var sgrs: [String] = ["\u{1b}[31m", "\u{1b}[1m"]
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[0m")
+            #expect(sgrs.isEmpty)
+        }
+
+        @Test("Empty-params reset (\\e[m) clears the list")
+        func emptyParamsResetClears() {
+            let service = TmuxService()
+            var sgrs = ["\u{1b}[44m"]
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[m")
+            #expect(sgrs.isEmpty)
+        }
+
+        @Test("Reset mid-line clears, then later setters re-accumulate")
+        func resetMidLineThenAppend() {
+            let service = TmuxService()
+            var sgrs = ["\u{1b}[31m"]
+            service.accumulateSGRState(&sgrs, from: "x\u{1b}[0m\u{1b}[44m")
+            #expect(sgrs == ["\u{1b}[44m"])
+        }
+
+        @Test("Partial reset (\\e[49m) is appended, not pruned")
+        func partialResetAppendedNotPruned() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[48;5;243m\u{1b}[49m")
+            // The bg setter is retained; the later `49` wins on replay because
+            // the joined list is replayed in order (see accumulateSGRState's
+            // doc note on the no-prune trade-off).
+            #expect(sgrs == ["\u{1b}[48;5;243m", "\u{1b}[49m"])
+        }
+
+        @Test("Non-SGR CSI (\\e[H) is ignored")
+        func nonSgrCsiIgnored() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[H\u{1b}[31m")
+            #expect(sgrs == ["\u{1b}[31m"])
+        }
+
+        @Test("Truncated CSI at end of string is handled without crash or hang")
+        func truncatedCsiAtEnd() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[31m\u{1b}[4")
+            // The complete setter is captured; the dangling `\e[4` (no
+            // terminator) is skipped without trapping or looping.
+            #expect(sgrs == ["\u{1b}[31m"])
+        }
+
+        @Test("State threads across multiple calls (the per-row use)")
+        func threadsAcrossCalls() {
+            let service = TmuxService()
+            var sgrs: [String] = []
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[48;5;243mrow0")
+            service.accumulateSGRState(&sgrs, from: "row1") // continuation: no SGR, bg carries
+            #expect(sgrs == ["\u{1b}[48;5;243m"])
+            service.accumulateSGRState(&sgrs, from: "\u{1b}[0m") // band ends
+            #expect(sgrs.isEmpty)
         }
     }
 
