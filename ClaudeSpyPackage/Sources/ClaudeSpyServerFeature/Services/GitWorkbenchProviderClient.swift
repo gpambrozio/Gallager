@@ -35,10 +35,20 @@ extension GitWorkbenchProviderClient: DependencyKey {
         CLIGitProvider(repositoryURL: url)
     }
 
-    /// Deterministic fixtures for previews and E2E. `.zero` artificial latency
-    /// means the workbench populates immediately, so screenshots are stable.
+    /// Deterministic fixtures for previews. `.zero` artificial latency means the
+    /// workbench populates immediately, so previews render the familiar fixtures.
     public static let mock = GitWorkbenchProviderClient { _ in
         MockGitProvider(delay: .zero)
+    }
+
+    /// E2E provider that starts **clean** and flips to the mock fixture only when the
+    /// sentinel file at `changesFilePath` is set via the `setGitMockChanges(_:)` step
+    /// (issue #573). Used so the eagerly-loaded Git tab badge doesn't show in every
+    /// scenario — only the ones that explicitly introduce changes.
+    public static func e2e(changesFilePath: String) -> GitWorkbenchProviderClient {
+        GitWorkbenchProviderClient { _ in
+            E2EGitProvider(changesFilePath: changesFilePath)
+        }
     }
 
     public static let previewValue = mock

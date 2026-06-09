@@ -1022,6 +1022,17 @@ public struct MainView: View {
                 )
             }
             .id(window.id)
+            .task(id: directoryPath) {
+                // Eagerly load the displayed session's git status so the Git tab
+                // badge (issue #573) shows on session load, before the Git tab is
+                // ever opened.
+                if let session {
+                    await eagerlyLoadGitStatus(
+                        sessionName: session.sessionName,
+                        directoryPath: directoryPath
+                    )
+                }
+            }
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
                 title: "New Session",
@@ -1410,12 +1421,10 @@ public struct MainView: View {
     }
 
     /// Changed-file count for a session's Git tab badge (issue #573), read live
-    /// from the session's cached GitWorkbench store. The store keeps its
-    /// `summary` fresh on its own (via the provider's repository watcher), so the
-    /// badge stays current without any polling here. Returns 0 when the Git tab
-    /// hasn't been engaged for this directory (no cached store) or the repository
-    /// hasn't finished its first load (`summary == nil`), so the badge only
-    /// appears for repositories the user has actually opened.
+    /// from the session's cached GitWorkbench store's `summary`. The store keeps
+    /// it fresh on its own (via the provider's repository watcher). Returns 0
+    /// until the store exists for this directory and has finished its first load
+    /// (`summary == nil`), so a clean repository shows no badge.
     @MainActor
     private func gitChangedFileCount(sessionName: String, directoryPath: String) -> Int {
         guard
@@ -1423,6 +1432,17 @@ public struct MainView: View {
             entry.path == directoryPath
         else { return 0 }
         return entry.store.summary?.changedFileCount ?? 0
+    }
+
+    /// Eagerly builds and loads the displayed session's GitWorkbench store so the
+    /// Git tab badge (issue #573) reflects the repository's changes as soon as the
+    /// session is shown — without the user first opening the Git tab. The store is
+    /// retained per session, so this is a no-op refresh once loaded, and its own
+    /// repository watcher keeps the badge live afterwards.
+    @MainActor
+    private func eagerlyLoadGitStatus(sessionName: String, directoryPath: String) async {
+        ensureGitStore(sessionName: sessionName, directoryPath: directoryPath)
+        await gitWorkbenchStores[sessionName]?.store.reload()
     }
 
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
