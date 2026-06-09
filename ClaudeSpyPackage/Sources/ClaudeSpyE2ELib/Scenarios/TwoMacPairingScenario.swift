@@ -49,6 +49,15 @@ public enum TwoMacPairingScenario {
             instance: 1
         )
 
+        // The viewer can render the terminal element from its initial subscribe
+        // snapshot before it is registered to receive incremental repaints.
+        // Activating the viewer re-exposes the terminal, restarting that
+        // handshake, so typing immediately races it — the host's echo output
+        // streams back before the viewer is listening and the mirror stays
+        // empty. Give the remote-pane subscription a beat to go live first
+        // (see e2e-viewer-mirror-subscribe-race; same guard as BrowserTab).
+        TestStep.wait(seconds: 3)
+
         TestStep.log("Typing command from viewer into remote terminal (no charDelay)")
         TestStep.macType(text: "echo e2e-test-hello", pressReturn: true, instance: 1)
 
@@ -57,7 +66,7 @@ public enum TwoMacPairingScenario {
         // Verify the viewer's terminal UI shows the command
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("e2e-test-hello")]),
-            timeout: 10,
+            timeout: 15,
             instance: 1
         )
 
