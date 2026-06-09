@@ -7,6 +7,9 @@ import Foundation
 /// 1. Activating the Git tab shows the GitWorkbench Changes view backed by the
 ///    stable mock provider (repo "aurora-cli", branch "feat/auto-sync", the
 ///    fixture's changed files).
+/// - Once the Git tab has been engaged, its button carries a changed-file-count
+///   badge (issue #573) sourced from the periodic git-status refresh, visible
+///   even while the terminal — not the Git tab — is the active view (Phase 4).
 /// 2. Selecting a changed file loads its diff.
 /// 3. Switching the workspace to History shows the fixture commit list.
 /// 4. The Git tab's state is retained across a tab round-trip: after switching to
@@ -48,6 +51,8 @@ public enum GitBrowserScenario {
 
         // ── Phase 1: Activate the Git tab — Changes view ─────────
         TestStep.log("Phase 1: Activate the Git tab and verify the mock Changes view")
+        // No badge yet: the Git tab hasn't been engaged for this session, so no
+        // store is cached and the count stays hidden (issue #573).
         TestStep.macScreenshot(label: "mac-git-terminal-baseline")
 
         // Click the Git tab (branch icon, accessibilityLabel: "Git").
@@ -82,6 +87,11 @@ public enum GitBrowserScenario {
         TestStep.log("Phase 4: Git state persists across a terminal tab round-trip")
         TestStep.macClickButton(titled: "repobrowse:0")
         TestStep.wait(seconds: 2)
+        // The Git tab has now been engaged for this session, so its button
+        // carries the changed-file-count badge (the 7 mock fixture files) even
+        // though the terminal — not the Git tab — is the visible view. The count
+        // is surfaced on the Git button's accessibility value (issue #573).
+        TestStep.macWaitForElementQuery(.anyTextMatches("7 changed files"), timeout: 10)
         TestStep.macScreenshot(label: "mac-git-terminal-restored")
 
         TestStep.macClickButton(titled: "Git")
@@ -121,7 +131,9 @@ public enum GitBrowserScenario {
         Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "echo '=== OTHER PROJECT ==='")
 
         // Select the other session — its terminal replaces the Git view.
-        TestStep.macWaitForElement(titled: "otherproj", timeout: 5)
+        // A freshly-created tmux session only surfaces in the sidebar on the
+        // next periodic refresh (~5s), so allow two cycles to avoid racing it.
+        TestStep.macWaitForElement(titled: "otherproj", timeout: 12)
         TestStep.macClickButton(titled: "otherproj")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-git-other-session")

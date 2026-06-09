@@ -2,6 +2,7 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Dependencies
 import Foundation
+import GitWorkbench
 import Logging
 
 /// Manages pane state, agent session status, and session tracking.
@@ -11,6 +12,13 @@ final public class MirrorWindowManager {
     /// Unified per-pane state keyed by pane ID.
     /// Contains tmux metadata, agent session, terminal title, and yolo mode.
     public private(set) var paneStates: [String: PaneState] = [:]
+
+    /// Number of changed files (staged + unstaged) per working-tree path, as
+    /// reported by GitWorkbench (issue #573). Drives the Git tab's badge. Kept
+    /// Mac-side only — it is not part of the relayed ``PaneState`` because the
+    /// Git tab is a local-only feature. Keyed by the pane's `currentPath` so all
+    /// panes sharing a repository directory resolve to the same count.
+    public private(set) var gitChangedFileCountsByPath: [String: Int] = [:]
 
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
@@ -23,7 +31,7 @@ final public class MirrorWindowManager {
     private let validationInterval: TimeInterval = 5
 
     @ObservationIgnored
-    @Dependency(ProcessRunner.self) private var processRunner
+    @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
     private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
     private let settings: AppSettings
@@ -123,7 +131,7 @@ final public class MirrorWindowManager {
                 // open popup mid-hover.
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
-                await self.refreshGitBranches()
+                await self.refreshGitStatus()
             }
         }
     }
@@ -455,57 +463,67 @@ final public class MirrorWindowManager {
         }
     }
 
-    // MARK: - Git Branch Detection
+    // MARK: - Git Status
 
-    private static let gitPath = "/usr/bin/git"
-
-    /// Refreshes git branch info for all panes that have a current path.
-    func refreshGitBranches() async {
+    /// Refreshes git status (branch + changed-file count) for all panes that
+    /// have a current path, sourcing it from GitWorkbench's provider rather than
+    /// shelling out to `git` ourselves (issue #573). One `loadStatus()` per
+    /// unique repository directory feeds both the sidebar branch
+    /// (``PaneState/gitBranch``) and the Git tab badge
+    /// (``gitChangedFileCountsByPath``).
+    func refreshGitStatus() async {
         var panesForPath: [String: [String]] = [:]
         for (paneId, state) in paneStates {
             guard let path = state.currentPath, !path.isEmpty else { continue }
             panesForPath[path, default: []].append(paneId)
         }
 
-        await withTaskGroup(of: (String, String?).self) { group in
+        let client = gitProviderClient
+        await withTaskGroup(of: (path: String, branch: String?, changedFileCount: Int?).self) { group in
             for path in panesForPath.keys {
-                group.addTask { [processRunner] in
-                    let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
-                    return (path, branch)
+                group.addTask {
+                    let provider = client.provider(URL(fileURLWithPath: path))
+                    // A path that isn't a git work tree throws — treat that as
+                    // "no branch, no changes" rather than an error.
+                    guard let status = try? await provider.loadStatus() else {
+                        return (path, nil, nil)
+                    }
+                    return (path, Self.normalizedBranch(status.currentBranch), status.files.count)
                 }
             }
 
-            for await (path, branch) in group {
-                for paneId in panesForPath[path] ?? [] {
-                    paneStates[paneId]?.gitBranch = branch
+            // Rebuild the count map from scratch each pass so paths whose panes
+            // went away (or stopped being repos) don't linger.
+            var counts: [String: Int] = [:]
+            for await result in group {
+                for paneId in panesForPath[result.path] ?? [] {
+                    paneStates[paneId]?.gitBranch = result.branch
+                }
+                if let count = result.changedFileCount {
+                    counts[result.path] = count
                 }
             }
+            gitChangedFileCountsByPath = counts
         }
     }
 
-    /// Detects the git branch for a given directory path.
-    /// Returns nil if the path is not inside a git repository.
-    private static func detectGitBranch(
-        at path: String,
-        processRunner: ProcessRunner
-    ) async -> String? {
-        guard FileManager.default.fileExists(atPath: path) else { return nil }
-        guard
-            let result = try? await processRunner.run(
-                gitPath,
-                ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
-                nil,
-                5
-            ) else { return nil }
+    /// Applies a ``RepositorySummary`` observed live from an open Git tab to the
+    /// per-pane branch and the badge count (issue #573), so staging, committing,
+    /// or switching branches in the tab updates the UI immediately instead of
+    /// waiting for the next periodic ``refreshGitStatus`` pass.
+    public func applyGitSummary(path: String, branch: String?, changedFileCount: Int) {
+        gitChangedFileCountsByPath[path] = changedFileCount
+        for (paneId, state) in paneStates where state.currentPath == path {
+            paneStates[paneId]?.gitBranch = branch
+        }
+    }
 
-        guard result.isSuccess else { return nil }
-        let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if branch.isEmpty { return nil }
-        // `git rev-parse --abbrev-ref HEAD` returns the literal "HEAD" when the
-        // working copy is in a detached-HEAD state. Surface that explicitly
-        // rather than showing "HEAD" in the sidebar.
-        if branch == "HEAD" { return "(detached)" }
-        return branch
+    /// Normalizes the branch reported by GitWorkbench for display: an empty
+    /// string (e.g. a freshly-initialized repo with no commits) becomes `nil` so
+    /// the sidebar shows nothing rather than a blank field. `git status` already
+    /// reports `(detached)` for a detached HEAD, so that is passed through as-is.
+    private nonisolated static func normalizedBranch(_ raw: String) -> String? {
+        raw.isEmpty ? nil : raw
     }
 
     // MARK: - State Cleanup

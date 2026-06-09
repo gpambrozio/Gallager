@@ -133,6 +133,10 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - Respects user-closed state (won't reopen until session ends)
 - Periodic session validation cleans up stale sessions
 - `updatePaneStates(from:)` syncs pane state from tmux, removing stale entries
+- `refreshGitStatus()` (run on the validation tick) sources each pane's git
+  branch and changed-file count from GitWorkbench's provider (`loadStatus()`)
+  instead of shelling out to `git` directly. The count drives the Git tab's
+  changed-file badge via `gitChangedFileCountsByPath` (issue #573)
 
 ### TerminalContainerView (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
 

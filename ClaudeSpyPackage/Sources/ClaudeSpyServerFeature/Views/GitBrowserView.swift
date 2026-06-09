@@ -28,6 +28,13 @@ struct GitBrowserView: View {
     /// Switches to the File Explorer and reveals the file (powers "Show in File
     /// Explorer"). Supplied by ``MainView``.
     let onShowInFileExplorer: (String) -> Void
+    /// Receives the live ``RepositorySummary`` whenever GitWorkbench's state
+    /// changes while this tab is mounted (issue #573). ``MainView`` forwards it
+    /// to ``MirrorWindowManager/applyGitSummary(path:branch:changedFileCount:)``
+    /// so the Git tab badge and sidebar branch update instantly as the user
+    /// stages, commits, or switches branches — without waiting for the next
+    /// periodic refresh.
+    let onSummaryChange: (RepositorySummary) -> Void
 
     @Environment(AppSettings.self) private var settings
     @Environment(\.openSettings) private var openSettings
@@ -35,6 +42,13 @@ struct GitBrowserView: View {
     var body: some View {
         GitWorkbenchView(store: store)
             .accessibilityIdentifier("git-workbench")
+            .onRepositorySummaryChange { summary in
+                // The first fire can be the pre-load placeholder (empty repo
+                // name/branch) before the initial load completes; ignore it so
+                // we don't briefly blank the branch the periodic refresh set.
+                guard !summary.repositoryName.isEmpty else { return }
+                onSummaryChange(summary)
+            }
             .onChangesDoubleClick { url in
                 NSWorkspace.shared.open(url)
             }

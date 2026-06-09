@@ -870,6 +870,16 @@ public struct MainView: View {
                         // selecting any file/browser tab calls gitActiveWindowIds.remove,
                         // so isGitActive is already false whenever a tab is selected.
                         isGitBrowserSelected: isGitActive,
+                        // Only badge sessions whose Git tab has actually been
+                        // engaged (a store is cached for this directory). The
+                        // git-status poll fills `gitChangedFileCountsByPath` for
+                        // every pane path, but showing a badge before the user
+                        // has opened the Git tab would surface counts for folders
+                        // they never asked about — and mirrors the "host refreshes
+                        // the *cached* store" model (issue #573).
+                        gitChangedFileCount: gitWorkbenchStores[session.sessionName]?.path == directoryPath
+                            ? (windowManager.gitChangedFileCountsByPath[directoryPath] ?? 0)
+                            : 0,
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
@@ -1393,6 +1403,13 @@ public struct MainView: View {
                         path: path,
                         sessionName: sessionName,
                         windowId: windowId
+                    )
+                },
+                onSummaryChange: { summary in
+                    windowManager.applyGitSummary(
+                        path: directoryPath,
+                        branch: summary.currentBranch.isEmpty ? nil : summary.currentBranch,
+                        changedFileCount: summary.changedFileCount
                     )
                 }
             )
