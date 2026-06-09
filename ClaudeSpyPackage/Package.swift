@@ -24,11 +24,7 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
             .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
-            // TEMPORARY: pinned to the unmerged PR branch that adds the
-            // `onRepositorySummaryChange` observer + `RepositorySummary` (PR #3).
-            // Revert to a tagged release (`from:`) once that PR is merged and
-            // published — see issue #573.
-            .package(url: "https://github.com/gpambrozio/GitWorkbench", branch: "feature/repository-summary-observer"),
+            .package(url: "https://github.com/gpambrozio/GitWorkbench", from: "1.2.0"),
         ]
     #else
         return []
