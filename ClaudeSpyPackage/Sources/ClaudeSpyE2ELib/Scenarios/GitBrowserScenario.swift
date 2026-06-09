@@ -8,8 +8,9 @@ import Foundation
 ///    stable mock provider (repo "aurora-cli", branch "feat/auto-sync", the
 ///    fixture's changed files).
 /// - Once the Git tab has been engaged, its button carries a changed-file-count
-///   badge (issue #573) sourced from the periodic git-status refresh, visible
-///   even while the terminal — not the Git tab — is the active view (Phase 4).
+///   badge (issue #573) read live from the session's GitWorkbench store summary,
+///   visible even while the terminal — not the Git tab — is the active view
+///   (Phase 4).
 /// 2. Selecting a changed file loads its diff.
 /// 3. Switching the workspace to History shows the fixture commit list.
 /// 4. The Git tab's state is retained across a tab round-trip: after switching to

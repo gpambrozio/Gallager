@@ -134,9 +134,10 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - Periodic session validation cleans up stale sessions
 - `updatePaneStates(from:)` syncs pane state from tmux, removing stale entries
 - `refreshGitStatus()` (run on the validation tick) sources each pane's git
-  branch and changed-file count from GitWorkbench's provider (`loadStatus()`)
-  instead of shelling out to `git` directly. The count drives the Git tab's
-  changed-file badge via `gitChangedFileCountsByPath` (issue #573)
+  branch from GitWorkbench's provider (`loadStatus()`) instead of shelling out to
+  `git` directly. The Git tab's changed-file badge (issue #573) is read live from
+  the per-session GitWorkbench store's `summary` — the store keeps it fresh via
+  its own repository watcher — so it isn't computed here
 
 ### TerminalContainerView (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
 

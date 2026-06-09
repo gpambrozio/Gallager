@@ -13,13 +13,6 @@ final public class MirrorWindowManager {
     /// Contains tmux metadata, agent session, terminal title, and yolo mode.
     public private(set) var paneStates: [String: PaneState] = [:]
 
-    /// Number of changed files (staged + unstaged) per working-tree path, as
-    /// reported by GitWorkbench (issue #573). Drives the Git tab's badge. Kept
-    /// Mac-side only — it is not part of the relayed ``PaneState`` because the
-    /// Git tab is a local-only feature. Keyed by the pane's `currentPath` so all
-    /// panes sharing a repository directory resolve to the same count.
-    public private(set) var gitChangedFileCountsByPath: [String: Int] = [:]
-
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
 
@@ -465,12 +458,12 @@ final public class MirrorWindowManager {
 
     // MARK: - Git Status
 
-    /// Refreshes git status (branch + changed-file count) for all panes that
-    /// have a current path, sourcing it from GitWorkbench's provider rather than
-    /// shelling out to `git` ourselves (issue #573). One `loadStatus()` per
-    /// unique repository directory feeds both the sidebar branch
-    /// (``PaneState/gitBranch``) and the Git tab badge
-    /// (``gitChangedFileCountsByPath``).
+    /// Refreshes each pane's git branch from GitWorkbench's provider rather than
+    /// shelling out to `git` ourselves (issue #573), one `loadStatus()` per unique
+    /// repository directory. The Git tab's changed-file badge is driven separately
+    /// — straight off the per-session GitWorkbench store's `summary`, which the
+    /// store keeps live via its own repository watcher — so this only needs the
+    /// branch (``PaneState/gitBranch``, shown in the sidebar and relayed).
     func refreshGitStatus() async {
         var panesForPath: [String: [String]] = [:]
         for (paneId, state) in paneStates {
@@ -479,42 +472,21 @@ final public class MirrorWindowManager {
         }
 
         let client = gitProviderClient
-        await withTaskGroup(of: (path: String, branch: String?, changedFileCount: Int?).self) { group in
+        await withTaskGroup(of: (path: String, branch: String?).self) { group in
             for path in panesForPath.keys {
                 group.addTask {
                     let provider = client.provider(URL(fileURLWithPath: path))
-                    // A path that isn't a git work tree throws — treat that as
-                    // "no branch, no changes" rather than an error.
-                    guard let status = try? await provider.loadStatus() else {
-                        return (path, nil, nil)
-                    }
-                    return (path, Self.normalizedBranch(status.currentBranch), status.files.count)
+                    // A path that isn't a git work tree throws — treat that as "no branch".
+                    let branch = try? await provider.loadStatus().currentBranch
+                    return (path, branch.flatMap(Self.normalizedBranch))
                 }
             }
 
-            // Rebuild the count map from scratch each pass so paths whose panes
-            // went away (or stopped being repos) don't linger.
-            var counts: [String: Int] = [:]
             for await result in group {
                 for paneId in panesForPath[result.path] ?? [] {
                     paneStates[paneId]?.gitBranch = result.branch
                 }
-                if let count = result.changedFileCount {
-                    counts[result.path] = count
-                }
             }
-            gitChangedFileCountsByPath = counts
-        }
-    }
-
-    /// Applies a ``RepositorySummary`` observed live from an open Git tab to the
-    /// per-pane branch and the badge count (issue #573), so staging, committing,
-    /// or switching branches in the tab updates the UI immediately instead of
-    /// waiting for the next periodic ``refreshGitStatus`` pass.
-    public func applyGitSummary(path: String, branch: String?, changedFileCount: Int) {
-        gitChangedFileCountsByPath[path] = changedFileCount
-        for (paneId, state) in paneStates where state.currentPath == path {
-            paneStates[paneId]?.gitBranch = branch
         }
     }
 
