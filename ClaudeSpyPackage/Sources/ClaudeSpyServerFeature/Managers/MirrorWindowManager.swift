@@ -2,7 +2,6 @@ import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Dependencies
 import Foundation
-import GitWorkbench
 import Logging
 
 /// Manages pane state, agent session status, and session tracking.
@@ -24,7 +23,7 @@ final public class MirrorWindowManager {
     private let validationInterval: TimeInterval = 5
 
     @ObservationIgnored
-    @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
+    @Dependency(ProcessRunner.self) private var processRunner
 
     private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
     private let settings: AppSettings
@@ -124,7 +123,7 @@ final public class MirrorWindowManager {
                 // open popup mid-hover.
                 let panes = await self.tmuxService.refreshPanes()
                 self.updatePaneStates(from: panes)
-                await self.refreshGitStatus()
+                await self.refreshGitBranches()
             }
         }
     }
@@ -456,46 +455,61 @@ final public class MirrorWindowManager {
         }
     }
 
-    // MARK: - Git Status
+    // MARK: - Git Branch Detection
 
-    /// Refreshes each pane's git branch from GitWorkbench's provider rather than
-    /// shelling out to `git` ourselves (issue #573), one `loadStatus()` per unique
-    /// repository directory. The Git tab's changed-file badge is driven separately
-    /// — straight off the per-session GitWorkbench store's `summary`, which the
-    /// store keeps live via its own repository watcher — so this only needs the
-    /// branch (``PaneState/gitBranch``, shown in the sidebar and relayed).
-    func refreshGitStatus() async {
+    private static let gitPath = "/usr/bin/git"
+
+    /// Refreshes git branch info for all panes that have a current path. The Git
+    /// tab's changed-file badge (issue #573) is driven separately, straight off
+    /// the per-session GitWorkbench store's `summary`; the sidebar branch keeps
+    /// using a single cheap `git rev-parse` here rather than GitWorkbench's
+    /// heavier `loadStatus()`.
+    func refreshGitBranches() async {
         var panesForPath: [String: [String]] = [:]
         for (paneId, state) in paneStates {
             guard let path = state.currentPath, !path.isEmpty else { continue }
             panesForPath[path, default: []].append(paneId)
         }
 
-        let client = gitProviderClient
-        await withTaskGroup(of: (path: String, branch: String?).self) { group in
+        await withTaskGroup(of: (String, String?).self) { group in
             for path in panesForPath.keys {
-                group.addTask {
-                    let provider = client.provider(URL(fileURLWithPath: path))
-                    // A path that isn't a git work tree throws — treat that as "no branch".
-                    let branch = try? await provider.loadStatus().currentBranch
-                    return (path, branch.flatMap(Self.normalizedBranch))
+                group.addTask { [processRunner] in
+                    let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
+                    return (path, branch)
                 }
             }
 
-            for await result in group {
-                for paneId in panesForPath[result.path] ?? [] {
-                    paneStates[paneId]?.gitBranch = result.branch
+            for await (path, branch) in group {
+                for paneId in panesForPath[path] ?? [] {
+                    paneStates[paneId]?.gitBranch = branch
                 }
             }
         }
     }
 
-    /// Normalizes the branch reported by GitWorkbench for display: an empty
-    /// string (e.g. a freshly-initialized repo with no commits) becomes `nil` so
-    /// the sidebar shows nothing rather than a blank field. `git status` already
-    /// reports `(detached)` for a detached HEAD, so that is passed through as-is.
-    private nonisolated static func normalizedBranch(_ raw: String) -> String? {
-        raw.isEmpty ? nil : raw
+    /// Detects the git branch for a given directory path.
+    /// Returns nil if the path is not inside a git repository.
+    private static func detectGitBranch(
+        at path: String,
+        processRunner: ProcessRunner
+    ) async -> String? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        guard
+            let result = try? await processRunner.run(
+                gitPath,
+                ["-C", path, "rev-parse", "--abbrev-ref", "HEAD"],
+                nil,
+                5
+            ) else { return nil }
+
+        guard result.isSuccess else { return nil }
+        let branch = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if branch.isEmpty { return nil }
+        // `git rev-parse --abbrev-ref HEAD` returns the literal "HEAD" when the
+        // working copy is in a detached-HEAD state. Surface that explicitly
+        // rather than showing "HEAD" in the sidebar.
+        if branch == "HEAD" { return "(detached)" }
+        return branch
     }
 
     // MARK: - State Cleanup
