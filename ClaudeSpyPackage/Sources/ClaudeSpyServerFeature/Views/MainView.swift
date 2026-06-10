@@ -3938,13 +3938,34 @@ public struct MainView: View {
                 )
 
                 // Find the window containing the new pane and select it.
+                //
+                // The cached window list can momentarily lag tmux:
+                // `createSession`'s own `refreshPanes()` early-returns the stale
+                // cached list when a periodic refresh is already in flight (more
+                // likely on a slow machine), so the just-created pane can be
+                // missing on the first lookup, leaving the new session never
+                // selected ("Select a Window"). The pane definitely exists — we
+                // hold its id — so retry the refresh until its window shows up.
+                // Mirrors the same retry in AppCoordinator's split-window path.
+                //
                 // Clearing the remote selection mirrors createRemoteSession's
                 // own "clear the other side" step — without it, the sidebar's
                 // local-row highlight stays suppressed (see the listRowBackground
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                var newWindow: LocalTmuxWindow?
+                for attempt in 0..<20 {
+                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                        newWindow = found
+                        break
+                    }
+                    if attempt < 19 {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        _ = await tmuxService.refreshPanes()
+                    }
+                }
+                if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
                     selectedWindow = newWindow
