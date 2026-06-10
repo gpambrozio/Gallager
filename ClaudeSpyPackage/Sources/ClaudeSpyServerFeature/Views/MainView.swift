@@ -83,6 +83,11 @@ public struct MainView: View {
     /// `--e2e-test`). Read here to build per-session stores on demand.
     @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
+    /// UserDefaults-backed preferences (in-memory under E2E). Passed into each
+    /// session's GitWorkbench config so the package can persist the diff style and
+    /// column widths through the host (it never touches `UserDefaults` itself).
+    @Dependency(PreferencesService.self) private var preferences
+
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
     @State private var editorPickerPath: String?
@@ -1456,7 +1461,10 @@ public struct MainView: View {
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
         let store = GitWorkbenchStore(
             provider: provider,
-            configuration: .claudeSpy(repositoryURL: URL(fileURLWithPath: directoryPath))
+            configuration: .claudeSpy(
+                repositoryURL: URL(fileURLWithPath: directoryPath),
+                preferences: preferences
+            )
         )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
     }

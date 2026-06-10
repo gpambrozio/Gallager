@@ -1,4 +1,5 @@
 import AppKit
+import ClaudeSpyCommon
 import GitWorkbench
 import SwiftUI
 
@@ -78,11 +79,43 @@ extension WorkbenchConfiguration {
     /// double-click callbacks receive an **absolute** file URL (otherwise the
     /// package hands back a repo-relative URL that isn't safe to give
     /// `NSWorkspace`).
-    static func claudeSpy(repositoryURL: URL) -> WorkbenchConfiguration {
+    ///
+    /// `preferences` backs GitWorkbench's persistence: the package delegates the
+    /// saved diff style **and** the resizable column widths entirely to the host's
+    /// `layoutStore` (it never touches `UserDefaults` itself), so without these
+    /// both reset to their defaults on every relaunch / store rebuild. A single
+    /// constant `persistenceKey` (rather than one per repository) makes the diff
+    /// style an app-wide preference — set it once, every session's Git tab honors it.
+    static func claudeSpy(
+        repositoryURL: URL,
+        preferences: PreferencesService
+    ) -> WorkbenchConfiguration {
         var configuration = WorkbenchConfiguration()
         configuration.theme = .standard.withAccent(.accentColor)
         configuration.darkTheme = .darkStandard.withAccent(.accentColor)
         configuration.repositoryURL = repositoryURL
+        configuration.persistenceKey = "claudeSpyGitWorkbench"
+        configuration.layoutStore = .claudeSpy(preferences: preferences)
         return configuration
+    }
+}
+
+extension WorkbenchLayoutStore {
+    /// Backs GitWorkbench's column-width + diff-mode persistence with the app's
+    /// ``PreferencesService`` (UserDefaults in production, the in-memory store
+    /// under E2E so tests never touch real defaults). GitWorkbench hands us an
+    /// opaque `[String: CGFloat]` per persistence key; we JSON-encode it under a
+    /// namespaced key. Decode failures fall through to `nil`, so the store cleanly
+    /// falls back to its configured defaults on a fresh install or schema change.
+    static func claudeSpy(preferences: PreferencesService) -> WorkbenchLayoutStore {
+        WorkbenchLayoutStore(
+            load: { key in
+                guard let data = preferences.data("gitWorkbench.layout.\(key)") else { return nil }
+                return try? JSONDecoder().decode([String: CGFloat].self, from: data)
+            },
+            save: { key, widths in
+                preferences.setData(try? JSONEncoder().encode(widths), "gitWorkbench.layout.\(key)")
+            }
+        )
     }
 }
