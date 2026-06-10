@@ -1246,10 +1246,14 @@
                 onSessionSelect: { [tmux, weak self] sessionId in
                     // Point tmux's current window at the session. This also
                     // validates the id — a bad session throws and surfaces as a
-                    // CLI error. Trailing `:` resolves to the session's current
-                    // window; `:!` would fail with "can't find window: !" on
-                    // sessions without prior window-switch history.
-                    try await tmux.selectWindow("\(sessionId):")
+                    // CLI error. `=` forces exact session-name matching;
+                    // without it tmux prefix-matches, so a nonexistent
+                    // "foo" would silently resolve to a session named
+                    // "foo-bar". Trailing `:` resolves to the session's
+                    // current window; `:!` would fail with "can't find
+                    // window: !" on sessions without prior window-switch
+                    // history.
+                    try await tmux.selectWindow("=\(sessionId):")
                     // Drive the app's sidebar/detail selection so the UI
                     // actually switches to the requested session. `select-window`
                     // alone only moves tmux's active window *within* a session;
