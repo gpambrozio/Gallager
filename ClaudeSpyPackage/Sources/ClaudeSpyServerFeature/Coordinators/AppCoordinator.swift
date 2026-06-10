@@ -2431,8 +2431,24 @@
                     workingDirectory: spec.workingDirectory
                 )
 
-                let allPanes = await tmuxService.refreshPanes()
-                windowManager.updatePaneStates(from: allPanes)
+                // `refreshPanes()` early-returns the stale cached list when a
+                // periodic refresh is already in flight, so the freshly-created
+                // window can be missing on the first try (more likely on a slow
+                // machine). If we push that stale state, the viewer's remote tab
+                // bar never gains the new window. The pane definitely exists —
+                // `new-window` just returned its id — so retry the refresh until
+                // it shows up before pushing. Mirrors the split-window and
+                // create-session paths.
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    let allPanes = await tmuxService.refreshPanes()
+                    windowManager.updatePaneStates(from: allPanes)
+                    if allPanes.contains(where: { $0.paneId == paneId }) {
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                    }
+                }
                 await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
