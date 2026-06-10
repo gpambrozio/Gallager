@@ -1243,11 +1243,20 @@
                         created: true
                     )
                 },
-                onSessionSelect: { [tmux] sessionId in
-                    // Trailing `:` resolves to the session's current window;
-                    // `:!` would fail with "can't find window: !" on sessions
-                    // without prior window-switch history.
+                onSessionSelect: { [tmux, weak self] sessionId in
+                    // Point tmux's current window at the session. This also
+                    // validates the id — a bad session throws and surfaces as a
+                    // CLI error. Trailing `:` resolves to the session's current
+                    // window; `:!` would fail with "can't find window: !" on
+                    // sessions without prior window-switch history.
                     try await tmux.selectWindow("\(sessionId):")
+                    // Drive the app's sidebar/detail selection so the UI
+                    // actually switches to the requested session. `select-window`
+                    // alone only moves tmux's active window *within* a session;
+                    // MainView's follow-active-window logic is scoped to the
+                    // already-selected session and never crosses to a different
+                    // one, so without this the app stays on the old session.
+                    await self?.revealLocalSession(sessionId)
                 },
                 onSessionCurrent: { [tmux] in
                     await MainActor.run {
@@ -2309,17 +2318,30 @@
         /// Always opens the panes view with the tapped session selected.
         private func setupNotificationTapHandler() {
             ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
-                guard let self else { return }
-
-                NSApp.setActivationPolicy(.regular)
-                self.pendingMenuBarSelection = .local(paneId: paneId)
-                NotificationCenter.default.post(
-                    name: .openPanesWindow,
-                    object: nil
-                )
-
-                Self.forceActivate()
+                self?.revealLocalPane(paneId)
             }
+        }
+
+        /// Brings the panes window forward with `paneId` selected and the app
+        /// activated. Shared by the notification-tap handler and the CLI
+        /// `select-session` command so both surface a local session the same way.
+        private func revealLocalPane(_ paneId: String) {
+            NSApp.setActivationPolicy(.regular)
+            pendingMenuBarSelection = .local(paneId: paneId)
+            NotificationCenter.default.post(name: .openPanesWindow, object: nil)
+            Self.forceActivate()
+        }
+
+        /// Reveals a local tmux session by resolving its active window's active
+        /// pane and revealing that. No-ops if the session isn't currently
+        /// tracked (e.g. it was closed between the request and now). Used by the
+        /// CLI `select-session` command, which targets a session by name.
+        private func revealLocalSession(_ sessionName: String) {
+            guard
+                let pane = tmuxService.sessions
+                    .first(where: { $0.sessionName == sessionName })?
+                    .activeWindow?.activePane else { return }
+            revealLocalPane(pane.paneId)
         }
 
         /// Force-activates the app from a non-interactive context (e.g., notification tap).
