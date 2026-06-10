@@ -7,6 +7,9 @@ import Foundation
 /// Phase 2 — single multi-select question with two toggled options + "Other".
 /// Phase 3 — three questions (multi-select, single-select, multi-select) to
 /// exercise the multi-question flow with the trailing-Enter rule.
+/// Phase 4 — four single-select questions answered out of order via the
+/// top-right browse arrows (skip → wrap → fill-in), proving non-linear
+/// navigation still maps each answer to the right question (issue #572).
 ///
 /// Right before each Confirm tap a small Python keystroke logger is started
 /// in the tmux pane. After Confirm the resulting keystrokes flow through the
@@ -235,7 +238,9 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Wednesday"))
         TestStep.wait(seconds: 1)
-        TestStep.iosTap(.labelContains("Next"))
+        // Exact match: the browse arrow exposes "Next question", which a
+        // substring match on "Next" would hit first (issue #572).
+        TestStep.iosTap(.label("Next"))
 
         TestStep.iosWaitForElement(.labelContains("Which season fits best"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-aq-p3-q2")
@@ -247,7 +252,8 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Slack"))
         TestStep.wait(seconds: 1)
-        TestStep.iosTap(.labelContains("Next"))
+        // Exact match — see the note on the first multi-select "Next" above.
+        TestStep.iosTap(.label("Next"))
 
         TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("Monday"), timeout: 5)
@@ -273,6 +279,128 @@ public enum AskUserQuestionScenario {
         TestStep.assertStoredContains(
             key: "phase3Sequence",
             substring: "SEQUENCE: E D D E R D E E D E R E"
+        )
+
+        // ──────────────────────────────────────────────────────────
+        // Phase 4: four single-select questions answered out of order via
+        // the top-right browse arrows. The user skips Q1, answers Q2, skips
+        // Q3, answers Q4 (wrapping back to the skipped Q1), answers Q1
+        // (advancing to the still-unanswered Q3), then answers Q3 → summary.
+        // Final per-question picks: Q1=Banana(1) Q2=Red(0) Q3=Dog(1)
+        // Q4=Two(1). Keystrokes are emitted in question order regardless of
+        // the answering order, so: D E · E · D E · D E · E (trailing).
+        // expected: D E E D E D E E
+        // ──────────────────────────────────────────────────────────
+
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "PermissionRequest",
+                "session_id": "e2e-test-session-1",
+                "timestamp": "2026-04-25T10:03:00.000000Z",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {
+                    "questions": [
+                        {
+                            "question": "What is your favorite fruit?",
+                            "header": "Fruit",
+                            "options": [
+                                {"label": "Apple", "description": ""},
+                                {"label": "Banana", "description": ""}
+                            ],
+                            "multiSelect": false
+                        },
+                        {
+                            "question": "What is your favorite color?",
+                            "header": "Color",
+                            "options": [
+                                {"label": "Red", "description": ""},
+                                {"label": "Blue", "description": ""}
+                            ],
+                            "multiSelect": false
+                        },
+                        {
+                            "question": "What is your favorite animal?",
+                            "header": "Animal",
+                            "options": [
+                                {"label": "Cat", "description": ""},
+                                {"label": "Dog", "description": ""}
+                            ],
+                            "multiSelect": false
+                        },
+                        {
+                            "question": "What is your favorite number?",
+                            "header": "Number",
+                            "options": [
+                                {"label": "One", "description": ""},
+                                {"label": "Two", "description": ""}
+                            ],
+                            "multiSelect": false
+                        }
+                    ]
+                }
+            }
+            """,
+            tmuxPane: "${pane1Id}",
+            projectPath: "/Users/test/MyProject"
+        )
+
+        // Q1 is shown first. Skip it without answering via the right arrow.
+        TestStep.iosWaitForElement(.labelContains("What is your favorite fruit"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-aq-p4-q1")
+        TestStep.iosTap(.label("Next question"))
+
+        // Now on Q2 (we skipped Q1 without answering). Answer it; a
+        // single-select answer auto-advances to the next unanswered (Q3).
+        TestStep.iosWaitForElement(.labelContains("What is your favorite color"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-aq-p4-skipped-to-q2")
+        TestStep.iosTap(.labelContains("Red"))
+
+        // On Q3. Skip it via the right arrow to reach the last question, Q4.
+        TestStep.iosWaitForElement(.labelContains("What is your favorite animal"), timeout: 10)
+        TestStep.iosTap(.label("Next question"))
+
+        // On the last question Q4. Answering it wraps back to the first
+        // still-unanswered question, Q1.
+        TestStep.iosWaitForElement(.labelContains("What is your favorite number"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-aq-p4-skipped-to-q4")
+        TestStep.iosTap(.labelContains("Two"))
+
+        // Wrapped back to Q1. Answering it advances to the remaining
+        // unanswered question, Q3 (Q2 is already answered).
+        TestStep.iosWaitForElement(.labelContains("What is your favorite fruit"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-aq-p4-wrapped-to-q1")
+        TestStep.iosTap(.labelContains("Banana"))
+
+        // Back on Q3 — the last unanswered question. Answering it completes
+        // the set and shows the summary.
+        TestStep.iosWaitForElement(.labelContains("What is your favorite animal"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-aq-p4-back-to-q3")
+        TestStep.iosTap(.labelContains("Dog"))
+
+        TestStep.iosWaitForElement(.labelContains("Review Your Answers"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Banana"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Red"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Dog"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Two"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-aq-p4-summary")
+
+        Shortcut.tmuxRunCommand(
+            target: "session-1:0",
+            command: "python3 $TMPDIR/keystroke_logger.py"
+        )
+        TestStep.wait(seconds: 1)
+
+        TestStep.iosTap(.labelContains("Confirm"))
+
+        TestStep.iosWaitForElement(.labelContains("All questions answered"), timeout: 5)
+
+        TestStep.wait(seconds: 8)
+        TestStep.iosScreenshot(label: "ios-aq-p4-done")
+        TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "phase4Sequence")
+        TestStep.assertStoredContains(
+            key: "phase4Sequence",
+            substring: "SEQUENCE: D E E D E D E E"
         )
     }
 }
