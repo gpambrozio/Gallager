@@ -348,6 +348,14 @@ public enum TestStep: Sendable {
     case tmuxStorePaneId(target: String, storeAs: String)
     /// Capture the visible content of a tmux pane and store it in the execution context
     case tmuxCapturePaneContent(target: String, storeAs: String)
+    /// Poll a tmux pane's captured content via `capture-pane -p` until it contains
+    /// a substring. Use this to wait for the shell to finish startup and draw its
+    /// prompt before sending the first command: keys delivered before zsh's line
+    /// editor is interactive get echoed by the tty on their own line above the
+    /// prompt, shifting all later output down a row and breaking screenshots.
+    case tmuxWaitForPaneContent(
+        target: String, contains: String, timeout: TimeInterval = 10
+    )
     /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
     /// Run an arbitrary tmux command on the test socket (e.g., "split-window -h -t session:0")
