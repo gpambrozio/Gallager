@@ -2336,6 +2336,7 @@
         /// pane and revealing that. No-ops if the session isn't currently
         /// tracked (e.g. it was closed between the request and now). Used by the
         /// CLI `select-session` command, which targets a session by name.
+        @MainActor
         private func revealLocalSession(_ sessionName: String) {
             guard
                 let pane = tmuxService.sessions

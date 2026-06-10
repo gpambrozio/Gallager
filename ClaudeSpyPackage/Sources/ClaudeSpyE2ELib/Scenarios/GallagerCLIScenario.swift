@@ -756,8 +756,8 @@ public enum GallagerCLIScenario {
         TestStep.wait(seconds: 1)
 
         // 21a. Select e2e-api from the CLI. The app must switch to it; the
-        // window title becomes e2e-api's description. The non-JSON response is
-        // the result object `{"ok":true}` — an empty file would mean the
+        // window title becomes e2e-api's description. The response is the
+        // result object `{"ok":true}` — an empty file would mean the
         // command errored, so the presence of "ok" confirms it succeeded.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
@@ -786,5 +786,6 @@ public enum GallagerCLIScenario {
             command: #"gallager select-session e2e-api"#
         )
         TestStep.macAssertWindowTitle(equals: "Selected API", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-api-again")
     }
 }
