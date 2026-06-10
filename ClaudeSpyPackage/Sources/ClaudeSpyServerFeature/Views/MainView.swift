@@ -3893,6 +3893,10 @@ public struct MainView: View {
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
+            // Always clear the in-flight guard on any exit (including an early
+            // return when the task is cancelled mid-retry), so a later create
+            // isn't blocked by `guard creatingSelection == nil`.
+            defer { creatingSelection = nil }
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
@@ -3955,13 +3959,14 @@ public struct MainView: View {
                 // last thing the user interacted with, even after that remote
                 // session was closed.
                 var newWindow: LocalTmuxWindow?
-                for attempt in 0..<20 {
+                for attempt in 0..<PaneSurfaceRetry.attempts {
                     if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
                         newWindow = found
                         break
                     }
-                    if attempt < 19 {
-                        try? await Task.sleep(for: .milliseconds(150))
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                        guard !Task.isCancelled else { return }
                         _ = await tmuxService.refreshPanes()
                     }
                 }
@@ -3969,12 +3974,14 @@ public struct MainView: View {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
                     selectedWindow = newWindow
+                } else {
+                    // The pane never surfaced within the retry budget — surface it
+                    // rather than leaving the user on a silent "Select a Window".
+                    attachError = "Session created but its window didn't appear in time. Try selecting it from the sidebar."
                 }
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
-
-            creatingSelection = nil
         }
     }
 

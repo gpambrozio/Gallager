@@ -1454,15 +1454,15 @@
                     // machine). The pane definitely exists — `split-window` just
                     // returned its id — so retry the refresh until it shows up.
                     var newPane: PaneInfo?
-                    for attempt in 0..<20 {
+                    for attempt in 0..<PaneSurfaceRetry.attempts {
                         let panes = await tmux.refreshPanes()
                         await MainActor.run { winManager.updatePaneStates(from: panes) }
                         if let found = panes.first(where: { $0.paneId == newPaneId }) {
                             newPane = found
                             break
                         }
-                        if attempt < 19 {
-                            try await Task.sleep(for: .milliseconds(150))
+                        if attempt < PaneSurfaceRetry.attempts - 1 {
+                            try await Task.sleep(for: PaneSurfaceRetry.delay)
                         }
                     }
                     guard let newPane else {

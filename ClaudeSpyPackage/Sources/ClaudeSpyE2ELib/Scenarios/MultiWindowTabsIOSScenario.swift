@@ -50,11 +50,8 @@ public enum MultiWindowTabsIOSScenario {
         Shortcut.iosConnectToSession(sessionName: "ios-tabs")
         TestStep.wait(seconds: 3)
 
-        // Screenshot + verify the iOS app is showing window 0 (status bar shows pane target).
-        // Terminal captures can drift by one scrollback line across machines (font
-        // metrics / settle timing), so use the same 2% tolerance as the macOS
-        // terminal screenshots rather than the tight iOS default.
-        TestStep.iosScreenshot(label: "ios-initial-active-window", tolerance: 2)
+        // Screenshot + verify the iOS app is showing window 0 (status bar shows pane target)
+        TestStep.iosScreenshot(label: "ios-initial-active-window")
         TestStep.iosWaitForElement(.labelContains("ios-tabs:0"), timeout: 5)
 
         // ── Stage 3: Switch to window 1 via title menu ───────────
@@ -69,7 +66,7 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot + verify the iOS app switched to window 1
-        TestStep.iosScreenshot(label: "ios-switched-to-window-1", tolerance: 2)
+        TestStep.iosScreenshot(label: "ios-switched-to-window-1")
         TestStep.iosWaitForElement(.labelContains("ios-tabs:1"), timeout: 5)
 
         // ── Stage 4: Verify macOS also switched to window 1 ──────
@@ -104,7 +101,7 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot + verify the iOS app shows window 0
-        TestStep.iosScreenshot(label: "ios-reenter-active-window-0", tolerance: 2)
+        TestStep.iosScreenshot(label: "ios-reenter-active-window-0")
         TestStep.iosWaitForElement(.labelContains("ios-tabs:0"), timeout: 5)
 
         // ── Stage 6: Go back on iOS, switch tmux to window 1, re-enter ──
@@ -123,7 +120,7 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.wait(seconds: 3)
 
         // Screenshot + verify the iOS app shows window 1
-        TestStep.iosScreenshot(label: "ios-reenter-active-window-1", tolerance: 2)
+        TestStep.iosScreenshot(label: "ios-reenter-active-window-1")
         TestStep.iosWaitForElement(.labelContains("ios-tabs:1"), timeout: 5)
     }
 }

@@ -1421,11 +1421,29 @@ private struct ScrollableWebView: View {
                 let target = scrollY.wrappedValue
                 isTrackingUserScroll = false
                 if target > 0 {
+                    var lastOffset = observedOffsetY
+                    var stalledTicks = 0
                     for _ in 0..<60 {
                         position.scrollTo(y: target)
                         try? await Task.sleep(for: .milliseconds(100))
                         guard !Task.isCancelled else { return }
                         if abs(observedOffsetY - target) <= 2 { break }
+                        // Stop early if the content has finished laying out
+                        // *shorter* than the saved offset: once it has begun
+                        // scrolling (offset > 0) but the offset stops climbing
+                        // toward the target across several ticks, the target is
+                        // unreachable and further retries won't help — so give
+                        // up instead of burning the full ~6s budget. Ticks
+                        // before any growth (offset still 0, content not yet
+                        // laid out) don't count, so a slow load still gets the
+                        // whole budget to come in.
+                        if observedOffsetY > 2, observedOffsetY <= lastOffset + 2 {
+                            stalledTicks += 1
+                            if stalledTicks >= 5 { break }
+                        } else {
+                            stalledTicks = 0
+                        }
+                        lastOffset = observedOffsetY
                     }
                 } else {
                     try? await Task.sleep(for: .milliseconds(250))
