@@ -83,6 +83,11 @@ public struct MainView: View {
     /// `--e2e-test`). Read here to build per-session stores on demand.
     @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
+    /// UserDefaults-backed preferences (in-memory under E2E). Passed into each
+    /// session's GitWorkbench config so the package can persist the diff style and
+    /// column widths through the host (it never touches `UserDefaults` itself).
+    @Dependency(PreferencesService.self) private var preferences
+
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
     @State private var editorPickerPath: String?
@@ -870,6 +875,10 @@ public struct MainView: View {
                         // selecting any file/browser tab calls gitActiveWindowIds.remove,
                         // so isGitActive is already false whenever a tab is selected.
                         isGitBrowserSelected: isGitActive,
+                        gitChangedFileCount: gitChangedFileCount(
+                            sessionName: session.sessionName,
+                            directoryPath: directoryPath
+                        ),
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
@@ -1018,6 +1027,17 @@ public struct MainView: View {
                 )
             }
             .id(window.id)
+            .task(id: directoryPath) {
+                // Eagerly load the displayed session's git status so the Git tab
+                // badge (issue #573) shows on session load, before the Git tab is
+                // ever opened.
+                if let session {
+                    await eagerlyLoadGitStatus(
+                        sessionName: session.sessionName,
+                        directoryPath: directoryPath
+                    )
+                }
+            }
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
                 title: "New Session",
@@ -1405,6 +1425,31 @@ public struct MainView: View {
         }
     }
 
+    /// Changed-file count for a session's Git tab badge (issue #573), read live
+    /// from the session's cached GitWorkbench store's `summary`. The store keeps
+    /// it fresh on its own (via the provider's repository watcher). Returns 0
+    /// until the store exists for this directory and has finished its first load
+    /// (`summary == nil`), so a clean repository shows no badge.
+    @MainActor
+    private func gitChangedFileCount(sessionName: String, directoryPath: String) -> Int {
+        guard
+            let entry = gitWorkbenchStores[sessionName],
+            entry.path == directoryPath
+        else { return 0 }
+        return entry.store.summary?.changedFileCount ?? 0
+    }
+
+    /// Eagerly builds and loads the displayed session's GitWorkbench store so the
+    /// Git tab badge (issue #573) reflects the repository's changes as soon as the
+    /// session is shown — without the user first opening the Git tab. The store is
+    /// retained per session, so this is a no-op refresh once loaded, and its own
+    /// repository watcher keeps the badge live afterwards.
+    @MainActor
+    private func eagerlyLoadGitStatus(sessionName: String, directoryPath: String) async {
+        ensureGitStore(sessionName: sessionName, directoryPath: directoryPath)
+        await gitWorkbenchStores[sessionName]?.store.reload()
+    }
+
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
     /// store for a session. Safe to call from `.task`/event handlers; never call
     /// it during `body` evaluation since it mutates `@State`. The working-tree
@@ -1416,7 +1461,10 @@ public struct MainView: View {
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
         let store = GitWorkbenchStore(
             provider: provider,
-            configuration: .claudeSpy(repositoryURL: URL(fileURLWithPath: directoryPath))
+            configuration: .claudeSpy(
+                repositoryURL: URL(fileURLWithPath: directoryPath),
+                preferences: preferences
+            )
         )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
     }
