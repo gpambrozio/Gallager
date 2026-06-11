@@ -16,6 +16,13 @@ public enum ProjectPickerArrowNavScenario {
 
         Shortcut.macOnlySetup
 
+        // Make opening a Claude project deterministic: install a `claude` stub
+        // that prints a stable marker instead of the real CLI's per-machine
+        // first-run onboarding (theme picker vs. "trust this folder"), which
+        // otherwise makes the `mac-alpha-session-created` screenshot flake
+        // across machines. Must run before any project is opened.
+        Shortcut.installClaudeStub(target: "picker-nav:0.0")
+
         // ── Open the new-session popover ─────────────────────────
         TestStep.log("Opening new session popover")
         TestStep.macCGClickElement(
@@ -92,10 +99,16 @@ public enum ProjectPickerArrowNavScenario {
         TestStep.log("Pressing Return: opens the highlighted AlphaProject session")
         TestStep.macPressKey(.return)
         TestStep.macWaitForElementToDisappear(titled: "Search projects", timeout: 5)
-        // Re-pin the window — claude session loading can grow the window asynchronously.
+        // The stub `claude` prints a stable marker — wait for it to render so we
+        // both assert the project launched the agent and stabilize the shot.
+        TestStep.macWaitForElementQuery(.anyTextMatches(Shortcut.claudeStubMarker), timeout: 10)
+        // Re-pin the window — session loading can grow the window asynchronously.
         TestStep.macResizeWindow(width: 1_000, height: 600)
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-alpha-session-created")
+
+        // Drop the stub so the plain New Terminal below uses the normal shell.
+        Shortcut.uninstallClaudeStub(target: "picker-nav:0.0")
 
         // ── Phase H: Return on highlighted New Terminal opens it ─
         TestStep.log("Reopening popover to verify Return on highlighted New Terminal")

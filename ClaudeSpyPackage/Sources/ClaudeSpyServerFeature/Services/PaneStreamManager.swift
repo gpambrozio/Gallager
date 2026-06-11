@@ -114,7 +114,15 @@
         /// in various forms depending on the system configuration.
         private let defaultPaneTitles: Set<String> = {
             var defaults = Set<String>()
-            defaults.insert(ProcessInfo.processInfo.hostName)
+            // Use only `gethostname()` here — a pure syscall. Do NOT call
+            // `ProcessInfo.processInfo.hostName`: it resolves the machine's `.local`
+            // name, which is a local-network DNS operation (Apple TN3179). On a
+            // macOS 15+ machine that hasn't decided Local Network access, that
+            // resolution BLOCKS the calling thread until the decision is made — and
+            // this property is evaluated synchronously on the main thread during
+            // `AppCoordinator.init`, so it would hang app startup (the main-queue
+            // NWListener for the E2E test server never binds). `gethostname()` is
+            // what tmux uses for the default `pane_title` anyway.
             var buffer = [CChar](repeating: 0, count: Int(MAXHOSTNAMELEN))
             if
                 gethostname(&buffer, buffer.count) == 0,

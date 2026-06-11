@@ -100,3 +100,54 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 1. **Upstream SwiftTerm fix**: Request cell-level clipping in `drawTerminalContents` or change render order (box-drawings after text)
 2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
 3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline
+
+## ~~E2E on a fresh macOS 15+ machine: app hangs at startup ("app never fully started")~~ FIXED
+
+**Status:** Fixed — the app no longer does a blocking local-network call at startup.
+
+### Description
+
+On a brand-new macOS 15+ machine, `./scripts/e2e-test.sh` failed every scenario at
+its launch step with *"macOS app launched but its in-process test server never
+responded… the app did not finish starting."* The original report was *"the system
+was asking for an authorization and the app never fully started"* — i.e. the **app
+itself hung during startup**, not a prompt floating over a running app.
+
+### Root Cause
+
+`PaneStreamManager.defaultPaneTitles` is a stored property (an immediately-evaluated
+closure) that called `ProcessInfo.processInfo.hostName`. Per Apple's
+[TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy),
+resolving the machine's `.local` name is a **local-network DNS operation**, and on a
+macOS 15+ machine that hasn't decided Local Network access it **blocks the calling
+thread** until the user answers the prompt.
+
+That property is evaluated synchronously on the **main thread** during
+`AppCoordinator.init` (itself inside the SwiftUI `App.init`). Meanwhile
+`TestAccessibilityServer.start` schedules its `NWListener` on `.main` via
+`listener.start(queue: .main)`. So the sequence is: schedule the listener on the
+main queue → keep running `init` synchronously → hit the blocking `.local`
+resolution → the main thread is now stuck → the main queue never processes the
+listener bind → the test server never responds → the orchestrator times out. The
+app is launched via LaunchServices, so it doesn't inherit the automatic
+local-network allowance TN3179 grants to CLI tools run from Terminal/SSH. Machines
+that granted Local Network long ago never blocked, which is why it only bit fresh
+ones.
+
+### Fix
+
+`defaultPaneTitles` now uses only `gethostname()` (a pure syscall — no DNS, no Local
+Network), which is what tmux uses for the default `pane_title` anyway. The blocking
+`ProcessInfo.hostName` call is removed. With no local-network operation at startup,
+the prompt no longer appears on a fresh machine and the app starts normally.
+(`ClaudeSpyServerFeature/Services/PaneStreamManager.swift`)
+
+### Notes
+
+- Local Network privacy **isn't TCC** (per TN3179): it can't be pre-granted via a
+  PPPC/MDM profile or `tccutil`, and there's no reset short of a VM snapshot or a
+  fresh user account. So the durable fix is to not perform the operation at all.
+- An earlier attempt loopback-bound the `TestAccessibilityServer` listener, on the
+  theory that *listening* triggered the prompt. TN3179 is explicit that listening
+  for/accepting incoming connections does **not** require local network access — a
+  no-op for this bug, reverted.
