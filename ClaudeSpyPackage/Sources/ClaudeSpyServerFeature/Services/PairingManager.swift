@@ -1,5 +1,6 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
+import Dependencies
 import Foundation
 import Logging
 
@@ -47,6 +48,10 @@ final public class PairingManager {
     /// Callback when a new viewer is successfully paired
     public var onViewerPaired: ((PairedViewer) -> Void)?
 
+    /// This Mac's advertised device name (overridable in E2E for deterministic screenshots).
+    @ObservationIgnored
+    @Dependency(DeviceNameClient.self) private var deviceNameClient
+
     // MARK: - Initialization
 
     public init(settings: AppSettings, e2eeService: E2EEService) {
@@ -91,7 +96,7 @@ final public class PairingManager {
             let response = try await registerCode(
                 code: code,
                 deviceId: settings.deviceId,
-                deviceName: Host.current().localizedName ?? "Mac"
+                deviceName: deviceNameClient.current()
             )
 
             switch response {

@@ -85,9 +85,15 @@ public enum GallagerCLIScenario {
             command: #"gallager new-session --name e2e-api > /tmp/e2e-cli-newsession.txt 2>&1"#
         )
 
-        // Click e2e-api to view it — stay here for all subsequent screenshots
+        // Click e2e-api to view it — stay here for all subsequent screenshots.
+        // Let the sidebar settle after the new session row is inserted (the list
+        // re-sorts) before clicking, and use a real coordinate click: AXPress on
+        // a freshly-inserted SwiftUI List row can fail to register the selection
+        // on a slow machine, leaving the previously-selected cli-test session
+        // shown (and the host can briefly flash the empty "No Panes" picker).
         TestStep.macWaitForElement(titled: "e2e-api", timeout: 5)
-        TestStep.macClickButton(titled: "e2e-api")
+        TestStep.wait(seconds: 3)
+        TestStep.macCGClick(titled: "e2e-api")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-new-session-created")
 
@@ -113,7 +119,11 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager split-pane right --pane "$PANE_ID" --path /tmp --json > /tmp/e2e-cli-split.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
+        // The split CLI call waits for the app to register the new pane (it
+        // retries the pane refresh past an in-flight periodic refresh), which
+        // is slower on a CI VM — give the command time to finish writing before
+        // reading its output.
+        TestStep.wait(seconds: 8)
         TestStep.readFile(path: "/tmp/e2e-cli-split.txt", storeAs: "splitResult")
         // tmux resolves symlinks when reporting cwd; on macOS /tmp → /private/tmp.
         TestStep.assertStoredContains(key: "splitResult", substring: #""cwd":"\/private\/tmp""#)
@@ -207,7 +217,8 @@ public enum GallagerCLIScenario {
         )
         // No status label in the row now — terminal icon returns. Confirm the
         // previous "Idle" hint is gone before snapping the cleared screenshot.
-        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
+        // The clear can take longer to propagate to the sidebar on a slow CI VM.
+        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 20)
         TestStep.macScreenshot(label: "mac-state-cleared")
 
         // 14. hook events override CLI state — re-set "idle" then deliver a
@@ -644,7 +655,11 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager apply /tmp/e2e-apply.yaml --detach --json > /tmp/e2e-cli-apply.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
+        // `apply` is heavy — it builds a 3-window session with panes and runs
+        // before_script / on_create / on_apply hooks via tmux — so it takes
+        // well over 3s on a slow CI VM. Give the command time to finish writing
+        // its JSON before reading it.
+        TestStep.wait(seconds: 20)
         TestStep.readFile(path: "/tmp/e2e-cli-apply.txt", storeAs: "applyResult")
         TestStep.assertStoredContains(key: "applyResult", substring: #""session_name":"e2e-apply""#)
         TestStep.assertStoredContains(key: "applyResult", substring: #""created":true"#)
@@ -664,7 +679,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager list-panes --window e2e-apply:1 --json > /tmp/e2e-cli-apply-panes.txt 2>&1"#
         )
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 5)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-panes.txt", storeAs: "applyPanesResult")
         TestStep.assertStoredContains(
             key: "applyPanesResult",
@@ -684,7 +699,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager list-windows --session e2e-apply --json > /tmp/e2e-cli-apply-windows.txt 2>&1"#
         )
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 5)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-windows.txt", storeAs: "applyWindowsResult")
         TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w0""#)
         TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w1""#)
@@ -704,7 +719,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"{ echo BEFORE=$(cat /tmp/e2e-apply-before.txt 2>/dev/null); echo ONCREATE=$(cat /tmp/e2e-apply-oncreate.txt 2>/dev/null); echo ONAPPLY=$(cat /tmp/e2e-apply-onapply.txt 2>/dev/null); } > /tmp/e2e-cli-apply-hooks.txt"#
         )
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 3)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-hooks.txt", storeAs: "applyHooksResult")
         TestStep.assertStoredContains(key: "applyHooksResult", substring: "BEFORE=before-script-ran")
         TestStep.assertStoredContains(key: "applyHooksResult", substring: "ONCREATE=on-create-ran")

@@ -22,6 +22,13 @@ public enum MultiWindowTabsIOSScenario {
         TestStep.log("Stage 1: Create session with two windows (160x50)")
         TestStep.tmuxCreateSession(name: "ios-tabs", width: 160, height: 50)
 
+        // Wait for the shell to finish startup and draw its prompt before sending
+        // the first command. Keys sent while zsh is still sourcing its rc (before
+        // the line editor is interactive) get echoed by the tty on their own line
+        // above the prompt, shifting every later row down by one and breaking the
+        // `ios-initial-active-window` / `ios-reenter-active-window-0` baselines.
+        TestStep.tmuxWaitForPaneContent(target: "ios-tabs:0.0", contains: "$", timeout: 10)
+
         // Give windows deterministic names so menu items have predictable labels
         // (raw tmux's automatic-rename would otherwise track the running command).
         Shortcut.tmuxRunCommand(target: "ios-tabs:0.0", command: "tmux rename-window -t ios-tabs:0 'win0'")

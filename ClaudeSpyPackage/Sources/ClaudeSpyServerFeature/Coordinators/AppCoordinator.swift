@@ -169,6 +169,9 @@
         @ObservationIgnored
         @Dependency(SleepPreventionService.self) private var sleepPreventionService
 
+        @ObservationIgnored
+        @Dependency(DeviceNameClient.self) private var deviceNameClient
+
         private let logger = Logger(label: "com.claudespy.coordinator")
 
         // MARK: - Initialization
@@ -781,9 +784,9 @@
             }
         }
 
-        /// The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
-        /// behind `#if DEBUG`, so its id is mirrored as a literal for Release where
-        /// echo is never registered anyway (the filter is then a harmless no-op).
+        // The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
+        // behind `#if DEBUG`, so its id is mirrored as a literal for Release where
+        // echo is never registered anyway (the filter is then a harmless no-op).
         #if DEBUG
             private static let echoPluginID = EchoPluginCore.pluginID
         #else
@@ -1445,9 +1448,24 @@
                         workingDirectory: workingDirectory,
                         shellCommand: shellCommand
                     )
-                    let panes = await tmux.refreshPanes()
-                    await MainActor.run { winManager.updatePaneStates(from: panes) }
-                    guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
+                    // `refreshPanes()` early-returns the stale cached list when a
+                    // periodic refresh is already in flight, so the freshly-split
+                    // pane can be missing on the first try (more likely on a slow
+                    // machine). The pane definitely exists — `split-window` just
+                    // returned its id — so retry the refresh until it shows up.
+                    var newPane: PaneInfo?
+                    for attempt in 0..<PaneSurfaceRetry.attempts {
+                        let panes = await tmux.refreshPanes()
+                        await MainActor.run { winManager.updatePaneStates(from: panes) }
+                        if let found = panes.first(where: { $0.paneId == newPaneId }) {
+                            newPane = found
+                            break
+                        }
+                        if attempt < PaneSurfaceRetry.attempts - 1 {
+                            try await Task.sleep(for: PaneSurfaceRetry.delay)
+                        }
+                    }
+                    guard let newPane else {
                         throw APIError.notFound("New pane not found after split")
                     }
                     return APIPaneInfo(
@@ -2413,8 +2431,24 @@
                     workingDirectory: spec.workingDirectory
                 )
 
-                let allPanes = await tmuxService.refreshPanes()
-                windowManager.updatePaneStates(from: allPanes)
+                // `refreshPanes()` early-returns the stale cached list when a
+                // periodic refresh is already in flight, so the freshly-created
+                // window can be missing on the first try (more likely on a slow
+                // machine). If we push that stale state, the viewer's remote tab
+                // bar never gains the new window. The pane definitely exists —
+                // `new-window` just returned its id — so retry the refresh until
+                // it shows up before pushing. Mirrors the split-window and
+                // create-session paths.
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    let allPanes = await tmuxService.refreshPanes()
+                    windowManager.updatePaneStates(from: allPanes)
+                    if allPanes.contains(where: { $0.paneId == paneId }) {
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                    }
+                }
                 await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
@@ -2717,7 +2751,7 @@
                 to: host,
                 serverURL: serverURL,
                 deviceId: settings.deviceId,
-                deviceName: Host.current().localizedName ?? "Mac"
+                deviceName: deviceNameClient.current()
             )
         }
 
@@ -2740,7 +2774,7 @@
                     pairedHosts: settings.pairedHosts,
                     serverURL: serverURL,
                     deviceId: settings.deviceId,
-                    deviceName: Host.current().localizedName ?? "Mac"
+                    deviceName: deviceNameClient.current()
                 )
             }
         }
