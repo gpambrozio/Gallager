@@ -734,5 +734,58 @@ public enum GallagerCLIScenario {
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-apply-progress-75")
+
+        // 21. select-session — switching the CLI-selected session must move the
+        // app's sidebar + detail selection onto that session (issue #574).
+        // Before the fix, select-session only re-pointed tmux's active window
+        // and the app kept showing whatever session was already selected.
+        //
+        // The window title mirrors the *selected* session's primary sidebar
+        // label, and `.customDescription` is the first terminal field, so a
+        // `set-title` gives each session a deterministic, baseline-free title
+        // we can assert on to prove which session the app is actually showing.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-title "Selected API" --session e2e-api"#
+        )
+        TestStep.wait(seconds: 1)
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-title "Selected Color" --session e2e-color"#
+        )
+        TestStep.wait(seconds: 1)
+
+        // 21a. Select e2e-api from the CLI. The app must switch to it; the
+        // window title becomes e2e-api's description. The response is the
+        // result object `{"ok":true}` — an empty file would mean the
+        // command errored, so the presence of "ok" confirms it succeeded.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-api > /tmp/e2e-cli-select-api.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-select-api.txt", storeAs: "selectApiResult")
+        TestStep.assertStoredContains(key: "selectApiResult", substring: "ok")
+        TestStep.macAssertWindowTitle(equals: "Selected API", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-api")
+
+        // 21b. Now select e2e-color. The title must follow to the new session —
+        // proving select-session moves the app's selection *across* sessions,
+        // which the pre-fix `select-window`-only path never did.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-color"#
+        )
+        TestStep.macAssertWindowTitle(equals: "Selected Color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-color")
+
+        // 21c. Switch back to e2e-api to confirm selection is repeatable and
+        // not a one-way latch.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-api"#
+        )
+        TestStep.macAssertWindowTitle(equals: "Selected API", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-api-again")
     }
 }
