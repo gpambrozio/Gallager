@@ -38,17 +38,18 @@ public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
 
                 additionalMenu
             }
-            .alert("Rename Window", isPresented: $isEditingName) {
-                TextField("Window Name", text: $editedName)
-                Button("Save") {
-                    let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .modifier(TextEntryPresentation(
+                isPresented: $isEditingName,
+                title: "Rename Window",
+                message: "Enter a new name for this window",
+                placeholder: "Window Name",
+                text: $editedName,
+                onSave: { raw in
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { return }
                     onRename(trimmed)
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Enter a new name for this window")
-            }
+            ))
     }
 }
 

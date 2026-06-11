@@ -817,10 +817,22 @@ public actor MacOSDriver {
             throw MacOSDriverError.windowNotFound(appName)
         }
 
-        // Ensure the app is focused so the window chrome renders
-        // consistently (active title bar, focused controls, etc.)
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
+        // Ensure the app is the *active* app before capturing. `screencapture
+        // -l` includes the window's drop shadow, and macOS draws a smaller
+        // shadow (and gray window controls) on an inactive window — capturing an
+        // inactive window yields a slightly smaller image that fails the
+        // baseline size check (an intermittent ~44px shrink seen on a CI box
+        // that didn't keep the app frontmost). `focusApp`
+        // (NSRunningApplication.activate) alone can be slow/unreliable to take
+        // effect, so when the app isn't already active, escalate to the
+        // AppleScript `activate()` which reliably makes the key window active.
+        // When the app is already frontmost — e.g. a screenshot of an open
+        // popover/menu — skip activation so we don't disturb it.
+        if NSRunningApplication(processIdentifier: pid)?.isActive == true {
+            try await Task.sleep(for: .milliseconds(200))
+        } else {
+            try await activate()
+        }
 
         guard let windowID = getWindowID() else {
             throw MacOSDriverError.windowNotFound(appName)

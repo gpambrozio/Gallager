@@ -590,6 +590,10 @@ public actor TestOrchestrator {
             // do this were deleted in the plugin-system flip). Honoured only in
             // `--e2e-test` + DEBUG builds.
             arguments += ["--e2e-seed-projects"]
+            // Pin the advertised device name so screenshots are portable across
+            // machines whose real `ComputerName` differs. "MacMini" matches the
+            // name the existing baselines were captured with, so they stay valid.
+            arguments += ["--e2e-device-name", "MacMini"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }
@@ -874,6 +878,23 @@ public actor TestOrchestrator {
             let content = result.stdoutString
             context.set(storeAs, value: content)
             logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
+
+        case let .tmuxWaitForPaneContent(target, contains, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedContains = context.resolve(contains)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux pane '\(resolvedTarget)' content contains '\(resolvedContains)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "capture-pane", "-t", resolvedTarget, "-p"]
+                )
+                return result?.stdoutString.contains(resolvedContains) ?? false
+            }
 
         case let .tmuxSendKeys(target, keys, literal):
             let socket = context.resolve("${tmuxSocket}")

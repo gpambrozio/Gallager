@@ -168,6 +168,7 @@ ClaudeSpyE2E --scenario "Fresh Pairing" ...
 - The simulator named in `--sim-name` must exist (`xcrun simctl list devices available`)
 - Accessibility permissions for Terminal/IDE (System Settings > Privacy > Accessibility)
 - `xcsift` installed (`brew install xcsift`) for build output filtering
+- **macOS 15+ Local Network:** the app no longer does a blocking local-network call at startup, so a fresh machine runs without a Local Network prompt. (If you ever do see Gallager hang at launch with a "find devices on your local network" prompt, allow it once in System Settings > Privacy & Security > Local Network and re-run.) See [known-issues.md](known-issues.md).
 
 ## Writing scenarios
 
@@ -538,12 +539,14 @@ The `e2e-report.sh` script runs all E2E scenarios, collects results and screensh
 ### How it works
 
 1. Gathers git metadata (branch, commit, PR number) from the current ClaudeSpy checkout
-2. Clones or updates the results repository as a sibling folder (`../ClaudeSpyTestResults`)
+2. Ensures a clone of the results repository exists as a sibling folder (`../ClaudeSpyTestResults`)
 3. Runs `e2e-test.sh` with `--json-output` to get structured step-level results
-4. Copies screenshots into a **content-addressable image store** (`images/<sha256>.png`) — identical images are stored once
+4. Syncs the results repo to the latest remote **right before writing results** (not at startup), then copies screenshots into a **content-addressable image store** (`images/<sha256>.png`) — identical images are stored once
 5. Generates a `report.json` with metadata and per-scenario/per-step results (including screenshot hashes)
 6. Updates `results/index.json` with a summary of all runs (most recent first)
-7. Commits and pushes everything to the results repository
+7. Commits and pushes everything to the results repository, retrying with a rebase if a concurrent run pushed first (the index is regenerated on conflict)
+
+> **Concurrency note:** Step 4 deliberately syncs the remote *after* the (long) test run rather than at startup. When several VMs run the report concurrently, syncing at startup would leave the whole test run as a window in which a sibling could push, making the final push race and fail. Syncing immediately before the commit — plus the rebase-and-retry in step 7 — keeps concurrent runs from clobbering each other.
 
 ### Usage
 

@@ -143,6 +143,20 @@ struct TmuxPaneMirrorApp: App {
                 defaultBrowserLogPath = nil
             }
 
+            // E2E test support: pin the advertised device name. The system
+            // `ComputerName` varies per machine (e.g. "Managed's Virtual Machine"
+            // on a CI box vs "MacMini"), and the iOS/Mac viewer renders it in its
+            // Sessions header, unpair dialog, and version-mismatch text — making
+            // screenshot baselines non-portable. Overriding keeps it deterministic.
+            let deviceNameOverride: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--e2e-device-name"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                deviceNameOverride = CommandLine.arguments[idx + 1]
+            } else {
+                deviceNameOverride = nil
+            }
+
             prepareDependencies {
                 $0[PreferencesService.self] = prefs
                 $0[SecretsService.self] = .inMemory()
@@ -296,6 +310,9 @@ struct TmuxPaneMirrorApp: App {
                 if let defaultBrowserLogPath {
                     try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
                     $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
+                if let deviceNameOverride {
+                    $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
                 }
             }
 

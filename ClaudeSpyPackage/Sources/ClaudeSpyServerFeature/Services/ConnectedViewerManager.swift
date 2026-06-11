@@ -1,6 +1,7 @@
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import Foundation
 import Logging
 
@@ -26,6 +27,10 @@ final public class ConnectedViewerManager {
 
     /// Stored key pair for E2EE
     private let keyPair: StoredKeyPair
+
+    /// This Mac's advertised device name (overridable in E2E for deterministic screenshots).
+    @ObservationIgnored
+    @Dependency(DeviceNameClient.self) private var deviceNameClient
 
     // MARK: - Public Callbacks
 
@@ -185,7 +190,7 @@ final public class ConnectedViewerManager {
         await connection.connect(
             serverURL: serverURL,
             deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac",
+            deviceName: deviceNameClient.current(),
             username: ProcessInfo.processInfo.userName,
             publicKey: keyPair.publicKeyData.base64EncodedString(),
             publicKeyId: keyPair.keyId

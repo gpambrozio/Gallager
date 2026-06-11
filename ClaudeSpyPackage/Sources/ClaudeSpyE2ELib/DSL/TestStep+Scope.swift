@@ -150,6 +150,7 @@ public extension TestStep {
              .tmuxStorePaneDimensions,
              .tmuxStorePaneId,
              .tmuxCapturePaneContent,
+             .tmuxWaitForPaneContent,
              .tmuxSendKeys,
              .tmuxCommand,
              .tmuxStoreDisplayMessage,

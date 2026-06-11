@@ -3941,6 +3941,10 @@ public struct MainView: View {
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
+            // Always clear the in-flight guard on any exit (including an early
+            // return when the task is cancelled mid-retry), so a later create
+            // isn't blocked by `guard creatingSelection == nil`.
+            defer { creatingSelection = nil }
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
@@ -3986,22 +3990,46 @@ public struct MainView: View {
                 )
 
                 // Find the window containing the new pane and select it.
+                //
+                // The cached window list can momentarily lag tmux:
+                // `createSession`'s own `refreshPanes()` early-returns the stale
+                // cached list when a periodic refresh is already in flight (more
+                // likely on a slow machine), so the just-created pane can be
+                // missing on the first lookup, leaving the new session never
+                // selected ("Select a Window"). The pane definitely exists — we
+                // hold its id — so retry the refresh until its window shows up.
+                // Mirrors the same retry in AppCoordinator's split-window path.
+                //
                 // Clearing the remote selection mirrors createRemoteSession's
                 // own "clear the other side" step — without it, the sidebar's
                 // local-row highlight stays suppressed (see the listRowBackground
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                var newWindow: LocalTmuxWindow?
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                        newWindow = found
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                        guard !Task.isCancelled else { return }
+                        _ = await tmuxService.refreshPanes()
+                    }
+                }
+                if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
                     selectedWindow = newWindow
+                } else {
+                    // The pane never surfaced within the retry budget — surface it
+                    // rather than leaving the user on a silent "Select a Window".
+                    attachError = "Session created but its window didn't appear in time. Try selecting it from the sidebar."
                 }
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
-
-            creatingSelection = nil
         }
     }
 

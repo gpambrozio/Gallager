@@ -111,10 +111,12 @@ public enum FileBrowserScenario {
 
         // ── Phase 6: HTML Viewer ─────────────────────────────────
         TestStep.log("Phase 6: HTML viewer (WebView)")
+        // Frontmost before the WebView renders so it isn't throttled (see Phase 30).
+        TestStep.macActivate()
         TestStep.macCGClick(titled: "page.html")
         // WebView load is async — wait for rendered content before screenshot
         // so a slow page load doesn't capture a blank pane (see Phase 30).
-        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-viewer")
 
         // ── Phase 7: Unsupported / Binary File ──────────────────
@@ -676,23 +678,35 @@ public enum FileBrowserScenario {
         TestStep.log("Phase 30: HTML viewer preserves scroll (window 1)")
 
         TestStep.macWaitForElement(titled: "page.html", timeout: 5)
+        // Bring Gallager frontmost so the WKWebView isn't render-throttled while
+        // it loads and scrolls. On a CI box that doesn't keep the app active the
+        // web content process pauses when the window is occluded, leaving a blank
+        // pane; `macActivate` un-occludes it before each render-dependent wait.
+        TestStep.macActivate()
         TestStep.macContextMenuClick(elementTitle: "page.html", menuItem: "Open in New Tab")
         TestStep.macWaitForElement(titled: "File tab: page.html", timeout: 5)
-        // The WebView needs a moment to load before AX text is available. The
-        // 250ms warm-up before scroll restore in `ScrollableWebView` covers
-        // the same async growth on rebuild, so a short wait here is enough.
-        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 5)
+        // The WebView loads async; `ScrollableWebView` retries its scroll
+        // restore until the content has grown tall enough, so AX text can lag
+        // the initial mount.
+        TestStep.macWaitForElementQuery(.anyTextMatches("Scroll Preservation Test (HTML)"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-top")
 
+        TestStep.macActivate()
         TestStep.macScrollWheel(deltaY: -10, count: 40)
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-bottom-initial")
 
-        // Tab round trip via window 1's terminal.
+        // Tab round trip via window 1's terminal. Activate before reselecting
+        // the HTML tab so the WebView lays out (and its scroll-restore runs)
+        // while the window is unoccluded, then give the restore time to land
+        // the bottom — the content grows async and the marker is in the AX tree
+        // before it scrolls on screen.
         TestStep.macClickButton(titled: "filebrowse:1")
         TestStep.wait(seconds: 2)
+        TestStep.macActivate()
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
+        TestStep.wait(seconds: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-tab-switch")
 
         // Session round trip via the shared `scrollalt`.
@@ -700,8 +714,10 @@ public enum FileBrowserScenario {
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "filebrowse")
         TestStep.wait(seconds: 2)
+        TestStep.macActivate()
         TestStep.macClickButton(titled: "File tab: page.html")
-        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 5)
+        TestStep.macWaitForElementQuery(.anyTextMatches("HTML BOTTOM MARKER"), timeout: 12)
+        TestStep.wait(seconds: 5)
         TestStep.macScreenshot(label: "mac-html-scroll-preserve-after-session-switch")
 
         // Close the tab so the next phase starts fresh.
