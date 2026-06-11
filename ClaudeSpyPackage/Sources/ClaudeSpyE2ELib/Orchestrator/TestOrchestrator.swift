@@ -588,6 +588,7 @@ public actor TestOrchestrator {
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
+                "--git-changes-file", gitChangesFilePath(for: instance),
             ]
             // Seed deterministic projects so project-list / project-search
             // scenarios see a stable set (the in-memory scanners that used to
@@ -742,6 +743,12 @@ public actor TestOrchestrator {
             try? FileManager.default.removeItem(atPath: basePath + ".image.format")
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Cleared file-backed clipboard\(suffix)")
+
+        case let .setGitMockChanges(hasChanges, instance):
+            let path = gitChangesFilePath(for: instance)
+            try (hasChanges ? "1" : "0").write(toFile: path, atomically: true, encoding: .utf8)
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Set git mock changes\(suffix): \(hasChanges)")
 
         case let .macPaste(instance):
             try await macDriver(for: instance).paste()
@@ -1162,6 +1169,13 @@ public actor TestOrchestrator {
     /// isolating clipboards between instances on the same machine.
     func clipboardFilePath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
+    }
+
+    /// Sentinel file toggling the Git tab's mock between clean and dirty
+    /// (issue #573). The `setGitMockChanges(_:)` step writes "1"/"0" here; the
+    /// app's `E2EGitProvider` reads it.
+    func gitChangesFilePath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-git-changes-\(instance).txt"
     }
 
     /// Return the path scenarios should read to verify the fake editor was

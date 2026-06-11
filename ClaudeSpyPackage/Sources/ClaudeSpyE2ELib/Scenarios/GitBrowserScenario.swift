@@ -7,6 +7,10 @@ import Foundation
 /// 1. Activating the Git tab shows the GitWorkbench Changes view backed by the
 ///    stable mock provider (repo "aurora-cli", branch "feat/auto-sync", the
 ///    fixture's changed files).
+/// 0. The repo starts clean (no badge). Introducing changes (`setGitMockChanges`)
+///    makes a changed-file-count badge appear on the Git tab button — read live
+///    from the eagerly-loaded session store's summary — while the terminal, not
+///    the Git tab, is still the active view (issue #573).
 /// 2. Selecting a changed file loads its diff.
 /// 3. Switching the workspace to History shows the fixture commit list.
 /// 4. The Git tab's state is retained across a tab round-trip: after switching to
@@ -46,10 +50,24 @@ public enum GitBrowserScenario {
         TestStep.macClickButton(titled: "repobrowse")
         TestStep.wait(seconds: 3)
 
-        // ── Phase 1: Activate the Git tab — Changes view ─────────
-        TestStep.log("Phase 1: Activate the Git tab and verify the mock Changes view")
+        // ── Phase 0: Clean repo → no badge; add changes → badge on load ──
+        //
+        // The displayed session's git status loads eagerly (issue #573), so the
+        // Git tab button reflects the repo without the tab being opened. The mock
+        // starts clean, so there's no badge here.
+        TestStep.log("Phase 0: Clean repo shows no changed-file badge")
         TestStep.macScreenshot(label: "mac-git-terminal-baseline")
 
+        // Introduce changes: the eagerly-loaded store picks them up via the
+        // provider's change stream, and a "7 changed files" badge appears on the
+        // Git tab button while the terminal — not the Git tab — is still showing.
+        TestStep.log("Phase 0: Introduce changes → badge appears on the terminal view")
+        TestStep.setGitMockChanges(true)
+        TestStep.macWaitForElementQuery(.anyTextMatches("7 changed files"), timeout: 15)
+        TestStep.macScreenshot(label: "mac-git-tab-badge")
+
+        // ── Phase 1: Activate the Git tab — Changes view ─────────
+        TestStep.log("Phase 1: Activate the Git tab and verify the mock Changes view")
         // Click the Git tab (branch icon, accessibilityLabel: "Git").
         TestStep.macClickButton(titled: "Git")
 
@@ -82,6 +100,10 @@ public enum GitBrowserScenario {
         TestStep.log("Phase 4: Git state persists across a terminal tab round-trip")
         TestStep.macClickButton(titled: "repobrowse:0")
         TestStep.wait(seconds: 2)
+        // The changed-file badge persists on the Git tab button while the terminal
+        // is the visible view; the count is surfaced on the button's accessibility
+        // value (issue #573).
+        TestStep.macWaitForElementQuery(.anyTextMatches("7 changed files"), timeout: 10)
         TestStep.macScreenshot(label: "mac-git-terminal-restored")
 
         TestStep.macClickButton(titled: "Git")
@@ -121,7 +143,9 @@ public enum GitBrowserScenario {
         Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "echo '=== OTHER PROJECT ==='")
 
         // Select the other session — its terminal replaces the Git view.
-        TestStep.macWaitForElement(titled: "otherproj", timeout: 5)
+        // A freshly-created tmux session only surfaces in the sidebar on the
+        // next periodic refresh (~5s), so allow two cycles to avoid racing it.
+        TestStep.macWaitForElement(titled: "otherproj", timeout: 12)
         TestStep.macClickButton(titled: "otherproj")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-git-other-session")
