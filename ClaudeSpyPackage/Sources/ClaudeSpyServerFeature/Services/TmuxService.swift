@@ -657,15 +657,20 @@ final public class TmuxService {
         let (width, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
-        let scrollbackResult = try await runTmuxCommand(
-            ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
-        )
         // `-N` preserves trailing spaces at each line's end (without `-J`'s
-        // wrapped-line joining). Without it, tmux trims trailing cells — which
-        // makes a multi-row background band that *continues* (a Codex composer
-        // box) indistinguishable from a single-row band followed by blank
-        // rows, dropping the band's background on its continuation rows when
-        // rebuilt. See `processCapturePaneForStreaming` and issue #578.
+        // wrapped-line joining) on BOTH captures. Without it tmux trims trailing
+        // cells — which makes a multi-row background band that *continues* (a
+        // Codex composer box) indistinguishable from a single-row band followed
+        // by blank rows, dropping the band's background on its continuation rows
+        // when rebuilt. The visible area needed this for #578; the scrollback
+        // capture gets it too (#580) so a band that has scrolled into history
+        // keeps its background. `processCapturePaneForStreaming` then trims the
+        // now-preserved *default*-bg trailing spaces back off plain scrollback
+        // rows so static history can't reflow into permanent blank rows on a
+        // narrower resize (#429 class).
+        let scrollbackResult = try await runTmuxCommand(
+            ["capture-pane", "-t", target, "-p", "-e", "-N", "-S", "-\(scrollbackLines)", "-E", "-1"]
+        )
         let visibleResult = try await runTmuxCommand(
             ["capture-pane", "-t", target, "-p", "-e", "-N"]
         )
@@ -715,14 +720,15 @@ final public class TmuxService {
         // until the user navigates away and back.
         let scrollbackLines = height * scrollbackMultiplier
 
+        // `-N` preserves trailing spaces (see the matching note in
+        // `capturePaneWithScrollbackForStreaming`) so multi-row background
+        // bands survive the rebuild — on the scrollback capture too (#580), so
+        // a band that scrolled into history keeps its background. Issue #578.
         let scrollbackResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(paneId)' -p -e -S -\(scrollbackLines) -E -1",
+            "capture-pane -t '\(paneId)' -p -e -N -S -\(scrollbackLines) -E -1",
             sessionName: sessionName
         )
 
-        // `-N` preserves trailing spaces (see the matching note in
-        // `capturePaneWithScrollbackForStreaming`) so multi-row background
-        // bands survive the rebuild. Issue #578.
         let visibleResponse = try await controlClientManager.sendCommand(
             "capture-pane -t '\(paneId)' -p -e -N",
             sessionName: sessionName
@@ -808,17 +814,49 @@ final public class TmuxService {
             // tmux retains, the mirror retains.
             if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
+                // Carry the SGR state across scrollback rows exactly as Part 2
+                // does for the visible area. With `-N` a multi-row background
+                // band's continuation rows arrive as real trailing spaces but
+                // bear the band's bg setter only on its first row, so the
+                // carried state must be restored on each row or the band loses
+                // its background in history (#580 — the scrollback analogue of
+                // #578). `carriedSGRs` is local to this loop; Part 2 keeps its
+                // own.
+                var carriedSGRs: [String] = []
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
                     var lineStr = String(line)
                     if lineStr.hasSuffix("\r") {
                         lineStr.removeLast()
                     }
-                    // Filter to colors only, reset attributes, output content with newline
                     let filtered = filterToColorCodesOnly(lineStr)
-                    output += "\u{1b}[0m" // Reset at start
-                    output += filtered
-                    output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
+                    // Drop the trailing spaces that carry the *default*
+                    // background so a plain full-width row stays short: scrollback
+                    // is static history and is never redrawn, so a preserved
+                    // full-width default row would wrap into permanent blank
+                    // continuation rows on a narrower resize (#429 class). A
+                    // band's trailing spaces carry a non-default bg and are kept,
+                    // so the band survives with its background. SGR sequences are
+                    // never dropped, so the carry below is unaffected.
+                    let drawn = trimTrailingDefaultBackgroundSpaces(filtered, carriedSGRs: carriedSGRs)
+                    if countVisibleColumns(drawn) > 0 {
+                        // Restore the carried state (default for a plain row, the
+                        // band's bg for a continuation row), then draw the row's
+                        // real content and any band spaces. A genuinely-blank row
+                        // (`drawn` empty) skips the restore so a carried band bg
+                        // can't bleed onto it — the #411 guard, same as Part 2.
+                        output += carriedSGRs.joined()
+                        output += drawn
+                    }
+                    accumulateSGRState(&carriedSGRs, from: filtered)
+                    // BCE-clear the rest of the row. After a plain row the bg is
+                    // default, so this writes a NULL tail (reflow-safe); after a
+                    // band row `-N` already supplied the real cells to the edge,
+                    // so it is a no-op. The `\e[0m` then resets before the newline
+                    // so a band's bg can't bleed into the LF-push scroll (Part 2)
+                    // — the carried state is re-applied on the next row.
+                    output += "\u{1b}[K"
+                    output += "\u{1b}[0m\r\n"
                 }
             }
         }
@@ -1224,6 +1262,145 @@ final public class TmuxService {
                 i = filtered.index(after: i)
             }
         }
+    }
+
+    /// Returns `filtered` with a trailing run of spaces removed when those spaces
+    /// carry the *default* background, while preserving spaces that carry a
+    /// non-default background (a multi-row band's continuation cells).
+    ///
+    /// `tmux capture-pane -N` preserves every row's trailing spaces as real
+    /// cells. In the *visible* area that is what lets a band's continuation rows
+    /// survive (#578) — the running TUI redraws them on the resize SIGWINCH.
+    /// Scrollback is static history that is never redrawn, so a preserved
+    /// full-width row of *default*-bg spaces would wrap into permanent blank
+    /// continuation rows on a narrower resize (#429 class). Dropping those spaces
+    /// keeps a plain row short so SwiftTerm's reflow trims its NULL tail, while a
+    /// band's non-default-bg spaces are kept so the band survives in history with
+    /// its background (#580).
+    ///
+    /// Only trailing space *characters* are removed — every SGR sequence is kept
+    /// in place. That keeps the bg state carried to the next row (via
+    /// `accumulateSGRState`, which reads the untrimmed line) correct, and
+    /// preserves a closing `\e[49m`/`\e[0m` after the content so the caller's
+    /// `\e[K` BCE clears the tail with the right (default) background.
+    ///
+    /// Internal for testing
+    func trimTrailingDefaultBackgroundSpaces(_ filtered: String, carriedSGRs: [String]) -> String {
+        // Background carried into this row from earlier rows. Replayed in order
+        // so a later partial reset wins, matching tmux's cross-line SGR state.
+        // (An order-insensitive `contains` would be wrong: a trailing `\e[49m`
+        // must override an earlier `\e[48;5;Nm`.)
+        var bgActive = false
+        for sgr in carriedSGRs {
+            if let change = sgrBackgroundChange(sgr) {
+                bgActive = change
+            }
+        }
+        // Find the index just past the last "meaningful" character: a non-space,
+        // or a space drawn over a non-default background. Everything after it is
+        // default-bg padding to drop. SGR sequences never bound the trim but do
+        // update the running bg state.
+        var i = filtered.startIndex
+        var keepEnd = filtered.startIndex
+        while i < filtered.endIndex {
+            let ch = filtered[i]
+            if ch == "\u{1b}", filtered.index(after: i) < filtered.endIndex, filtered[filtered.index(after: i)] == "[" {
+                var end = filtered.index(i, offsetBy: 2)
+                while end < filtered.endIndex {
+                    let c = filtered[end]
+                    if c >= "@", c <= "~" {
+                        if c == "m", let change = sgrBackgroundChange(String(filtered[i...end])) {
+                            bgActive = change
+                        }
+                        end = filtered.index(after: end)
+                        break
+                    }
+                    end = filtered.index(after: end)
+                }
+                i = end
+            } else {
+                if ch != " " || bgActive {
+                    keepEnd = filtered.index(after: i)
+                }
+                i = filtered.index(after: i)
+            }
+        }
+        if keepEnd == filtered.endIndex {
+            return filtered
+        }
+        // Rebuild: keep everything up to keepEnd verbatim, then keep only SGR
+        // sequences (dropping the trailing default-bg spaces) so a closing
+        // `\e[49m`/`\e[0m` still reaches the caller.
+        var result = String(filtered[..<keepEnd])
+        var j = keepEnd
+        while j < filtered.endIndex {
+            let ch = filtered[j]
+            if ch == "\u{1b}", filtered.index(after: j) < filtered.endIndex, filtered[filtered.index(after: j)] == "[" {
+                var end = filtered.index(j, offsetBy: 2)
+                while end < filtered.endIndex {
+                    let c = filtered[end]
+                    if c >= "@", c <= "~" {
+                        end = filtered.index(after: end)
+                        break
+                    }
+                    end = filtered.index(after: end)
+                }
+                result += filtered[j..<end]
+                j = end
+            } else {
+                j = filtered.index(after: j)
+            }
+        }
+        return result
+    }
+
+    /// Classifies how a single SGR sequence changes the background: `true` if it
+    /// selects a non-default background, `false` if it resets the background to
+    /// default (`\e[0m`, `\e[m`, `\e[49m`), or `nil` if it leaves the background
+    /// untouched (a foreground/style-only setter). Used by
+    /// `trimTrailingDefaultBackgroundSpaces` to tell a band's trailing spaces
+    /// (keep) from default-bg padding (drop) in scrollback (#580).
+    ///
+    /// Internal for testing
+    func sgrBackgroundChange(_ sgr: String) -> Bool? {
+        guard sgr.hasPrefix("\u{1b}["), sgr.hasSuffix("m") else { return nil }
+        let body = sgr.dropFirst(2).dropLast()
+        // `\e[m` (empty params) is an implicit full reset.
+        let params = body.isEmpty
+            ? [0]
+            : body.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+        var result: Bool?
+        var idx = 0
+        while idx < params.count {
+            switch params[idx] {
+            case 0,
+                 49:
+                result = false // full reset or explicit default background
+            case 40...47,
+                 100...107:
+                result = true // 16-color / bright background
+            case 38,
+                 48,
+                 58:
+                // Extended fg (38) / bg (48) / underline (58) color. Skip the
+                // following `5;N` or `2;R;G;B` args so a color index that happens
+                // to land in a bg range isn't misread as a background setter.
+                if params[idx] == 48 {
+                    result = true
+                }
+                if idx + 1 < params.count {
+                    if params[idx + 1] == 5 {
+                        idx += 2
+                    } else if params[idx + 1] == 2 {
+                        idx += 4
+                    }
+                }
+            default:
+                break // foreground / style params don't affect the background
+            }
+            idx += 1
+        }
+        return result
     }
 
     /// Extracts the active SGR (color/style) escape sequences at the given cursor position
