@@ -336,6 +336,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TabCycleReorderScenario.scenario,
         BadgeClearsOnAgentResumeScenario.scenario,
         GitTabFileActionsScenario.scenario,
+        ComposerBandRecaptureScenario.scenario,
         CodexGuardianSuppressionScenario.scenario,
     ]
 
