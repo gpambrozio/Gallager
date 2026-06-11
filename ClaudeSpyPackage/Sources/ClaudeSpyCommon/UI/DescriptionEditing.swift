@@ -119,16 +119,17 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
 
                 additionalMenu
             }
-            .alert("Session Description", isPresented: $isEditingDescription) {
-                TextField("Description", text: $editedDescription)
-                Button("Save") {
-                    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            .modifier(TextEntryPresentation(
+                isPresented: $isEditingDescription,
+                title: "Session Description",
+                message: "Enter a custom description for this session",
+                placeholder: "Description",
+                text: $editedDescription,
+                onSave: { raw in
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     onSetDescription(sessionName, trimmed.isEmpty ? nil : trimmed)
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Enter a custom description for this session")
-            }
+            ))
             .modifier(EmojiEntryPresentation(
                 isPresented: $isEditingEmoji,
                 editedEmoji: $editedEmoji,

@@ -98,6 +98,18 @@ struct TmuxPaneMirrorApp: App {
                 clipboardFilePath = nil
             }
 
+            // E2E test support: sentinel file that toggles the Git tab's mock
+            // between clean and dirty (issue #573), driven by the
+            // `setGitMockChanges(_:)` step.
+            let gitChangesFilePath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--git-changes-file"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                gitChangesFilePath = CommandLine.arguments[idx + 1]
+            } else {
+                gitChangesFilePath = nil
+            }
+
             // E2E test support: register a fake editor backed by a Python script
             // so scenarios can verify "Open in Editor" forwards the file path
             // without launching real editor apps on the host.
@@ -129,6 +141,20 @@ struct TmuxPaneMirrorApp: App {
                 defaultBrowserLogPath = CommandLine.arguments[idx + 1]
             } else {
                 defaultBrowserLogPath = nil
+            }
+
+            // E2E test support: pin the advertised device name. The system
+            // `ComputerName` varies per machine (e.g. "Managed's Virtual Machine"
+            // on a CI box vs "MacMini"), and the iOS/Mac viewer renders it in its
+            // Sessions header, unpair dialog, and version-mismatch text — making
+            // screenshot baselines non-portable. Overriding keeps it deterministic.
+            let deviceNameOverride: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--e2e-device-name"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                deviceNameOverride = CommandLine.arguments[idx + 1]
+            } else {
+                deviceNameOverride = nil
             }
 
             prepareDependencies {
@@ -243,10 +269,17 @@ struct TmuxPaneMirrorApp: App {
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
-                // Git tab (issue #258): stable in-memory fixtures so the
-                // GitWorkbench view renders deterministic content for scenarios
-                // instead of running `git` against the fake filesystem.
-                $0[GitWorkbenchProviderClient.self] = .mock
+                // Git tab (issue #258): in-memory provider that starts clean and
+                // flips to the fixture changes when a scenario sets the sentinel
+                // file (issue #573), so the eagerly-loaded badge only appears
+                // where a scenario asks for it. Falls back to the always-dirty
+                // mock if no sentinel path was provided.
+                if let gitChangesFilePath {
+                    try? FileManager.default.removeItem(atPath: gitChangesFilePath)
+                    $0[GitWorkbenchProviderClient.self] = .e2e(changesFilePath: gitChangesFilePath)
+                } else {
+                    $0[GitWorkbenchProviderClient.self] = .mock
+                }
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
@@ -277,6 +310,9 @@ struct TmuxPaneMirrorApp: App {
                 if let defaultBrowserLogPath {
                     try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
                     $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
+                if let deviceNameOverride {
+                    $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
                 }
             }
 

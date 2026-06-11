@@ -1,5 +1,5 @@
 {
-  "originHash" : "9c91d937c4ba3c24a29c62c723cd6a87025c2c7950602eec90bec41e05631bbb",
+  "originHash" : "0bf8d4a654fb1c4557e8714857dc74b2c15e3fba645ac46b436af673af258c37",
   "pins" : [
     {
       "identity" : "apns",
@@ -60,8 +60,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gpambrozio/GitWorkbench",
       "state" : {
-        "revision" : "9520611566d132ec3efd98020a999e61375e2d0c",
-        "version" : "1.0.1"
+        "revision" : "e4d6ae96464d861fbd128953a33a5f4eef774d06",
+        "version" : "1.2.0"
       }
     },
     {
@@ -105,8 +105,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
       "state" : {
-        "revision" : "6276ba2b404829d139c45ff98427cf90e2efc59b",
-        "version" : "2.9.2"
+        "revision" : "d46d456107feacc80711b21847b82b07bd9fb46e",
+        "version" : "2.9.3"
       }
     },
     {

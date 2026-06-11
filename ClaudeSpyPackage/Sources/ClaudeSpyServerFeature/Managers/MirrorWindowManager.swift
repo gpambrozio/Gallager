@@ -459,7 +459,11 @@ final public class MirrorWindowManager {
 
     private static let gitPath = "/usr/bin/git"
 
-    /// Refreshes git branch info for all panes that have a current path.
+    /// Refreshes git branch info for all panes that have a current path. The Git
+    /// tab's changed-file badge (issue #573) is driven separately, straight off
+    /// the per-session GitWorkbench store's `summary`; the sidebar branch keeps
+    /// using a single cheap `git rev-parse` here rather than GitWorkbench's
+    /// heavier `loadStatus()`.
     func refreshGitBranches() async {
         var panesForPath: [String: [String]] = [:]
         for (paneId, state) in paneStates {

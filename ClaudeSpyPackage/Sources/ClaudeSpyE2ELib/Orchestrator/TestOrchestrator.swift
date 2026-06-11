@@ -583,12 +583,17 @@ public actor TestOrchestrator {
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
+                "--git-changes-file", gitChangesFilePath(for: instance),
             ]
             // Seed deterministic projects so project-list / project-search
             // scenarios see a stable set (the in-memory scanners that used to
             // do this were deleted in the plugin-system flip). Honoured only in
             // `--e2e-test` + DEBUG builds.
             arguments += ["--e2e-seed-projects"]
+            // Pin the advertised device name so screenshots are portable across
+            // machines whose real `ComputerName` differs. "MacMini" matches the
+            // name the existing baselines were captured with, so they stay valid.
+            arguments += ["--e2e-device-name", "MacMini"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }
@@ -734,6 +739,12 @@ public actor TestOrchestrator {
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Cleared file-backed clipboard\(suffix)")
 
+        case let .setGitMockChanges(hasChanges, instance):
+            let path = gitChangesFilePath(for: instance)
+            try (hasChanges ? "1" : "0").write(toFile: path, atomically: true, encoding: .utf8)
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Set git mock changes\(suffix): \(hasChanges)")
+
         case let .macPaste(instance):
             try await macDriver(for: instance).paste()
 
@@ -867,6 +878,23 @@ public actor TestOrchestrator {
             let content = result.stdoutString
             context.set(storeAs, value: content)
             logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
+
+        case let .tmuxWaitForPaneContent(target, contains, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedContains = context.resolve(contains)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux pane '\(resolvedTarget)' content contains '\(resolvedContains)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "capture-pane", "-t", resolvedTarget, "-p"]
+                )
+                return result?.stdoutString.contains(resolvedContains) ?? false
+            }
 
         case let .tmuxSendKeys(target, keys, literal):
             let socket = context.resolve("${tmuxSocket}")
@@ -1126,6 +1154,13 @@ public actor TestOrchestrator {
     /// isolating clipboards between instances on the same machine.
     func clipboardFilePath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
+    }
+
+    /// Sentinel file toggling the Git tab's mock between clean and dirty
+    /// (issue #573). The `setGitMockChanges(_:)` step writes "1"/"0" here; the
+    /// app's `E2EGitProvider` reads it.
+    func gitChangesFilePath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-git-changes-\(instance).txt"
     }
 
     /// Return the path scenarios should read to verify the fake editor was

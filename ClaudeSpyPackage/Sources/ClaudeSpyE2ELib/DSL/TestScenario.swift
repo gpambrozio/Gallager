@@ -287,6 +287,11 @@ public enum TestStep: Sendable {
     /// Clear both text and image entries on the file-backed clipboard for the
     /// given app instance. Use to wipe stale state between scenarios.
     case macClearClipboard(instance: Int = 0)
+    /// Toggle the Git tab's E2E mock between clean (`false`, the default) and the
+    /// fixture's changed files (`true`) for the given instance (issue #573). The
+    /// app's `E2EGitProvider` reacts and reloads, so the changed-file badge and
+    /// the Changes view appear shortly after. Use before asserting either.
+    case setGitMockChanges(_ hasChanges: Bool, instance: Int = 0)
     /// Press Cmd+V in the macOS app, pasting the current system clipboard
     /// contents into the focused field.
     case macPaste(instance: Int = 0)
@@ -348,6 +353,14 @@ public enum TestStep: Sendable {
     case tmuxStorePaneId(target: String, storeAs: String)
     /// Capture the visible content of a tmux pane and store it in the execution context
     case tmuxCapturePaneContent(target: String, storeAs: String)
+    /// Poll a tmux pane's captured content via `capture-pane -p` until it contains
+    /// a substring. Use this to wait for the shell to finish startup and draw its
+    /// prompt before sending the first command: keys delivered before zsh's line
+    /// editor is interactive get echoed by the tty on their own line above the
+    /// prompt, shifting all later output down a row and breaking screenshots.
+    case tmuxWaitForPaneContent(
+        target: String, contains: String, timeout: TimeInterval = 10
+    )
     /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
     /// Run an arbitrary tmux command on the test socket (e.g., "split-window -h -t session:0")

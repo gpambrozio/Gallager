@@ -88,6 +88,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macClearClipboard(instance):
             return .macOS(instance: instance)
+        case let .setGitMockChanges(_, instance):
+            return .macOS(instance: instance)
         case let .macPaste(instance):
             return .macOS(instance: instance)
         case let .macDropFilesOnPane(_, _, instance):
@@ -148,6 +150,7 @@ public extension TestStep {
              .tmuxStorePaneDimensions,
              .tmuxStorePaneId,
              .tmuxCapturePaneContent,
+             .tmuxWaitForPaneContent,
              .tmuxSendKeys,
              .tmuxCommand,
              .tmuxStoreDisplayMessage,

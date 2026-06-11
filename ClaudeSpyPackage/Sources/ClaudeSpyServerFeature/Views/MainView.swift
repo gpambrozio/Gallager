@@ -83,6 +83,11 @@ public struct MainView: View {
     /// `--e2e-test`). Read here to build per-session stores on demand.
     @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
+    /// UserDefaults-backed preferences (in-memory under E2E). Passed into each
+    /// session's GitWorkbench config so the package can persist the diff style and
+    /// column widths through the host (it never touches `UserDefaults` itself).
+    @Dependency(PreferencesService.self) private var preferences
+
     /// File path for which the "Open in Editor" picker is currently shown
     /// (triggered by Cmd+E on a focused file tab).
     @State private var editorPickerPath: String?
@@ -870,6 +875,10 @@ public struct MainView: View {
                         // selecting any file/browser tab calls gitActiveWindowIds.remove,
                         // so isGitActive is already false whenever a tab is selected.
                         isGitBrowserSelected: isGitActive,
+                        gitChangedFileCount: gitChangedFileCount(
+                            sessionName: session.sessionName,
+                            directoryPath: directoryPath
+                        ),
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
@@ -1018,6 +1027,17 @@ public struct MainView: View {
                 )
             }
             .id(window.id)
+            .task(id: directoryPath) {
+                // Eagerly load the displayed session's git status so the Git tab
+                // badge (issue #573) shows on session load, before the Git tab is
+                // ever opened.
+                if let session {
+                    await eagerlyLoadGitStatus(
+                        sessionName: session.sessionName,
+                        directoryPath: directoryPath
+                    )
+                }
+            }
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
                 title: "New Session",
@@ -1405,6 +1425,31 @@ public struct MainView: View {
         }
     }
 
+    /// Changed-file count for a session's Git tab badge (issue #573), read live
+    /// from the session's cached GitWorkbench store's `summary`. The store keeps
+    /// it fresh on its own (via the provider's repository watcher). Returns 0
+    /// until the store exists for this directory and has finished its first load
+    /// (`summary == nil`), so a clean repository shows no badge.
+    @MainActor
+    private func gitChangedFileCount(sessionName: String, directoryPath: String) -> Int {
+        guard
+            let entry = gitWorkbenchStores[sessionName],
+            entry.path == directoryPath
+        else { return 0 }
+        return entry.store.summary?.changedFileCount ?? 0
+    }
+
+    /// Eagerly builds and loads the displayed session's GitWorkbench store so the
+    /// Git tab badge (issue #573) reflects the repository's changes as soon as the
+    /// session is shown — without the user first opening the Git tab. The store is
+    /// retained per session, so this is a no-op refresh once loaded, and its own
+    /// repository watcher keeps the badge live afterwards.
+    @MainActor
+    private func eagerlyLoadGitStatus(sessionName: String, directoryPath: String) async {
+        ensureGitStore(sessionName: sessionName, directoryPath: directoryPath)
+        await gitWorkbenchStores[sessionName]?.store.reload()
+    }
+
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
     /// store for a session. Safe to call from `.task`/event handlers; never call
     /// it during `body` evaluation since it mutates `@State`. The working-tree
@@ -1416,7 +1461,10 @@ public struct MainView: View {
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
         let store = GitWorkbenchStore(
             provider: provider,
-            configuration: .claudeSpy(repositoryURL: URL(fileURLWithPath: directoryPath))
+            configuration: .claudeSpy(
+                repositoryURL: URL(fileURLWithPath: directoryPath),
+                preferences: preferences
+            )
         )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
     }
@@ -3893,6 +3941,10 @@ public struct MainView: View {
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
+            // Always clear the in-flight guard on any exit (including an early
+            // return when the task is cancelled mid-retry), so a later create
+            // isn't blocked by `guard creatingSelection == nil`.
+            defer { creatingSelection = nil }
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
@@ -3938,22 +3990,46 @@ public struct MainView: View {
                 )
 
                 // Find the window containing the new pane and select it.
+                //
+                // The cached window list can momentarily lag tmux:
+                // `createSession`'s own `refreshPanes()` early-returns the stale
+                // cached list when a periodic refresh is already in flight (more
+                // likely on a slow machine), so the just-created pane can be
+                // missing on the first lookup, leaving the new session never
+                // selected ("Select a Window"). The pane definitely exists — we
+                // hold its id — so retry the refresh until its window shows up.
+                // Mirrors the same retry in AppCoordinator's split-window path.
+                //
                 // Clearing the remote selection mirrors createRemoteSession's
                 // own "clear the other side" step — without it, the sidebar's
                 // local-row highlight stays suppressed (see the listRowBackground
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                var newWindow: LocalTmuxWindow?
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                        newWindow = found
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                        guard !Task.isCancelled else { return }
+                        _ = await tmuxService.refreshPanes()
+                    }
+                }
+                if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
                     selectedWindow = newWindow
+                } else {
+                    // The pane never surfaced within the retry budget — surface it
+                    // rather than leaving the user on a silent "Select a Window".
+                    attachError = "Session created but its window didn't appear in time. Try selecting it from the sidebar."
                 }
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
-
-            creatingSelection = nil
         }
     }
 
