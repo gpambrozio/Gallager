@@ -60,6 +60,19 @@ private func isConnectionError(_ stderr: String) -> Bool {
         || lower.contains("no such file or directory")
 }
 
+/// Retry budget for waiting on a freshly created/split pane to surface via
+/// `TmuxService.refreshPanes()`. `refreshPanes()` early-returns the stale cached
+/// list while a periodic refresh is already in flight, so a just-created pane
+/// can be missing on the first poll (more likely on a slow machine). Shared by
+/// AppCoordinator's split-window path and MainView's create-session path so the
+/// two retry loops can't drift apart.
+enum PaneSurfaceRetry {
+    /// Number of poll attempts before giving up.
+    static let attempts = 20
+    /// Delay between attempts.
+    static let delay = Duration.milliseconds(150)
+}
+
 /// Service for interacting with tmux via CLI
 @Observable
 @MainActor

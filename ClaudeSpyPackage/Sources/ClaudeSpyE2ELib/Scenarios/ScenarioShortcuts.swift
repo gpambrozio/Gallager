@@ -175,6 +175,58 @@ public enum Shortcut {
         }
     }
 
+    /// Marker line printed by the deterministic `claude` stub that
+    /// `installClaudeStub` installs. Scenarios can assert on this.
+    public static let claudeStubMarker = "E2E_CLAUDE_STUB_READY"
+
+    /// Install a deterministic `claude` stub so launching a Claude project in
+    /// E2E produces stable terminal output instead of the real CLI's
+    /// machine-dependent first-run onboarding (theme picker vs. "trust this
+    /// folder" prompt, which differ per machine and break screenshots).
+    ///
+    /// Implemented as a `claude` *shell function* loaded via a custom
+    /// `ZDOTDIR`: a `claude` on PATH can't win because the pane's login shell
+    /// rebuilds PATH from the user's rc (rbenv/homebrew/…), but a function
+    /// overrides command lookup. The stub's `.zshrc` first sources the real
+    /// `~/.zshrc` (so the prompt still matches) and then defines `claude()` to
+    /// print `claudeStubMarker` (plus its args) and block, like the real REPL.
+    /// `ZDOTDIR` is read from the environment before any rc, so setting it on
+    /// the tmux *global* environment makes every session Gallager creates
+    /// afterwards pick it up.
+    ///
+    /// Run against an idle pane *before* opening a Claude project, and call
+    /// `uninstallClaudeStub` afterwards so later plain terminals are unaffected.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.installClaudeStub(target: "picker-nav:0.0")
+    /// ```
+    public static func installClaudeStub(target: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "Install Claude Stub",
+            tags: ["shortcut"]
+        ) {
+            // Marker in the function body must stay in sync with `claudeStubMarker`.
+            Shortcut.tmuxRunCommand(
+                target: target,
+                command: #"D="$TMPDIR/e2e-zdotdir"; mkdir -p "$D"; printf '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc"\nclaude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$D/.zshrc"; tmux set-environment -g ZDOTDIR "$D""#
+            )
+            TestStep.wait(seconds: 1)
+        }
+    }
+
+    /// Remove the `claude` stub installed by `installClaudeStub` so sessions
+    /// created afterwards use the normal shell environment again.
+    public static func uninstallClaudeStub(target: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "Uninstall Claude Stub",
+            tags: ["shortcut"]
+        ) {
+            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u ZDOTDIR")
+            TestStep.wait(seconds: 1)
+        }
+    }
+
     // MARK: - iOS Navigation
 
     /// Wait for an iOS session to appear, tap it, and wait for the terminal to connect.

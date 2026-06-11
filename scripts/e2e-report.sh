@@ -95,6 +95,38 @@ step() {
     echo "======================================"
 }
 
+# Rebuild results/index.json from every report.json currently in the working
+# tree. Defined as a function (rather than inline) so the push retry below can
+# regenerate it after adopting a sibling VM's results during a rebase.
+regenerate_index() {
+    shopt -s nullglob
+    local reports=("$RESULTS_DIR"/results/*/report.json)
+    shopt -u nullglob
+
+    if [ ${#reports[@]} -eq 0 ]; then
+        echo "[]" > "$RESULTS_DIR/results/index.json"
+        echo "Updated index.json with 0 run(s)"
+    else
+        jq -s 'map({
+            folder:          .metadata.folder,
+            branch:          .metadata.branch,
+            commit:          .metadata.commit,
+            commitMessage:   .metadata.commitMessage,
+            prNumber:        .metadata.prNumber,
+            prUrl:           .metadata.prUrl,
+            prTitle:         .metadata.prTitle,
+            date:            .metadata.date,
+            timestamp:       .metadata.timestamp,
+            allPassed:       .metadata.allPassed,
+            buildFailed:     .metadata.buildFailed,
+            totalScenarios:  (.scenarios | length),
+            passedScenarios: ([.scenarios[] | select(.success)] | length),
+            failedScenarios: ([.scenarios[] | select(.success | not)] | length)
+        }) | sort_by(.timestamp) | reverse' "${reports[@]}" > "$RESULTS_DIR/results/index.json"
+        echo "Updated index.json with ${#reports[@]} run(s)"
+    fi
+}
+
 # =====================================================
 # GATHER GIT INFO
 # =====================================================
@@ -135,13 +167,13 @@ echo ""
 # =====================================================
 step "Preparing results repository"
 
+# Only ensure a clone exists here. The sync with the remote is deferred until
+# right before we write/commit results (see "Syncing results repository" below).
+# When many VMs run concurrently, syncing at startup leaves a long window — the
+# entire test run — during which a sibling VM can push, so our later push would
+# race and fail. Syncing right before the commit keeps that window tiny.
 if [ -d "$RESULTS_DIR/.git" ]; then
-    echo "Updating existing clone at $RESULTS_DIR"
-    if ! git -C "$RESULTS_DIR" pull --rebase 2>&1; then
-        echo "WARNING: pull --rebase failed — resetting to remote state"
-        git -C "$RESULTS_DIR" fetch origin 2>/dev/null
-        git -C "$RESULTS_DIR" reset --hard origin/main 2>/dev/null || true
-    fi
+    echo "Reusing existing clone at $RESULTS_DIR (remote sync deferred until just before commit)"
 else
     echo "Cloning results repository to $RESULTS_DIR"
     git clone "$RESULTS_REPO" "$RESULTS_DIR" 2>/dev/null || {
@@ -195,6 +227,30 @@ elif [ $E2E_EXIT -eq 0 ]; then
     echo "All scenarios passed!"
 else
     echo "Some scenarios failed (exit code: $E2E_EXIT)"
+fi
+
+# =====================================================
+# SYNC RESULTS REPO WITH REMOTE (just before we write into it)
+# =====================================================
+# Adopt the latest remote state now — after the long test run, immediately
+# before we start writing results. Nothing of ours is in the working tree yet,
+# so a hard reset is safe and gives us a clean, up-to-date base. This is the
+# narrowest possible window before the commit/push, which keeps concurrent VM
+# runs from clobbering each other.
+step "Syncing results repository"
+
+if git -C "$RESULTS_DIR" remote get-url origin &>/dev/null && \
+   git -C "$RESULTS_DIR" fetch origin 2>/dev/null; then
+    if git -C "$RESULTS_DIR" rev-parse --verify origin/main &>/dev/null; then
+        git -C "$RESULTS_DIR" checkout main 2>/dev/null \
+            || git -C "$RESULTS_DIR" checkout -b main 2>/dev/null || true
+        git -C "$RESULTS_DIR" reset --hard origin/main 2>/dev/null || true
+        echo "Synced to origin/main"
+    else
+        echo "No origin/main on remote yet — our push will create it"
+    fi
+else
+    echo "Could not reach remote — proceeding with local-only results"
 fi
 
 # =====================================================
@@ -360,32 +416,7 @@ PYEOF
 # =====================================================
 step "Updating results index"
 
-shopt -s nullglob
-REPORTS=("$RESULTS_DIR"/results/*/report.json)
-shopt -u nullglob
-
-if [ ${#REPORTS[@]} -eq 0 ]; then
-    echo "[]" > "$RESULTS_DIR/results/index.json"
-    echo "Updated index.json with 0 run(s)"
-else
-    jq -s 'map({
-        folder:          .metadata.folder,
-        branch:          .metadata.branch,
-        commit:          .metadata.commit,
-        commitMessage:   .metadata.commitMessage,
-        prNumber:        .metadata.prNumber,
-        prUrl:           .metadata.prUrl,
-        prTitle:         .metadata.prTitle,
-        date:            .metadata.date,
-        timestamp:       .metadata.timestamp,
-        allPassed:       .metadata.allPassed,
-        buildFailed:     .metadata.buildFailed,
-        totalScenarios:  (.scenarios | length),
-        passedScenarios: ([.scenarios[] | select(.success)] | length),
-        failedScenarios: ([.scenarios[] | select(.success | not)] | length)
-    }) | sort_by(.timestamp) | reverse' "${REPORTS[@]}" > "$RESULTS_DIR/results/index.json"
-    echo "Updated index.json with ${#REPORTS[@]} run(s)"
-fi
+regenerate_index
 
 # =====================================================
 # COMMIT AND PUSH TO RESULTS REPO
@@ -393,9 +424,6 @@ fi
 step "Pushing results to repository"
 
 cd "$RESULTS_DIR"
-
-git fetch origin 2>/dev/null || true
-git rebase origin/main 2>/dev/null || true
 
 git add results/"$RESULT_FOLDER" results/index.json images/
 git commit -m "E2E results: ${SAFE_BRANCH} @ ${COMMIT} (${TIMESTAMP})
@@ -406,12 +434,43 @@ $([ -n "$PR_NUMBER" ] && echo "PR: #${PR_NUMBER}" || echo "")" || {
     echo "Nothing to commit"
 }
 
-git push origin HEAD 2>/dev/null || {
+# Push, retrying if a sibling VM pushed in the small window since we synced.
+# Our report folder is uniquely named and images are content-addressed, so the
+# only file that can conflict on rebase is results/index.json — which we resolve
+# by regenerating it from the now-merged set of reports.
+PUSH_OK=false
+for attempt in 1 2 3 4 5; do
+    if git push origin HEAD 2>&1; then
+        PUSH_OK=true
+        break
+    fi
+
+    echo "Push rejected (attempt ${attempt}/5) — a sibling run pushed first; rebasing onto latest"
+    git fetch origin 2>/dev/null || true
+
+    if git rebase origin/main 2>/dev/null; then
+        continue
+    fi
+
+    echo "Resolving results/index.json conflict by regeneration"
+    regenerate_index
+    git add results/index.json
+    if ! GIT_EDITOR=true git rebase --continue 2>/dev/null; then
+        echo "WARNING: could not rebase cleanly onto remote — aborting rebase"
+        git rebase --abort 2>/dev/null || true
+        break
+    fi
+done
+
+if [ "$PUSH_OK" != true ]; then
+    # First-ever push (no upstream branch) or a genuine failure.
     REMOTE_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    git push -u origin "$REMOTE_BRANCH" 2>/dev/null || {
+    if git push -u origin "$REMOTE_BRANCH" 2>/dev/null; then
+        PUSH_OK=true
+    else
         echo "WARNING: Failed to push to remote. Results saved locally at $RESULTS_DIR"
-    }
-}
+    fi
+fi
 
 # =====================================================
 # POST PR COMMENT (on failure only)

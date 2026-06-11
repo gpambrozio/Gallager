@@ -2,6 +2,7 @@ import AppKit
 import ClaudeSpyCommon
 import ClaudeSpyEncryption
 import ClaudeSpyNetworking
+import Dependencies
 import SwiftUI
 
 /// Settings view for managing paired hosts (other hosts this host can view)
@@ -9,6 +10,9 @@ public struct RemoteHostsSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
+
+    /// This Mac's advertised device name (overridable in E2E for deterministic screenshots).
+    @Dependency(DeviceNameClient.self) private var deviceNameClient
 
     @State private var showAddHostSheet = false
     @State private var hostToDelete: PairedHost?
@@ -145,7 +149,7 @@ public struct RemoteHostsSettingsView: View {
                         pairedHosts: settings.pairedHosts,
                         serverURL: serverURL,
                         deviceId: settings.deviceId,
-                        deviceName: Host.current().localizedName ?? "Mac"
+                        deviceName: deviceNameClient.current()
                     )
                 }
             }
@@ -313,6 +317,9 @@ private struct AddHostSheet: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
+    /// This Mac's advertised device name (overridable in E2E for deterministic screenshots).
+    @Dependency(DeviceNameClient.self) private var deviceNameClient
+
     @State private var pairingCode = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -428,7 +435,7 @@ private struct AddHostSheet: View {
         let completion = PairingCompletion(
             pairingCode: code,
             deviceId: settings.deviceId,
-            deviceName: Host.current().localizedName ?? "Mac",
+            deviceName: deviceNameClient.current(),
             publicKey: e2eeService.publicKey.base64EncodedString(),
             publicKeyId: e2eeService.keyId
         )

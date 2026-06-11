@@ -87,7 +87,9 @@ public enum MultiWindowTabsMacViewerScenario {
         // Verify host tab also updated to window 1 (synced via tmux active window)
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("e2e-mw-mac:1"), .valueContains("selected")]),
-            timeout: 15
+            // Cross-instance sync (viewer → relay → host) can exceed 15s on a
+            // slow CI VM, so give the host time to follow the window switch.
+            timeout: 30
         )
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-follows-viewer-to-window1")
@@ -107,10 +109,19 @@ public enum MultiWindowTabsMacViewerScenario {
             timeout: 10,
             instance: 1
         )
+        // The newly-created window's terminal (pane %2) was just exposed on the
+        // viewer. Its remote-pane subscription needs a beat to register for
+        // incremental repaints — echoing on the host immediately races the
+        // subscribe handshake, so the WINDOW_TWO repaint streams before the
+        // viewer is listening and the mirror stays empty (see
+        // e2e-viewer-mirror-subscribe-race; same guard as BrowserTab). Wait for
+        // the terminal element to exist, then settle before producing content.
+        TestStep.macWaitForElementQuery(.identifier("terminal-%2"), timeout: 10, instance: 1)
+        TestStep.wait(seconds: 3)
         // Produce identifiable content in window 2
         Shortcut.tmuxRunCommand(target: "e2e-mw-mac:2.0", command: "echo 'WINDOW_TWO'")
         // Wait for terminal to render window 2 content (pane %2)
-        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 10, instance: 1)
+        TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%2"), .valueContains("WINDOW_TWO")]), timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-window2-created", instance: 1)
 
         // ── Phase 6: Switch back to window 1 ────────────────────
@@ -125,7 +136,9 @@ public enum MultiWindowTabsMacViewerScenario {
         TestStep.log("Phase 7: Verify host shows window 1 selected")
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("e2e-mw-mac:1"), .valueContains("selected")]),
-            timeout: 15
+            // Cross-instance sync (viewer → relay → host) can exceed 15s on a
+            // slow CI VM, so give the host time to follow the window switch.
+            timeout: 30
         )
         TestStep.macWaitForElementQuery(.allOf([.identifier("terminal-%1"), .valueContains("WINDOW_ONE")]), timeout: 10)
         TestStep.macScreenshot(label: "host-reflects-window1")

@@ -128,7 +128,13 @@ public enum MultiPaneWindowScenario {
         // window — uses the temp-session pattern from MultiWindowTabsScenario
         // to make the sidebar selection unambiguous.
         TestStep.tmuxCreateSession(name: "focus-temp", width: 80, height: 24)
-        TestStep.macWaitForElement(titled: "focus-temp", timeout: 5)
+        // New tmux sessions surface in the sidebar only on the next periodic
+        // discovery tick (a fixed 5s validation interval), and this wait runs
+        // immediately after creation with no intervening steps. A 5s timeout
+        // lands right on the edge of that interval and flakes; 15s absorbs a
+        // full missed tick plus render/AX-tree settle, matching the proven
+        // temp-session pattern in MultiWindowTabsScenario.
+        TestStep.macWaitForElement(titled: "focus-temp", timeout: 15)
         TestStep.macClickButton(titled: "focus-temp")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "multi-pane")
