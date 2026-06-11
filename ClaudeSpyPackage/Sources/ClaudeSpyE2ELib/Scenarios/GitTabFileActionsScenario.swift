@@ -47,6 +47,10 @@ public enum GitTabFileActionsScenario {
         TestStep.macClickButton(titled: "repoactions")
         TestStep.wait(seconds: 3)
 
+        // The Git mock starts clean (issue #573); introduce the fixture changes so
+        // the Changes view has file rows to act on.
+        TestStep.setGitMockChanges(true)
+
         // ── Phase 1: Activate the Git tab — Changes view ─────────
         TestStep.log("Phase 1: Activate the Git tab and wait for the mock Changes view")
         TestStep.macClickButton(titled: "Git")

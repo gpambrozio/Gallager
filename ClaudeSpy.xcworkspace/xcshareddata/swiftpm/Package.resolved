@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gpambrozio/GitWorkbench",
       "state" : {
-        "revision" : "9520611566d132ec3efd98020a999e61375e2d0c",
-        "version" : "1.0.1"
+        "revision" : "e4d6ae96464d861fbd128953a33a5f4eef774d06",
+        "version" : "1.2.0"
       }
     },
     {
