@@ -24,6 +24,13 @@ public actor CodexPluginCore: PluginCore {
 
     private let scanner = CodexScanner()
     private let correlation: CodexSessionCorrelation
+    private let configReader = CodexConfigReader()
+
+    /// Effective `approvals_reviewer` per CODEX_HOME root (keyed by
+    /// `root.path`), read at init and refreshed live by the config watchers /
+    /// settings changes. Codex's TUI persists every "Approve for me" toggle to
+    /// `config.toml` immediately, so this never goes stale mid-session.
+    private var reviewerByRoot: [String: CodexApprovalsReviewer] = [:]
 
     @Dependency(ProcessRunner.self) private var processRunner
 
@@ -35,7 +42,7 @@ public actor CodexPluginCore: PluginCore {
     private var pendingRequests: [String: PendingRequest] = [:]
 
     #if os(macOS)
-        private var watchers: [CodexSessionsWatcher] = []
+        private var watchers: [CodexDirectoryWatcher] = []
 
         /// Panes confirmed running a `codex` process on the previous monitor tick.
         /// A recorded pane dropping out of this set means its Codex process exited.
@@ -68,6 +75,7 @@ public actor CodexPluginCore: PluginCore {
         settings = CodexSettings.decode(from: env.settings)
         marketplaceSource = env.marketplaceSource
         command = settings.commandPath
+        await refreshReviewerPosture()
         await refreshProjects()
         #if os(macOS)
             startWatchers()
@@ -115,13 +123,22 @@ public actor CodexPluginCore: PluginCore {
         // pane, fall back to the correlation file by session id (spec §12).
         let tmuxPane = resolvePane(action: action, frame: frame)
 
+        let reviewer = approvalsReviewer(for: action)
+        if CodexTranslator.isGuardianHandled(action: action, approvalsReviewer: reviewer) {
+            await log(
+                .debug,
+                "Guardian (auto_review) will decide this permission request — suppressing notification and form"
+            )
+        }
+
         guard
             let output = CodexTranslator.translate(
                 action: action,
                 pluginID: frame.pluginID,
                 tmuxPane: tmuxPane,
                 contextProjectDir: frame.context["CODEX_PROJECT_DIR"],
-                closePaneOnSessionEnd: settings.closePaneOnSessionEnd
+                closePaneOnSessionEnd: settings.closePaneOnSessionEnd,
+                approvalsReviewer: reviewer
             )
         else {
             return nil
@@ -190,6 +207,51 @@ public actor CodexPluginCore: PluginCore {
         await host.setProjects(projects)
     }
 
+    // MARK: - Approvals-reviewer posture (issue #585)
+
+    /// Re-reads the `approvals_reviewer` posture for every CODEX_HOME root.
+    /// Internal (not `private`) so tests can drive a mid-session config change
+    /// deterministically instead of waiting on the FSEvents watcher.
+    func refreshReviewerPosture() async {
+        var byRoot: [String: CodexApprovalsReviewer] = [:]
+        for root in codexHomeRoots() {
+            byRoot[root.path] = configReader.approvalsReviewer(codexHome: root)
+        }
+        if byRoot != reviewerByRoot {
+            reviewerByRoot = byRoot
+            let guardianRoots = byRoot.filter { $0.value == .autoReview }.keys.sorted()
+            await log(
+                .debug,
+                "Codex approvals_reviewer posture changed; auto_review roots: \(guardianRoots)"
+            )
+        }
+    }
+
+    /// The reviewer posture governing this event's session, resolved by
+    /// matching the hook's `transcript_path` (the rollout file, which lives
+    /// under `<CODEX_HOME>/sessions/`) to a known root. Suppression requires
+    /// positive attribution: an event with no transcript path, or one under a
+    /// CODEX_HOME we don't track, resolves to `.user` (notify — today's
+    /// behavior) so a misattributed session can never eat a real prompt.
+    /// Both sides are symlink-resolved so `/var/…` vs `/private/var/…`
+    /// spellings (or a symlinked CODEX_HOME) still match.
+    private func approvalsReviewer(for action: HookAction) -> CodexApprovalsReviewer {
+        guard
+            case let .permissionRequest(body) = action,
+            let transcript = body.transcriptPath
+        else { return .user }
+
+        let transcriptPath = URL(fileURLWithPath: transcript).resolvingSymlinksInPath().path
+        for root in codexHomeRoots() {
+            let sessionsPrefix = root.appendingPathComponent("sessions")
+                .resolvingSymlinksInPath().path + "/"
+            if transcriptPath.hasPrefix(sessionsPrefix) {
+                return reviewerByRoot[root.path] ?? .user
+            }
+        }
+        return .user
+    }
+
     // MARK: - Auto-launch
 
     public func commandForLaunch(projectPath _: String) async -> LaunchCommand? {
@@ -218,12 +280,13 @@ public actor CodexPluginCore: PluginCore {
         let foldersChanged = decoded.additionalConfigFolders != settings.additionalConfigFolders
         settings = decoded
         command = decoded.commandPath
-        #if os(macOS)
-            if foldersChanged {
+        if foldersChanged {
+            await refreshReviewerPosture()
+            #if os(macOS)
                 stopWatchers()
                 startWatchers()
-            }
-        #endif
+            #endif
+        }
         return .applied
     }
 
@@ -323,13 +386,38 @@ public actor CodexPluginCore: PluginCore {
             guard watchers.isEmpty else { return }
             for root in codexHomeRoots() {
                 let sessionsPath = root.appendingPathComponent("sessions").path
-                let watcher = CodexSessionsWatcher(path: sessionsPath) { [weak self] in
+                let sessionsWatcher = CodexDirectoryWatcher(path: sessionsPath) { [weak self] in
                     Task { [weak self] in
                         await self?.refreshProjects()
                     }
                 }
-                watcher.start()
-                watchers.append(watcher)
+                sessionsWatcher.start()
+                watchers.append(sessionsWatcher)
+
+                // Watch the root for `config.toml` writes: the Codex TUI
+                // persists every "Approve for me" reviewer toggle immediately,
+                // so this catches mid-session posture switches live. The
+                // filter keeps the busy `sessions/` tree from triggering
+                // pointless re-reads. FSEvents reports canonical paths
+                // (`/private/var/…` for a `/var/…` root), so both sides of
+                // the comparison are symlink-resolved.
+                let configPath = root.appendingPathComponent("config.toml")
+                    .resolvingSymlinksInPath().path
+                let configWatcher = CodexDirectoryWatcher(
+                    path: root.path,
+                    pathFilter: { eventPath in
+                        CodexConfigReader.isConfigEvent(
+                            eventPath: URL(fileURLWithPath: eventPath).resolvingSymlinksInPath().path,
+                            configPath: configPath
+                        )
+                    }
+                ) { [weak self] in
+                    Task { [weak self] in
+                        await self?.refreshReviewerPosture()
+                    }
+                }
+                configWatcher.start()
+                watchers.append(configWatcher)
             }
         }
 

@@ -47,6 +47,53 @@ differences:
   copy reads "Codex …".
 - `tmuxPane` is resolved via the frame, falling back to the correlation file by `session_id`.
 - `contextProjectDir` comes from `CODEX_PROJECT_DIR` when present, else the payload `cwd`.
+- Guardian (auto-review) posture suppresses permission notifications AND forms — see below.
+
+## Guardian (auto-review) posture (#585)
+
+When Codex runs with `approvals_reviewer = "auto_review"` (legacy spelling
+`guardian_subagent`) and an `on-request`/granular approval policy, tool approvals are
+decided by Codex's guardian subagent, never the user: the `PermissionRequest` hook fires
+*before* guardian routing, the guardian's outcome is a binary allow/deny with no TUI
+prompt, and the next hook the core sees is `PostToolUse`. Surfacing the request would be
+worse than noise — remote Approve/Deny is keystroke injection into a TUI prompt that
+doesn't exist (it would type into the composer or Escape-interrupt the turn), and the
+`awaitingPermission` state would linger for the whole tool runtime.
+
+So `CodexTranslator.isGuardianHandled` suppresses **both the notification and the form**,
+translating the event to plain `working`, when ALL of:
+- the session's CODEX_HOME has reviewer `auto_review`/`guardian_subagent` (live posture);
+- `permission_mode == "default"` — under `"bypassPermissions"` (policy `never`) guardian
+  routing is off, so a hook firing at all means a REAL user prompt follows; a
+  missing/unknown mode also fails safe to notifying;
+- the request `isYoloAutoApprovable` — `AskUserQuestion`/`ExitPlanMode` are never
+  guardian-reviewed and still present real TUI prompts, so they keep notifying/forming.
+
+**Live posture:** `CodexConfigReader` parses `approvals_reviewer` from each root's
+`config.toml` (top-level key; a top-level `profile = "<name>"` with
+`[profiles.<name>].approvals_reviewer` overrides it) with a tolerant line scanner —
+missing/malformed degrades to `user` (notify-anyway). A `CodexDirectoryWatcher` on each
+CODEX_HOME root (filtered to `config.toml` events) re-reads on change; because the Codex
+TUI persists every "Approve for me" toggle to `config.toml` immediately, mid-session
+switches flip ClaudeSpy's behavior live in both directions with no new SessionStart.
+
+**Per-root attribution:** the posture is cached per CODEX_HOME root (default +
+`additional_config_folders`), and each event is attributed via its `transcript_path`
+(the rollout lives under `<CODEX_HOME>/sessions/`). Suppression requires positive
+attribution — no `transcript_path`, or one under an untracked root, resolves to `user`
+so a misattributed session can never eat a real prompt.
+
+**Unchanged:** ClaudeSpy's per-pane yolo toggle, the dispatcher auto-approve path, and
+Claude Code's `PermissionRequest` handling.
+
+**Known blind spots (v1):** per-invocation `-c approvals_reviewer=...` overrides and v2
+`<name>.config.toml` profile overlay files aren't visible in `config.toml` (degrades to
+notify-anyway when they enable guardian); MDM `allowed_approvals_reviewers` constraints
+that force the effective reviewer away from the file value; hand-written
+`approval_policy = "untrusted"`/`"on-failure"` combined with `auto_review` routes
+approvals to the user but reads `permission_mode == "default"`, so ClaudeSpy would
+wrongly suppress — no TUI preset can produce that combination (a future fix can read the
+rollout's `turn_context.approval_policy` via the hook's `transcript_path`).
 
 ## Session end (no `SessionEnd` hook)
 Codex CLI exposes no `SessionEnd` hook event (verified absent from the 0.136 binary;

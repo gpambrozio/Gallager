@@ -430,6 +430,11 @@ public enum TestStep: Sendable {
     /// `waitForFileContains` assertions don't pass on stale entries from earlier
     /// phases. Path supports `${var}` interpolation.
     case removeFile(path: String)
+    /// Write a file (creating intermediate directories), replacing any existing
+    /// content. Used to seed on-disk fixtures the app reads — e.g. a plugin
+    /// `settings.json` before launch, or a `config.toml` the app watches live.
+    /// Both `path` and `content` support `${var}` interpolation.
+    case writeFile(path: String, content: String)
     /// Poll a file until it contains a substring, then store its contents (supports `${var}` interpolation)
     case waitForFileContains(
         path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1

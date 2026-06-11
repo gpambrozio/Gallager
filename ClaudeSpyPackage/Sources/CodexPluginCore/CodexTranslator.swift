@@ -59,12 +59,17 @@ enum CodexTranslator {
 
     /// Translate a parsed action into a `PluginEvent`, or `nil` to drop the
     /// frame (no state change — the dispatcher no-ops).
+    ///
+    /// `approvalsReviewer` is the live posture of the CODEX_HOME this session
+    /// belongs to (resolved by the actor); it only matters for
+    /// `PermissionRequest` — see `isGuardianHandled`.
     static func translate(
         action: HookAction,
         pluginID: String,
         tmuxPane: String?,
         contextProjectDir: String?,
-        closePaneOnSessionEnd: Bool = false
+        closePaneOnSessionEnd: Bool = false,
+        approvalsReviewer: CodexApprovalsReviewer = .user
     ) -> Output? {
         let body = action.body
         let sessionID = body.sessionId
@@ -83,12 +88,24 @@ enum CodexTranslator {
             tmuxPane: tmuxPane
         )
 
-        let notification = Self.notification(for: hookEvent)
-        let (state, pending) = Self.state(
-            for: action,
-            sessionID: sessionID,
-            hookEvent: hookEvent
+        // Guardian posture: when Codex's auto-reviewer — not the user — will
+        // decide this permission request, stay silent: plain `working` (the
+        // session already was — PreToolUse just fired), no notification, no
+        // form. The guardian's outcome arrives via subsequent hooks
+        // (PostToolUse on allow; Stop after the model reacts to a deny).
+        let guardianHandled = Self.isGuardianHandled(
+            action: action,
+            approvalsReviewer: approvalsReviewer
         )
+
+        let notification = guardianHandled ? nil : Self.notification(for: hookEvent)
+        let (state, pending): (AgentState?, PendingRequest?) = guardianHandled
+            ? (.working, nil)
+            : Self.state(
+                for: action,
+                sessionID: sessionID,
+                hookEvent: hookEvent
+            )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
         let appActions = Self.appActions(
@@ -261,6 +278,43 @@ enum CodexTranslator {
              .unknown:
             return (hookEvent.isWorking == true ? .working : nil, nil)
         }
+    }
+
+    // MARK: - Guardian (auto-review) posture
+
+    /// True when Codex's guardian ("Approve for me", `approvals_reviewer =
+    /// "auto_review"`) — not the user — will decide this permission request,
+    /// so ClaudeSpy must suppress the notification AND the response form.
+    ///
+    /// Why the form too: the `PermissionRequest` hook fires before Codex
+    /// routes the approval to the guardian, whose outcome is a binary
+    /// allow/deny that never escalates to the user — no TUI prompt ever
+    /// exists. Remote Approve/Deny is keystroke injection into that prompt
+    /// (`CodexKeystrokes`), so an actionable form would type "1" into the
+    /// composer or Escape-interrupt the running turn; and because the next
+    /// hook is PostToolUse, a stale `awaitingPermission` would linger for the
+    /// entire tool runtime.
+    ///
+    /// Conditions (all must hold):
+    /// - the live reviewer posture is `auto_review` / `guardian_subagent`;
+    /// - `permission_mode == "default"` — under `"bypassPermissions"` (policy
+    ///   `never`) guardian routing is off, so a hook firing at all means a
+    ///   REAL user prompt follows; a missing/unknown mode also fails safe to
+    ///   notifying;
+    /// - the request is yolo-auto-approvable — `AskUserQuestion` /
+    ///   `ExitPlanMode` are never guardian-reviewed and still present real
+    ///   TUI prompts, so they keep notifying and opening forms.
+    static func isGuardianHandled(
+        action: HookAction,
+        approvalsReviewer: CodexApprovalsReviewer
+    ) -> Bool {
+        guard
+            approvalsReviewer == .autoReview,
+            case let .permissionRequest(body) = action,
+            body.permissionMode == "default",
+            body.isYoloAutoApprovable
+        else { return false }
+        return true
     }
 
     /// Builds the agent-blind `PermissionRequest` from a permission body. Mirrors
