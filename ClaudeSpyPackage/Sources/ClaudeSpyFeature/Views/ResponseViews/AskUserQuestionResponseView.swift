@@ -43,6 +43,11 @@ struct AskUserQuestionResponseView: View {
     @State private var currentQuestionIndex = 0
     /// Collected answers for each question (keyed by question index)
     @State private var collectedAnswers: [Int: CollectedAnswer] = [:]
+    /// Unsaved in-progress state (multi-select toggles, typed "Other" text) for
+    /// questions the user browsed away from before committing. Kept separate
+    /// from `collectedAnswers` so drafts never count toward `isReadyForReview`;
+    /// they're promoted only by an explicit save (Next / option tap / Save).
+    @State private var draftAnswers: [Int: CollectedAnswer] = [:]
     /// For multi-select questions, tracks selected option indices for current question
     @State private var selectedOptions: Set<Int> = []
     /// For "Other" option custom input
@@ -224,7 +229,7 @@ struct AskUserQuestionResponseView: View {
     /// Browse arrows (top-right). Let the user move between questions without
     /// answering the current one. Only reachable when `questions.count > 1`
     /// because `progressHeader` is the sole caller and is itself gated on that,
-    /// so single-question requests never show arrows (issue #572).
+    /// so single-question requests never show arrows.
     private var navigationArrows: some View {
         HStack(spacing: 4) {
             Button {
@@ -434,6 +439,7 @@ struct AskUserQuestionResponseView: View {
     private func selectSingleOption(_ index: Int) {
         // Save the answer and advance to next question
         collectedAnswers[currentQuestionIndex] = CollectedAnswer(selectedIndices: [index])
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
@@ -453,6 +459,7 @@ struct AskUserQuestionResponseView: View {
             selectedIndices: selectedOptions,
             customText: other
         )
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
@@ -468,13 +475,14 @@ struct AskUserQuestionResponseView: View {
             return
         }
         collectedAnswers[currentQuestionIndex] = CollectedAnswer(customText: trimmed)
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
     /// After answering, jump to the next still-unanswered question, wrapping
     /// past the end to pick up any earlier ones the user skipped. When every
     /// question has an answer this no-ops and `isReadyForReview` flips the view
-    /// to the summary (issue #572).
+    /// to the summary.
     private func advanceToNextQuestion() {
         guard let next = nextUnansweredIndex(after: currentQuestionIndex) else {
             return
@@ -508,20 +516,38 @@ struct AskUserQuestionResponseView: View {
         goToQuestion(currentQuestionIndex + 1)
     }
 
-    /// Show `index` and restore any answer already collected for it, so a
-    /// previously answered question reappears with its selections while an
-    /// unanswered one starts from a clean slate.
+    /// Show `index`, stashing any unsaved work on the question being left and
+    /// restoring whatever the destination already has — its committed answer if
+    /// one exists, otherwise its draft — so browsing never discards selections.
     private func goToQuestion(_ index: Int) {
+        stashDraft()
         currentQuestionIndex = index
-        let collected = collectedAnswers[index]
-        selectedOptions = collected?.selectedIndices ?? []
-        customInputText = collected?.customText ?? ""
+        let restored = collectedAnswers[index] ?? draftAnswers[index]
+        selectedOptions = restored?.selectedIndices ?? []
+        customInputText = restored?.customText ?? ""
         showingCustomInput = false
+    }
+
+    /// Keep the current question's unsaved state when navigating away before it
+    /// was committed. Committed questions are skipped so a stale draft never
+    /// shadows the answer the summary will show.
+    private func stashDraft() {
+        guard collectedAnswers[currentQuestionIndex] == nil else { return }
+        let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if selectedOptions.isEmpty, trimmed.isEmpty {
+            draftAnswers[currentQuestionIndex] = nil
+        } else {
+            draftAnswers[currentQuestionIndex] = CollectedAnswer(
+                selectedIndices: selectedOptions,
+                customText: trimmed.isEmpty ? nil : trimmed
+            )
+        }
     }
 
     private func startOver() {
         currentQuestionIndex = 0
         collectedAnswers = [:]
+        draftAnswers = [:]
         selectedOptions = []
         customInputText = ""
         showingCustomInput = false

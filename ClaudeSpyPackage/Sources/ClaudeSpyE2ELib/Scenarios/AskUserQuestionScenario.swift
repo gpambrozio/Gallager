@@ -6,10 +6,12 @@ import Foundation
 /// Phase 1 — single single-select question, answered via the "Other" path.
 /// Phase 2 — single multi-select question with two toggled options + "Other".
 /// Phase 3 — three questions (multi-select, single-select, multi-select) to
-/// exercise the multi-question flow with the trailing-Enter rule.
+/// exercise the multi-question flow with the trailing-Enter rule. Q1 also
+/// browses away and back before committing, proving unsaved multi-select
+/// toggles survive arrow navigation as a draft.
 /// Phase 4 — four single-select questions answered out of order via the
 /// top-right browse arrows (skip → wrap → fill-in), proving non-linear
-/// navigation still maps each answer to the right question (issue #572).
+/// navigation still maps each answer to the right question.
 ///
 /// Right before each Confirm tap a small Python keystroke logger is started
 /// in the tmux pane. After Confirm the resulting keystrokes flow through the
@@ -238,8 +240,16 @@ public enum AskUserQuestionScenario {
         TestStep.wait(seconds: 1)
         TestStep.iosTap(.labelContains("Wednesday"))
         TestStep.wait(seconds: 1)
+        // Browse away and back before committing: the unsaved toggles must
+        // survive as a draft. The multi-select "Next" button below only
+        // renders while something is selected, so its tap doubles as the
+        // draft-restore assertion.
+        TestStep.iosTap(.label("Next question"))
+        TestStep.iosWaitForElement(.labelContains("Which season fits best"), timeout: 10)
+        TestStep.iosTap(.label("Previous question"))
+        TestStep.iosWaitForElement(.labelContains("Which days should we deploy"), timeout: 10)
         // Exact match: the browse arrow exposes "Next question", which a
-        // substring match on "Next" would hit first (issue #572).
+        // substring match on "Next" would hit first.
         TestStep.iosTap(.label("Next"))
 
         TestStep.iosWaitForElement(.labelContains("Which season fits best"), timeout: 10)
