@@ -55,6 +55,10 @@ enum CodexTranslator {
         /// Context to retain under the `awaiting*` state's `requestID`, if the
         /// event opened a form. `nil` when no form.
         var pending: PendingRequest?
+        /// True when a permission request was silenced because Codex's
+        /// guardian will decide it (the event maps to plain `working`). Lets
+        /// the core log the suppression without re-deriving the decision.
+        var guardianHandled = false
     }
 
     /// Translate a parsed action into a `PluginEvent`, or `nil` to drop the
@@ -133,7 +137,7 @@ enum CodexTranslator {
             tmuxPane: tmuxPane,
             projectPath: projectPath
         )
-        return Output(event: event, pending: pending)
+        return Output(event: event, pending: pending, guardianHandled: guardianHandled)
     }
 
     // MARK: - cwd extraction
@@ -301,9 +305,8 @@ enum CodexTranslator {
     ///   `never`) guardian routing is off, so a hook firing at all means a
     ///   REAL user prompt follows; a missing/unknown mode also fails safe to
     ///   notifying;
-    /// - the request is yolo-auto-approvable — `AskUserQuestion` /
-    ///   `ExitPlanMode` are never guardian-reviewed and still present real
-    ///   TUI prompts, so they keep notifying and opening forms.
+    /// - the tool is positively identified as guardian-reviewable (see
+    ///   `isGuardianReviewable`) — anything else keeps notifying and forming.
     static func isGuardianHandled(
         action: HookAction,
         approvalsReviewer: CodexApprovalsReviewer
@@ -312,9 +315,34 @@ enum CodexTranslator {
             approvalsReviewer == .autoReview,
             case let .permissionRequest(body) = action,
             body.permissionMode == "default",
-            body.isYoloAutoApprovable
+            isGuardianReviewable(body)
         else { return false }
         return true
+    }
+
+    /// Positive identification of the approval shapes Codex's guardian
+    /// reviews. Codex emits `PermissionRequest` hooks only from its approval
+    /// orchestrator, whose payload `tool_name` vocabulary is closed (verified
+    /// against codex-rs `permission_request_payload()` implementations and
+    /// `HookToolName`): `"Bash"` for the whole shell family
+    /// (shell / unified_exec / exec_command) and `"apply_patch"` for patches
+    /// (`Write`/`Edit` exist only as hook-config matcher aliases — the
+    /// serialized payload name stays `apply_patch`). Prompt-style tools
+    /// (`request_user_input`, plan flows) never enter the approval
+    /// orchestrator, so they can't appear here. The `mcp__` arm future-proofs
+    /// the namespaced MCP family — those approvals are guardian-reviewed but
+    /// don't emit a permission payload in current codex, and a namespaced
+    /// external tool can never be a prompt-style tool.
+    ///
+    /// Deliberately fails CLOSED, unlike `isYoloAutoApprovable` (which fails
+    /// open by design for the yolo path): an unknown or missing tool name
+    /// notifies, so a future Codex prompt-style tool can never be silently
+    /// suppressed while a real TUI prompt waits.
+    static func isGuardianReviewable(_ body: PermissionRequestBody) -> Bool {
+        guard let toolName = body.toolName else { return false }
+        return toolName == "Bash"
+            || toolName == "apply_patch"
+            || toolName.hasPrefix("mcp__")
     }
 
     /// Builds the agent-blind `PermissionRequest` from a permission body. Mirrors

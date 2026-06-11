@@ -1,11 +1,8 @@
 #if os(macOS)
     import Foundation
 
-    /// Watches a directory tree under a CODEX_HOME for changes and fires a
-    /// debounced callback — `sessions/` so the plugin core can rescan projects
-    /// when Codex writes a new rollout, and the CODEX_HOME root itself
-    /// (filtered to `config.toml` events) so the core can re-read the
-    /// approvals-reviewer posture live.
+    /// Watches `~/.codex/sessions/` for changes and fires a debounced callback so
+    /// the plugin core can rescan projects when Codex writes a new rollout.
     ///
     /// Uses an `FSEventStream` (recursive, file-level) on a dedicated serial
     /// queue. Changes are coalesced with a ~500ms trailing debounce so a burst of
@@ -16,33 +13,26 @@
     /// `FSEventStream` requires a callback with a C function pointer, so the
     /// bridging context and debounce timer are guarded by an internal lock
     /// instead. The public surface is `Sendable`.
-    final class CodexDirectoryWatcher: @unchecked Sendable {
+    final class CodexSessionsWatcher: @unchecked Sendable {
         private let path: String
         private let debounce: DispatchTimeInterval
-        private let pathFilter: (@Sendable (String) -> Bool)?
         private let onChange: @Sendable () -> Void
 
-        private let queue = DispatchQueue(label: "com.gallager.codex.directory-watcher")
+        private let queue = DispatchQueue(label: "com.gallager.codex.sessions-watcher")
         private var stream: FSEventStreamRef?
         private var debounceWorkItem: DispatchWorkItem?
 
         /// - Parameters:
-        ///   - path: Directory to watch (e.g. `~/.codex/sessions`). Recursive.
+        ///   - path: Directory to watch (e.g. `~/.codex/sessions`).
         ///   - debounceMilliseconds: Trailing debounce window; defaults to 500ms.
-        ///   - pathFilter: When set, only events whose path passes the filter
-        ///     schedule the callback (cheap string check — lets a watch on the
-        ///     busy CODEX_HOME root ignore everything but `config.toml`).
-        ///     `nil` means every event counts.
         ///   - onChange: Invoked (off the main actor) after the debounce settles.
         init(
             path: String,
             debounceMilliseconds: Int = 500,
-            pathFilter: (@Sendable (String) -> Bool)? = nil,
             onChange: @escaping @Sendable () -> Void
         ) {
             self.path = path
             self.debounce = .milliseconds(debounceMilliseconds)
-            self.pathFilter = pathFilter
             self.onChange = onChange
         }
 
@@ -114,12 +104,7 @@
         }
 
         /// Called on `queue` from the FSEvents callback; schedules a trailing
-        /// debounced `onChange` when any event path passes the filter.
-        private func handleEvents(paths: [String]) {
-            if let pathFilter, !paths.contains(where: pathFilter) { return }
-            scheduleDebounced()
-        }
-
+        /// debounced `onChange`.
         private func scheduleDebounced() {
             debounceWorkItem?.cancel()
             let work = DispatchWorkItem { [weak self] in
@@ -129,20 +114,11 @@
             queue.asyncAfter(deadline: .now() + debounce, execute: work)
         }
 
-        /// FSEvents C callback. `info` is the unretained `self` pointer;
-        /// `eventPaths` is a `char **` (we don't pass `kFSEventStreamCreateFlagUseCFTypes`).
-        private static let callback: FSEventStreamCallback = { _, info, numEvents, eventPaths, _, _ in
+        /// FSEvents C callback. `info` is the unretained `self` pointer.
+        private static let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
             guard let info else { return }
-            let watcher = Unmanaged<CodexDirectoryWatcher>.fromOpaque(info).takeUnretainedValue()
-            let raw = eventPaths.assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self)
-            var paths: [String] = []
-            paths.reserveCapacity(numEvents)
-            for index in 0..<numEvents {
-                if let cString = raw[index] {
-                    paths.append(String(cString: cString))
-                }
-            }
-            watcher.handleEvents(paths: paths)
+            let watcher = Unmanaged<CodexSessionsWatcher>.fromOpaque(info).takeUnretainedValue()
+            watcher.scheduleDebounced()
         }
     }
 #endif

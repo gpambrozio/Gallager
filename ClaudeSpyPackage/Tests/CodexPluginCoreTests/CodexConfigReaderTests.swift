@@ -99,9 +99,69 @@ struct CodexConfigReaderTests {
         approvals_reviewer = "auto_review
         key = "value" extra ] [
         """
-        // The unterminated-quote line is taken liberally, but it is inside the
-        // `[unterminated` "section", so the top level stays empty → .user.
+        // The `[unterminated` line is ignored (bracket never closes) and the
+        // unterminated-quote assignment fails closed, so nothing ever sets
+        // the reviewer → .user.
         #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .user)
+    }
+
+    @Test("an unterminated quoted value fails closed to .user (torn write)")
+    func unterminatedQuoteFailsClosed() {
+        // A crash or full disk mid-save can truncate the file right after the
+        // opening quote. Codex's strict parser rejects such a file and falls
+        // back to the user reviewer — the scanner must degrade the same way,
+        // never toward suppression.
+        #expect(CodexConfigReader.approvalsReviewer(
+            fromTOML: "approvals_reviewer = \"auto_review"
+        ) == .user)
+        #expect(CodexConfigReader.approvalsReviewer(
+            fromTOML: "approvals_reviewer = 'auto_review"
+        ) == .user)
+    }
+
+    @Test("an assignment inside a multi-line string value is not a real key")
+    func multilineStringBodyIsOpaque() {
+        // The literal reviewer line inside the """…""" body must not override
+        // the explicit top-level `user` (in either order).
+        let basic = """
+        approvals_reviewer = "user"
+        notes = \"\"\"
+        approvals_reviewer = "auto_review"
+        \"\"\"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: basic) == .user)
+
+        // Without masking, the body line would be the only (and thus winning)
+        // top-level assignment.
+        let literal = """
+        notes = '''
+        approvals_reviewer = "auto_review"
+        '''
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: literal) == .user)
+
+        // A key after the closing delimiter is parsed again.
+        let closed = """
+        notes = '''
+        anything
+        '''
+        approvals_reviewer = "auto_review"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: closed) == .autoReview)
+    }
+
+    @Test("a nested-array continuation line does not end top-level scanning")
+    func arrayContinuationLineIgnored() {
+        // `["read", "/tmp"],` starts with `[` but is not a section header —
+        // a genuine top-level reviewer after it must still count.
+        let toml = """
+        permissions = [
+            ["read", "/tmp"],
+            ["write", "/tmp"],
+        ]
+        approvals_reviewer = "auto_review"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .autoReview)
     }
 
     @Test("realistic config: top-level key before many sections (real-world shape)")
@@ -234,39 +294,47 @@ struct CodexConfigReaderTests {
         #expect(CodexConfigReader().approvalsReviewer(codexHome: home) == .user)
     }
 
-    // MARK: - Config watcher path filter
+    // MARK: - Dotted-key profile overrides
 
-    @Test("config file events and ancestor-directory events match")
-    func configEventMatches() {
-        let config = "/Users/x/.codex/config.toml"
-        #expect(CodexConfigReader.isConfigEvent(eventPath: config, configPath: config))
-        #expect(CodexConfigReader.isConfigEvent(eventPath: "/Users/x/.codex", configPath: config))
-        #expect(CodexConfigReader.isConfigEvent(eventPath: "/Users/x/.codex/", configPath: config))
-        #expect(CodexConfigReader.isConfigEvent(eventPath: "/", configPath: config))
+    @Test("a dotted-key profile override wins over the top-level key")
+    func dottedProfileOverrideWins() {
+        // Codex resolves this back to the user reviewer — the scanner must
+        // not stay on the top-level auto_review and suppress real prompts.
+        let toml = """
+        profile = "work"
+        approvals_reviewer = "auto_review"
+        profiles.work.approvals_reviewer = "user"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .user)
     }
 
-    @Test("sibling and sessions-tree events do not match")
-    func configEventNonMatches() {
-        let config = "/Users/x/.codex/config.toml"
-        #expect(!CodexConfigReader.isConfigEvent(
-            eventPath: "/Users/x/.codex/sessions/2026/06/10/rollout-a.jsonl",
-            configPath: config
-        ))
-        #expect(!CodexConfigReader.isConfigEvent(
-            eventPath: "/Users/x/.codex/sessions",
-            configPath: config
-        ))
-        #expect(!CodexConfigReader.isConfigEvent(
-            eventPath: "/Users/x/.codex/config.toml.bak",
-            configPath: config
-        ))
-        #expect(!CodexConfigReader.isConfigEvent(
-            eventPath: "/Users/x/.codex/config.tom",
-            configPath: config
-        ))
-        #expect(!CodexConfigReader.isConfigEvent(
-            eventPath: "/Users/x/.codexfoo",
-            configPath: config
-        ))
+    @Test("a dotted key under a [profiles] table is recognized")
+    func profilesTableDottedKey() {
+        let toml = """
+        profile = "work"
+        approvals_reviewer = "user"
+
+        [profiles]
+        work.approvals_reviewer = "auto_review"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .autoReview)
+    }
+
+    @Test("dotted keys for an inactive profile do not leak")
+    func dottedKeyInactiveProfileIgnored() {
+        let toml = """
+        profile = "home"
+        profiles.work.approvals_reviewer = "auto_review"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .user)
+    }
+
+    @Test("a quoted dotted profile segment matches")
+    func dottedQuotedProfileSegment() {
+        let toml = """
+        profile = "work"
+        profiles."work".approvals_reviewer = "auto_review"
+        """
+        #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .autoReview)
     }
 }

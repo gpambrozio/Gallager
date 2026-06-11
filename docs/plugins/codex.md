@@ -62,26 +62,37 @@ doesn't exist (it would type into the composer or Escape-interrupt the turn), an
 
 So `CodexTranslator.isGuardianHandled` suppresses **both the notification and the form**,
 translating the event to plain `working`, when ALL of:
-- the session's CODEX_HOME has reviewer `auto_review`/`guardian_subagent` (live posture);
+- the session's CODEX_HOME has reviewer `auto_review`/`guardian_subagent` (read fresh,
+  see below);
 - `permission_mode == "default"` — under `"bypassPermissions"` (policy `never`) guardian
   routing is off, so a hook firing at all means a REAL user prompt follows; a
   missing/unknown mode also fails safe to notifying;
-- the request `isYoloAutoApprovable` — `AskUserQuestion`/`ExitPlanMode` are never
-  guardian-reviewed and still present real TUI prompts, so they keep notifying/forming.
+- the tool is positively identified as guardian-reviewable (`isGuardianReviewable`):
+  `Bash` (Codex serializes its whole shell family under this hook name) or
+  `apply_patch`, plus the namespaced `mcp__…` family as future-proofing — verified
+  against codex-rs, these are the only `tool_name`s its approval orchestrator emits.
+  This **fails closed**, deliberately unlike the yolo path's fail-open
+  `isYoloAutoApprovable`: an unknown or missing tool name notifies, so a future
+  prompt-style tool can never be silently suppressed while a real TUI prompt waits.
 
-**Live posture:** `CodexConfigReader` parses `approvals_reviewer` from each root's
-`config.toml` (top-level key; a top-level `profile = "<name>"` with
-`[profiles.<name>].approvals_reviewer` overrides it) with a tolerant line scanner —
-missing/malformed degrades to `user` (notify-anyway). A `CodexDirectoryWatcher` on each
-CODEX_HOME root (filtered to `config.toml` events) re-reads on change; because the Codex
-TUI persists every "Approve for me" toggle to `config.toml` immediately, mid-session
-switches flip ClaudeSpy's behavior live in both directions with no new SessionStart.
+**Fresh-read posture:** `CodexConfigReader` parses `approvals_reviewer` from the
+session's root `config.toml` **on every permission request** — the events are rare and
+human-paced, the file is tiny, and a fresh read means a TUI "Approve for me" toggle
+(persisted to `config.toml` immediately) is honored by the very next event: no watcher,
+no debounce window, no cache to go stale, and a CODEX_HOME created after launch just
+works. The scanner is tolerant but every ambiguity degrades toward `user`
+(notify-anyway): missing file/key, unknown values, unterminated quotes (torn writes),
+and assignments hidden inside multi-line strings all read as `user`. Profile overrides
+are honored in both spellings (`[profiles.<name>]` sections and dotted
+`profiles.<name>.approvals_reviewer` keys); inline-table profiles are invisible (Codex
+never writes them).
 
-**Per-root attribution:** the posture is cached per CODEX_HOME root (default +
-`additional_config_folders`), and each event is attributed via its `transcript_path`
-(the rollout lives under `<CODEX_HOME>/sessions/`). Suppression requires positive
-attribution — no `transcript_path`, or one under an untracked root, resolves to `user`
-so a misattributed session can never eat a real prompt.
+**Per-root attribution:** each event is attributed to its CODEX_HOME root (default +
+`additional_config_folders`) via its `transcript_path` (the rollout lives under
+`<CODEX_HOME>/sessions/`). Suppression requires positive attribution — no
+`transcript_path`, or one under an untracked root, resolves to `user` so a
+misattributed session can never eat a real prompt. Both sides of the prefix match are
+symlink-resolved (`/var/…` vs `/private/var/…`).
 
 **Unchanged:** ClaudeSpy's per-pane yolo toggle, the dispatcher auto-approve path, and
 Claude Code's `PermissionRequest` handling.
