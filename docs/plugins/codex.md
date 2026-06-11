@@ -62,8 +62,8 @@ doesn't exist (it would type into the composer or Escape-interrupt the turn), an
 
 So `CodexTranslator.isGuardianHandled` suppresses **both the notification and the form**,
 translating the event to plain `working`, when ALL of:
-- the session's CODEX_HOME has reviewer `auto_review`/`guardian_subagent` (read fresh,
-  see below);
+- the session's EFFECTIVE reviewer is `auto_review`/`guardian_subagent` (live file value
+  gated by the session's start snapshot — see below);
 - `permission_mode == "default"` — under `"bypassPermissions"` (policy `never`) guardian
   routing is off, so a hook firing at all means a REAL user prompt follows; a
   missing/unknown mode also fails safe to notifying;
@@ -75,12 +75,36 @@ translating the event to plain `working`, when ALL of:
   `isYoloAutoApprovable`: an unknown or missing tool name notifies, so a future
   prompt-style tool can never be silently suppressed while a real TUI prompt waits.
 
-**Fresh-read posture:** `CodexConfigReader` parses `approvals_reviewer` from the
-session's root `config.toml` **on every permission request** — the events are rare and
-human-paced, the file is tiny, and a fresh read means a TUI "Approve for me" toggle
-(persisted to `config.toml` immediately) is honored by the very next event: no watcher,
-no debounce window, no cache to go stale, and a CODEX_HOME created after launch just
-works. The scanner is tolerant but every ambiguity degrades toward `user`
+**Per-session posture, fresh-read file:** `approvals_reviewer` is a GLOBAL file but a
+PER-SESSION runtime value. Codex loads `config.toml` once at session start; a TUI
+"Approve for me" toggle sends `override_turn_context` to the toggling session only while
+persisting the new value globally (codex-rs `event_dispatch.rs`,
+`UpdateApprovalsReviewer`) — other live sessions keep their start-time posture, and
+nothing per-session is observable from hooks or disk (the hook payload carries no
+reviewer; rollouts don't persist `SessionConfigured`/`ThreadSettingsApplied`; the
+guardian sub-session fires no hooks). So the core keeps a per-session **snapshot**,
+captured from `config.toml` when the session's `SessionStart` hook arrives (the same
+moment Codex loads it), and `CodexConfigReader` re-reads the file **on every permission
+request** (rare, human-paced, tiny file — no watcher, no cache). Suppression requires
+the fresh value AND the snapshot to agree on `auto_review`:
+
+- agree on `auto_review` → suppress (single-session use, and every session started
+  after the latest toggle);
+- agree on `user` → notify;
+- disagree → SOME session toggled and the toggler cannot be attributed → fail safe to
+  notify. A still-`user` session can never have a real prompt eaten; the cost is
+  notify-noise for still-guardian sessions until the file returns to their snapshot
+  value (suppression self-heals) or they restart. Exact per-request routing needs a
+  reviewer/guardian field in the hook payload (upstream codex change; the orchestrator
+  already computes `use_guardian` before running hooks).
+
+If the app launches mid-session (no `SessionStart` seen), the snapshot is
+reconstructed from timestamps: `config.toml` unmodified since the session's rollout
+file was created → the current value is what the session loaded; otherwise ambiguous →
+notify. Session ends (the pane poll, or a `SessionEnd` hook if one ever appears) drop
+the snapshot.
+
+The scanner is tolerant but every ambiguity degrades toward `user`
 (notify-anyway): missing file/key, unknown values, unterminated quotes (torn writes),
 and assignments hidden inside multi-line strings all read as `user`. Profile overrides
 are honored in both spellings (`[profiles.<name>]` sections and dotted
@@ -104,7 +128,9 @@ that force the effective reviewer away from the file value; hand-written
 `approval_policy = "untrusted"`/`"on-failure"` combined with `auto_review` routes
 approvals to the user but reads `permission_mode == "default"`, so ClaudeSpy would
 wrongly suppress — no TUI preset can produce that combination (a future fix can read the
-rollout's `turn_context.approval_policy` via the hook's `transcript_path`).
+rollout's `turn_context.approval_policy` via the hook's `transcript_path`); a toggle
+within the sub-second window between Codex loading `config.toml` and the `SessionStart`
+hook arriving snapshots the post-toggle value.
 
 ## Session end (no `SessionEnd` hook)
 Codex CLI exposes no `SessionEnd` hook event (verified absent from the 0.136 binary;

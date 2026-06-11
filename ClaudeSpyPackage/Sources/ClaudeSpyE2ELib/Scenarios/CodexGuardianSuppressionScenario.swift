@@ -15,9 +15,15 @@ import Foundation
 /// 3. `permission_mode: "bypassPermissions"` events still notify (guardian
 ///    routing is off under `never` policy; a real prompt follows).
 /// 4. Rewriting `config.toml` flips the behavior live in BOTH directions —
-///    the posture is read fresh per permission request, so the very next
-///    event honors it with no new SessionStart (the Codex TUI persists every
-///    "Approve for me" toggle to this file).
+///    the file is read fresh per permission request, so the very next event
+///    honors a toggle away from the session's start posture (notify) and a
+///    toggle back to it (suppression resumes), with no new SessionStart (the
+///    Codex TUI persists every "Approve for me" toggle to this file).
+/// 5. Two concurrent sessions DIVERGE per session: the file is global but
+///    Codex applies a toggle only to the toggling session's runtime, so a
+///    session whose start snapshot disagrees with the file keeps notifying
+///    while one whose snapshot agrees stays suppressed — same file, same
+///    instant, opposite outcomes (issue #585 follow-up).
 ///
 /// The scratch CODEX_HOME lives inside the per-scenario
 /// `--gallager-state-root`; the pre-seeded codex `settings.json` lists it in
@@ -293,5 +299,125 @@ public enum CodexGuardianSuppressionScenario {
             key: "pushLogAfterGuardianMCP",
             substring: "Permission: mcp__memory__create_entities|${codexGuardianPane}"
         )
+
+        // ══════════════════════════════════════════════════════════════
+        // Phase 8: Multi-session divergence — `approvals_reviewer` is a
+        //          GLOBAL file but a PER-SESSION runtime value (Codex loads
+        //          it at session start; a TUI toggle overrides only the
+        //          toggling session while persisting globally). Session B
+        //          starts while the file says `user`; the file then flips
+        //          to `auto_review` (some session toggled "Approve for me"
+        //          — which one can't be observed). B's posture snapshot
+        //          (user) disagrees with the file → B's requests must STILL
+        //          notify; the original session's snapshot (auto_review)
+        //          agrees → its requests stay suppressed. Same file, same
+        //          instant, opposite outcomes.
+        // ══════════════════════════════════════════════════════════════
+        TestStep.writeFile(
+            path: "${gallagerStateRoot}/codex-home/config.toml",
+            content: "approvals_reviewer = \"user\"\n"
+        )
+        TestStep.tmuxCreateSession(name: "codex-guardian-b", width: 80, height: 24)
+        TestStep.tmuxStorePaneId(target: "codex-guardian-b:0.0", storeAs: "codexGuardianPaneB")
+        // Discovery barrier: the Panes window (open since Phase 2) lists the
+        // new session in its sidebar once the app has mirrored the pane. (The
+        // iOS app is inside the original session's detail view, so an iOS
+        // list-row wait can't work here.)
+        TestStep.macWaitForElement(titled: "codex-guardian-b", timeout: 15)
+
+        // Session B starts under the `user` posture.
+        TestStep.macSendHookEvent(
+            pluginID: "codex",
+            json: """
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": "e2e-codex-guardian-b",
+                "cwd": "/Users/test/GuardianSecond",
+                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
+                "timestamp": "2026-06-10T10:06:00.000000Z"
+            }
+            """,
+            tmuxPane: "${codexGuardianPaneB}"
+        )
+        // The hook endpoint replies before ingress dispatch runs, so wait for
+        // B's session-started push — emitted during dispatch, after the
+        // snapshot is recorded — before flipping the file underneath it.
+        TestStep.waitForFileContains(
+            path: "${pushLogPath}",
+            substring: "Session Started|${codexGuardianPaneB}",
+            storeAs: "pushLogSessionStartB"
+        )
+
+        // "Approve for me" is toggled somewhere: only the file flips. B's
+        // runtime posture is still `user` — Codex never re-reads mid-session.
+        TestStep.writeFile(
+            path: "${gallagerStateRoot}/codex-home/config.toml",
+            content: "approvals_reviewer = \"auto_review\"\n"
+        )
+
+        // The original session's request first (file matches its snapshot →
+        // suppressed), then B's (file contradicts its snapshot → notifies).
+        // Ingress is FIFO, so B's push observed below proves both processed.
+        TestStep.macSendHookEvent(
+            pluginID: "codex",
+            json: """
+            {
+                "hook_event_name": "PermissionRequest",
+                "session_id": "e2e-codex-guardian",
+                "cwd": "/Users/test/CodexGuardian",
+                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "permission_mode": "default",
+                "timestamp": "2026-06-10T10:07:00.000000Z",
+                "tool_name": "mcp__memory__read_graph",
+                "tool_input": {
+                    "server": "memory",
+                    "tool": "read_graph",
+                    "input": {}
+                }
+            }
+            """,
+            tmuxPane: "${codexGuardianPane}"
+        )
+        TestStep.macSendHookEvent(
+            pluginID: "codex",
+            json: """
+            {
+                "hook_event_name": "PermissionRequest",
+                "session_id": "e2e-codex-guardian-b",
+                "cwd": "/Users/test/GuardianSecond",
+                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
+                "permission_mode": "default",
+                "timestamp": "2026-06-10T10:07:30.000000Z",
+                "tool_name": "Bash",
+                "tool_input": {
+                    "command": "npm run lint",
+                    "description": "Lint the project"
+                }
+            }
+            """,
+            tmuxPane: "${codexGuardianPaneB}"
+        )
+
+        // B notified (push went out) even though the file says auto_review…
+        TestStep.waitForFileContains(
+            path: "${pushLogPath}",
+            substring: "Permission: Bash|${codexGuardianPaneB}",
+            storeAs: "pushLogDivergenceB"
+        )
+        // …and the original session's request — sent first, so already
+        // processed — stayed silent.
+        TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogDivergenceA")
+        TestStep.assertStoredNotContains(
+            key: "pushLogDivergenceA",
+            substring: "Permission: mcp__memory__read_graph|${codexGuardianPane}"
+        )
+        TestStep.iosWaitForElementToDisappear(.labelContains("read_graph"), timeout: 5)
+
+        // Visual record: the Panes window shows both sessions — the selected
+        // original one still Working, B awaiting its real prompt. (Re-pin the
+        // window first: creating a tmux session can auto-grow it.)
+        TestStep.macResizeWindow(width: 1_200, height: 700)
+        TestStep.wait(seconds: 1)
+        TestStep.macScreenshot(label: "mac-divergence-original-suppressed-b-prompts")
     }
 }

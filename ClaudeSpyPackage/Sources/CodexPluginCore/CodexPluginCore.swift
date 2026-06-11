@@ -35,6 +35,16 @@ public actor CodexPluginCore: PluginCore {
     /// can translate the structured answer into keystrokes (spec §7.1).
     private var pendingRequests: [String: PendingRequest] = [:]
 
+    /// Per-session reviewer snapshots (issue #585, multi-session divergence):
+    /// what the session's CODEX_HOME `config.toml` said when the session
+    /// started — the same value Codex itself loaded. `approvals_reviewer` is a
+    /// GLOBAL file but a PER-SESSION runtime value: a TUI "Approve for me"
+    /// toggle overrides only the toggling session's turn context while
+    /// persisting the new value globally, so with two live sessions the file
+    /// and a session's actual posture can diverge. See
+    /// `approvalsReviewer(for:)` for how the snapshot gates suppression.
+    private var reviewerSnapshots: [String: CodexApprovalsReviewer] = [:]
+
     #if os(macOS)
         private var watchers: [CodexSessionsWatcher] = []
 
@@ -116,6 +126,20 @@ public actor CodexPluginCore: PluginCore {
         // pane, fall back to the correlation file by session id (spec §12).
         let tmuxPane = resolvePane(action: action, frame: frame)
 
+        // Maintain the per-session reviewer snapshots: a session start is the
+        // moment Codex itself loads `config.toml`, so capture what it read; a
+        // session end (synthesized by the pane poll today, honored here too in
+        // case the bridge ever forwards a real one) drops the entry.
+        switch action {
+        case let .sessionStart(body):
+            recordReviewerSnapshot(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .sessionEnd(body):
+            reviewerSnapshots.removeValue(forKey: body.sessionId)
+        default:
+            break
+        }
+
+        let reviewer = await approvalsReviewer(for: action)
         guard
             let output = CodexTranslator.translate(
                 action: action,
@@ -123,7 +147,7 @@ public actor CodexPluginCore: PluginCore {
                 tmuxPane: tmuxPane,
                 contextProjectDir: frame.context["CODEX_PROJECT_DIR"],
                 closePaneOnSessionEnd: settings.closePaneOnSessionEnd,
-                approvalsReviewer: approvalsReviewer(for: action)
+                approvalsReviewer: reviewer
             )
         else {
             return nil
@@ -201,36 +225,109 @@ public actor CodexPluginCore: PluginCore {
 
     // MARK: - Approvals-reviewer posture (issue #585)
 
-    /// The reviewer posture governing this event's session: the hook's
-    /// `transcript_path` (the rollout file, which lives under
-    /// `<CODEX_HOME>/sessions/`) attributes the session to a known root, and
-    /// that root's `config.toml` is read **fresh on every permission request**.
-    /// Permission requests are rare and human-paced, the file is tiny, and a
-    /// fresh read means a TUI "Approve for me" toggle (which Codex persists to
-    /// `config.toml` immediately) is honored by the very next event — no
-    /// watcher, no debounce window, no cache to go stale, and a CODEX_HOME
-    /// created after launch just works.
+    /// The effective reviewer posture governing this event's session.
     ///
-    /// Suppression requires positive attribution: an event with no transcript
-    /// path, or one under a CODEX_HOME we don't track, resolves to `.user`
-    /// (notify — today's behavior) so a misattributed session can never eat a
-    /// real prompt. Both sides are symlink-resolved so `/var/…` vs
-    /// `/private/var/…` spellings (or a symlinked CODEX_HOME) still match.
-    private func approvalsReviewer(for action: HookAction) -> CodexApprovalsReviewer {
+    /// The hook's `transcript_path` (the rollout file, which lives under
+    /// `<CODEX_HOME>/sessions/`) attributes the session to a known root, and
+    /// that root's `config.toml` is read **fresh on every permission request**
+    /// — permission requests are rare and human-paced, the file is tiny.
+    ///
+    /// The fresh value alone is NOT the session's posture, though. Codex loads
+    /// `config.toml` once at session start; a mid-session TUI "Approve for me"
+    /// toggle overrides only the toggling session's runtime context while
+    /// persisting the new value globally — other live sessions keep their
+    /// start-time posture (verified against codex-rs `event_dispatch.rs`
+    /// `UpdateApprovalsReviewer`; nothing per-session is observable from hooks
+    /// or on disk). So suppression requires the fresh value AND the session's
+    /// start snapshot to agree on `auto_review`. When they disagree, SOME
+    /// session toggled and we cannot attribute which → fail safe to `.user`
+    /// (notify): a still-`user` session can never have a real prompt eaten,
+    /// at the cost of notify-noise for still-guardian sessions until the file
+    /// returns to their snapshot value (or they restart).
+    ///
+    /// Suppression also requires positive attribution: an event with no
+    /// transcript path, or one under a CODEX_HOME we don't track, resolves to
+    /// `.user`. Both sides of the prefix match are symlink-resolved so
+    /// `/var/…` vs `/private/var/…` spellings (or a symlinked CODEX_HOME)
+    /// still match.
+    private func approvalsReviewer(for action: HookAction) async -> CodexApprovalsReviewer {
         guard
             case let .permissionRequest(body) = action,
-            let transcript = body.transcriptPath
+            let transcript = body.transcriptPath,
+            let root = codexHomeRoot(forTranscriptPath: transcript)
         else { return .user }
 
+        let fresh = configReader.approvalsReviewer(codexHome: root)
+        let snapshot = reviewerSnapshot(sessionID: body.sessionId, root: root, transcriptPath: transcript)
+        guard fresh == snapshot else {
+            await log(
+                .debug,
+                "approvals_reviewer changed since session \(body.sessionId) started "
+                    + "(config.toml says \(fresh), session started under \(snapshot)) — "
+                    + "cannot attribute the toggle, notifying"
+            )
+            return .user
+        }
+        return fresh
+    }
+
+    /// Captures the session's start-time reviewer posture (what Codex itself
+    /// just loaded). Re-recorded on every session start, so resumed sessions —
+    /// which re-read `config.toml` — refresh their snapshot.
+    private func recordReviewerSnapshot(sessionID: String, transcriptPath: String?) {
+        guard
+            let transcriptPath,
+            let root = codexHomeRoot(forTranscriptPath: transcriptPath)
+        else { return }
+        reviewerSnapshots[sessionID] = configReader.approvalsReviewer(codexHome: root)
+    }
+
+    /// The session's start snapshot, reconstructing one when the session
+    /// started before this app did (no SessionStart hook was seen).
+    private func reviewerSnapshot(
+        sessionID: String,
+        root: URL,
+        transcriptPath: String
+    ) -> CodexApprovalsReviewer {
+        if let known = reviewerSnapshots[sessionID] { return known }
+        let reconstructed = reconstructedSnapshot(root: root, transcriptPath: transcriptPath)
+        reviewerSnapshots[sessionID] = reconstructed
+        return reconstructed
+    }
+
+    /// Reconstructs a missed start snapshot from file timestamps: if
+    /// `config.toml` hasn't been modified since the session's rollout file was
+    /// created, the current file value is exactly what the session loaded at
+    /// startup. Otherwise — a write happened during the session's lifetime, or
+    /// either file can't be dated — the posture is ambiguous → `.user`.
+    private func reconstructedSnapshot(root: URL, transcriptPath: String) -> CodexApprovalsReviewer {
+        let fileManager = FileManager.default
+        let configPath = root.appendingPathComponent("config.toml").path
+        guard
+            let rolloutCreated = (try? fileManager.attributesOfItem(atPath: transcriptPath))?[
+                .creationDate
+            ] as? Date,
+            let configModified = (try? fileManager.attributesOfItem(atPath: configPath))?[
+                .modificationDate
+            ] as? Date,
+            configModified < rolloutCreated
+        else { return .user }
+        return configReader.approvalsReviewer(codexHome: root)
+    }
+
+    /// Attributes a hook `transcript_path` to one of the tracked CODEX_HOME
+    /// roots (the rollout lives under `<CODEX_HOME>/sessions/`), or nil when
+    /// it belongs to none of them.
+    private func codexHomeRoot(forTranscriptPath transcript: String) -> URL? {
         let transcriptPath = URL(fileURLWithPath: transcript).resolvingSymlinksInPath().path
         for root in codexHomeRoots() {
             let sessionsPrefix = root.appendingPathComponent("sessions")
                 .resolvingSymlinksInPath().path + "/"
             if transcriptPath.hasPrefix(sessionsPrefix) {
-                return configReader.approvalsReviewer(codexHome: root)
+                return root
             }
         }
-        return .user
+        return nil
     }
 
     // MARK: - Auto-launch
@@ -330,6 +427,13 @@ public actor CodexPluginCore: PluginCore {
             if !didReconcileOrphans {
                 didReconcileOrphans = true
                 for orphan in known.subtracting(alive) {
+                    // Correlation files only — NOT reviewer snapshots. Orphan
+                    // correlations are leftovers from a PREVIOUS app run, and
+                    // the in-memory snapshot map starts empty, so there is
+                    // nothing of theirs to drop; a snapshot recorded since
+                    // launch belongs to a live session (its pane merely has no
+                    // codex process yet — e.g. synthetic E2E sessions) and
+                    // must survive this reconcile.
                     correlation.remove(pane: orphan)
                 }
                 previouslyAlivePanes = alive
@@ -339,9 +443,18 @@ public actor CodexPluginCore: PluginCore {
             let ended = previouslyAlivePanes.subtracting(alive)
             for pane in ended {
                 await emitSessionEnded(pane: pane)
+                removeReviewerSnapshot(pane: pane)
                 correlation.remove(pane: pane)
             }
             previouslyAlivePanes = alive
+        }
+
+        /// Drops the reviewer snapshot for the session correlated to an ended
+        /// pane (the snapshot map is keyed by session id; the poll only knows
+        /// panes). Must run before `correlation.remove(pane:)`.
+        private func removeReviewerSnapshot(pane: String) {
+            guard let sessionID = correlation.record(forPane: pane)?.sessionID else { return }
+            reviewerSnapshots.removeValue(forKey: sessionID)
         }
 
         /// Synthesize the `.sessionEnded` the missing Codex `SessionEnd` hook would

@@ -64,9 +64,11 @@ enum CodexTranslator {
     /// Translate a parsed action into a `PluginEvent`, or `nil` to drop the
     /// frame (no state change — the dispatcher no-ops).
     ///
-    /// `approvalsReviewer` is the live posture of the CODEX_HOME this session
-    /// belongs to (resolved by the actor); it only matters for
-    /// `PermissionRequest` — see `isGuardianHandled`.
+    /// `approvalsReviewer` is the EFFECTIVE posture of this event's session,
+    /// resolved by the actor: the live `config.toml` value gated by the
+    /// session's start snapshot (the file is global, the runtime value is
+    /// per-session). It only matters for `PermissionRequest` — see
+    /// `isGuardianHandled`.
     static func translate(
         action: HookAction,
         pluginID: String,
