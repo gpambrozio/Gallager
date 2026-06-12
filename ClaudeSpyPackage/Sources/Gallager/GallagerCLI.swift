@@ -94,7 +94,16 @@ func executeRequest(
     )
     let response = try SocketClient.send(request, socketPath: options.socket)
     if !response.ok, let error = response.error {
-        throw CleanExit.message("Error: \(error.message)")
+        // Honor --json on the error path too: scripted callers parsing stdout
+        // get the full {"ok":false,"error":{...}} response instead of prose.
+        // Either way exit non-zero so shell scripts can branch on failure —
+        // `CleanExit.message` would print to stdout and exit 0.
+        if options.json {
+            printResponse(response, json: true)
+        } else {
+            FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
+        }
+        throw ExitCode.failure
     }
     return response
 }
