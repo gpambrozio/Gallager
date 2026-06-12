@@ -6,6 +6,41 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.2</title>
+         <sparkle:version>35</sparkle:version>
+         <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
+         <pubDate>Fri, 12 Jun 2026 11:16:49 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.2
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Changed-file badge on the Git tab</strong> — The Git tab now displays a badge showing the number of changed files in a session's repository, so you can see at a glance which sessions have uncommitted work.</li>
+<li><strong>File actions in the Git tab</strong> — Rows in the Git tab's Changes list now support a right-click context menu and double-click actions, making it faster to open and work with modified files directly from the app.</li>
+<li><strong>Question navigation on iOS</strong> — When an agent asks multiple questions at once, the iOS question view now includes navigation arrows so you can move between questions without scrolling.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Quieter Codex sessions with auto-review enabled</strong> — When a Codex session's guardian (auto-review) is set to decide on permission requests automatically, the app no longer sends permission notifications or shows approval forms for those requests, reducing unnecessary interruptions.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed terminal rendering so multi-row background highlight bands — both in scrollback history and in the input composer area — are preserved correctly when the mirrored display is re-captured, instead of losing their background color.</li>
+<li>Fixed `gallager select-session` so it now switches the app's foreground session in addition to selecting it, matching the expected behavior.</li>
+<li>Fixed an issue where the macOS app could stall at startup while waiting on a local network hostname lookup, improving launch reliability on some machines and networks.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.2.dmg"
+                    sparkle:edSignature="oNIOVQJBX7ix+vmK3gtTWLhtxKXS00Mtu+dWVCeaRKZFFi164S5iN2MZ25wz98j0f9FtM1BX8xYVMFt7jTGADA=="
+                    length="32437851"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 2.1</title>
          <sparkle:version>34</sparkle:version>
          <sparkle:shortVersionString>2.1</sparkle:shortVersionString>
