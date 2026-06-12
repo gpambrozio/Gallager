@@ -27,8 +27,34 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 - `getPaneDimensions()` / `getPaneId()` - dimension tracking
 - `sendKeys()` / `sendInterrupt()` - send input to panes
 - `createSession()` - creates new tmux session with dimensions
+- `probeVisualConflict()` - detects whether the user's rc files clobber the `$VISUAL` Gallager sets (see [Editor Override](#editor-override-ctrl-g) below)
+- `injectVisualOverrideIntoExistingShellPanes()` / `clearInjectedOverrideTracking()` - manage the opt-in `export VISUAL` injection
 
-**Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`
+**Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`, `overrideVisualInShellPanes` (mirrors `AppSettings.editorOverrideMode`)
+
+### Editor Override (Ctrl-G)
+
+Gallager points `$VISUAL` at the bundled `gallager edit` CLI (via tmux `-e` on every session) so Ctrl-G in Claude Code / Codex opens the in-app prompt editor. Spawned panes run a login shell that sources the user's rc files **after** the session env is applied, so a user with `export VISUAL=<their editor>` in `~/.zshrc`/`~/.bashrc` clobbers Gallager's value and Ctrl-G opens *their* editor instead. The override is **consent-based** (issue #591) — Gallager's env is a default, never a silent override.
+
+Key files: `EditorOverride.swift` (pure helpers + `EditorOverrideMode`/`VisualProbeResult`), `TmuxService` (probe + injection), `AppCoordinator` (coordination), `EditorOverrideDialog.swift` (the dialog), `EditorsSettingsView.swift` (`PromptEditorOverrideSection`).
+
+**1. Conflict probe.** At startup (only when `GallagerCLI` is bundled), `TmuxService.probeVisualConflict()` creates a detached probe session named `__gallager_probe` with `-e VISUAL=__gallager_probe__` and the normal `default-command` wrapper (real pty / env / startup), types `printf 'GALLAGER_PROBE=%s\n' "$VISUAL"`, and polls `capture-pane` (~10s) for the marker. Sentinel intact → no conflict; a different value or empty → conflict (the user's value is remembered for the dialog copy). No CLI / unknown shell (nushell) / timeout → treated as no-conflict. The probe session is filtered out of every user-facing list by its name prefix. Re-run on demand from Settings ("Re-check now").
+
+**2. Dialog.** Deferred from launch to the **first session creation** (when "Ctrl-G" has context). Shows the conflicting value and three choices:
+- **Fix it in your shell config (recommended)** — keeps the setting at *Ask*; shows a copyable guarded line `[ -n "$GALLAGER_SOCKET" ] || export VISUAL='<their value>'` (Gallager exports `GALLAGER_SOCKET` before rc files run, so the rc can detect a Gallager pane). The next launch's probe verifies; if fixed, the dialog never returns.
+- **Override in Gallager sessions** — enables keystroke injection (below).
+- **Keep my editor, stop asking** — never override, never ask.
+- Dismissing ("Decide later") leaves it at *Ask* — re-prompts on a later conflict probe.
+
+**3. Injection (override mode).** Instead of tampering with shell startup, Gallager types the export into shell panes:
+- **New panes:** `refreshPanes()` injects a leading-space `export VISUAL='<gallager> edit'` (POSIX) / `set -gx VISUAL …` (fish) into each new known-shell pane. The bytes buffer until the first prompt, so they run *after* all rc files. The leading space keeps it out of history under `HISTCONTROL=ignorespace` / `HIST_IGNORE_SPACE`.
+- **Existing panes** are injected when the setting is turned on.
+- **App-launched agents** chain the export onto the agent command line in `createSession` (a direct-command pane never ran rc files, so the new-pane injector skips it).
+- Per-pane dedup keeps it to one line per shell pane.
+
+**Settings:** `AppSettings.editorOverrideMode` (`ask` / `overrideInGallagerSessions` / `useMyEditor`). `AppCoordinator.setEditorOverrideMode(_:)` is the single mutation point — it persists the choice and mirrors it onto `TmuxService.overrideVisualInShellPanes`.
+
+**Limitations:** the injected line is visible in scrollback; a nested shell (`exec zsh`) re-sources rc with no re-injection; changing the setting doesn't affect already-running agents; the override also affects `git commit`/`crontab` in those panes; typing within the first ~second of a pane opening (or an rc ending in `exec`) can interleave with / swallow the injected line. All are accepted trade-offs for users who explicitly opted in.
 
 ### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
 
@@ -418,6 +444,7 @@ command, currentPath, width, height, isActive
 - **Tmux:** tmuxPath, tmuxSocket
 - **Remote Access:** externalServerURL, deviceId, pairedDevices
 - **Coding agents:** autoRunClaudeInProjects, claudeCommandPath, codexCommandPath. `commandPath(for: CodingAgent)` returns the right binary path for an agent
+- **Prompt editor (Ctrl-G):** editorOverrideMode (`ask` / `overrideInGallagerSessions` / `useMyEditor`) — see [Editor Override](#editor-override-ctrl-g)
 - **Plugin:** hasCompletedPluginSetup
 
 ### PairedDevice (`ClaudeSpyServerFeature/Models/Settings.swift`)

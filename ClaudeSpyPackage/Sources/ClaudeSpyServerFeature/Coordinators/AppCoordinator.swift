@@ -83,6 +83,21 @@
         /// Holds "Claude wrote a markdown file — open it?" prompts per tmux session.
         public let markdownOpenSuggestionStore: MarkdownOpenSuggestionStore
 
+        // MARK: - Editor Override (issue #591)
+
+        /// Result of this launch's `$VISUAL`-survival probe, or nil until it
+        /// finishes. Read by the consent dialog and the Settings status line.
+        public private(set) var editorOverrideProbeResult: VisualProbeResult?
+
+        /// Drives the consent dialog sheet. Set true on the first session creation
+        /// when the probe found a conflict and the mode is still `.ask`.
+        public var isShowingEditorOverrideDialog = false
+
+        /// Latches once the consent dialog has been offered this launch so it
+        /// isn't re-presented on every subsequent session creation.
+        @ObservationIgnored
+        private var hasPresentedEditorOverrideDialogThisLaunch = false
+
         // MARK: - In-Process Plugin Runtime (additive; coexists with HookServerService)
 
         /// On-disk layout for the in-process plugin runtime. Built in
@@ -193,6 +208,11 @@
             // setters it emits. Read live so theme changes take effect for
             // the next-spawned shell without restarting the app.
             tmuxService.setThemeProvider { [settings] in settings.theme }
+
+            // Mirror the persisted editor-override choice onto the tmux service so
+            // injection is active from the first pane if the user already opted in
+            // on a prior launch (issue #591).
+            tmuxService.overrideVisualInShellPanes = settings.editorOverrideMode == .overrideInGallagerSessions
 
             // Create control client manager for tmux control mode
             self.controlClientManager = TmuxControlClientManager(
@@ -310,6 +330,16 @@
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
+            // Probe whether the user's rc files clobber Gallager's `$VISUAL`
+            // (issue #591), but only while the decision is still pending — a user
+            // who already chose Override / Use-my-editor doesn't need the dialog,
+            // and Settings → "Re-check now" re-probes on demand in any mode.
+            // Detached so the ~1–10s probe never blocks launch; the dialog it may
+            // trigger is deferred to the first session anyway.
+            if settings.editorOverrideMode == .ask {
+                Task { await runEditorConflictProbe() }
+            }
+
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
 
@@ -361,6 +391,60 @@
                 return name
             }
             return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
+        }
+
+        // MARK: - Editor Override (issue #591)
+
+        /// Runs the `$VISUAL`-survival probe and caches the result. Invoked once at
+        /// startup and again from the Settings "re-check" affordance.
+        func runEditorConflictProbe() async {
+            let result = await tmuxService.probeVisualConflict()
+            editorOverrideProbeResult = result
+        }
+
+        /// Re-runs the probe on demand (Settings "re-check now"), and — if the
+        /// conflict has since been resolved (e.g. the user edited their rc files
+        /// per Option 1) — clears the latch so a future genuine conflict can ask
+        /// again.
+        public func reprobeEditorConflict() async {
+            await runEditorConflictProbe()
+            if editorOverrideProbeResult?.isConflict != true {
+                hasPresentedEditorOverrideDialogThisLaunch = false
+            }
+        }
+
+        /// Whether the consent dialog should be offered: a conflict was detected
+        /// and the user hasn't yet made a durable choice (still `.ask`), and we
+        /// haven't already asked this launch.
+        public var shouldOfferEditorOverrideDialog: Bool {
+            settings.editorOverrideMode == .ask
+                && editorOverrideProbeResult?.isConflict == true
+                && !hasPresentedEditorOverrideDialogThisLaunch
+        }
+
+        /// Presents the consent dialog if it's warranted. Called whenever a
+        /// session appears or the probe finishes, so it shows on whichever
+        /// happens last — but only once there's a local session, so "Ctrl-G" has
+        /// context (issue #591 §2).
+        public func maybePresentEditorOverrideDialog() {
+            guard shouldOfferEditorOverrideDialog else { return }
+            guard !tmuxService.sessions.isEmpty else { return }
+            hasPresentedEditorOverrideDialogThisLaunch = true
+            isShowingEditorOverrideDialog = true
+        }
+
+        /// Applies a durable editor-override choice (from the dialog or Settings):
+        /// persists it and reflects it onto the tmux service, injecting into
+        /// existing shell panes when turning the override on.
+        public func setEditorOverrideMode(_ mode: EditorOverrideMode) {
+            settings.editorOverrideMode = mode
+            let active = mode == .overrideInGallagerSessions
+            tmuxService.overrideVisualInShellPanes = active
+            if active {
+                Task { await tmuxService.injectVisualOverrideIntoExistingShellPanes() }
+            } else {
+                tmuxService.clearInjectedOverrideTracking()
+            }
         }
 
         // MARK: - In-Process Plugin Runtime Setup (additive)

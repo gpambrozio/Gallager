@@ -151,3 +151,32 @@ the prompt no longer appears on a fresh machine and the app starts normally.
   theory that *listening* triggered the prompt. TN3179 is explicit that listening
   for/accepting incoming connections does **not** require local network access — a
   no-op for this bug, reverted.
+
+## Editor override (Ctrl-G): injected `export VISUAL` caveats
+
+**Status:** Accepted trade-offs (consent-gated; only affects users who opt in)
+
+When the user picks **Override in Gallager sessions** (Settings → Editors → Prompt
+editor, or the first-session consent dialog), Gallager types `export VISUAL=…`
+into its shell panes so Ctrl-G opens the in-app prompt editor even though the
+user's rc files clobber `$VISUAL`. See `docs/services-reference.md` →
+[Editor Override](services-reference.md#editor-override-ctrl-g) for the full flow.
+
+Because the mechanism is deliberately boring (keystroke injection, no shell-startup
+redirection), it has honest limits:
+
+- The injected line is **visible in the pane's scrollback** (one line per shell pane).
+- A **nested shell** (`exec zsh`, or starting a sub-shell) re-sources rc and
+  re-applies the user's override, with no re-injection trigger.
+- Changing the setting doesn't affect **already-running agents** (their environment
+  is frozen at launch).
+- The override also affects `git commit` / `crontab` in those panes (they consult
+  `$VISUAL` first).
+- A user who **starts typing within ~1s** of a pane opening can interleave with the
+  injected line; an rc ending in `exec <other program>` swallows the buffered keys.
+  Both are rare and degrade to "override didn't apply".
+
+The durable fix is upstream dedicated editor variables (a Codex `CODEX_EDITOR` /
+Claude Code equivalent): once those exist, the `-e VISUAL` Gallager already sets
+just works with nothing to fight over, and this machinery shrinks to a
+compatibility path.

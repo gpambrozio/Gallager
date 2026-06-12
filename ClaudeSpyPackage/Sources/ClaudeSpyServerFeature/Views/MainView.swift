@@ -149,6 +149,21 @@ public struct MainView: View {
                 }
             )
         }
+        // Consent dialog for the editor-override conflict (issue #591). Deferred
+        // to the first session so "Ctrl-G" has context; fires on whichever of
+        // {session appears, probe finishes} happens last.
+        .sheet(isPresented: Binding(
+            get: { coordinator.isShowingEditorOverrideDialog },
+            set: { coordinator.isShowingEditorOverrideDialog = $0 }
+        )) {
+            EditorOverrideDialog()
+        }
+        .onChange(of: tmuxService.sessions.isEmpty) { _, isEmpty in
+            if !isEmpty { coordinator.maybePresentEditorOverrideDialog() }
+        }
+        .onChange(of: coordinator.editorOverrideProbeResult) {
+            coordinator.maybePresentEditorOverrideDialog()
+        }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
             // can render immediately when a window is selected (without waiting
