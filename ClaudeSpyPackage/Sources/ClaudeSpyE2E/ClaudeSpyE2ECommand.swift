@@ -338,6 +338,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         GitTabFileActionsScenario.scenario,
         ComposerBandRecaptureScenario.scenario,
         CodexGuardianSuppressionScenario.scenario,
+        ScrollbackBandRecaptureScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
