@@ -1789,6 +1789,18 @@
                 tmuxService.editorCLIPath = editorURL.path
                 tmuxService.apiSocketPath = socketPath
                 logger.info("GallagerCLI path: \(editorURL.path)")
+
+                // Generate the shell-startup snippets that re-assert $VISUAL
+                // after the user's rc files run, so `export VISUAL=…` in their
+                // ~/.zshrc / ~/.bashrc can't redirect Ctrl-G away from the
+                // in-app editor (issue #589).
+                do {
+                    let integration = try ShellIntegration.install(isE2E: isE2E)
+                    tmuxService.shellIntegrationZDOTDIR = integration.zdotdir
+                    tmuxService.shellIntegrationBashRC = integration.bashRC
+                } catch {
+                    logger.warning("Failed to install shell integration: \(error)")
+                }
             } else {
                 logger.warning("GallagerCLI not found in app bundle")
             }

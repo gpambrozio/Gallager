@@ -114,7 +114,7 @@ final public class TmuxService {
 
     /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
     /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
-    private static func posixSingleQuote(_ string: String) -> String {
+    private nonisolated static func posixSingleQuote(_ string: String) -> String {
         "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
@@ -152,10 +152,53 @@ final public class TmuxService {
     /// cached value and the rendered bg can't drift if the user toggles
     /// between dark and light themes.
     private var defaultCommandWrapper: String {
-        let shell = Self.posixSingleQuote(Self.userShellPath)
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
         let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
-        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
+        let launch = Self.shellLaunchCommand(
+            shellPath: Self.userShellPath,
+            zdotdir: shellIntegrationZDOTDIR,
+            bashRC: shellIntegrationBashRC
+        )
+        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 \(launch)"
+    }
+
+    /// Builds the `exec <shell> …` tail of `defaultCommandWrapper`.
+    ///
+    /// For zsh and bash we redirect the shell's startup through a Gallager
+    /// snippet (see `ShellIntegration`) so `$VISUAL` is re-asserted *after* the
+    /// user's rc files run — otherwise `export VISUAL=…` in `~/.zshrc` /
+    /// `~/.bashrc` clobbers the value we set and Ctrl-G opens the wrong editor
+    /// (issue #589). Shells we don't have a snippet for fall back to the plain
+    /// login-shell launch, where `$VISUAL` (set via `-e`) survives unless the
+    /// user's config overrides it.
+    ///
+    /// - Parameters:
+    ///   - shellPath: Absolute path to the user's login shell.
+    ///   - zdotdir: Directory to hand zsh as `ZDOTDIR`, or `nil` to skip the
+    ///     zsh integration.
+    ///   - bashRC: File to hand bash via `--rcfile`, or `nil` to skip the bash
+    ///     integration.
+    nonisolated static func shellLaunchCommand(shellPath: String, zdotdir: String?, bashRC: String?) -> String {
+        let shell = posixSingleQuote(shellPath)
+        switch (shellPath as NSString).lastPathComponent {
+        case "zsh":
+            if let zdotdir {
+                // Capture the user's existing ZDOTDIR (default $HOME) so the
+                // snippet can source their real config, then point ZDOTDIR at
+                // ours so zsh reads our `.zshenv` first.
+                return "GALLAGER_USER_ZDOTDIR=\"${ZDOTDIR:-$HOME}\" "
+                    + "ZDOTDIR=\(posixSingleQuote(zdotdir)) exec \(shell) -l"
+            }
+        case "bash":
+            if let bashRC {
+                // `--rcfile` is only honored for interactive (non-login) bash,
+                // so we drop `-l`; the snippet replicates login startup itself.
+                return "exec \(shell) --rcfile \(posixSingleQuote(bashRC)) -i"
+            }
+        default:
+            break
+        }
+        return "exec \(shell) -l"
     }
 
     /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11
@@ -182,6 +225,15 @@ final public class TmuxService {
 
     /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
     public var apiSocketPath: String?
+
+    /// Directory handed to zsh as `ZDOTDIR` so a Gallager snippet can re-assert
+    /// `$VISUAL` after the user's rc files run (issue #589). See
+    /// `ShellIntegration` and `shellLaunchCommand`.
+    public var shellIntegrationZDOTDIR: String?
+
+    /// File handed to bash via `--rcfile` for the same `$VISUAL` re-assertion
+    /// (issue #589). See `ShellIntegration` and `shellLaunchCommand`.
+    public var shellIntegrationBashRC: String?
 
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
