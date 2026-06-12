@@ -2139,6 +2139,161 @@
             }
             #expect(blanksBetween == 0, "Expected no blank rows after reflow narrower (\(rebuildWidth)→\(postResizeCols)), got \(blanksBetween) blank rows")
         }
+
+        @Test("Multi-row bg band keeps its background after scrolling into history (#580)")
+        @MainActor
+        func multiRowBackgroundBandSurvivesInScrollback() {
+            let service = TmuxService()
+            let width = 40
+            let height = 10
+            func pad(_ s: String) -> String {
+                s + String(repeating: " ", count: max(0, width - s.count))
+            }
+            // Scrollback capture (`-S -N -E -1`) for a band that has scrolled
+            // into history: only the FIRST band row bears the `\e[48;5;243m`
+            // setter; the continuation rows arrive as real (preserved by `-N`)
+            // spaces with NO setter, carrying the bg purely via tmux's cross-line
+            // SGR state. Part 1 must restore the carried state on each row or the
+            // band loses its background in history — the scrollback analogue of
+            // the visible-area #578 fix.
+            let scrollbackLines = [
+                "history top", // plain row above the band
+                pad("\u{1b}[48;5;243mopen file on my browser"), // band row 1: setter + content + spaces
+                pad(""), // continuation: spaces only, NO setter
+                pad("summarize recent commits"), // continuation: content + spaces, NO setter
+                pad(""), // continuation: spaces only, NO setter
+                "\u{1b}[0mhistory bottom", // band ends, plain row
+            ]
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n")
+
+            // Visible area full of content so the screenWasCleared heuristic
+            // doesn't suppress the scrollback.
+            let visibleOutput = (0..<height).map { "visible row \($0)" }.joined(separator: "\n")
+            let cursorOutput = "0,\(height - 1),1"
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: cursorOutput,
+                width: width,
+                height: height
+            )
+
+            // Feed into a correctly-sized terminal so the LF-push moves the
+            // scrollback rows into SwiftTerm's scrollback buffer.
+            let (terminal, _) = makeTerminal(cols: width, rows: height)
+            terminal.feed(byteArray: Array(data))
+
+            let total = terminal.buffer.yDisp + terminal.rows
+            func scrollbackRow(containing needle: String) -> Int? {
+                for row in 0..<total {
+                    guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                    if line.translateToString(trimRight: true).contains(needle) { return row }
+                }
+                return nil
+            }
+            func bg(_ row: Int, _ col: Int) -> Attribute.Color {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { return .defaultColor }
+                return line[col].attribute.bg
+            }
+
+            guard let firstBandRow = scrollbackRow(containing: "open file on my browser") else {
+                Issue.record("Band first row not found in scrollback buffer")
+                return
+            }
+            // The four band rows (setter row + three continuation rows, two of
+            // which are spaces-only) must all carry a non-default background
+            // across their full width.
+            for row in firstBandRow...(firstBandRow + 3) {
+                for col in [0, width / 2, width - 1] {
+                    #expect(
+                        bg(row, col) != .defaultColor,
+                        "Scrollback band row \(row) (offset \(row - firstBandRow)) col \(col) must have bg, got: \(bg(row, col))"
+                    )
+                }
+            }
+            // The plain rows bracketing the band must stay default — the band's
+            // carried bg must not bleed past the `\e[0m` that closes it.
+            if let topRow = scrollbackRow(containing: "history top") {
+                #expect(bg(topRow, width / 2) == .defaultColor, "Plain row above the band must stay default")
+            }
+            if let bottomRow = scrollbackRow(containing: "history bottom") {
+                #expect(bg(bottomRow, width / 2) == .defaultColor, "Plain row below the band must stay default")
+            }
+        }
+
+        @Test("Issue #429/#580 — scrollback rows with preserved trailing spaces must not reflow-blank narrower")
+        @MainActor
+        func scrollbackNoBlankRowsAfterReflowNarrower() {
+            // `-N` preserves trailing spaces on the scrollback capture too
+            // (#580). For a plain row those spaces would otherwise wrap into
+            // permanent blank continuation rows on a narrower resize (#429
+            // class, but permanent because scrollback is never redrawn). Part 1
+            // trims the default-bg trailing spaces back off, keeping plain rows
+            // short. This feeds full-width-padded plain scrollback rows, pushes
+            // them into the scrollback buffer, resizes narrower, and asserts no
+            // blank rows appear between scrollback content rows.
+            let service = TmuxService()
+            let height = 24
+            let rebuildWidth = 120
+            let postResizeCols = 40
+
+            /// Each row is ~32 chars of content padded to the full 120 width —
+            /// exactly what `-N` emits. Content stays under postResizeCols so a
+            /// *trimmed* row never wraps; an *untrimmed* 120-wide row would wrap
+            /// into 3 rows whose last two are blank.
+            func pad(_ s: String) -> String {
+                s + String(repeating: " ", count: max(0, rebuildWidth - s.count))
+            }
+            let scrollbackLines = (0..<40).map { i in
+                pad(i.isMultiple(of: 2) ? "[scroll \(i)] Checking..." : "[scroll \(i)] Nothing")
+            }
+            let scrollbackOutput = scrollbackLines.joined(separator: "\n")
+            let visibleOutput = (0..<height).map { "visible row \($0)" }.joined(separator: "\n")
+
+            let data = service.processCapturePaneForStreaming(
+                scrollbackOutput: scrollbackOutput,
+                visibleOutput: visibleOutput,
+                cursorOutput: "0,\(height - 1),1",
+                width: rebuildWidth,
+                height: height
+            )
+
+            let (terminal, _) = makeTerminal(cols: rebuildWidth, rows: height)
+            terminal.feed(byteArray: Array(data))
+
+            // Auto-resize narrower — the production reflow path.
+            terminal.resize(cols: postResizeCols, rows: height)
+
+            var rowKinds: [(row: Int, isBlank: Bool, text: String)] = []
+            for row in -200..<200 {
+                guard let line = terminal.getScrollInvariantLine(row: row) else { continue }
+                var text = ""
+                for col in 0..<terminal.cols {
+                    text += String(line[col].getCharacter())
+                }
+                let cleaned = text.filter { $0 != "\0" }.trimmingCharacters(in: .whitespaces)
+                rowKinds.append((row: row, isBlank: cleaned.isEmpty, text: cleaned))
+            }
+
+            // Consider only the band of scrollback content rows.
+            guard
+                let firstContent = rowKinds.firstIndex(where: { $0.text.contains("[scroll ") }),
+                let lastContent = rowKinds.lastIndex(where: { $0.text.contains("[scroll ") })
+            else {
+                Issue.record("No scrollback content rows found")
+                return
+            }
+            let blanksBetween = rowKinds[firstContent...lastContent].count(where: \.isBlank)
+            if blanksBetween > 0 {
+                let excerpt = rowKinds[firstContent...lastContent]
+                    .prefix(15)
+                    .map { "row \($0.row): " + ($0.isBlank ? "<BLANK>" : "'\($0.text)'") }
+                    .joined(separator: "\n")
+                Issue.record("Found \(blanksBetween) blank scrollback rows after reflow \(rebuildWidth)→\(postResizeCols). First 15:\n\(excerpt)")
+            }
+            #expect(blanksBetween == 0, "Expected no blank rows between scrollback content rows after reflow \(rebuildWidth)→\(postResizeCols), got \(blanksBetween)")
+        }
     }
 
     // MARK: - accumulateSGRState direct tests
@@ -2232,6 +2387,65 @@
             #expect(sgrs == ["\u{1b}[48;5;243m"])
             service.accumulateSGRState(&sgrs, from: "\u{1b}[0m") // band ends
             #expect(sgrs.isEmpty)
+        }
+    }
+
+    // MARK: - trimTrailingDefaultBackgroundSpaces / sgrBackgroundChange direct tests
+
+    @Suite("Scrollback band trimming (#580)")
+    @MainActor
+    struct ScrollbackBandTrimTests {
+        @Test("Plain row: trailing default-bg spaces are trimmed")
+        func plainTrailingSpacesTrimmed() {
+            let service = TmuxService()
+            #expect(service.trimTrailingDefaultBackgroundSpaces("hello     ", carriedSGRs: []) == "hello")
+            #expect(service.trimTrailingDefaultBackgroundSpaces("hello", carriedSGRs: []) == "hello")
+            #expect(service.trimTrailingDefaultBackgroundSpaces("   ", carriedSGRs: []) == "")
+            #expect(service.trimTrailingDefaultBackgroundSpaces("", carriedSGRs: []) == "")
+        }
+
+        @Test("Band continuation row: spaces over a carried bg are preserved")
+        func carriedBandSpacesPreserved() {
+            let service = TmuxService()
+            let spaces = String(repeating: " ", count: 10)
+            // Carried band bg → every space is a band cell → kept.
+            #expect(service.trimTrailingDefaultBackgroundSpaces(spaces, carriedSGRs: ["\u{1b}[48;5;243m"]) == spaces)
+            // Carried fg-only state → the spaces are not a band → trimmed.
+            #expect(service.trimTrailingDefaultBackgroundSpaces(spaces, carriedSGRs: ["\u{1b}[38;5;243m"]) == "")
+            // A carried bg later reset by a carried \e[49m → trimmed.
+            #expect(service.trimTrailingDefaultBackgroundSpaces(spaces, carriedSGRs: ["\u{1b}[48;5;243m", "\u{1b}[49m"]) == "")
+        }
+
+        @Test("In-line bg then reset: trailing spaces after \\e[49m are trimmed, the reset is kept")
+        func bgResetBeforeTrailingSpacesTrimmed() {
+            let service = TmuxService()
+            // Red bg over "text", reset to default, then trailing spaces. The
+            // spaces are default-bg → trimmed; the \e[49m is preserved so the
+            // caller's \e[K clears the tail with the default background.
+            let input = "\u{1b}[41mtext\u{1b}[49m    "
+            #expect(service.trimTrailingDefaultBackgroundSpaces(input, carriedSGRs: []) == "\u{1b}[41mtext\u{1b}[49m")
+        }
+
+        @Test("In-line bg set mid-row: trailing spaces under the bg are preserved")
+        func bgSetBeforeTrailingSpacesPreserved() {
+            let service = TmuxService()
+            let input = "text\u{1b}[41m    "
+            #expect(service.trimTrailingDefaultBackgroundSpaces(input, carriedSGRs: []) == input)
+        }
+
+        @Test("sgrBackgroundChange classifies bg setters, resets, and fg/style")
+        func sgrBackgroundChangeClassification() {
+            let service = TmuxService()
+            #expect(service.sgrBackgroundChange("\u{1b}[48;5;243m") == true) // 256-color bg
+            #expect(service.sgrBackgroundChange("\u{1b}[41m") == true) // 16-color bg
+            #expect(service.sgrBackgroundChange("\u{1b}[103m") == true) // bright bg
+            #expect(service.sgrBackgroundChange("\u{1b}[48;2;1;2;3m") == true) // truecolor bg
+            #expect(service.sgrBackgroundChange("\u{1b}[49m") == false) // explicit default bg
+            #expect(service.sgrBackgroundChange("\u{1b}[0m") == false) // full reset
+            #expect(service.sgrBackgroundChange("\u{1b}[m") == false) // empty-params reset
+            #expect(service.sgrBackgroundChange("\u{1b}[1;31m") == nil) // bold + fg, no bg
+            #expect(service.sgrBackgroundChange("\u{1b}[38;5;44m") == nil) // 256-color FG (44 is a fg index, not bg)
+            #expect(service.sgrBackgroundChange("\u{1b}[0;44m") == true) // reset then bg → bg
         }
     }
 
