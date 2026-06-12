@@ -55,16 +55,27 @@ enum CodexTranslator {
         /// Context to retain under the `awaiting*` state's `requestID`, if the
         /// event opened a form. `nil` when no form.
         var pending: PendingRequest?
+        /// True when a permission request was silenced because Codex's
+        /// guardian will decide it (the event maps to plain `working`). Lets
+        /// the core log the suppression without re-deriving the decision.
+        var guardianHandled = false
     }
 
     /// Translate a parsed action into a `PluginEvent`, or `nil` to drop the
     /// frame (no state change — the dispatcher no-ops).
+    ///
+    /// `approvalsReviewer` is the EFFECTIVE posture of this event's session,
+    /// resolved by the actor: the live `config.toml` value gated by the
+    /// session's start snapshot (the file is global, the runtime value is
+    /// per-session). It only matters for `PermissionRequest` — see
+    /// `isGuardianHandled`.
     static func translate(
         action: HookAction,
         pluginID: String,
         tmuxPane: String?,
         contextProjectDir: String?,
-        closePaneOnSessionEnd: Bool = false
+        closePaneOnSessionEnd: Bool = false,
+        approvalsReviewer: CodexApprovalsReviewer = .user
     ) -> Output? {
         let body = action.body
         let sessionID = body.sessionId
@@ -83,12 +94,24 @@ enum CodexTranslator {
             tmuxPane: tmuxPane
         )
 
-        let notification = Self.notification(for: hookEvent)
-        let (state, pending) = Self.state(
-            for: action,
-            sessionID: sessionID,
-            hookEvent: hookEvent
+        // Guardian posture: when Codex's auto-reviewer — not the user — will
+        // decide this permission request, stay silent: plain `working` (the
+        // session already was — PreToolUse just fired), no notification, no
+        // form. The guardian's outcome arrives via subsequent hooks
+        // (PostToolUse on allow; Stop after the model reacts to a deny).
+        let guardianHandled = Self.isGuardianHandled(
+            action: action,
+            approvalsReviewer: approvalsReviewer
         )
+
+        let notification = guardianHandled ? nil : Self.notification(for: hookEvent)
+        let (state, pending): (AgentState?, PendingRequest?) = guardianHandled
+            ? (.working, nil)
+            : Self.state(
+                for: action,
+                sessionID: sessionID,
+                hookEvent: hookEvent
+            )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
         let appActions = Self.appActions(
@@ -116,7 +139,7 @@ enum CodexTranslator {
             tmuxPane: tmuxPane,
             projectPath: projectPath
         )
-        return Output(event: event, pending: pending)
+        return Output(event: event, pending: pending, guardianHandled: guardianHandled)
     }
 
     // MARK: - cwd extraction
@@ -261,6 +284,67 @@ enum CodexTranslator {
              .unknown:
             return (hookEvent.isWorking == true ? .working : nil, nil)
         }
+    }
+
+    // MARK: - Guardian (auto-review) posture
+
+    /// True when Codex's guardian ("Approve for me", `approvals_reviewer =
+    /// "auto_review"`) — not the user — will decide this permission request,
+    /// so ClaudeSpy must suppress the notification AND the response form.
+    ///
+    /// Why the form too: the `PermissionRequest` hook fires before Codex
+    /// routes the approval to the guardian, whose outcome is a binary
+    /// allow/deny that never escalates to the user — no TUI prompt ever
+    /// exists. Remote Approve/Deny is keystroke injection into that prompt
+    /// (`CodexKeystrokes`), so an actionable form would type "1" into the
+    /// composer or Escape-interrupt the running turn; and because the next
+    /// hook is PostToolUse, a stale `awaitingPermission` would linger for the
+    /// entire tool runtime.
+    ///
+    /// Conditions (all must hold):
+    /// - the live reviewer posture is `auto_review` / `guardian_subagent`;
+    /// - `permission_mode == "default"` — under `"bypassPermissions"` (policy
+    ///   `never`) guardian routing is off, so a hook firing at all means a
+    ///   REAL user prompt follows; a missing/unknown mode also fails safe to
+    ///   notifying;
+    /// - the tool is positively identified as guardian-reviewable (see
+    ///   `isGuardianReviewable`) — anything else keeps notifying and forming.
+    static func isGuardianHandled(
+        action: HookAction,
+        approvalsReviewer: CodexApprovalsReviewer
+    ) -> Bool {
+        guard
+            approvalsReviewer == .autoReview,
+            case let .permissionRequest(body) = action,
+            body.permissionMode == "default",
+            isGuardianReviewable(body)
+        else { return false }
+        return true
+    }
+
+    /// Positive identification of the approval shapes Codex's guardian
+    /// reviews. Codex emits `PermissionRequest` hooks only from its approval
+    /// orchestrator, whose payload `tool_name` vocabulary is closed (verified
+    /// against codex-rs `permission_request_payload()` implementations and
+    /// `HookToolName`): `"Bash"` for the whole shell family
+    /// (shell / unified_exec / exec_command) and `"apply_patch"` for patches
+    /// (`Write`/`Edit` exist only as hook-config matcher aliases — the
+    /// serialized payload name stays `apply_patch`). Prompt-style tools
+    /// (`request_user_input`, plan flows) never enter the approval
+    /// orchestrator, so they can't appear here. The `mcp__` arm future-proofs
+    /// the namespaced MCP family — those approvals are guardian-reviewed but
+    /// don't emit a permission payload in current codex, and a namespaced
+    /// external tool can never be a prompt-style tool.
+    ///
+    /// Deliberately fails CLOSED, unlike `isYoloAutoApprovable` (which fails
+    /// open by design for the yolo path): an unknown or missing tool name
+    /// notifies, so a future Codex prompt-style tool can never be silently
+    /// suppressed while a real TUI prompt waits.
+    static func isGuardianReviewable(_ body: PermissionRequestBody) -> Bool {
+        guard let toolName = body.toolName else { return false }
+        return toolName == "Bash"
+            || toolName == "apply_patch"
+            || toolName.hasPrefix("mcp__")
     }
 
     /// Builds the agent-blind `PermissionRequest` from a permission body. Mirrors

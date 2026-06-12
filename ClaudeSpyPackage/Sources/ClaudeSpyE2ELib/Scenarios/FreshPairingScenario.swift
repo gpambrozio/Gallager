@@ -49,10 +49,25 @@ public enum FreshPairingScenario {
         // 8. Verify server state
         TestStep.verifyServerHasPairings(count: 1)
 
-        // 9. Wait for both host and viewer to connect to relay server
+        // 9. Wait for both host and viewer to connect to relay server.
+        //    "Viewer connected" pins `isViewerConnected` (it matches the
+        //    viewer row's status text or the "1 viewer connected" subtitle —
+        //    both require the flag), but NOT the connection state: the flag
+        //    is set by the viewer's peerHello, which can be processed while
+        //    the headline still shows "Connecting..." (registration ack not
+        //    yet handled), and CI has captured that frame. The Disconnect
+        //    button only renders once the combined state is `.connected`
+        //    (exact AXDescription "Disconnect"; the transient "Connecting..."
+        //    and "Disconnected" texts live in AXValue, so nothing shadows
+        //    the exact label match). Together they pin the steady frame the
+        //    screenshot expects.
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
         TestStep.macWaitForElement(titled: "Viewer connected", timeout: 15)
+        TestStep.macWaitForElementQuery(
+            .allOf([.role("AXButton"), .label("Disconnect")]),
+            timeout: 15
+        )
 
         // 10. The Paired Viewers cell on Remote Access should now show the
         //     iOS device's actual name (UIDevice.current.name on the

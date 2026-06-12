@@ -161,6 +161,11 @@ public actor TestOrchestrator {
         context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
+        // Instance 0's `--gallager-state-root`, so scenarios can pre-seed
+        // plugin state (e.g. a codex `settings.json`) before the app launches
+        // and place watched fixture files (e.g. a codex `config.toml`) inside
+        // the per-scenario sandbox the orchestrator already cleans up.
+        context.set("gallagerStateRoot", value: gallagerStateRootPath(for: 0))
 
         // Clear any leftover fake-editor log from a previous run so scenario
         // assertions don't see stale entries.
@@ -1069,6 +1074,16 @@ public actor TestOrchestrator {
             let resolvedPath = context.resolve(path)
             try? FileManager.default.removeItem(atPath: resolvedPath)
             logger.info("  Removed file (if present): \(resolvedPath)")
+
+        case let .writeFile(path, content):
+            let resolvedPath = context.resolve(path)
+            let resolvedContent = context.resolve(content)
+            try FileManager.default.createDirectory(
+                atPath: (resolvedPath as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true
+            )
+            try resolvedContent.write(toFile: resolvedPath, atomically: true, encoding: .utf8)
+            logger.info("  Wrote file (\(resolvedContent.count) chars): \(resolvedPath)")
 
         case let .waitForFileContains(path, substring, storeAs, timeout, pollInterval):
             let resolvedPath = context.resolve(path)

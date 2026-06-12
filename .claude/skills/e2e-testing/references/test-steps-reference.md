@@ -282,6 +282,9 @@ Store a literal string value in the execution context for use in assertions or i
 ### `readFile(path: String, storeAs: String)`
 Read a file's contents and store them in the execution context. Path supports `${var}` interpolation. Returns an empty string if the file is missing (does not fail the step). Pair with `assertStoredContains` to verify file content.
 
+### `writeFile(path: String, content: String)`
+Write a file (creating intermediate directories), replacing any existing content. Both `path` and `content` support `${var}` interpolation. Use to seed on-disk fixtures the app reads — e.g. a plugin `settings.json` under `${gallagerStateRoot}/plugins/<id>/` *before* `launchMacApp`, or a fixture file the app re-reads on demand (`CodexGuardianSuppressionScenario` rewrites a codex `config.toml` mid-scenario to flip the guardian posture). `${gallagerStateRoot}` resolves to instance 0's `--gallager-state-root`, which the orchestrator cleans up after each scenario.
+
 ### `waitForFileContains(path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1)`
 Poll a file until it contains the given substring, then store its contents. Useful for waiting on side-effects written by the app (e.g. log files, generated artifacts) without racing.
 
