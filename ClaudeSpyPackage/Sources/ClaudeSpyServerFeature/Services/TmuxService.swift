@@ -848,6 +848,9 @@ final public class TmuxService {
                         output += carriedSGRs.joined()
                         output += drawn
                     }
+                    // Use `filtered`, not `drawn` — SGR sequences are identical
+                    // in both (trimming only removes trailing default-bg spaces),
+                    // so the accumulated state matches either way.
                     accumulateSGRState(&carriedSGRs, from: filtered)
                     // BCE-clear the rest of the row. After a plain row the bg is
                     // default, so this writes a NULL tail (reflow-safe); after a
@@ -1328,9 +1331,11 @@ final public class TmuxService {
         if keepEnd == filtered.endIndex {
             return filtered
         }
-        // Rebuild: keep everything up to keepEnd verbatim, then keep only SGR
+        // Rebuild: keep everything up to keepEnd verbatim, then keep only CSI
         // sequences (dropping the trailing default-bg spaces) so a closing
-        // `\e[49m`/`\e[0m` still reaches the caller.
+        // `\e[49m`/`\e[0m` still reaches the caller. The input is
+        // `filterToColorCodesOnly` output, so the only CSI sequences present are
+        // SGR (`m`); no extra `c == "m"` guard is needed.
         var result = String(filtered[..<keepEnd])
         var j = keepEnd
         while j < filtered.endIndex {
