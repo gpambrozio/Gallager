@@ -78,6 +78,12 @@ public enum VisualEnvSurvivesRcScenario {
             command: #"echo "VISUAL_BASENAME=[${VISUAL##*/}]""#
         )
         TestStep.wait(seconds: 1)
+        // Re-assert the foreground tab right before capturing: the echo above
+        // goes through tmux (not the UI), and the earlier click can race the
+        // CLI-created session's own foreground switch, leaving the driver pane
+        // visible at screenshot time.
+        TestStep.macCGClick(titled: "visualcheck")
+        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-visual-survives-rc")
 
         // 6. Assert against the captured pane content (robust for text checks).

@@ -13,6 +13,7 @@
     ///   registry.json                  ← canonical installed-plugin list
     ///   state/
     ///     ingress.sock                 ← THE app-owned ingress socket (one, not per-plugin)
+    ///     shell-integration/           ← zsh/bash startup snippets for tmux panes (issue #589)
     ///     plugins/<id>/
     ///       settings.json              ← user settings for this plugin
     ///       logs/sidecar.log           ← rotated 5 MB max (the core's log() sink)
@@ -62,6 +63,17 @@
         /// `<stateRoot>/plugins` — parent of all per-plugin state directories.
         public var pluginsStateRoot: URL {
             stateRoot.appendingPathComponent("plugins", isDirectory: true)
+        }
+
+        /// `<stateRoot>/shell-integration/` — the zsh/bash startup snippets that
+        /// keep `$VISUAL` pointing at the in-app editor (issue #589; see
+        /// `ShellIntegration`). Lives under the durable state root rather than
+        /// `$TMPDIR`: the paths are baked into tmux's `default-command` for the
+        /// app's whole lifetime, and macOS reaps temp files not accessed for a
+        /// few days — which would leave new panes pointing at a missing
+        /// `ZDOTDIR`, silently skipping the user's own rc files.
+        public var shellIntegrationDir: URL {
+            stateRoot.appendingPathComponent("shell-integration", isDirectory: true)
         }
 
         // MARK: - Per-plugin paths

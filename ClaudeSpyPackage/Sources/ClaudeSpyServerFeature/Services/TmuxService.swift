@@ -126,8 +126,11 @@ final public class TmuxService {
     /// unconditionally overwrites `TERM_PROGRAM=tmux` and
     /// `TERM_PROGRAM_VERSION=<tmux-version>` at shell-spawn time (see tmux's
     /// `spawn.c`), after the session env has been applied. The override happens
-    /// before `exec(shell)`, so we re-export here — the prefix runs *after*
-    /// tmux's hardcoded set and wins.
+    /// before `exec(shell)`, so we re-export here — the `export` runs *after*
+    /// tmux's hardcoded set and wins. (A standalone `export`, not an
+    /// assignment-prefix on the launch command: the launch tail can be an `if`
+    /// compound command — see `shellLaunchCommand` — and POSIX assignments
+    /// can't prefix those.)
     ///
     /// `<userShellPath> -l` mirrors what tmux does when `default-command` is
     /// empty (login shell from `default-shell`). Honors any `$SHELL` that
@@ -159,7 +162,7 @@ final public class TmuxService {
             zdotdir: shellIntegrationZDOTDIR,
             bashRC: shellIntegrationBashRC
         )
-        return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 \(launch)"
+        return "\(oscPreamble); export TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6; \(launch)"
     }
 
     /// Builds the `exec <shell> …` tail of `defaultCommandWrapper`.
@@ -172,6 +175,15 @@ final public class TmuxService {
     /// login-shell launch, where `$VISUAL` (set via `-e`) survives unless the
     /// user's config overrides it.
     ///
+    /// Both integrations guard on the snippet still being readable *at
+    /// pane-spawn time*. The paths are baked in for the app's lifetime, so if
+    /// the files vanish out from under us (deleted by the user, lost volume,
+    /// …), a blind launch would be catastrophic: zsh would look for *all* the
+    /// user's rc files in the missing `ZDOTDIR`, and `bash --rcfile <missing>`
+    /// reads no rc at all — either way a silently config-less shell. With the
+    /// guard the pane degrades to a plain login shell instead: worst case is
+    /// the original issue-#589 behavior, never a broken shell.
+    ///
     /// - Parameters:
     ///   - shellPath: Absolute path to the user's login shell.
     ///   - zdotdir: Directory to hand zsh as `ZDOTDIR`, or `nil` to skip the
@@ -180,25 +192,29 @@ final public class TmuxService {
     ///     integration.
     nonisolated static func shellLaunchCommand(shellPath: String, zdotdir: String?, bashRC: String?) -> String {
         let shell = posixSingleQuote(shellPath)
+        let plainLogin = "exec \(shell) -l"
         switch (shellPath as NSString).lastPathComponent {
         case "zsh":
             if let zdotdir {
                 // Capture the user's existing ZDOTDIR (default $HOME) so the
                 // snippet can source their real config, then point ZDOTDIR at
                 // ours so zsh reads our `.zshenv` first.
-                return "GALLAGER_USER_ZDOTDIR=\"${ZDOTDIR:-$HOME}\" "
-                    + "ZDOTDIR=\(posixSingleQuote(zdotdir)) exec \(shell) -l"
+                return "if [ -r \(posixSingleQuote(zdotdir + "/.zshenv")) ]; then "
+                    + "GALLAGER_USER_ZDOTDIR=\"${ZDOTDIR:-$HOME}\" "
+                    + "ZDOTDIR=\(posixSingleQuote(zdotdir)) exec \(shell) -l; "
+                    + "fi; \(plainLogin)"
             }
         case "bash":
             if let bashRC {
                 // `--rcfile` is only honored for interactive (non-login) bash,
                 // so we drop `-l`; the snippet replicates login startup itself.
-                return "exec \(shell) --rcfile \(posixSingleQuote(bashRC)) -i"
+                let rc = posixSingleQuote(bashRC)
+                return "if [ -r \(rc) ]; then exec \(shell) --rcfile \(rc) -i; fi; \(plainLogin)"
             }
         default:
             break
         }
-        return "exec \(shell) -l"
+        return plainLogin
     }
 
     /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11

@@ -1793,9 +1793,15 @@
                 // Generate the shell-startup snippets that re-assert $VISUAL
                 // after the user's rc files run, so `export VISUAL=…` in their
                 // ~/.zshrc / ~/.bashrc can't redirect Ctrl-G away from the
-                // in-app editor (issue #589).
+                // in-app editor (issue #589). They live under the durable
+                // ~/.gallager state root — not $TMPDIR, which macOS reaps and
+                // which would strand panes on a missing ZDOTDIR — and E2E
+                // isolation comes from the per-instance --gallager-state-root
+                // override (gallagerPaths is built in setupPluginRuntime(),
+                // which setupAllServices() runs before this).
                 do {
-                    let integration = try ShellIntegration.install(isE2E: isE2E)
+                    let paths = gallagerPaths ?? GallagerPaths(stateRootOverride: Self.parseGallagerStateRoot())
+                    let integration = try ShellIntegration.install(into: paths.shellIntegrationDir)
                     tmuxService.shellIntegrationZDOTDIR = integration.zdotdir
                     tmuxService.shellIntegrationBashRC = integration.bashRC
                 } catch {

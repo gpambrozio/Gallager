@@ -33,27 +33,26 @@ enum ShellIntegration {
         let bashRC: String
     }
 
-    /// Writes the snippets to a temp directory and returns their paths.
+    /// Writes the snippets into `directory` (creating it if needed) and returns
+    /// their paths.
     ///
     /// The snippets are static (they read our value from `$VISUAL` at runtime),
-    /// so writing them on every launch is idempotent. `isE2E` namespaces the
-    /// directory so a test instance can't race a real one.
-    static func install(
-        temporaryDirectory: String = NSTemporaryDirectory(),
-        isE2E: Bool = false
-    ) throws -> Paths {
-        let dirName = isE2E ? "gallager-shell-integration-e2e" : "gallager-shell-integration"
-        let baseURL = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
-            .appendingPathComponent(dirName, isDirectory: true)
-        try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+    /// so writing them on every launch is idempotent. The directory must stay
+    /// alive for the app's whole lifetime — the returned paths are baked into
+    /// tmux's `default-command` — so callers pass the durable
+    /// `GallagerPaths.shellIntegrationDir`, never a temp dir that macOS may
+    /// reap (E2E isolation comes from the `--gallager-state-root` override,
+    /// which relocates the whole state tree per instance).
+    static func install(into directory: URL) throws -> Paths {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let zshenvURL = baseURL.appendingPathComponent(".zshenv")
+        let zshenvURL = directory.appendingPathComponent(".zshenv")
         try zshenv.write(to: zshenvURL, atomically: true, encoding: .utf8)
 
-        let bashRCURL = baseURL.appendingPathComponent("gallager.bash")
+        let bashRCURL = directory.appendingPathComponent("gallager.bash")
         try bashRC.write(to: bashRCURL, atomically: true, encoding: .utf8)
 
-        return Paths(zdotdir: baseURL.path, bashRC: bashRCURL.path)
+        return Paths(zdotdir: directory.path, bashRC: bashRCURL.path)
     }
 
     /// The `.zshenv` placed in our `ZDOTDIR`. Runs before any user rc file.

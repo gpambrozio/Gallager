@@ -107,6 +107,8 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 
 ClaudeSpy points `$VISUAL` at the bundled `gallager edit` CLI so Ctrl-G in Claude Code / Codex opens the in-app prompt editor. Because spawned panes run a login shell that sources the user's rc files, a user who `export VISUAL=<their editor>` there would otherwise clobber our value (issue #589). The fix re-asserts `$VISUAL` *after* the rc files run by routing the shell's startup through a generated snippet (`ShellIntegration`): zsh via a Gallager `ZDOTDIR` + `precmd` hook, bash via `--rcfile`.
 
+The snippets live under the durable `~/.gallager/state/shell-integration/` — not `$TMPDIR`, which macOS reaps after a few days of non-access — because their paths are baked into tmux's `default-command` for the app's whole lifetime. The pane launcher additionally checks the snippet is still readable at spawn time and otherwise falls back to a plain login shell, so the worst case is the original issue-#589 behavior (the user's rc override wins), never a shell that silently skips the user's own rc files.
+
 ### Impact
 
 - For **zsh** and **bash** (the macOS default and the shells named in the issue) the in-app editor always wins, even when the user's rc exports its own `VISUAL`.
