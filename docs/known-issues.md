@@ -101,6 +101,21 @@ Apple Color Emoji glyphs have a fixed advance width (~17pt at 13pt font) that ex
 2. **Upgrade SwiftTerm**: v1.11.2 adds regional indicator combining for flag emoji, though it doesn't fix the visual overflow
 3. **Fork SwiftTerm**: Add per-cell clipping for wide characters in the rendering pipeline
 
+## Ctrl-G editor override only applies to zsh and bash
+
+### Description
+
+ClaudeSpy points `$VISUAL` at the bundled `gallager edit` CLI so Ctrl-G in Claude Code / Codex opens the in-app prompt editor. Because spawned panes run a login shell that sources the user's rc files, a user who `export VISUAL=<their editor>` there would otherwise clobber our value (issue #589). The fix re-asserts `$VISUAL` *after* the rc files run by routing the shell's startup through a generated snippet (`ShellIntegration`): zsh via a Gallager `ZDOTDIR` + `precmd` hook, bash via `--rcfile`.
+
+### Impact
+
+- For **zsh** and **bash** (the macOS default and the shells named in the issue) the in-app editor always wins, even when the user's rc exports its own `VISUAL`.
+- For **other shells** (fish, nushell, …) we fall back to setting `VISUAL` via tmux `-e`. That value still survives *unless* the user's shell config overrides it — in which case Ctrl-G opens their editor instead of the in-app one.
+
+### Potential Future Solutions
+
+1. Add a fish snippet (e.g. via a `conf.d` drop-in on `XDG_DATA_DIRS`) and equivalents for other shells in `ShellIntegration`.
+
 ## ~~E2E on a fresh macOS 15+ machine: app hangs at startup ("app never fully started")~~ FIXED
 
 **Status:** Fixed — the app no longer does a blocking local-network call at startup.
