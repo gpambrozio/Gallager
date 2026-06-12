@@ -43,6 +43,11 @@ struct AskUserQuestionResponseView: View {
     @State private var currentQuestionIndex = 0
     /// Collected answers for each question (keyed by question index)
     @State private var collectedAnswers: [Int: CollectedAnswer] = [:]
+    /// Unsaved in-progress state (multi-select toggles, typed "Other" text) for
+    /// questions the user browsed away from before committing. Kept separate
+    /// from `collectedAnswers` so drafts never count toward `isReadyForReview`;
+    /// they're promoted only by an explicit save (Next / option tap / Save).
+    @State private var draftAnswers: [Int: CollectedAnswer] = [:]
     /// For multi-select questions, tracks selected option indices for current question
     @State private var selectedOptions: Set<Int> = []
     /// For "Other" option custom input
@@ -63,6 +68,15 @@ struct AskUserQuestionResponseView: View {
     /// All questions have been answered, ready to show summary
     private var isReadyForReview: Bool {
         collectedAnswers.count == questions.count
+    }
+
+    /// Whether the browse arrows can step to an earlier / later question.
+    private var canGoToPreviousQuestion: Bool {
+        currentQuestionIndex > 0
+    }
+
+    private var canGoToNextQuestion: Bool {
+        currentQuestionIndex < questions.count - 1
     }
 
     var body: some View {
@@ -175,7 +189,7 @@ struct AskUserQuestionResponseView: View {
 
     private func questionContent(_ question: AskUserQuestionRequest.Question) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Progress indicator
+            // Progress indicator + browse arrows (hidden for a single question)
             if questions.count > 1 {
                 progressHeader
             }
@@ -208,7 +222,39 @@ struct AskUserQuestionResponseView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            navigationArrows
         }
+    }
+
+    /// Browse arrows (top-right). Let the user move between questions without
+    /// answering the current one. Only reachable when `questions.count > 1`
+    /// because `progressHeader` is the sole caller and is itself gated on that,
+    /// so single-question requests never show arrows.
+    private var navigationArrows: some View {
+        HStack(spacing: 4) {
+            Button {
+                goToPreviousQuestion()
+            } label: {
+                Symbols.chevronLeft.image
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!canGoToPreviousQuestion)
+            .accessibilityLabel("Previous question")
+
+            Button {
+                goToNextQuestion()
+            } label: {
+                Symbols.chevronRight.image
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .disabled(!canGoToNextQuestion)
+            .accessibilityLabel("Next question")
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.blue)
+        .buttonStyle(.plain)
     }
 
     private func questionHeader(_ question: AskUserQuestionRequest.Question) -> some View {
@@ -393,6 +439,7 @@ struct AskUserQuestionResponseView: View {
     private func selectSingleOption(_ index: Int) {
         // Save the answer and advance to next question
         collectedAnswers[currentQuestionIndex] = CollectedAnswer(selectedIndices: [index])
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
@@ -412,6 +459,7 @@ struct AskUserQuestionResponseView: View {
             selectedIndices: selectedOptions,
             customText: other
         )
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
@@ -427,19 +475,79 @@ struct AskUserQuestionResponseView: View {
             return
         }
         collectedAnswers[currentQuestionIndex] = CollectedAnswer(customText: trimmed)
+        draftAnswers[currentQuestionIndex] = nil
         advanceToNextQuestion()
     }
 
+    /// After answering, jump to the next still-unanswered question, wrapping
+    /// past the end to pick up any earlier ones the user skipped. When every
+    /// question has an answer this no-ops and `isReadyForReview` flips the view
+    /// to the summary.
     private func advanceToNextQuestion() {
-        currentQuestionIndex += 1
-        selectedOptions = []
-        customInputText = ""
+        guard let next = nextUnansweredIndex(after: currentQuestionIndex) else {
+            return
+        }
+        goToQuestion(next)
+    }
+
+    /// First unanswered question index in circular order starting just after
+    /// `index`, or `nil` when every question already has an answer.
+    private func nextUnansweredIndex(after index: Int) -> Int? {
+        let count = questions.count
+        guard count > 0 else { return nil }
+        for offset in 1...count {
+            let candidate = (index + offset) % count
+            if collectedAnswers[candidate] == nil {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    /// Step one question earlier without requiring an answer (browse only).
+    private func goToPreviousQuestion() {
+        guard canGoToPreviousQuestion else { return }
+        goToQuestion(currentQuestionIndex - 1)
+    }
+
+    /// Step one question later without requiring an answer (browse only).
+    private func goToNextQuestion() {
+        guard canGoToNextQuestion else { return }
+        goToQuestion(currentQuestionIndex + 1)
+    }
+
+    /// Show `index`, stashing any unsaved work on the question being left and
+    /// restoring whatever the destination already has — its committed answer if
+    /// one exists, otherwise its draft — so browsing never discards selections.
+    private func goToQuestion(_ index: Int) {
+        stashDraft()
+        currentQuestionIndex = index
+        let restored = collectedAnswers[index] ?? draftAnswers[index]
+        selectedOptions = restored?.selectedIndices ?? []
+        customInputText = restored?.customText ?? ""
         showingCustomInput = false
+    }
+
+    /// Keep the current question's unsaved state when navigating away before it
+    /// was committed. Committed questions are skipped so a stale draft never
+    /// shadows the answer the summary will show.
+    private func stashDraft() {
+        guard collectedAnswers[currentQuestionIndex] == nil else { return }
+        let trimmed = customInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if selectedOptions.isEmpty, trimmed.isEmpty {
+            draftAnswers[currentQuestionIndex] = nil
+        } else {
+            draftAnswers[currentQuestionIndex] = CollectedAnswer(
+                selectedIndices: selectedOptions,
+                customText: trimmed.isEmpty ? nil : trimmed
+            )
+        }
     }
 
     private func startOver() {
         currentQuestionIndex = 0
         collectedAnswers = [:]
+        draftAnswers = [:]
         selectedOptions = []
         customInputText = ""
         showingCustomInput = false
@@ -501,6 +609,41 @@ private extension AskUserQuestionRequest {
             ),
         ])
     }
+
+    static var previewMultiQuestion: AskUserQuestionRequest {
+        AskUserQuestionRequest(questions: [
+            Question(
+                id: "q0",
+                question: "Which days should we deploy?",
+                header: "Days",
+                options: [
+                    Option(id: "q0-o0", label: "Monday", description: "Start of week"),
+                    Option(id: "q0-o1", label: "Wednesday", description: "Midweek"),
+                ],
+                multiSelect: true
+            ),
+            Question(
+                id: "q1",
+                question: "Which season fits best?",
+                header: "Season",
+                options: [
+                    Option(id: "q1-o0", label: "Spring", description: ""),
+                    Option(id: "q1-o1", label: "Summer", description: ""),
+                ],
+                multiSelect: false
+            ),
+            Question(
+                id: "q2",
+                question: "Which alert channels should we use?",
+                header: "Alerts",
+                options: [
+                    Option(id: "q2-o0", label: "Email", description: ""),
+                    Option(id: "q2-o1", label: "Slack", description: ""),
+                ],
+                multiSelect: true
+            ),
+        ])
+    }
 }
 
 // MARK: - Previews
@@ -533,6 +676,28 @@ private extension AskUserQuestionRequest {
         request: .askUserQuestion(request),
         pluginID: "claude-code",
         requestID: "test:auq-multi"
+    )
+
+    return NavigationStack {
+        List {
+            Section("Question") {
+                AskUserQuestionResponseView(
+                    request: request,
+                    isConnected: true,
+                    submit: { _ in },
+                    state: state
+                )
+            }
+        }
+    }
+}
+
+#Preview("Ask User Question - Multiple Questions") {
+    let request = AskUserQuestionRequest.previewMultiQuestion
+    let state = ResponseState(
+        request: .askUserQuestion(request),
+        pluginID: "claude-code",
+        requestID: "test:auq-many"
     )
 
     return NavigationStack {
