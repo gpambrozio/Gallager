@@ -97,6 +97,8 @@ public struct MainView: View {
     @State private var pendingBrowserURLPrompt: PendingBrowserURLPrompt?
 
     public var body: some View {
+        @Bindable var coordinator = coordinator
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
         } detail: {
@@ -152,10 +154,7 @@ public struct MainView: View {
         // Consent dialog for the editor-override conflict (issue #591). Deferred
         // to the first session so "Ctrl-G" has context; fires on whichever of
         // {session appears, probe finishes} happens last.
-        .sheet(isPresented: Binding(
-            get: { coordinator.isShowingEditorOverrideDialog },
-            set: { coordinator.isShowingEditorOverrideDialog = $0 }
-        )) {
+        .sheet(isPresented: $coordinator.isShowingEditorOverrideDialog) {
             EditorOverrideDialog()
         }
         .onChange(of: tmuxService.sessions.isEmpty) { _, isEmpty in

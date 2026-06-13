@@ -112,12 +112,6 @@ final public class TmuxService {
         return "/bin/sh"
     }()
 
-    /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
-    /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
-    private static func posixSingleQuote(_ string: String) -> String {
-        "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
-    }
-
     /// Wrapper command installed as tmux's `default-command` so every spawned shell
     /// reports as iTerm. Required for OSC 9;4 progress sequences: Claude Code only
     /// emits them when it believes it's running under iTerm.
@@ -152,7 +146,7 @@ final public class TmuxService {
     /// cached value and the rendered bg can't drift if the user toggles
     /// between dark and light themes.
     private var defaultCommandWrapper: String {
-        let shell = Self.posixSingleQuote(Self.userShellPath)
+        let shell = Self.userShellPath.posixSingleQuoted
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
         let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
         return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"

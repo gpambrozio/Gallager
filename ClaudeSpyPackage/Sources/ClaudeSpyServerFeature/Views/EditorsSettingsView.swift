@@ -223,11 +223,17 @@ struct PromptEditorOverrideSection: View {
                 Label("Not checked yet", symbol: .questionmarkCircle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            case .intact,
-                 .skipped:
+            case .intact:
                 Label("Gallager's editor is active in sessions", symbol: .checkmarkCircle)
                     .font(.caption)
                     .foregroundStyle(.green)
+            case .skipped:
+                // Not green: a skipped probe means we *don't know* whether
+                // Gallager's editor survives (e.g. unknown shell), so don't
+                // claim it's active.
+                Label("Probe unavailable (unknown shell or CLI not found)", symbol: .questionmarkCircle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             case let .conflict(value):
                 Label(
                     "Your shell sets VISUAL=\(value ?? "(unset)"), overriding Gallager",

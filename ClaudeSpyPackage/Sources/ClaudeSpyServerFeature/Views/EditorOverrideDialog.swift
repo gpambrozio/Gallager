@@ -14,6 +14,7 @@ struct EditorOverrideDialog: View {
     @Environment(TmuxService.self) private var tmuxService
 
     @State private var copied = false
+    @State private var copiedResetTask: Task<Void, Never>?
 
     /// The user's effective `$VISUAL` from the probe (nil = their rc unset it).
     private var conflictingValue: String? {
@@ -173,5 +174,13 @@ struct EditorOverrideDialog: View {
         @Dependency(ClipboardClient.self) var clipboard
         clipboard.setString(text)
         copied = true
+        // Transient confirmation: revert to "Copy" after a beat. Cancel any
+        // pending revert so a re-copy gets its full 2 seconds.
+        copiedResetTask?.cancel()
+        copiedResetTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            copied = false
+        }
     }
 }

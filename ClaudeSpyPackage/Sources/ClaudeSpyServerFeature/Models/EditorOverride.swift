@@ -105,9 +105,9 @@ public enum EditorOverride {
              "sh",
              "dash",
              "ksh":
-            return " export VISUAL=\(singleQuoted(visualValue))"
+            return " export VISUAL=\(visualValue.posixSingleQuoted)"
         case "fish":
-            return " set -gx VISUAL \(singleQuoted(visualValue))"
+            return " set -gx VISUAL \(visualValue.posixSingleQuoted)"
         default:
             return nil
         }
@@ -128,9 +128,9 @@ public enum EditorOverride {
     /// the *user's* editor (their probed value), not Gallager's.
     public static func recommendedRcLine(visualValue: String, shell: String) -> String {
         if shellBasename(shell) == "fish" {
-            return "set -q GALLAGER_SOCKET; or set -gx VISUAL \(singleQuoted(visualValue))"
+            return "set -q GALLAGER_SOCKET; or set -gx VISUAL \(visualValue.posixSingleQuoted)"
         }
-        return "[ -n \"$GALLAGER_SOCKET\" ] || export VISUAL=\(singleQuoted(visualValue))"
+        return "[ -n \"$GALLAGER_SOCKET\" ] || export VISUAL=\(visualValue.posixSingleQuoted)"
     }
 
     /// Parses captured probe output into a result, or nil while the marker line
@@ -166,12 +166,5 @@ public enum EditorOverride {
     static func shellBasename(_ shell: String) -> String {
         let base = (shell as NSString).lastPathComponent
         return base.hasPrefix("-") ? String(base.dropFirst()) : base
-    }
-
-    /// POSIX single-quote a value for safe substitution into a shell command.
-    /// Also valid for fish for quote-free values (the only realistic case for an
-    /// editor path). Handles embedded single quotes via the `'\''` idiom.
-    static func singleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 }

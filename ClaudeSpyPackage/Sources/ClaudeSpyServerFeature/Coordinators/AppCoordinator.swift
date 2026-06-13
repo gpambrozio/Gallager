@@ -15,13 +15,6 @@
         case remote(hostId: String, hostName: String, paneId: String)
     }
 
-    /// POSIX-shell single-quote a string so it survives word-splitting and expansion.
-    /// Wraps the value in single quotes and escapes embedded single quotes via `'\''`.
-    @Sendable
-    private func shellQuoteSingle(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// Coordinates app-level services and their interactions for the macOS app.
     ///
     /// This class centralizes all service initialization, event wiring, and state synchronization
@@ -1726,10 +1719,10 @@
                     let launchArgs = args.isEmpty ? (launch?.args ?? []) : args
                     let runCommand: String
                     if launchArgs.isEmpty {
-                        runCommand = shellQuoteSingle(commandPath)
+                        runCommand = commandPath.posixSingleQuoted
                     } else {
-                        let quoted = launchArgs.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
+                        let quoted = launchArgs.map(\.posixSingleQuoted).joined(separator: " ")
+                        runCommand = "\(commandPath.posixSingleQuoted) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
@@ -2483,10 +2476,10 @@
                 // setting); a nil launch means "open in a bare shell".
                 let runCommand: String? = launch.map { command in
                     if command.args.isEmpty {
-                        return shellQuoteSingle(command.command)
+                        return command.command.posixSingleQuoted
                     }
-                    let quoted = command.args.map(shellQuoteSingle).joined(separator: " ")
-                    return "\(shellQuoteSingle(command.command)) \(quoted)"
+                    let quoted = command.args.map(\.posixSingleQuoted).joined(separator: " ")
+                    return "\(command.command.posixSingleQuoted) \(quoted)"
                 }
 
                 let workingDirectory = spec.workingDirectory
