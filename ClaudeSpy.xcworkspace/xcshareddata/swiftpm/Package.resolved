@@ -1,5 +1,5 @@
 {
-  "originHash" : "d6ef7cbe5ddc6f1ebea26e3bb184dcbfe8165cd101bcc9c6a3b4768980391ac0",
+  "originHash" : "3ccf265c0059f16b35c060e6bbc1f3839bdf1d48ab390251c00197d00a936db0",
   "pins" : [
     {
       "identity" : "apns",
@@ -69,8 +69,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gpambrozio/GitWorkbench",
       "state" : {
-        "revision" : "e4d6ae96464d861fbd128953a33a5f4eef774d06",
-        "version" : "1.2.0"
+        "revision" : "697a2690d35e07893570a280da0ef2f11ff004ce",
+        "version" : "1.3.0"
       }
     },
     {
