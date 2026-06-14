@@ -10,7 +10,7 @@ import GitWorkbench
 /// `repositoryChanges()` stream then notices and the store reloads, so the badge appears live.
 ///
 /// Everything except working-tree status is delegated to a real ``MockGitProvider`` so History,
-/// Stashes, diffs, and actions still render the familiar fixtures.
+/// Stashes, diffs, branches/remotes, and actions still render the familiar fixtures.
 struct E2EGitProvider: GitWorkbenchProvider {
     private let base = MockGitProvider(delay: .zero)
     /// Path to the sentinel file. Trimmed contents `== "1"` means "the working tree is dirty".
@@ -45,9 +45,21 @@ struct E2EGitProvider: GitWorkbenchProvider {
         try await base.loadHistory(of: ref, before: before, limit: limit)
     }
 
-    func loadStashes() async throws -> [Stash] { try await base.loadStashes() }
-    func loadBranches() async throws -> [Branch] { try await base.loadBranches() }
-    func loadDiff(_ request: DiffRequest) async throws -> FileDiff { try await base.loadDiff(request) }
+    func loadStashes() async throws -> [Stash] {
+        try await base.loadStashes()
+    }
+
+    func loadBranches() async throws -> [Branch] {
+        try await base.loadBranches()
+    }
+
+    func loadRemoteBranches() async throws -> [RemoteBranch] {
+        try await base.loadRemoteBranches()
+    }
+
+    func loadDiff(_ request: DiffRequest) async throws -> FileDiff {
+        try await base.loadDiff(request)
+    }
 
     /// Polls the sentinel file and emits whenever its dirty/clean state flips, so the store reloads
     /// and the badge updates the moment a scenario calls `setGitMockChanges(_:)`. Polling (rather than
@@ -77,19 +89,51 @@ struct E2EGitProvider: GitWorkbenchProvider {
 
     // MARK: Actions (delegated; the badge scenario doesn't exercise these)
 
-    func stage(_ files: [FileChange]) async throws { try await base.stage(files) }
-    func unstage(_ files: [FileChange]) async throws { try await base.unstage(files) }
-    func discard(_ file: FileChange) async throws { try await base.discard(file) }
+    func stage(_ files: [FileChange]) async throws {
+        try await base.stage(files)
+    }
+
+    func unstage(_ files: [FileChange]) async throws {
+        try await base.unstage(files)
+    }
+
+    func discard(_ file: FileChange) async throws {
+        try await base.discard(file)
+    }
+
     func commit(message: String, staged: [FileChange]) async throws -> Commit {
         try await base.commit(message: message, staged: staged)
     }
 
-    func pull() async throws -> SyncResult { try await base.pull() }
-    func push() async throws -> SyncResult { try await base.push() }
-    func fetch() async throws -> SyncResult { try await base.fetch() }
-    func switchBranch(to branch: Branch) async throws { try await base.switchBranch(to: branch) }
+    func pull() async throws -> SyncResult {
+        try await base.pull()
+    }
 
-    func applyStash(_ stash: Stash) async throws { try await base.applyStash(stash) }
-    func popStash(_ stash: Stash) async throws { try await base.popStash(stash) }
-    func dropStash(_ stash: Stash) async throws { try await base.dropStash(stash) }
+    func push() async throws -> SyncResult {
+        try await base.push()
+    }
+
+    func fetch() async throws -> SyncResult {
+        try await base.fetch()
+    }
+
+    func switchBranch(to branch: Branch) async throws {
+        try await base.switchBranch(to: branch)
+    }
+
+    func checkoutRemoteBranch(_ branch: RemoteBranch) async throws {
+        try await base.checkoutRemoteBranch(branch)
+    }
+
+    func applyStash(_ stash: Stash) async throws {
+        try await base.applyStash(stash)
+    }
+
+    func popStash(_ stash: Stash) async throws {
+        try await base.popStash(stash)
+    }
+
+    func dropStash(_ stash: Stash) async throws {
+        try await base.dropStash(stash)
+    }
 }
