@@ -155,12 +155,17 @@ struct TerminalContainerView: NSViewRepresentable {
         /// Serializes key sends so concurrent onInput callbacks don't race
         private var pendingKeyTask: Task<Void, Never>?
 
-        /// Keys buffered within the current runloop turn. SwiftTerm splits a
-        /// Meta/Option sequence into two synchronous `send()` callbacks (ESC, then
-        /// the key); buffering and flushing them together keeps them in one
-        /// `send-keys` invocation so the app sees a single Meta keypress.
-        private var keyBuffer: [TmuxKey] = []
-        private var keyFlushScheduled = false
+        /// Coalesces the two synchronous `send()` callbacks SwiftTerm emits for a
+        /// Meta/Option sequence (ESC + key) into one batch, sent as a single
+        /// `send-keys` so the app sees one Meta keypress. See `KeystrokeCoalescer`.
+        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
+            guard let self, let target = self.paneState?.target else { return }
+            let previous = self.pendingKeyTask
+            self.pendingKeyTask = Task {
+                _ = await previous?.value
+                await self.sendKeysToTmux(batch, target: target)
+            }
+        }
 
         // MARK: Initialization
 
@@ -206,7 +211,7 @@ struct TerminalContainerView: NSViewRepresentable {
             // character; batched into a single `send-keys` they arrive as the
             // intended Meta combination (ESC DEL → delete word).
             terminalView.onInput = { [weak self] keys in
-                self?.enqueueKeys(keys)
+                self?.keyCoalescer.enqueue(keys)
             }
 
             // Wire up raw input (mouse escape sequences) — same serialization chain
@@ -242,30 +247,6 @@ struct TerminalContainerView: NSViewRepresentable {
         }
 
         // MARK: - Input Handling
-
-        /// Buffers keys and flushes them on the next runloop turn, so a Meta
-        /// sequence SwiftTerm delivers as two synchronous `send()` callbacks
-        /// (ESC + key) is sent to tmux as one batch. Both callbacks run
-        /// synchronously inside a single `keyDown`, so they accumulate before the
-        /// scheduled flush executes. Separate keystrokes land in their own runloop
-        /// turns and flush independently, so this never merges distinct presses.
-        private func enqueueKeys(_ keys: [TmuxKey]) {
-            keyBuffer.append(contentsOf: keys)
-            guard !keyFlushScheduled else { return }
-            keyFlushScheduled = true
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.keyFlushScheduled = false
-                let batch = self.keyBuffer
-                self.keyBuffer.removeAll()
-                guard !batch.isEmpty, let target = self.paneState?.target else { return }
-                let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
-                    _ = await previous?.value
-                    await self.sendKeysToTmux(batch, target: target)
-                }
-            }
-        }
 
         private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
             guard let tmuxService else { return }
@@ -343,8 +324,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
-            keyBuffer.removeAll()
-            keyFlushScheduled = false
+            keyCoalescer.reset()
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
