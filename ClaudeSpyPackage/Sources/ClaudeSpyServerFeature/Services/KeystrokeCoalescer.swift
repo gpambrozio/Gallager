@@ -45,7 +45,27 @@ final class KeystrokeCoalescer: @unchecked Sendable {
         }
     }
 
+    /// Flush any buffered keys immediately instead of waiting for the scheduled
+    /// turn. A no-op when the buffer is empty. Use this when a non-key event
+    /// (raw/mouse input, file drop) needs to be ordered *after* keystrokes that
+    /// were buffered earlier in the same runloop turn: flushing here chains the
+    /// buffered keys' send first, so the caller's send chains after it (FIFO).
+    /// The already-scheduled flush still fires but finds an empty buffer and is
+    /// a harmless no-op.
+    @MainActor
+    func flushPending() {
+        guard !buffer.isEmpty else { return }
+        let batch = buffer
+        buffer.removeAll()
+        flush(batch)
+    }
+
     /// Drop any buffered keys and clear the pending-flush flag (teardown).
+    ///
+    /// Any flush `Task` already scheduled still fires, but the snapshot-then-drain
+    /// in `enqueue` plus the `guard !batch.isEmpty` make that a harmless no-op.
+    /// Ordering *across* batches is the flush closure's responsibility (it chains
+    /// the downstream sends), not the coalescer's.
     func reset() {
         buffer.removeAll()
         flushScheduled = false

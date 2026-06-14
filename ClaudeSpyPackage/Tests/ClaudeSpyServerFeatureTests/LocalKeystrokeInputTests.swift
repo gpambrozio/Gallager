@@ -13,7 +13,6 @@
     /// batch, and `TmuxService.sendKeystrokes` turns that batch into a single
     /// `send-keys Escape BSpace` (contiguous `\u{1b}\u{7f}`) — sent one-by-one the
     /// app only deletes a character instead of a word.
-    @Suite("Local keystroke input")
     @MainActor
     struct LocalKeystrokeInputTests {
         @Test("Keys enqueued in the same runloop turn coalesce into one batch")
@@ -48,6 +47,44 @@
 
                 // Distinct presses land in their own turns — never merged.
                 #expect(batches.value == [[.text("a")], [.text("b")]])
+            }
+        }
+
+        @Test("flushPending drains buffered keys synchronously before the scheduled turn")
+        func flushPendingDrainsImmediately() async {
+            await withMainSerialExecutor {
+                let batches = LockIsolated<[[TmuxKey]]>([])
+                let coalescer = KeystrokeCoalescer { keys in
+                    batches.withValue { $0.append(keys) }
+                }
+
+                // A key buffered earlier in this turn must flush before a
+                // following raw event is chained, keeping input FIFO.
+                coalescer.enqueue([.escape])
+                coalescer.flushPending()
+
+                // The flush happened synchronously, not on the next turn.
+                #expect(batches.value == [[.escape]])
+
+                // The already-scheduled flush fires but finds an empty buffer:
+                // it must not emit a second (empty) batch.
+                await Task.megaYield()
+                #expect(batches.value == [[.escape]])
+            }
+        }
+
+        @Test("flushPending is a no-op when nothing is buffered")
+        func flushPendingNoopWhenEmpty() async {
+            await withMainSerialExecutor {
+                let batches = LockIsolated<[[TmuxKey]]>([])
+                let coalescer = KeystrokeCoalescer { keys in
+                    batches.withValue { $0.append(keys) }
+                }
+
+                coalescer.flushPending()
+                await Task.megaYield()
+
+                #expect(batches.value.isEmpty)
             }
         }
 
