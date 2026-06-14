@@ -155,6 +155,13 @@ struct TerminalContainerView: NSViewRepresentable {
         /// Serializes key sends so concurrent onInput callbacks don't race
         private var pendingKeyTask: Task<Void, Never>?
 
+        /// Keys buffered within the current runloop turn. SwiftTerm splits a
+        /// Meta/Option sequence into two synchronous `send()` callbacks (ESC, then
+        /// the key); buffering and flushing them together keeps them in one
+        /// `send-keys` invocation so the app sees a single Meta keypress.
+        private var keyBuffer: [TmuxKey] = []
+        private var keyFlushScheduled = false
+
         // MARK: Initialization
 
         init() {
@@ -191,14 +198,15 @@ struct TerminalContainerView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
-            // Wire up input handling — chained tasks ensure keys are sent in order
+            // Wire up input handling. SwiftTerm emits a Meta/Option sequence as
+            // TWO synchronous send() callbacks — a lone ESC, then the key — so we
+            // coalesce keys that land in the same runloop turn into one batch (see
+            // `enqueueKeys`). Sent as separate `send-keys` calls, tmux delivers a
+            // bare Escape followed by the key, so Option-Backspace only deletes one
+            // character; batched into a single `send-keys` they arrive as the
+            // intended Meta combination (ESC DEL → delete word).
             terminalView.onInput = { [weak self] keys in
-                guard let self, let paneState = self.paneState else { return }
-                let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
-                    _ = await previous?.value
-                    await self.sendKeysToTmux(keys, target: paneState.target)
-                }
+                self?.enqueueKeys(keys)
             }
 
             // Wire up raw input (mouse escape sequences) — same serialization chain
@@ -235,28 +243,47 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: - Input Handling
 
+        /// Buffers keys and flushes them on the next runloop turn, so a Meta
+        /// sequence SwiftTerm delivers as two synchronous `send()` callbacks
+        /// (ESC + key) is sent to tmux as one batch. Both callbacks run
+        /// synchronously inside a single `keyDown`, so they accumulate before the
+        /// scheduled flush executes. Separate keystrokes land in their own runloop
+        /// turns and flush independently, so this never merges distinct presses.
+        private func enqueueKeys(_ keys: [TmuxKey]) {
+            keyBuffer.append(contentsOf: keys)
+            guard !keyFlushScheduled else { return }
+            keyFlushScheduled = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.keyFlushScheduled = false
+                let batch = self.keyBuffer
+                self.keyBuffer.removeAll()
+                guard !batch.isEmpty, let target = self.paneState?.target else { return }
+                let previous = self.pendingKeyTask
+                self.pendingKeyTask = Task {
+                    _ = await previous?.value
+                    await self.sendKeysToTmux(batch, target: target)
+                }
+            }
+        }
+
         private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
             guard let tmuxService else { return }
 
-            for key in keys {
-                // Skip delays - they're for iOS relay, not needed for local
-                if case .delay = key { continue }
+            do {
+                // Batched send: a run of keys becomes a single `send-keys`
+                // invocation. This is what keeps a split Meta sequence (e.g.
+                // `[.escape, .backspace]` for Option-Backspace) intact — sent
+                // one-by-one, tmux delivers a bare Escape then Backspace and the
+                // app only deletes a character instead of a word.
+                try await tmuxService.sendKeystrokes(target, keys: keys)
+                consecutiveKeyFailures = 0
+            } catch {
+                consecutiveKeyFailures += 1
+                print("Failed to send keys to tmux: \(error)")
 
-                do {
-                    try await tmuxService.sendKeys(
-                        target,
-                        keys: key.tmuxKeyName,
-                        literal: key.requiresLiteralMode
-                    )
-                    consecutiveKeyFailures = 0
-                } catch {
-                    consecutiveKeyFailures += 1
-                    print("Failed to send key to tmux: \(error)")
-
-                    if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
-                        updateState(.error("Failed to send keystrokes to tmux"))
-                        break
-                    }
+                if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
+                    updateState(.error("Failed to send keystrokes to tmux"))
                 }
             }
         }
@@ -316,6 +343,8 @@ struct TerminalContainerView: NSViewRepresentable {
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
+            keyBuffer.removeAll()
+            keyFlushScheduled = false
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
