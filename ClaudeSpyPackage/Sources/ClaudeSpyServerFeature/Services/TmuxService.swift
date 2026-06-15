@@ -78,13 +78,35 @@ enum PaneSurfaceRetry {
 @MainActor
 final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
-    /// Includes Claude Code rendering config and oh-my-zsh update suppression.
+    /// Includes Claude Code rendering/accessibility config, color + locale fidelity
+    /// hints for the mirror, and oh-my-zsh update suppression.
     private static let baseEnvironmentVars: [String] = {
         var vars = [
             "CLAUDE_CODE_NO_FLICKER=1",
             "DISABLE_AUTO_UPDATE=true",
             "DISABLE_UPDATE_PROMPT=true",
+            // Advertise 24-bit color so agents (Claude Code, Codex) and other CLI
+            // tools emit RGB sequences instead of downgrading to 256 colors. The
+            // matching `RGB` terminal-feature (see applyTerminalFeatureOptions) lets
+            // tmux pass that truecolor through to the SwiftTerm mirror.
+            "COLORTERM=truecolor",
+            // Keep the native terminal cursor visible and disable Claude Code's
+            // inverted-text (reverse-video) cursor. A real cursor renders more
+            // faithfully in the mirror and is clearer for remote iOS viewers.
+            "CLAUDE_CODE_ACCESSIBILITY=1",
         ]
+        // Pin a UTF-8 locale so wide characters, box-drawing, and emoji get the
+        // correct cell widths in the mirror. Apps launched from Finder/Dock often
+        // inherit no LANG at all; fall back to a UTF-8 default in that case, but
+        // preserve an already-UTF-8 locale so a non-US user keeps their region.
+        let inheritedLang = ProcessInfo.processInfo.environment["LANG"]
+        if
+            let inheritedLang,
+            inheritedLang.uppercased().contains("UTF-8") || inheritedLang.uppercased().contains("UTF8") {
+            vars.append("LANG=\(inheritedLang)")
+        } else {
+            vars.append("LANG=en_US.UTF-8")
+        }
         // Pin spawned panes to the app's own TMPDIR so tooling that resolves
         // `$TMPDIR/<file>` sees the same temp dir the app does. In production this
         // equals the value panes already inherit from the app-owned tmux server (a
@@ -2589,24 +2611,36 @@ final public class TmuxService {
 
     // MARK: - Session Creation
 
-    /// Forces the server-wide tmux options needed for modified keys (notably
-    /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
-    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
-    /// is a scalar so re-setting it is harmless. `terminal-features` is a
-    /// list option and tmux's `-a` appends without deduping, so we read the
-    /// current value first and only append `xterm*:extkeys` if it isn't
-    /// already present — otherwise the value would grow into
-    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
-    private func applyExtendedKeysOptions() async {
+    /// Forces the server-wide tmux options needed for high-fidelity passthrough to
+    /// apps like Claude Code, so users don't need to add these lines to their
+    /// `~/.tmux.conf`:
+    ///  - `extended-keys on` + the `xterm*:extkeys` feature so modified keys
+    ///    (notably Shift+Enter) round-trip cleanly.
+    ///  - the `xterm*:RGB` feature so 24-bit color (advertised to agents via
+    ///    `COLORTERM=truecolor`) reaches the mirror instead of being quantized to
+    ///    256 colors.
+    ///
+    /// `extended-keys` is a scalar so re-setting it is harmless. `terminal-features`
+    /// is a list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append a feature if it isn't already present —
+    /// otherwise the value would grow into `…,xterm*:extkeys,xterm*:extkeys,…` over
+    /// a long-running server.
+    private func applyTerminalFeatureOptions() async {
         _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
 
         let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
             .stdoutString
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !current.contains("xterm*:extkeys") else { return }
-        _ = try? await runTmuxCommand([
-            "set-option", "-sa", "terminal-features", "xterm*:extkeys",
-        ])
+        if !current.contains("xterm*:extkeys") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:extkeys",
+            ])
+        }
+        if !current.contains("xterm*:RGB") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:RGB",
+            ])
+        }
     }
 
     /// Creates a new tmux session with the specified name and dimensions.
@@ -2642,14 +2676,20 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-command … ; new-session …` in one tmux
-        // invocation. `set-option` needs a running server, but we need the
-        // wrapper installed *before* `new-session` so the first pane uses it.
-        // Within a single tmux call the server is started, then commands run
-        // in order — so set-option succeeds and the new session inherits the
-        // just-set global default-command. Repeating this on every session
-        // create is harmless (idempotent) and avoids tracking server lifetime.
+        // Chain `set-option -g default-terminal … ; set-option -g default-command
+        // … ; new-session …` in one tmux invocation. `set-option` needs a running
+        // server, but we need both options installed *before* `new-session` so the
+        // first pane uses them. Within a single tmux call the server is started,
+        // then commands run in order — so the set-options succeed and the new
+        // session inherits them. `default-terminal` pins the pane's TERM to a
+        // 256-color entry (tmux otherwise spawns with its build default, which can
+        // be the 8-color `screen`); `screen-256color` is chosen over the richer
+        // `tmux-256color` because the latter's terminfo entry is missing on some
+        // macOS installs. Repeating this on every session create is harmless
+        // (idempotent) and avoids tracking server lifetime.
         var args = [
+            "set-option", "-g", "default-terminal", "screen-256color",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
@@ -2672,12 +2712,13 @@ final public class TmuxService {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        // Apply server-wide options required for extended-key passthrough so
-        // Shift+Enter (and other modified keys) reach apps like Claude Code
-        // without the user editing ~/.tmux.conf. Server options are global and
-        // idempotent — re-running on each session create is harmless and
-        // additive (`-a` appends to the terminal-features list).
-        await applyExtendedKeysOptions()
+        // Apply server-wide options required for extended-key and truecolor
+        // passthrough so Shift+Enter (and other modified keys) and 24-bit color
+        // reach apps like Claude Code without the user editing ~/.tmux.conf.
+        // Server options are global and idempotent — re-running on each session
+        // create is harmless and additive (`-a` appends to the terminal-features
+        // list).
+        await applyTerminalFeatureOptions()
 
         // Get the pane ID of the first pane in the new session
         // Target format: session:window.pane (first window, first pane)
