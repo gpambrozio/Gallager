@@ -5,10 +5,11 @@ import Foundation
 ///
 /// Regression test for #600. The session title is rendered as a `.principal`
 /// toolbar item (a Menu whose label is the title plus a chevron) in
-/// `WindowLayoutView`. Without `.lineLimit(1)` the title kept its full
-/// single-line width and drew past the navigation bar's title region, behind
-/// the back button and the trailing toolbar buttons. The screenshot baseline
-/// for `ios-long-title-truncated` must show the title clipped with a trailing
+/// `WindowLayoutView`. Without a `maxWidth` constraint on the `HStack` label,
+/// SwiftUI sized the `.principal` item to its full intrinsic width and drew
+/// past the navigation bar's title region, behind the back button and the
+/// trailing toolbar buttons. The screenshot baseline for
+/// `ios-long-title-truncated` must show the title clipped with a trailing
 /// ellipsis, contained between the back button and the trailing buttons.
 ///
 /// 1. Pair macOS host with iOS simulator

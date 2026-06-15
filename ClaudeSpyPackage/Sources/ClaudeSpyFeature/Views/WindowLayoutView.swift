@@ -117,6 +117,8 @@
         /// for that first layout pass.
         private var principalTitleMaxWidth: CGFloat? {
             guard barWidth > 0 else { return nil }
+            // ~44pt circular bar button hit area + ~28pt inset on each side.
+            // May need tuning if button sizes change or on iPad slide-over.
             let reservedPerSide: CGFloat = 72
             return max(120, barWidth - reservedPerSide * 2)
         }
@@ -136,14 +138,8 @@
             // Measure the full-width content area to learn the navigation bar's
             // width, which `principalTitleMaxWidth` uses to keep a long title
             // from overflowing behind the bar buttons.
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { barWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, newWidth in
-                            barWidth = newWidth
-                        }
-                }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+                barWidth = newWidth
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
