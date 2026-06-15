@@ -1,0 +1,67 @@
+import Foundation
+
+/// E2E scenario: OTEL telemetry renders in the macOS sidebar (issue #597).
+///
+/// Proves the full receive → join → render pipeline without a live Claude:
+/// 1. A tmux session is created and bound to a Claude `session.id` via a
+///    synthetic `SessionStart` hook (sets `PaneState.claudeSessionID`).
+/// 2. Synthetic OTLP/JSON is POSTed to the Mac-local receiver (`127.0.0.1:4318`)
+///    from the pane's own shell via `curl` — the same loopback endpoint the
+///    injected `OTEL_*` env vars point real Claude instances at.
+/// 3. The receiver joins by `session.id` and stamps the pane, so the sidebar's
+///    `SessionTelemetrySummary` shows the meter, the model tag, and (after a
+///    `permission_mode_changed` event) the permission-mode chip.
+public enum OTELTelemetryRenderScenario {
+    /// `api_request` log: 12 000 input + 400 output tokens, $0.42, opus-4.8.
+    /// → meter "⚡ 12.4k · $0.42" and model tag "opus-4.8".
+    private static let apiRequestCurl =
+        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"claude_code.api_request","attributes":[{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"input_tokens","value":{"intValue":"12000"}},{"key":"output_tokens","value":{"intValue":"400"}},{"key":"cost_usd","value":{"doubleValue":0.42}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
+
+    /// `permission_mode_changed` log → the "Bypass" permission-mode chip.
+    private static let modeChangeCurl =
+        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"claude_code.permission_mode_changed","attributes":[{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"to_mode","value":{"stringValue":"bypassPermissions"}},{"key":"trigger","value":{"stringValue":"shift_tab"}}]}]}]}]}'"#
+
+    public static let scenario = ClaudeSpyE2ELib.scenario(
+        "OTEL Telemetry Render",
+        tags: ["telemetry", "otel", "macos-only"]
+    ) {
+        // 1. Launch the host and open the Panes window.
+        Shortcut.macOnlySetup
+        TestStep.macResizeWindow(width: 1_200, height: 700)
+        TestStep.macSetSidebarWidth(280)
+
+        // 2. Create a session and bind it to a known Claude session id.
+        TestStep.tmuxCreateSession(name: "otel-session", width: 80, height: 24)
+        TestStep.tmuxStorePaneId(target: "otel-session:0.0", storeAs: "otelPane")
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": "e2e-otel-session",
+                "timestamp": "2026-02-14T10:00:00.000000Z"
+            }
+            """,
+            tmuxPane: "${otelPane}",
+            projectPath: "/Users/test/OtelProject"
+        )
+        // Let the host pick up the session row.
+        TestStep.wait(seconds: 2)
+
+        // 3. POST a synthetic api_request to the loopback receiver from the pane.
+        Shortcut.tmuxRunCommand(target: "otel-session:0.0", command: apiRequestCurl)
+        TestStep.wait(seconds: 2)
+
+        // 4. The meter and model tag now render in the sidebar row. Match on the
+        //    accessibility labels (SwiftUI identifiers don't reliably surface as
+        //    AXIdentifier on macOS, but labels do — same path project names use).
+        TestStep.macWaitForElementQuery(.anyTextMatches("$0.42"), timeout: 10)
+        TestStep.macWaitForElementQuery(.anyTextMatches("opus-4.8"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-otel-meter")
+
+        // 5. A permission-mode change surfaces the (loud) bypass chip.
+        Shortcut.tmuxRunCommand(target: "otel-session:0.0", command: modeChangeCurl)
+        TestStep.wait(seconds: 2)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Bypass"), timeout: 10)
+        TestStep.macScreenshot(label: "mac-otel-mode-chip")
+    }
+}
