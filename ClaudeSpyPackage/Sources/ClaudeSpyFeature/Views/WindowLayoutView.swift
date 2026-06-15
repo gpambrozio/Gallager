@@ -39,6 +39,11 @@
         /// Guards against double-splits from rapid taps
         @State private var isSplitting = false
 
+        /// Width of the navigation bar (measured from the full-width content
+        /// area). Used to cap the centered title so it doesn't bleed behind the
+        /// bar buttons — see `principalTitleMaxWidth`.
+        @State private var barWidth: CGFloat = 0
+
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
 
@@ -101,6 +106,21 @@
             return sessionName
         }
 
+        /// Upper bound for the centered title in the navigation bar.
+        ///
+        /// SwiftUI sizes a `.principal` toolbar item to its intrinsic width and
+        /// centers it, so a long title must be explicitly capped or it draws
+        /// behind the leading back button and the trailing toolbar buttons
+        /// (#600). Reserve room on each side for the circular bar buttons (and
+        /// their insets); the title then truncates with a trailing ellipsis.
+        /// Returns `nil` until the width is measured, leaving the title uncapped
+        /// for that first layout pass.
+        private var principalTitleMaxWidth: CGFloat? {
+            guard barWidth > 0 else { return nil }
+            let reservedPerSide: CGFloat = 72
+            return max(120, barWidth - reservedPerSide * 2)
+        }
+
         var body: some View {
             Group {
                 if let window {
@@ -111,6 +131,18 @@
                         symbol: .exclamationmarkTriangle,
                         description: "This window may have been closed."
                     )
+                }
+            }
+            // Measure the full-width content area to learn the navigation bar's
+            // width, which `principalTitleMaxWidth` uses to keep a long title
+            // from overflowing behind the bar buttons.
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { barWidth = proxy.size.width }
+                        .onChange(of: proxy.size.width) { _, newWidth in
+                            barWidth = newWidth
+                        }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -189,10 +221,15 @@
                         HStack(spacing: 4) {
                             Text(navigationTitle)
                                 .fontWeight(.semibold)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             Symbols.chevronDown.image
                                 .font(.caption2.weight(.bold))
                                 .foregroundStyle(.secondary)
                         }
+                        // Cap the centered title so a long one truncates instead
+                        // of bleeding behind the bar buttons (#600).
+                        .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
                 if let activeService, activeService.session != nil {
