@@ -173,8 +173,14 @@ struct OTLPTelemetryAccumulator {
 
     /// Drops all accumulated state for a session (called on session end).
     mutating func evict(sessionID: String) {
-        metricsBySession.removeValue(forKey: sessionID)
         sessionOrder.removeAll { $0 == sessionID }
+        discardState(for: sessionID)
+    }
+
+    /// Removes the snapshot and counter baselines for a session without touching
+    /// `sessionOrder` — callers that already popped the id own that bookkeeping.
+    private mutating func discardState(for sessionID: String) {
+        metricsBySession.removeValue(forKey: sessionID)
         let prefix = "\(sessionID)|"
         for key in lastCounterValue.keys where key.hasPrefix(prefix) {
             lastCounterValue.removeValue(forKey: key)
@@ -189,7 +195,7 @@ struct OTLPTelemetryAccumulator {
         metricsBySession[sessionID] = telemetry
         while sessionOrder.count > maxSessions {
             let oldest = sessionOrder.removeFirst()
-            evict(sessionID: oldest)
+            discardState(for: oldest)
         }
     }
 

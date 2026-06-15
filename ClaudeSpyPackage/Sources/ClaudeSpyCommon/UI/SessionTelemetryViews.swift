@@ -53,9 +53,12 @@ public struct PermissionModePresentation {
             self.tint = .orange
             self.isElevated = false
         case "auto":
+            // `auto` lets Claude Code pick the permission level per action — a
+            // distinct (newer) mode, so give it its own symbol/tint rather than
+            // aliasing `acceptEdits`.
             self.label = "Auto"
-            self.symbol = .checkmarkCircle
-            self.tint = .orange
+            self.symbol = .wandAndStars
+            self.tint = .purple
             self.isElevated = false
         case "bypassPermissions":
             self.label = "Bypass"

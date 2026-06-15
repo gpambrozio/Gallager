@@ -806,15 +806,18 @@
                     }
                 }
 
-                if let telemetry, telemetry.recentTurns.count >= 2 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Turn latency")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Sparkline(values: telemetry.recentTurns.map { Double($0.latencyMs) })
-                            .frame(height: 32)
+                if let telemetry {
+                    let latencies = telemetry.recentTurns.compactMap { $0.latencyMs.map(Double.init) }
+                    if latencies.count >= 2 {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Turn latency")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Sparkline(values: latencies)
+                                .frame(height: 32)
+                        }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
                 }
             }
         }

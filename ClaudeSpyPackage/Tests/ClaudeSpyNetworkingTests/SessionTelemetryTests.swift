@@ -65,6 +65,16 @@ struct SessionTelemetryTests {
         #expect(decoded.recentTurns.isEmpty)
     }
 
+    @Test("Missing tokensUsed is recomputed from the individual token fields")
+    func tokensUsedDerivedWhenAbsent() throws {
+        // Older host sent the components but not the derived total.
+        let json = """
+        {"inputTokens": 100, "outputTokens": 50, "cacheReadTokens": 10, "cacheCreationTokens": 5}
+        """
+        let decoded = try JSONDecoder().decode(SessionTelemetry.self, from: Data(json.utf8))
+        #expect(decoded.tokensUsed == 165)
+    }
+
     @Test("PaneState without telemetry fields decodes (older host)")
     func paneStateBackwardCompat() throws {
         // An older host's PaneState carries none of the #597 fields.

@@ -10,10 +10,12 @@ public struct TurnSample: Codable, Sendable, Equatable {
     /// Cost in USD attributed to this turn (`cost_usd` from `api_request`).
     public let costUSD: Double
 
-    /// End-to-end latency of this turn in milliseconds (`duration_ms`).
-    public let latencyMs: Int
+    /// End-to-end latency of this turn in milliseconds (`duration_ms`), or `nil`
+    /// when the turn's `duration_ms` was absent. Kept optional so missing-latency
+    /// turns can be omitted from the sparkline rather than charted as 0ms.
+    public let latencyMs: Int?
 
-    public init(costUSD: Double, latencyMs: Int) {
+    public init(costUSD: Double, latencyMs: Int?) {
         self.costUSD = costUSD
         self.latencyMs = latencyMs
     }
@@ -111,7 +113,7 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         if let model, !model.isEmpty {
             self.model = model
         }
-        recentTurns.append(TurnSample(costUSD: costUSD, latencyMs: durationMs ?? 0))
+        recentTurns.append(TurnSample(costUSD: costUSD, latencyMs: durationMs))
         if recentTurns.count > Self.maxRecentTurns {
             recentTurns.removeFirst(recentTurns.count - Self.maxRecentTurns)
         }
@@ -136,11 +138,14 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.tokensUsed = try container.decodeIfPresent(Int.self, forKey: .tokensUsed) ?? 0
         self.inputTokens = try container.decodeIfPresent(Int.self, forKey: .inputTokens) ?? 0
         self.outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
         self.cacheReadTokens = try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens) ?? 0
         self.cacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
+        // `tokensUsed` is a derived sum. If an older host omits it but sends the
+        // individual fields, recompute the total instead of showing 0.
+        self.tokensUsed = try container.decodeIfPresent(Int.self, forKey: .tokensUsed)
+            ?? (inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens)
         self.costUSD = try container.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
         self.lastTurnLatencyMs = try container.decodeIfPresent(Int.self, forKey: .lastTurnLatencyMs)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)

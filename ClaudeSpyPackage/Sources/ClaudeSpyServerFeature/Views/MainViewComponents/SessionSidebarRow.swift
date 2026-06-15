@@ -37,20 +37,9 @@ struct SessionSidebarRow: View {
         return windowManager.paneStates[pane.paneId]
     }
 
-    /// The first Claude session found in any pane of any window, if any
-    private var claudeSession: AgentSession? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let session = windowManager.paneStates[pane.paneId]?.agentSession {
-                    return session
-                }
-            }
-        }
-        return nil
-    }
-
-    /// The pane state backing `claudeSession`, for its OTEL telemetry (#597).
-    private var claudePaneState: PaneState? {
+    /// The first pane state in any window backing an agent session, if any. Also
+    /// the source of its OTEL telemetry / permission mode (#597).
+    private var primaryAgentPaneState: PaneState? {
         for window in session.windows {
             for pane in window.panes {
                 if let state = windowManager.paneStates[pane.paneId], state.agentSession != nil {
@@ -59,6 +48,11 @@ struct SessionSidebarRow: View {
             }
         }
         return nil
+    }
+
+    /// The first Claude session found in any pane of any window, if any.
+    private var claudeSession: AgentSession? {
+        primaryAgentPaneState?.agentSession
     }
 
     /// CLI-driven state override, if any pane in the session has one set.
@@ -119,8 +113,8 @@ struct SessionSidebarRow: View {
 
                 // OTEL meter + model + permission-mode chip (issue #597).
                 SessionTelemetrySummary(
-                    telemetry: claudePaneState?.telemetry,
-                    permissionMode: claudePaneState?.permissionMode
+                    telemetry: primaryAgentPaneState?.telemetry,
+                    permissionMode: primaryAgentPaneState?.permissionMode
                 )
             }
 
