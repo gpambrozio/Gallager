@@ -87,8 +87,15 @@ public enum MultiPaneWindowScenario {
         // through an unstructured Task and has been observed to take well
         // over 10s on a loaded CI host when back-to-back clicks reach the
         // AX tree mid-focus-change.
+        //
+        // For the same reason the cg-clicks pass `timeout: 15` (vs the 5s
+        // default): each click follows a focus-change re-render of the prior
+        // click, during which the next pane's view is briefly absent from the
+        // AX tree. A 5s element-lookup window lands inside that gap and flakes
+        // ("Timed out waiting for: macOS UI element for cg-click"); 15s absorbs
+        // the re-render the same way the 20s assertion absorbs the tmux round-trip.
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%0"))
+        TestStep.macCGClickElement(query: .identifier("terminal-%0"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.0",
             format: "#{pane_active}",
@@ -96,7 +103,7 @@ public enum MultiPaneWindowScenario {
             timeout: 20
         )
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%1"))
+        TestStep.macCGClickElement(query: .identifier("terminal-%1"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.1",
             format: "#{pane_active}",
@@ -104,7 +111,7 @@ public enum MultiPaneWindowScenario {
             timeout: 20
         )
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%2"))
+        TestStep.macCGClickElement(query: .identifier("terminal-%2"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.2",
             format: "#{pane_active}",

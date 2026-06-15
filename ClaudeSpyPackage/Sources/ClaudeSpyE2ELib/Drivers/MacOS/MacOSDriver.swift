@@ -274,13 +274,14 @@ public actor MacOSDriver {
     /// when the matched element is a wider container.
     public func cgClick(
         matching query: ElementQuery,
-        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        timeout: TimeInterval = 5
     ) async throws {
         let pid = try requirePID()
         logger.info("CGEvent clicking element matching query")
         _ = try await Polling.waitFor(
             description: "macOS UI element for cg-click",
-            timeout: 5,
+            timeout: timeout,
             pollInterval: 0.5
         ) {
             MacOSAccessibility.findElement(appPID: pid, matching: query)
