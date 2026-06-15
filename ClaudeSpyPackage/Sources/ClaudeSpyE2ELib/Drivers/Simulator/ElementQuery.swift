@@ -44,6 +44,36 @@ public enum ElementQuery: Sendable, CustomStringConvertible {
         }
     }
 
+    /// Returns a copy with every string field transformed by `resolve`.
+    ///
+    /// Lets a query reference values captured during execution — e.g.
+    /// `.identifier("terminal-${mpPane1}")` resolved against the
+    /// `ExecutionContext` — exactly the way the orchestrator already resolves
+    /// tmux targets and typed text. Queries with no `${var}` references are
+    /// unchanged, so this is a safe no-op for literal queries.
+    public func resolved(_ resolve: (String) -> String) -> ElementQuery {
+        switch self {
+        case let .label(text):
+            .label(resolve(text))
+        case let .labelContains(text):
+            .labelContains(resolve(text))
+        case let .role(role):
+            .role(resolve(role))
+        case let .identifier(id):
+            .identifier(resolve(id))
+        case let .roleAndLabelContains(role, label):
+            .roleAndLabelContains(role: resolve(role), label: resolve(label))
+        case let .valueContains(text):
+            .valueContains(resolve(text))
+        case let .help(text):
+            .help(resolve(text))
+        case let .anyTextMatches(text):
+            .anyTextMatches(resolve(text))
+        case let .allOf(queries):
+            .allOf(queries.map { $0.resolved(resolve) })
+        }
+    }
+
     /// Test whether a UIElement matches this query
     public func matches(_ element: UIElement) -> Bool {
         switch self {

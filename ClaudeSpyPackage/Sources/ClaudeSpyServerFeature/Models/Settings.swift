@@ -393,6 +393,20 @@ final public class AppSettings {
         didSet { preferences.setBool(hasSeededEditors, Keys.hasSeededEditors) }
     }
 
+    // MARK: - In-App Prompt Editor (Ctrl-G)
+
+    /// How Gallager handles the in-app prompt editor (Ctrl-G) when the user's
+    /// shell config clobbers the `$VISUAL` Gallager sets on tmux panes.
+    ///
+    /// `.ask` re-probes each launch and surfaces a consent dialog on the first
+    /// detected conflict; `.overrideInGallagerSessions` types `export VISUAL=…`
+    /// into Gallager's shell panes; `.useMyEditor` leaves the user's editor
+    /// alone and stops asking. Source of truth — `AppCoordinator` mirrors it onto
+    /// `TmuxService.overrideVisualInShellPanes`. See issue #591.
+    public var editorOverrideMode: EditorOverrideMode = Defaults.editorOverrideMode {
+        didSet { preferences.setString(editorOverrideMode.rawValue, Keys.editorOverrideMode) }
+    }
+
     // MARK: - Launch at Login Settings
 
     /// Whether the app should launch at login (synced with system login items)
@@ -466,6 +480,11 @@ final public class AppSettings {
         self.editors = Self.loadCodable(from: preferences, key: Keys.editors)
         self.hasSeededEditors = preferences.optionalBool(Keys.hasSeededEditors) ?? Defaults.hasSeededEditors
 
+        // In-App Prompt Editor (Ctrl-G)
+        self.editorOverrideMode = EditorOverrideMode(
+            rawValue: preferences.string(Keys.editorOverrideMode) ?? ""
+        ) ?? Defaults.editorOverrideMode
+
         // Launch at Login
         self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
         self.hasAskedAboutLaunchAtLogin = preferences.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
@@ -508,6 +527,8 @@ final public class AppSettings {
         /// External Editors
         case editors
         case hasSeededEditors
+        /// In-App Prompt Editor (Ctrl-G)
+        case editorOverrideMode
         // Launch at Login
         case launchAtLogin
         case hasAskedAboutLaunchAtLogin
@@ -542,6 +563,8 @@ final public class AppSettings {
         static let autoConnectToServer = true
         /// External Editors
         static let hasSeededEditors = false
+        /// In-App Prompt Editor (Ctrl-G)
+        static let editorOverrideMode = EditorOverrideMode.ask
         // Launch at Login
         static let launchAtLogin = false
         static let hasAskedAboutLaunchAtLogin = false

@@ -247,7 +247,12 @@ public enum TestStep: Sendable {
     case macCGClickElement(
         query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
-        instance: Int = 0
+        instance: Int = 0,
+        // Seconds to wait for the matched element to appear in the AX tree before
+        // clicking. Defaults to 5; bump it when the click lands while the app is
+        // mid-re-render (e.g. a focus change between back-to-back pane clicks) and
+        // the target is momentarily absent from the AX tree.
+        timeout: TimeInterval = 5
     )
     /// Right-click an element to open its context menu
     case macRightClick(titled: String, instance: Int = 0)
