@@ -6,13 +6,23 @@ import SwiftUI
 /// found that the user's shell config clobbers the `$VISUAL` Gallager sets on
 /// tmux panes (issue #591 §2–§3).
 ///
-/// Three co-equal choices, plus "Decide later". The override is never applied
-/// without the user picking it here (or in Settings) — Gallager's env is a
-/// default, not a silent override.
+/// Redesign: a single decision presented as three radio choice cards
+/// (recommended pre-selected). The "Fix in shell config" card expands to
+/// reveal the guarded rc line; one "Continue" button commits the choice.
+/// The override is never applied without the user picking it here (or in
+/// Settings) — Gallager's env is a default, not a silent override.
 struct EditorOverrideDialog: View {
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(TmuxService.self) private var tmuxService
 
+    /// The resolution the user has selected but not yet committed.
+    private enum Choice: Hashable {
+        case fixInConfig
+        case overrideInGallagerSessions
+        case useMyEditor
+    }
+
+    @State private var selection: Choice = .fixInConfig
     @State private var copied = false
     @State private var copiedResetTask: Task<Void, Never>?
 
@@ -25,8 +35,8 @@ struct EditorOverrideDialog: View {
         conflictingValue ?? "(unset)"
     }
 
-    /// The guarded rc line suggested by Option 1, with the user's own value
-    /// substituted and the right syntax for their login shell.
+    /// The guarded rc line suggested by the recommended fix, with the user's
+    /// own value substituted and the right syntax for their login shell.
     private var recommendedLine: String {
         EditorOverride.recommendedRcLine(
             visualValue: conflictingValue ?? "your-editor",
@@ -38,30 +48,27 @@ struct EditorOverrideDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
-            option1Card
-
-            optionButton(
-                title: "Let Gallager override in its own sessions",
-                detail: "Gallager types `export VISUAL=…` into its shell panes so Ctrl-G opens the in-app editor. The line is visible in the pane's scrollback, and it also affects `git commit` / `crontab` in those panes.",
-                role: nil
-            ) {
-                coordinator.setEditorOverrideMode(.overrideInGallagerSessions)
-                dismiss()
-            }
-
-            optionButton(
-                title: "Keep my editor, stop asking",
-                detail: "Ctrl-G opens your editor inside the terminal pane. From a remote iOS viewer the in-app editor won't be used (a GUI editor like `code --wait` would open on the Mac, not your phone).",
-                role: nil
-            ) {
-                coordinator.setEditorOverrideMode(.useMyEditor)
-                dismiss()
+            VStack(spacing: 8) {
+                fixCard
+                choiceCard(
+                    .overrideInGallagerSessions,
+                    title: "Let Gallager override in its own sessions",
+                    summary: "Gallager exports VISUAL into its panes — visible in scrollback."
+                )
+                choiceCard(
+                    .useMyEditor,
+                    title: "Keep my editor, stop asking",
+                    summary: "Ctrl-G uses your editor. On a remote iOS viewer, a GUI editor opens on the Mac."
+                )
             }
 
             HStack {
                 Spacer()
                 Button("Decide later") { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                Button("Continue") { commit() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
@@ -69,60 +76,115 @@ struct EditorOverrideDialog: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: - Sections
+    // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Your shell overrides Gallager's prompt editor")
                 .font(.headline)
 
-            // Markdown string literal: the backticks render `VISUAL=…` as inline
-            // code without fragile Text concatenation.
-            Text("Ctrl-G in Claude Code / Codex is meant to open Gallager's in-app prompt editor. Your shell config sets `VISUAL=\(displayValue)`, which runs *after* Gallager's setup in each session and overrides it.")
+            // Markdown string literal: backticks render `VISUAL=…` as inline code.
+            Text("Ctrl-G should open Gallager's in-app editor, but your shell sets `VISUAL=\(displayValue)` after Gallager runs. Choose how to resolve it:")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var option1Card: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text("Fix it in your shell config")
-                    .font(.subheadline.bold())
-                Text("Recommended")
-                    .font(.caption2.bold())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.15))
-                    .foregroundStyle(Color.accentColor)
-                    .clipShape(.capsule)
-            }
+    // MARK: - Cards
 
-            Text("Keep your editor everywhere except Gallager's panes. Gallager exports `GALLAGER_SOCKET` before your rc files run, so guard your export with it:")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// The recommended card. When selected it expands to reveal the rc line.
+    private var fixCard: some View {
+        cardShell(.fixInConfig) {
+            VStack(alignment: .leading, spacing: 12) {
+                cardRow(
+                    .fixInConfig,
+                    title: "Fix it in my shell config",
+                    summary: "Keep my editor everywhere except Gallager's panes.",
+                    recommended: true
+                )
 
-            codeRow
-
-            Text("Gallager re-checks on the next launch — once its editor survives, this dialog won't return. Your export keeps working in every other terminal.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Spacer()
-                Button("I'll fix my config") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
+                if selection == .fixInConfig {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("Gallager exports `GALLAGER_SOCKET` before your rc loads. Guard your export so it skips Gallager's panes:")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        codeRow
+                        Text("Re-checked on next launch — once it survives, this dialog won't return.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
-        .padding(12)
-        .background(Color(nsColor: .underPageBackgroundColor))
-        .clipShape(.rect(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1)
-        )
+    }
+
+    private func choiceCard(_ choice: Choice, title: String, summary: LocalizedStringKey) -> some View {
+        cardShell(choice) {
+            cardRow(choice, title: title, summary: summary, recommended: false)
+        }
+    }
+
+    /// Tappable card container with selection ring + tint.
+    private func cardShell<Content: View>(
+        _ choice: Choice,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isSelected = selection == choice
+        return content()
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isSelected ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor)
+            )
+            .clipShape(.rect(cornerRadius: 9))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : Color.primary.opacity(0.12),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .contentShape(.rect)
+            .onTapGesture { selection = choice }
+    }
+
+    /// The radio + title + summary row shared by every card.
+    private func cardRow(
+        _ choice: Choice,
+        title: String,
+        summary: LocalizedStringKey,
+        recommended: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 11) {
+            (selection == choice ? Symbols.largecircleFillCircle : Symbols.circle).image
+                .foregroundStyle(selection == choice ? Color.accentColor : Color.secondary)
+                .font(.system(size: 15))
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                    if recommended {
+                        Text("Recommended")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundStyle(Color.accentColor)
+                            .clipShape(.capsule)
+                    }
+                }
+                Text(summary)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private var codeRow: some View {
@@ -146,25 +208,21 @@ struct EditorOverrideDialog: View {
         .clipShape(.rect(cornerRadius: 6))
     }
 
-    private func optionButton(
-        title: String,
-        detail: LocalizedStringKey,
-        role: ButtonRole?,
-        action: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button(title, role: role, action: action)
-            }
-        }
-    }
-
     // MARK: - Actions
+
+    /// Apply the committed choice. The recommended "fix in config" path leaves
+    /// the setting at *Ask* (the next-launch probe verifies) and just dismisses.
+    private func commit() {
+        switch selection {
+        case .fixInConfig:
+            break
+        case .overrideInGallagerSessions:
+            coordinator.setEditorOverrideMode(.overrideInGallagerSessions)
+        case .useMyEditor:
+            coordinator.setEditorOverrideMode(.useMyEditor)
+        }
+        dismiss()
+    }
 
     private func dismiss() {
         coordinator.isShowingEditorOverrideDialog = false
@@ -184,3 +242,24 @@ struct EditorOverrideDialog: View {
         }
     }
 }
+
+#if DEBUG
+    /// Builds the dialog with a coordinator seeded into a given probe state, so
+    /// the previews can exercise both conflict shapes without a live tmux probe.
+    @MainActor
+    private func editorOverrideDialogPreview(_ probe: VisualProbeResult) -> some View {
+        let coordinator = AppCoordinator()
+        coordinator.setEditorOverrideProbeResultForPreview(probe)
+        return EditorOverrideDialog()
+            .environment(coordinator)
+            .environment(coordinator.tmuxService)
+    }
+
+    #Preview("Shell sets VISUAL=vim") {
+        editorOverrideDialogPreview(.conflict(effectiveValue: "vim"))
+    }
+
+    #Preview("Shell unsets VISUAL") {
+        editorOverrideDialogPreview(.conflict(effectiveValue: nil))
+    }
+#endif

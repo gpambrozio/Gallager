@@ -279,15 +279,25 @@ public actor MacOSDriver {
     ) async throws {
         let pid = try requirePID()
         logger.info("CGEvent clicking element matching query")
-        _ = try await Polling.waitFor(
+        // Poll the click itself instead of a separate find gate. The old form
+        // gated on `findElement` → `describeUI(maxDepth: 15)` and then clicked via
+        // `cgClick` → `findAllRawElements(maxDepth: 20)` — two different traversals
+        // (different depth horizons, and the click path also excludes the menu
+        // bar). They could disagree: an element nested past depth 15, or briefly
+        // absent from the AX tree during a re-render, satisfied neither the gate
+        // (so it timed out — "macOS UI element for cg-click") nor benefited from a
+        // bigger timeout, since the gate was looking at a shallower tree than the
+        // click. `MacOSAccessibility.cgClick` only posts the mouse event when it
+        // actually resolves a frame (otherwise it returns false without clicking),
+        // so polling it makes the find and the click a single depth-20 source of
+        // truth — no TOCTOU gap — and re-samples each interval so a pane briefly
+        // missing during a focus-change re-render is caught when it reappears.
+        try await Polling.waitUntil(
             description: "macOS UI element for cg-click",
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            MacOSAccessibility.findElement(appPID: pid, matching: query)
-        }
-        if !MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect) {
-            throw MacOSDriverError.elementNotFound("query for cg-click")
+            MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect)
         }
     }
 

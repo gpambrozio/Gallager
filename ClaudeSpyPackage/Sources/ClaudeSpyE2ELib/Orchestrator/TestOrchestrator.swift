@@ -662,7 +662,7 @@ public actor TestOrchestrator {
 
         case let .macCGClickElement(query, pointInRect, instance, timeout):
             try await macDriver(for: instance).cgClick(
-                matching: query,
+                matching: query.resolved(context.resolve),
                 pointInRect: pointInRect,
                 timeout: timeout
             )
@@ -774,10 +774,11 @@ public actor TestOrchestrator {
             try await macDriver(for: instance).waitForElementToDisappear(titled: resolvedTitle, timeout: timeout)
 
         case let .macWaitForElementQuery(query, timeout, instance):
-            try await macDriver(for: instance).waitForElement(matching: query, timeout: timeout)
+            try await macDriver(for: instance).waitForElement(matching: query.resolved(context.resolve), timeout: timeout)
 
         case let .macWaitForElementQueryToDisappear(query, timeout, instance):
-            try await macDriver(for: instance).waitForElementToDisappear(matching: query, timeout: timeout)
+            try await macDriver(for: instance)
+                .waitForElementToDisappear(matching: query.resolved(context.resolve), timeout: timeout)
 
         case let .macOpenPanesWindow(instance):
             try await macDriver(for: instance).openPanesWindow()

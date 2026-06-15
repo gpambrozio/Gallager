@@ -21,3 +21,5 @@ Use the Task tool to work through these items before stopping:
     * If the behavior has no scenario testing it then create it, make sure it passes and make sure the screenshots show what you'd expect.
 7. Make sure no scenario baslines are pushed
     * If e2e scenarios are added or updated do not push any baseline screenshots created on this machine. Only ci runs must update baselines. Removing baselines that need to be updated is OK.
+8. Add #Preview to new views
+    * If new SwiftUI views were created add a #Preview so that the user can use XCode to tweak its designs easily. If the view can have many states create a preview for every state.

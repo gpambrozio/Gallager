@@ -324,13 +324,21 @@
             await autoConnectIfConfigured()
 
             // Probe whether the user's rc files clobber Gallager's `$VISUAL`
-            // (issue #591), but only while the decision is still pending — a user
-            // who already chose Override / Use-my-editor doesn't need the dialog,
-            // and Settings → "Re-check now" re-probes on demand in any mode.
-            // Detached so the ~1–10s probe never blocks launch; the dialog it may
-            // trigger is deferred to the first session anyway.
-            if settings.editorOverrideMode == .ask {
+            // (issue #591). Detached so the ~1–10s probe never blocks launch; any
+            // dialog it triggers is deferred to the first session anyway.
+            switch settings.editorOverrideMode {
+            case .ask:
+                // Decision still pending: probe so the dialog can offer on a
+                // detected conflict at the first session.
                 Task { await runEditorConflictProbe() }
+            case .overrideInGallagerSessions:
+                // Already injecting. Re-check whether the conflict that justified
+                // it still exists — if the user has since removed `export VISUAL`
+                // from their rc, the injection is now redundant and is dropped.
+                Task { await reconcileOverrideAgainstProbe() }
+            case .useMyEditor:
+                // Never overriding, never asking — nothing to probe for.
+                break
             }
 
             // Start periodic validation to clean up stale sessions
@@ -398,12 +406,36 @@
         /// Re-runs the probe on demand (Settings "re-check now"), and — if the
         /// conflict has since been resolved (e.g. the user edited their rc files
         /// per Option 1) — clears the latch so a future genuine conflict can ask
-        /// again.
+        /// again. Also drops a now-redundant override (see
+        /// `dropRedundantOverrideIfConflictResolved`).
         public func reprobeEditorConflict() async {
             await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
             if editorOverrideProbeResult?.isConflict != true {
                 hasPresentedEditorOverrideDialogThisLaunch = false
             }
+        }
+
+        /// Startup reconciliation for override mode: probe, then drop the override
+        /// if the conflict it was opted into for is gone (issue #591).
+        private func reconcileOverrideAgainstProbe() async {
+            await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
+        }
+
+        /// If we're injecting `export VISUAL=…` (override mode) but the probe
+        /// positively confirmed the rc conflict is gone (`.intact`), the
+        /// injection is redundant — Gallager's `-e VISUAL` already wins — so fall
+        /// back to `.ask` and stop typing it into every pane. A `.skipped` probe
+        /// isn't proof the conflict is gone, so the override is left untouched
+        /// (issue #591).
+        private func dropRedundantOverrideIfConflictResolved() {
+            guard
+                EditorOverride.shouldDropRedundantOverride(
+                    mode: settings.editorOverrideMode,
+                    probe: editorOverrideProbeResult
+                ) else { return }
+            setEditorOverrideMode(.ask)
         }
 
         /// Whether the consent dialog should be offered: a conflict was detected
@@ -439,6 +471,15 @@
                 tmuxService.clearInjectedOverrideTracking()
             }
         }
+
+        #if DEBUG
+            /// Preview/test seam: seed the probe result without running the live
+            /// tmux probe, so SwiftUI previews can render the consent dialog
+            /// (`EditorOverrideDialog`) in a realistic conflict state (issue #591).
+            func setEditorOverrideProbeResultForPreview(_ result: VisualProbeResult?) {
+                editorOverrideProbeResult = result
+            }
+        #endif
 
         // MARK: - In-Process Plugin Runtime Setup (additive)
 
