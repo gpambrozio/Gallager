@@ -69,7 +69,13 @@ struct EditorsSettingsView: View {
                 .help("Re-scan for known editors that are installed and add any missing ones")
             }
             .padding(.horizontal)
-            .padding(.bottom, 12)
+
+            Divider()
+                .padding(.horizontal)
+
+            PromptEditorOverrideSection()
+                .padding(.horizontal)
+                .padding(.bottom, 12)
         }
         .fileImporter(
             isPresented: $addEditorPickerVisible,
@@ -156,6 +162,90 @@ struct EditorsSettingsView: View {
     }
 }
 
+/// Settings for the in-app prompt editor (Ctrl-G) override (issue #591). Lets
+/// the user pick how Gallager handles a shell config that clobbers `$VISUAL`,
+/// and re-run the conflict probe on demand (e.g. after editing their rc files).
+struct PromptEditorOverrideSection: View {
+    @Environment(AppSettings.self) private var settings
+    @Environment(AppCoordinator.self) private var coordinator
+
+    @State private var isRechecking = false
+
+    /// Drives the picker through the coordinator so changing the mode also
+    /// updates the live tmux service (and injects into existing panes).
+    private var modeBinding: Binding<EditorOverrideMode> {
+        Binding(
+            get: { settings.editorOverrideMode },
+            set: { coordinator.setEditorOverrideMode($0) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Prompt editor (Ctrl-G)")
+                .font(.headline)
+
+            Text("Gallager points $VISUAL at its in-app prompt editor so Ctrl-G in Claude Code / Codex edits prompts inside Gallager. If your shell config sets VISUAL, it overrides this in Gallager's sessions.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Picker("When my shell overrides it", selection: modeBinding) {
+                ForEach(EditorOverrideMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+
+            HStack(spacing: 8) {
+                statusLabel
+                Spacer()
+                Button("Re-check now") {
+                    isRechecking = true
+                    Task {
+                        await coordinator.reprobeEditorConflict()
+                        isRechecking = false
+                    }
+                }
+                .disabled(isRechecking)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if isRechecking {
+            Label("Checking…", symbol: .arrowClockwise)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            switch coordinator.editorOverrideProbeResult {
+            case .none:
+                Label("Not checked yet", symbol: .questionmarkCircle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .intact:
+                Label("Gallager's editor is active in sessions", symbol: .checkmarkCircle)
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            case .skipped:
+                // Not green: a skipped probe means we *don't know* whether
+                // Gallager's editor survives (e.g. unknown shell), so don't
+                // claim it's active.
+                Label("Probe unavailable (unknown shell or CLI not found)", symbol: .questionmarkCircle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case let .conflict(value):
+                Label(
+                    "Your shell sets VISUAL=\(value ?? "(unset)"), overriding Gallager",
+                    symbol: .exclamationmarkTriangle
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+}
+
 #Preview {
     let settings = AppSettings()
     settings.editors = [
@@ -170,5 +260,6 @@ struct EditorsSettingsView: View {
     ]
     return EditorsSettingsView()
         .environment(settings)
+        .environment(AppCoordinator(settings: settings))
         .frame(width: 600, height: 400)
 }

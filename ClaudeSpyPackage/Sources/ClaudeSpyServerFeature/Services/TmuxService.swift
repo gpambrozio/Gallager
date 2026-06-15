@@ -78,7 +78,8 @@ enum PaneSurfaceRetry {
 @MainActor
 final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
-    /// Includes Claude Code rendering config and oh-my-zsh update suppression.
+    /// Includes Claude Code rendering/accessibility config, color + locale fidelity
+    /// hints for the mirror, and oh-my-zsh update suppression.
     private static let baseEnvironmentVars: [String] = {
         var vars = [
             "CLAUDE_CODE_NO_FLICKER=1",
@@ -96,7 +97,28 @@ final public class TmuxService {
             "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
             "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
             "OTEL_METRIC_EXPORT_INTERVAL=10000",
+            // Advertise 24-bit color so agents (Claude Code, Codex) and other CLI
+            // tools emit RGB sequences instead of downgrading to 256 colors. The
+            // matching `RGB` terminal-feature (see applyTerminalFeatureOptions) lets
+            // tmux pass that truecolor through to the SwiftTerm mirror.
+            "COLORTERM=truecolor",
+            // Keep the native terminal cursor visible and disable Claude Code's
+            // inverted-text (reverse-video) cursor. A real cursor renders more
+            // faithfully in the mirror and is clearer for remote iOS viewers.
+            "CLAUDE_CODE_ACCESSIBILITY=1",
         ]
+        // Pin a UTF-8 locale so wide characters, box-drawing, and emoji get the
+        // correct cell widths in the mirror. Apps launched from Finder/Dock often
+        // inherit no LANG at all; fall back to a UTF-8 default in that case, but
+        // preserve an already-UTF-8 locale so a non-US user keeps their region.
+        let inheritedLang = ProcessInfo.processInfo.environment["LANG"]
+        if
+            let inheritedLang,
+            inheritedLang.uppercased().contains("UTF-8") || inheritedLang.uppercased().contains("UTF8") {
+            vars.append("LANG=\(inheritedLang)")
+        } else {
+            vars.append("LANG=en_US.UTF-8")
+        }
         // Pin spawned panes to the app's own TMPDIR so tooling that resolves
         // `$TMPDIR/<file>` sees the same temp dir the app does. In production this
         // equals the value panes already inherit from the app-owned tmux server (a
@@ -123,12 +145,6 @@ final public class TmuxService {
         }
         return "/bin/sh"
     }()
-
-    /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
-    /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
-    private static func posixSingleQuote(_ string: String) -> String {
-        "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
-    }
 
     /// Wrapper command installed as tmux's `default-command` so every spawned shell
     /// reports as iTerm. Required for OSC 9;4 progress sequences: Claude Code only
@@ -164,7 +180,7 @@ final public class TmuxService {
     /// cached value and the rendered bg can't drift if the user toggles
     /// between dark and light themes.
     private var defaultCommandWrapper: String {
-        let shell = Self.posixSingleQuote(Self.userShellPath)
+        let shell = Self.userShellPath.posixSingleQuoted
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
         let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
         return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
@@ -194,6 +210,36 @@ final public class TmuxService {
 
     /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
     public var apiSocketPath: String?
+
+    /// When true, the user opted into the editor override (issue #591 §5):
+    /// `export VISUAL='<editor> edit'` is typed into newly-created shell panes
+    /// (and chained onto app-launched agent commands) so Gallager's in-app
+    /// editor wins even when the user's rc files clobber `$VISUAL`. Mirrored from
+    /// `AppSettings.editorOverrideMode` by `AppCoordinator`; off by default so
+    /// non-consenting users are never typed into.
+    public var overrideVisualInShellPanes = false
+
+    /// Pane IDs we've already injected the override into, so a pane is typed into
+    /// at most once even across repeated `refreshPanes` calls. Cleared when the
+    /// override is turned off so re-enabling re-injects.
+    private var injectedOverridePaneIds: Set<String> = []
+
+    /// Guards against overlapping probe runs (startup + a Settings "re-check").
+    private var isProbingVisualConflict = false
+
+    /// The user's login shell path — mirrors tmux's resolution chain. Exposed so
+    /// the override/probe machinery can pick the right `export` vs `set -gx`
+    /// syntax and craft the suggested rc line.
+    public var loginShellPath: String {
+        Self.userShellPath
+    }
+
+    /// The `$VISUAL` value Gallager wants agents to see: the bundled CLI invoked
+    /// with `edit`. Nil when the CLI isn't in the bundle.
+    private var gallagerVisualValue: String? {
+        guard let editorCLIPath else { return nil }
+        return "\(editorCLIPath) edit"
+    }
 
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
@@ -335,6 +381,12 @@ final public class TmuxService {
         switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
         case let .assign(newPanes):
             panes = newPanes
+            // When the override is active, type `export VISUAL=…` into any new
+            // shell pane (issue #591 §5). Fired detached so it never blocks the
+            // refresh; the per-pane dedup set keeps it idempotent.
+            if overrideVisualInShellPanes {
+                Task { await injectOverrideIntoEligibleShellPanes() }
+            }
         case let .empty(reason):
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
@@ -411,7 +463,13 @@ final public class TmuxService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
             .map(String.init)
-        let parsed = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        // Drop the detached `$VISUAL`-conflict probe session (issue #591 §1) so
+        // it never appears in the sidebar / iOS session lists. It's short-lived
+        // (created, queried, killed within ~10s) but a concurrent refresh could
+        // otherwise surface it.
+        let parsed = lines
+            .compactMap { PaneInfo(fromTmuxOutput: $0) }
+            .filter { !$0.sessionName.hasPrefix(EditorOverride.probeSessionPrefix) }
         let sorted = parsed.sorted { pane1, pane2 in
             let pane1Attached = attachedSessions.contains(pane1.sessionName)
             let pane2Attached = attachedSessions.contains(pane2.sessionName)
@@ -2565,24 +2623,36 @@ final public class TmuxService {
 
     // MARK: - Session Creation
 
-    /// Forces the server-wide tmux options needed for modified keys (notably
-    /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
-    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
-    /// is a scalar so re-setting it is harmless. `terminal-features` is a
-    /// list option and tmux's `-a` appends without deduping, so we read the
-    /// current value first and only append `xterm*:extkeys` if it isn't
-    /// already present — otherwise the value would grow into
-    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
-    private func applyExtendedKeysOptions() async {
+    /// Forces the server-wide tmux options needed for high-fidelity passthrough to
+    /// apps like Claude Code, so users don't need to add these lines to their
+    /// `~/.tmux.conf`:
+    ///  - `extended-keys on` + the `xterm*:extkeys` feature so modified keys
+    ///    (notably Shift+Enter) round-trip cleanly.
+    ///  - the `xterm*:RGB` feature so 24-bit color (advertised to agents via
+    ///    `COLORTERM=truecolor`) reaches the mirror instead of being quantized to
+    ///    256 colors.
+    ///
+    /// `extended-keys` is a scalar so re-setting it is harmless. `terminal-features`
+    /// is a list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append a feature if it isn't already present —
+    /// otherwise the value would grow into `…,xterm*:extkeys,xterm*:extkeys,…` over
+    /// a long-running server.
+    private func applyTerminalFeatureOptions() async {
         _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
 
         let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
             .stdoutString
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !current.contains("xterm*:extkeys") else { return }
-        _ = try? await runTmuxCommand([
-            "set-option", "-sa", "terminal-features", "xterm*:extkeys",
-        ])
+        if !current.contains("xterm*:extkeys") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:extkeys",
+            ])
+        }
+        if !current.contains("xterm*:RGB") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:RGB",
+            ])
+        }
     }
 
     /// Creates a new tmux session with the specified name and dimensions.
@@ -2618,14 +2688,20 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-command … ; new-session …` in one tmux
-        // invocation. `set-option` needs a running server, but we need the
-        // wrapper installed *before* `new-session` so the first pane uses it.
-        // Within a single tmux call the server is started, then commands run
-        // in order — so set-option succeeds and the new session inherits the
-        // just-set global default-command. Repeating this on every session
-        // create is harmless (idempotent) and avoids tracking server lifetime.
+        // Chain `set-option -g default-terminal … ; set-option -g default-command
+        // … ; new-session …` in one tmux invocation. `set-option` needs a running
+        // server, but we need both options installed *before* `new-session` so the
+        // first pane uses them. Within a single tmux call the server is started,
+        // then commands run in order — so the set-options succeed and the new
+        // session inherits them. `default-terminal` pins the pane's TERM to a
+        // 256-color entry (tmux otherwise spawns with its build default, which can
+        // be the 8-color `screen`); `screen-256color` is chosen over the richer
+        // `tmux-256color` because the latter's terminfo entry is missing on some
+        // macOS installs. Repeating this on every session create is harmless
+        // (idempotent) and avoids tracking server lifetime.
         var args = [
+            "set-option", "-g", "default-terminal", "screen-256color",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
@@ -2648,12 +2724,13 @@ final public class TmuxService {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        // Apply server-wide options required for extended-key passthrough so
-        // Shift+Enter (and other modified keys) reach apps like Claude Code
-        // without the user editing ~/.tmux.conf. Server options are global and
-        // idempotent — re-running on each session create is harmless and
-        // additive (`-a` appends to the terminal-features list).
-        await applyExtendedKeysOptions()
+        // Apply server-wide options required for extended-key and truecolor
+        // passthrough so Shift+Enter (and other modified keys) and 24-bit color
+        // reach apps like Claude Code without the user editing ~/.tmux.conf.
+        // Server options are global and idempotent — re-running on each session
+        // create is harmless and additive (`-a` appends to the terminal-features
+        // list).
+        await applyTerminalFeatureOptions()
 
         // Get the pane ID of the first pane in the new session
         // Target format: session:window.pane (first window, first pane)
@@ -2674,18 +2751,161 @@ final public class TmuxService {
 
         // Run initial command if specified
         if let runCommand, !runCommand.isEmpty {
+            // App-launched agents are typed into a login shell that has already
+            // sourced the user's rc files — so when the override is active we
+            // chain `export VISUAL=…` onto the same line (issue #591 §5) rather
+            // than relying on the new-pane injector, which would see the agent
+            // (not a shell) as `pane_current_command` and skip the pane. The
+            // chained form runs the command through the shell, so aliases /
+            // functions for the agent still resolve.
+            let line = overrideCommandPrefix().map { "\($0); \(runCommand)" } ?? runCommand
             _ = try await runTmuxCommand([
                 "send-keys",
                 "-t", paneId,
-                runCommand,
+                line,
                 "Enter",
             ])
+            // The override is now asserted on this pane's command line; mark it so
+            // the new-pane injector never also types into it.
+            if overrideVisualInShellPanes {
+                injectedOverridePaneIds.insert(paneId)
+            }
         }
 
         // Refresh panes to include the new session
         await refreshPanes()
 
         return (sessionName: sessionName, paneId: paneId)
+    }
+
+    /// The `export VISUAL=…` statement to chain ahead of an app-launched command
+    /// when the override is active, or nil when it isn't (or the shell/CLI is
+    /// unknown). Uses the user's login shell to pick the right syntax.
+    private func overrideCommandPrefix() -> String? {
+        guard overrideVisualInShellPanes, let gallagerVisualValue else { return nil }
+        return EditorOverride.injectionCommand(visualValue: gallagerVisualValue, shell: Self.userShellPath)
+    }
+
+    // MARK: - Editor Override (issue #591)
+
+    /// Probes whether Gallager's `$VISUAL` survives the user's rc files
+    /// (issue #591 §1). Creates a detached probe session on the app-owned tmux
+    /// server with `-e VISUAL=<sentinel>` and the normal `default-command`
+    /// wrapper (real pty, real env, real startup), types a `printf` that echoes
+    /// the resolved `$VISUAL` at the first prompt, polls `capture-pane` for the
+    /// marker, then kills the session.
+    ///
+    /// - Sentinel intact → `.intact` (no conflict; never show the dialog).
+    /// - Anything else (overridden or unset) → `.conflict` with the user's value.
+    /// - No bundled CLI, an unknown shell that can't run the probe, or a timeout
+    ///   → `.skipped` (treated as no-conflict).
+    public func probeVisualConflict() async -> VisualProbeResult {
+        // Nothing to fight over without the bundled CLI driving `$VISUAL`.
+        guard editorCLIPath != nil else { return .skipped }
+        guard !isProbingVisualConflict else { return .skipped }
+        isProbingVisualConflict = true
+        defer { isProbingVisualConflict = false }
+
+        let sessionName = EditorOverride.probeSessionPrefix
+        let target = Self.sessionTarget(sessionName)
+
+        // Kill any probe session left behind by a crash mid-probe before reusing
+        // the fixed name.
+        _ = try? await runTmuxCommand(["kill-session", "-t", target])
+
+        // Faithful pane env: the normal vars, but with the sentinel standing in
+        // for the editor `$VISUAL` (that's the value we're testing for survival).
+        var env = Self.baseEnvironmentVars
+        if let apiSocketPath {
+            env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+        }
+        env.append("VISUAL=\(EditorOverride.probeSentinel)")
+
+        // A wide pane keeps the typed `printf` command on one row so its echo
+        // can't wrap into a line that starts with the marker.
+        var args = [
+            "set-option", "-g", "default-command", defaultCommandWrapper,
+            ";",
+            "new-session",
+            "-d",
+            "-s", sessionName,
+            "-x", "200",
+            "-y", "50",
+        ] + env.flatMap { ["-e", $0] }
+        args.append(contentsOf: ["-c", FileManager.default.homeDirectoryForCurrentUser.path])
+
+        guard let created = try? await runTmuxCommand(args), created.isSuccess else {
+            logger.warning("VISUAL probe: failed to create probe session")
+            return .skipped
+        }
+
+        // Type the marker command; the bytes buffer in the tty and execute after
+        // all rc files, at the first prompt.
+        _ = try? await runTmuxCommand(["send-keys", "-t", target, EditorOverride.probeCommand, "Enter"])
+
+        // Poll capture-pane for the marker (≈10s budget).
+        var outcome: VisualProbeResult = .skipped
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard
+                let capture = try? await runTmuxCommand(["capture-pane", "-t", target, "-p"]),
+                capture.isSuccess
+            else { continue }
+            if let parsed = EditorOverride.parseProbeOutput(capture.stdoutString) {
+                outcome = parsed
+                break
+            }
+        }
+
+        _ = try? await runTmuxCommand(["kill-session", "-t", target])
+        logger.info("VISUAL probe result: \(String(describing: outcome))")
+        return outcome
+    }
+
+    /// Injects the override into every current shell pane we haven't typed into
+    /// yet (issue #591 §5). Called when the user turns the override on, so panes
+    /// that already exist pick it up immediately; new panes are handled by
+    /// `refreshPanes`.
+    public func injectVisualOverrideIntoExistingShellPanes() async {
+        await injectOverrideIntoEligibleShellPanes()
+    }
+
+    /// Forgets which panes have been injected, so flipping the override off and
+    /// back on re-injects current panes.
+    public func clearInjectedOverrideTracking() {
+        injectedOverridePaneIds.removeAll()
+    }
+
+    /// Types `export VISUAL='<editor> edit'` (or the fish equivalent) into each
+    /// known-shell pane not yet injected, recording it so a pane is typed into at
+    /// most once. Non-shell panes (a direct-command agent) are skipped — they
+    /// never ran rc files, so their inherited `-e VISUAL` is already correct, and
+    /// typing into a running program would corrupt its input.
+    private func injectOverrideIntoEligibleShellPanes() async {
+        guard overrideVisualInShellPanes, let gallagerVisualValue else { return }
+
+        // Bound the dedup set to live panes so it can't grow without limit.
+        let livePaneIds = Set(panes.map(\.paneId))
+        injectedOverridePaneIds.formIntersection(livePaneIds)
+
+        for pane in panes {
+            guard !injectedOverridePaneIds.contains(pane.paneId) else { continue }
+            guard
+                let command = EditorOverride.injectionCommand(
+                    visualValue: gallagerVisualValue,
+                    shell: pane.command
+                )
+            else { continue }
+            // Record before awaiting so an overlapping invocation skips this pane.
+            injectedOverridePaneIds.insert(pane.paneId)
+            do {
+                try await sendKeys(pane.paneId, keys: command, literal: true)
+                try await sendKeys(pane.paneId, keys: "Enter")
+            } catch {
+                logger.warning("VISUAL override injection failed for \(pane.paneId): \(error)")
+                injectedOverridePaneIds.remove(pane.paneId)
+            }
+        }
     }
 
     /// Returns `true` when a tmux session with the given name currently exists.

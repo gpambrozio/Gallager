@@ -56,6 +56,7 @@ public enum Symbols: String {
     case keyboard
     case keyboardChevronCompactDown = "keyboard.chevron.compact.down"
     case laptopcomputer
+    case largecircleFillCircle = "largecircle.fill.circle"
     case line3Horizontal = "line.3.horizontal"
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"
@@ -79,6 +80,7 @@ public enum Symbols: String {
     case puzzlepiece
     case qrcode
     case questionmark
+    case questionmarkCircle = "questionmark.circle"
     case rectangleBadgeMinus = "rectangle.badge.minus"
     case rectangleSplit1x2Fill = "rectangle.split.1x2.fill"
     case rectangleSplit2x1 = "rectangle.split.2x1"

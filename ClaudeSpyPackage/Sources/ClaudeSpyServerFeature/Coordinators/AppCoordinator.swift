@@ -15,13 +15,6 @@
         case remote(hostId: String, hostName: String, paneId: String)
     }
 
-    /// POSIX-shell single-quote a string so it survives word-splitting and expansion.
-    /// Wraps the value in single quotes and escapes embedded single quotes via `'\''`.
-    @Sendable
-    private func shellQuoteSingle(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// Coordinates app-level services and their interactions for the macOS app.
     ///
     /// This class centralizes all service initialization, event wiring, and state synchronization
@@ -82,6 +75,21 @@
 
         /// Holds "Claude wrote a markdown file — open it?" prompts per tmux session.
         public let markdownOpenSuggestionStore: MarkdownOpenSuggestionStore
+
+        // MARK: - Editor Override (issue #591)
+
+        /// Result of this launch's `$VISUAL`-survival probe, or nil until it
+        /// finishes. Read by the consent dialog and the Settings status line.
+        public private(set) var editorOverrideProbeResult: VisualProbeResult?
+
+        /// Drives the consent dialog sheet. Set true on the first session creation
+        /// when the probe found a conflict and the mode is still `.ask`.
+        public var isShowingEditorOverrideDialog = false
+
+        /// Latches once the consent dialog has been offered this launch so it
+        /// isn't re-presented on every subsequent session creation.
+        @ObservationIgnored
+        private var hasPresentedEditorOverrideDialogThisLaunch = false
 
         // MARK: - In-Process Plugin Runtime (additive; coexists with HookServerService)
 
@@ -207,6 +215,11 @@
             // the next-spawned shell without restarting the app.
             tmuxService.setThemeProvider { [settings] in settings.theme }
 
+            // Mirror the persisted editor-override choice onto the tmux service so
+            // injection is active from the first pane if the user already opted in
+            // on a prior launch (issue #591).
+            tmuxService.overrideVisualInShellPanes = settings.editorOverrideMode == .overrideInGallagerSessions
+
             // Create control client manager for tmux control mode
             self.controlClientManager = TmuxControlClientManager(
                 tmuxPath: settings.tmuxPath,
@@ -323,6 +336,24 @@
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
+            // Probe whether the user's rc files clobber Gallager's `$VISUAL`
+            // (issue #591). Detached so the ~1–10s probe never blocks launch; any
+            // dialog it triggers is deferred to the first session anyway.
+            switch settings.editorOverrideMode {
+            case .ask:
+                // Decision still pending: probe so the dialog can offer on a
+                // detected conflict at the first session.
+                Task { await runEditorConflictProbe() }
+            case .overrideInGallagerSessions:
+                // Already injecting. Re-check whether the conflict that justified
+                // it still exists — if the user has since removed `export VISUAL`
+                // from their rc, the injection is now redundant and is dropped.
+                Task { await reconcileOverrideAgainstProbe() }
+            case .useMyEditor:
+                // Never overriding, never asking — nothing to probe for.
+                break
+            }
+
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
 
@@ -376,6 +407,93 @@
             }
             return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
         }
+
+        // MARK: - Editor Override (issue #591)
+
+        /// Runs the `$VISUAL`-survival probe and caches the result. Invoked once at
+        /// startup and again from the Settings "re-check" affordance.
+        func runEditorConflictProbe() async {
+            let result = await tmuxService.probeVisualConflict()
+            editorOverrideProbeResult = result
+        }
+
+        /// Re-runs the probe on demand (Settings "re-check now"), and — if the
+        /// conflict has since been resolved (e.g. the user edited their rc files
+        /// per Option 1) — clears the latch so a future genuine conflict can ask
+        /// again. Also drops a now-redundant override (see
+        /// `dropRedundantOverrideIfConflictResolved`).
+        public func reprobeEditorConflict() async {
+            await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
+            if editorOverrideProbeResult?.isConflict != true {
+                hasPresentedEditorOverrideDialogThisLaunch = false
+            }
+        }
+
+        /// Startup reconciliation for override mode: probe, then drop the override
+        /// if the conflict it was opted into for is gone (issue #591).
+        private func reconcileOverrideAgainstProbe() async {
+            await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
+        }
+
+        /// If we're injecting `export VISUAL=…` (override mode) but the probe
+        /// positively confirmed the rc conflict is gone (`.intact`), the
+        /// injection is redundant — Gallager's `-e VISUAL` already wins — so fall
+        /// back to `.ask` and stop typing it into every pane. A `.skipped` probe
+        /// isn't proof the conflict is gone, so the override is left untouched
+        /// (issue #591).
+        private func dropRedundantOverrideIfConflictResolved() {
+            guard
+                EditorOverride.shouldDropRedundantOverride(
+                    mode: settings.editorOverrideMode,
+                    probe: editorOverrideProbeResult
+                ) else { return }
+            setEditorOverrideMode(.ask)
+        }
+
+        /// Whether the consent dialog should be offered: a conflict was detected
+        /// and the user hasn't yet made a durable choice (still `.ask`), and we
+        /// haven't already asked this launch.
+        public var shouldOfferEditorOverrideDialog: Bool {
+            settings.editorOverrideMode == .ask
+                && editorOverrideProbeResult?.isConflict == true
+                && !hasPresentedEditorOverrideDialogThisLaunch
+        }
+
+        /// Presents the consent dialog if it's warranted. Called whenever a
+        /// session appears or the probe finishes, so it shows on whichever
+        /// happens last — but only once there's a local session, so "Ctrl-G" has
+        /// context (issue #591 §2).
+        public func maybePresentEditorOverrideDialog() {
+            guard shouldOfferEditorOverrideDialog else { return }
+            guard !tmuxService.sessions.isEmpty else { return }
+            hasPresentedEditorOverrideDialogThisLaunch = true
+            isShowingEditorOverrideDialog = true
+        }
+
+        /// Applies a durable editor-override choice (from the dialog or Settings):
+        /// persists it and reflects it onto the tmux service, injecting into
+        /// existing shell panes when turning the override on.
+        public func setEditorOverrideMode(_ mode: EditorOverrideMode) {
+            settings.editorOverrideMode = mode
+            let active = mode == .overrideInGallagerSessions
+            tmuxService.overrideVisualInShellPanes = active
+            if active {
+                Task { await tmuxService.injectVisualOverrideIntoExistingShellPanes() }
+            } else {
+                tmuxService.clearInjectedOverrideTracking()
+            }
+        }
+
+        #if DEBUG
+            /// Preview/test seam: seed the probe result without running the live
+            /// tmux probe, so SwiftUI previews can render the consent dialog
+            /// (`EditorOverrideDialog`) in a realistic conflict state (issue #591).
+            func setEditorOverrideProbeResultForPreview(_ result: VisualProbeResult?) {
+                editorOverrideProbeResult = result
+            }
+        #endif
 
         // MARK: - In-Process Plugin Runtime Setup (additive)
 
@@ -1753,10 +1871,10 @@
                     let launchArgs = args.isEmpty ? (launch?.args ?? []) : args
                     let runCommand: String
                     if launchArgs.isEmpty {
-                        runCommand = shellQuoteSingle(commandPath)
+                        runCommand = commandPath.posixSingleQuoted
                     } else {
-                        let quoted = launchArgs.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
+                        let quoted = launchArgs.map(\.posixSingleQuoted).joined(separator: " ")
+                        runCommand = "\(commandPath.posixSingleQuoted) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
@@ -2510,10 +2628,10 @@
                 // setting); a nil launch means "open in a bare shell".
                 let runCommand: String? = launch.map { command in
                     if command.args.isEmpty {
-                        return shellQuoteSingle(command.command)
+                        return command.command.posixSingleQuoted
                     }
-                    let quoted = command.args.map(shellQuoteSingle).joined(separator: " ")
-                    return "\(shellQuoteSingle(command.command)) \(quoted)"
+                    let quoted = command.args.map(\.posixSingleQuoted).joined(separator: " ")
+                    return "\(command.command.posixSingleQuoted) \(quoted)"
                 }
 
                 let workingDirectory = spec.workingDirectory
