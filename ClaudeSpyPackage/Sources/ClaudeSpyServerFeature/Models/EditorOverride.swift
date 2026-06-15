@@ -27,7 +27,7 @@ public enum EditorOverrideMode: String, CaseIterable, Identifiable, Sendable {
     /// Short label for the Settings picker.
     public var displayName: String {
         switch self {
-        case .ask: "Ask if my shell overrides it"
+        case .ask: "Ask me"
         case .overrideInGallagerSessions: "Override in Gallager sessions"
         case .useMyEditor: "Use my editor"
         }
@@ -89,6 +89,24 @@ public enum EditorOverride {
     /// `\n` is a literal backslash-n typed into the shell; `printf` turns it
     /// into a newline so the marker lands on its own line.
     public static let probeCommand = #"printf 'GALLAGER_PROBE=%s\n' "$VISUAL""#
+
+    /// Whether an active override should be dropped because the probe proved the
+    /// rc `$VISUAL` conflict is gone (issue #591). The override types
+    /// `export VISUAL=…` into every shell pane; once the user removes their
+    /// conflicting `export VISUAL` from their rc files, Gallager's `-e VISUAL`
+    /// already wins on its own, so that injection is pure redundancy and should
+    /// stop.
+    ///
+    /// Only a positively `.intact` probe disables the override. A `.skipped`
+    /// result (no bundled CLI, unknown shell, or timeout) is *not* proof the
+    /// conflict is gone, so the override is left in place. Pure so the decision
+    /// is unit-testable without an `AppCoordinator`.
+    public static func shouldDropRedundantOverride(
+        mode: EditorOverrideMode,
+        probe: VisualProbeResult?
+    ) -> Bool {
+        mode == .overrideInGallagerSessions && probe == .intact
+    }
 
     /// Builds the override line to type into a shell pane (issue #591 §5), or
     /// nil for shells we don't recognize (so they're skipped rather than

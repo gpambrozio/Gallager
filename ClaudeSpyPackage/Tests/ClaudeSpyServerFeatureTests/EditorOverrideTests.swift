@@ -158,3 +158,51 @@ struct EditorOverrideResultTests {
         }
     }
 }
+
+struct EditorOverrideReconcileTests {
+    @Test("Override + intact probe → drop the now-redundant override")
+    func dropsWhenConflictGone() {
+        #expect(EditorOverride.shouldDropRedundantOverride(
+            mode: .overrideInGallagerSessions,
+            probe: .intact
+        ))
+    }
+
+    @Test("Override + still-conflicting probe → keep overriding")
+    func keepsWhenStillConflicting() {
+        #expect(!EditorOverride.shouldDropRedundantOverride(
+            mode: .overrideInGallagerSessions,
+            probe: .conflict(effectiveValue: "vim")
+        ))
+        #expect(!EditorOverride.shouldDropRedundantOverride(
+            mode: .overrideInGallagerSessions,
+            probe: .conflict(effectiveValue: nil)
+        ))
+    }
+
+    @Test("Override + inconclusive probe (skipped / not-yet-run) → keep overriding")
+    func keepsWhenProbeInconclusive() {
+        // A skipped probe (no CLI, unknown shell, timeout) or a probe that hasn't
+        // finished is not proof the conflict is gone — don't disable the override.
+        #expect(!EditorOverride.shouldDropRedundantOverride(
+            mode: .overrideInGallagerSessions,
+            probe: .skipped
+        ))
+        #expect(!EditorOverride.shouldDropRedundantOverride(
+            mode: .overrideInGallagerSessions,
+            probe: nil
+        ))
+    }
+
+    @Test("Non-override modes are never dropped, whatever the probe says")
+    func ignoresOtherModes() {
+        for mode in [EditorOverrideMode.ask, .useMyEditor] {
+            #expect(!EditorOverride.shouldDropRedundantOverride(mode: mode, probe: .intact))
+            #expect(!EditorOverride.shouldDropRedundantOverride(mode: mode, probe: .skipped))
+            #expect(!EditorOverride.shouldDropRedundantOverride(
+                mode: mode,
+                probe: .conflict(effectiveValue: "vim")
+            ))
+        }
+    }
+}
