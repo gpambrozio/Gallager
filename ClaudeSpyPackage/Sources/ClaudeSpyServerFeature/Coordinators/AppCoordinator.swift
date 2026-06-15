@@ -440,6 +440,15 @@
             }
         }
 
+        #if DEBUG
+            /// Preview/test seam: seed the probe result without running the live
+            /// tmux probe, so SwiftUI previews can render the consent dialog
+            /// (`EditorOverrideDialog`) in a realistic conflict state (issue #591).
+            func setEditorOverrideProbeResultForPreview(_ result: VisualProbeResult?) {
+                editorOverrideProbeResult = result
+            }
+        #endif
+
         // MARK: - In-Process Plugin Runtime Setup (additive)
 
         /// Constructs and starts the agent-blind in-process plugin runtime
