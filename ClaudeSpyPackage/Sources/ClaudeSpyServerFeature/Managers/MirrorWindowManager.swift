@@ -180,7 +180,52 @@ final public class MirrorWindowManager {
     public func endAgentSession(forPane paneId: String) -> Bool {
         guard paneStates[paneId]?.agentSession != nil else { return false }
         paneStates[paneId]?.agentSession = nil
+        // Drop the OTEL telemetry joined to this session (issue #597) so a fresh
+        // session in the same pane doesn't inherit the prior meter / mode.
+        paneStates[paneId]?.telemetry = nil
+        paneStates[paneId]?.permissionMode = nil
+        paneStates[paneId]?.permissionModeTrigger = nil
+        paneStates[paneId]?.claudeSessionID = nil
         return true
+    }
+
+    // MARK: - OTEL Telemetry Join + Stamp (issue #597)
+
+    /// Returns the pane currently bound to `sessionID` (the Claude `session.id`),
+    /// or `nil` if no pane has registered that id yet.
+    public func paneId(forClaudeSessionID sessionID: String) -> String? {
+        paneStates.first(where: { $0.value.claudeSessionID == sessionID })?.key
+    }
+
+    /// Stamps accumulated OTEL telemetry onto the pane bound to `sessionID`.
+    /// - Returns: the stamped pane id, or `nil` if no pane is bound to the id
+    ///   (so the caller can skip the viewer push).
+    @discardableResult
+    public func applyTelemetry(_ telemetry: SessionTelemetry, forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        paneStates[paneId]?.telemetry = telemetry
+        return paneId
+    }
+
+    /// Records a permission-mode change on the pane bound to `sessionID`.
+    /// - Returns: the stamped pane id, or `nil` if no pane is bound to the id.
+    @discardableResult
+    public func applyPermissionMode(
+        _ mode: String,
+        trigger: String?,
+        forClaudeSessionID sessionID: String
+    ) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        paneStates[paneId]?.permissionMode = mode
+        paneStates[paneId]?.permissionModeTrigger = trigger
+        return paneId
+    }
+
+    /// The project folder name for the pane bound to `sessionID`, used to label
+    /// milestone notifications. Falls back to `nil` when unknown.
+    public func projectName(forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        return paneStates[paneId]?.agentSession?.displayName
     }
 
     // MARK: - Plugin State (in-process plugin runtime)
@@ -228,6 +273,17 @@ final public class MirrorWindowManager {
                 session.detectedProjectPath = projectPath
             }
             session.state = state
+        }
+
+        // Persist the hook `session_id` as the join key for the OTEL telemetry
+        // channel (issue #597). When it changes (a new session via `/clear` or
+        // resume) the accumulated meter belongs to the prior session, so reset it
+        // — the next `api_request` for the new id repopulates a fresh meter.
+        if paneStates[paneId]?.claudeSessionID != sessionID {
+            paneStates[paneId]?.claudeSessionID = sessionID
+            paneStates[paneId]?.telemetry = nil
+            paneStates[paneId]?.permissionMode = nil
+            paneStates[paneId]?.permissionModeTrigger = nil
         }
 
         // Record arrival order for the "most recent activity" sort.

@@ -30,6 +30,8 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 
 **Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`
 
+`baseEnvironmentVars` (injected via tmux `-e`, so they reach both app-launched and manually-typed `claude`) sets the Claude rendering/update flags **and** the OTEL export vars that point Claude Code at the Mac-local `OTLPReceiver` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*` → `http://127.0.0.1:4318`; issue #597). No content gates are enabled.
+
 ### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
 
 Actor managing a `tmux -C attach -f no-output,ignore-size` control mode connection for commands and event notifications. Live terminal data is delivered separately via `PipePaneReader`.
@@ -133,6 +135,7 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - Respects user-closed state (won't reopen until session ends)
 - Periodic session validation cleans up stale sessions
 - `updatePaneStates(from:)` syncs pane state from tmux, removing stale entries
+- Persists the Claude `session.id` as `PaneState.claudeSessionID` (the OTEL join key, issue #597) and exposes `applyTelemetry` / `applyPermissionMode` to stamp the joined pane; cleared on session end
 - `refreshGitBranches()` (run on the validation tick) detects each pane's git
   branch with a single cheap `git rev-parse --abbrev-ref HEAD`. The Git tab's
   changed-file badge (issue #573) is separate — read live from the per-session
@@ -168,6 +171,18 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - `Stop` - stop events
 
 Codex contributes additional events (`PreCompact`/`PostCompact`, `SubagentStart`, `PermissionRequest`); the server accepts any JSON payload of the right shape and does not validate event names against a Claude-specific enum.
+
+### OTLPReceiver (`ClaudeSpyServerFeature/Telemetry/OTLPReceiver.swift`)
+
+`actor` — a Mac-local OpenTelemetry receiver that **augments** the hook channel with quantitative, content-free data from Claude Code's OTEL export (issue #597). One-way push only; nothing is ever sent back into Claude.
+
+- Loopback-only `NWListener` on `127.0.0.1:4318` (`requiredInterfaceType = .loopback`, so no Local Network Privacy prompt and unreachable off-host). Accepts `POST /v1/metrics` and `POST /v1/logs` as OTLP/JSON; responds `200 {}`. No protobuf/gRPC dependency.
+- Decoding lives in `OTLPModels.swift` (tolerant: int64 may arrive as a JSON string or number). Accumulation lives in `OTLPTelemetryAccumulator.swift` (pure value logic, unit-tested), keyed by `session.id`:
+  - `claude_code.api_request` log events → summed tokens (by type), summed `cost_usd`, latest `duration_ms`/`model`, and a capped ring of the last ~20 turns.
+  - `claude_code.commit.count` / `pull_request.count` counters → milestone deltas between exports.
+  - `claude_code.permission_mode_changed` events → the pane's current permission mode + trigger.
+- Injected via `TmuxService.baseEnvironmentVars` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*`). No content gates are enabled, so no prompt/tool/body content leaves the Claude process.
+- `AppCoordinator` wires the receiver's callbacks: telemetry → `MirrorWindowManager.applyTelemetry` (joined to a pane by `claudeSessionID`, then a throttled ~1/sec viewer push); milestones → one notification each via the existing `handlePluginNotification` path; mode changes → `MirrorWindowManager.applyPermissionMode`. The accumulated state is evicted on session end. See `MirrorWindowManager` and `PaneState.telemetry` / `.permissionMode`.
 
 ### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
 

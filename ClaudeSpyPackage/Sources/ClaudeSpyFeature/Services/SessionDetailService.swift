@@ -49,6 +49,23 @@ final public class SessionDetailService {
         sessionStore.isPaneActive(paneId: paneId, hostId: hostId)
     }
 
+    /// Live OTEL telemetry for this pane (issue #597), or `nil` if none has
+    /// arrived yet.
+    public var telemetry: SessionTelemetry? {
+        sessionStore.paneState(for: paneId, hostId: hostId)?.telemetry
+    }
+
+    /// Live permission mode for this pane (issue #597), or `nil` if no mode
+    /// change has been observed.
+    public var permissionMode: String? {
+        sessionStore.paneState(for: paneId, hostId: hostId)?.permissionMode
+    }
+
+    /// What triggered the latest permission-mode change, if known.
+    public var permissionModeTrigger: String? {
+        sessionStore.paneState(for: paneId, hostId: hostId)?.permissionModeTrigger
+    }
+
     /// Whether the host is connected to the relay
     public var isHostConnected: Bool {
         relayClient.isHostConnected

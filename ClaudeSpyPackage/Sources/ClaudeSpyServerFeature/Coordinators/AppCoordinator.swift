@@ -112,6 +112,12 @@
         @ObservationIgnored
         private var ingressSocketServer: IngressSocketServer?
 
+        /// Mac-local OTLP/JSON receiver for Claude Code telemetry (issue #597).
+        /// Loopback-only; accumulates per-session token/cost/latency and emits
+        /// milestone / mode-change events. Additive to the hook channel.
+        @ObservationIgnored
+        private var otlpReceiver: OTLPReceiver?
+
         /// Per-plugin log sinks (one per active plugin), retained so the host's
         /// `log()` calls keep landing in the right file.
         @ObservationIgnored
@@ -159,6 +165,13 @@
         /// into a single relay send carrying the latest `PaneState.progress`.
         @ObservationIgnored
         private var pendingProgressPush: Task<Void, Never>?
+
+        /// Trailing-edge throttle for OTEL telemetry pushes to viewers (issue
+        /// #597). The host's own sidebar updates synchronously via the
+        /// `paneStates` assignment; only the cross-device push is coalesced to
+        /// ~1/sec so a burst of `api_request` events collapses into one send.
+        @ObservationIgnored
+        private var pendingTelemetryPush: Task<Void, Never>?
 
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
@@ -345,6 +358,7 @@
             // Tear down the in-process plugin runtime: stop accepting ingress
             // frames, then `shutdown()` each active core via the registry.
             await ingressSocketServer?.stop()
+            await otlpReceiver?.stop()
             if let registry = pluginRegistry {
                 for id in Array(registry.active.keys) {
                     await registry.disable(id)
@@ -466,6 +480,13 @@
             } catch {
                 logger.error("Failed to start plugin ingress socket: \(error)")
             }
+
+            // OTEL telemetry receiver (issue #597): a loopback OTLP/JSON listener
+            // that augments the hook channel with per-session token/cost/latency,
+            // commit/PR milestones, and permission-mode changes. Failure to bind
+            // (e.g. the port is taken) is non-fatal — the hook channel is
+            // unaffected and the meter simply stays empty.
+            await setupOTLPReceiver()
 
             // E2E project-list determinism (spec §17.3). The per-agent in-memory
             // scanners that used to seed a fixed project set were deleted in the
@@ -965,6 +986,90 @@
             )
         }
 
+        // MARK: - OTEL Telemetry (issue #597)
+
+        /// Builds the Mac-local OTLP receiver and starts it, wiring its three
+        /// content-free signals into the app: telemetry → stamp the joined pane,
+        /// milestones → one-shot notifications, mode changes → stamp the pane.
+        private func setupOTLPReceiver() async {
+            let receiver = OTLPReceiver(
+                onTelemetry: { [weak self] sessionID, telemetry in
+                    await self?.handleTelemetry(sessionID: sessionID, telemetry: telemetry)
+                },
+                onMilestone: { [weak self] milestone in
+                    await self?.handleTelemetryMilestone(milestone)
+                },
+                onModeChange: { [weak self] change in
+                    await self?.handleTelemetryModeChange(change)
+                }
+            )
+            otlpReceiver = receiver
+            do {
+                try await receiver.start()
+            } catch {
+                logger.error("Failed to start OTLP telemetry receiver: \(error)")
+            }
+        }
+
+        /// Stamps accumulated telemetry onto the joined pane (the host sidebar
+        /// updates synchronously), then coalesces the cross-device push to ~1/sec.
+        private func handleTelemetry(sessionID: String, telemetry: SessionTelemetry) async {
+            guard windowManager.applyTelemetry(telemetry, forClaudeSessionID: sessionID) != nil else {
+                return // no pane bound to this session id yet
+            }
+            guard let connectionManager = connectedViewerManager else { return }
+            pendingTelemetryPush?.cancel()
+            pendingTelemetryPush = Task {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                await connectionManager.pushSessionStateToAll()
+            }
+        }
+
+        /// Turns a commit / PR milestone into exactly one notification per export
+        /// tick, routed to the originating pane. Skipped when no pane is bound
+        /// (the milestone can't be attributed to a visible session).
+        private func handleTelemetryMilestone(_ milestone: TelemetryMilestone) async {
+            guard let paneId = windowManager.paneId(forClaudeSessionID: milestone.sessionID) else { return }
+            let project = windowManager.projectName(forClaudeSessionID: milestone.sessionID) ?? "your project"
+            let spec = Self.milestoneNotification(milestone, project: project)
+            await handlePluginNotification(spec, paneId: paneId)
+        }
+
+        /// Formats a milestone notification. The body adapts when more than one
+        /// occurred within a single export window.
+        private static func milestoneNotification(
+            _ milestone: TelemetryMilestone,
+            project: String
+        ) -> NotificationSpec {
+            switch milestone.kind {
+            case .commit:
+                let title = "Committed"
+                let body = milestone.count > 1
+                    ? "Claude made \(milestone.count) commits in \(project)"
+                    : "Claude committed in \(project)"
+                return NotificationSpec(title: title, body: body)
+            case .pullRequest:
+                let title = "Pull Request"
+                let body = milestone.count > 1
+                    ? "Claude opened \(milestone.count) pull requests in \(project)"
+                    : "Claude opened a pull request in \(project)"
+                return NotificationSpec(title: title, body: body)
+            }
+        }
+
+        /// Records a permission-mode change on the joined pane and pushes it (mode
+        /// flips are rare, so this isn't throttled).
+        private func handleTelemetryModeChange(_ change: TelemetryModeChange) async {
+            let stamped = windowManager.applyPermissionMode(
+                change.toMode,
+                trigger: change.trigger,
+                forClaudeSessionID: change.sessionID
+            )
+            guard stamped != nil else { return }
+            await connectedViewerManager?.pushSessionStateToAll()
+        }
+
         /// AppActionSink → drive the matching agent-blind Mac feature (spec §6).
         private func handlePluginAppAction(_ action: AppAction) async {
             switch action {
@@ -1003,6 +1108,12 @@
                 if windowManager.isYoloModeEnabled(for: sessionID) {
                     windowManager.setYoloMode(enabled: false, for: sessionID)
                     sessionStateChanged = true
+                }
+                // Evict this session's OTEL telemetry from the receiver to bound
+                // its memory (issue #597). Capture the join key before
+                // `endAgentSession` clears it from the pane.
+                if let claudeSessionID = windowManager.paneStates[sessionID]?.claudeSessionID {
+                    await otlpReceiver?.evictSession(claudeSessionID)
                 }
                 // Remove the agent session so the pane reverts from the idle moon
                 // glyph to a plain terminal (the legacy `claudeSession = nil` on

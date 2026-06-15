@@ -314,7 +314,9 @@
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                             customDescription: session.customDescription,
                             customEmoji: session.customEmoji,
-                            windowCount: session.windows.count
+                            windowCount: session.windows.count,
+                            telemetry: claudePane.telemetry,
+                            permissionMode: claudePane.permissionMode
                         )
                     } else if let pane = activePaneInSession {
                         TerminalRowView(
@@ -528,6 +530,8 @@
         var customDescription: String?
         var customEmoji: String?
         var windowCount = 1
+        var telemetry: SessionTelemetry?
+        var permissionMode: String?
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
@@ -588,6 +592,9 @@
                     Text(session.statusLabel)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+
+                    // OTEL meter + model + permission-mode chip (issue #597).
+                    SessionTelemetrySummary(telemetry: telemetry, permissionMode: permissionMode)
                 }
 
                 Spacer()

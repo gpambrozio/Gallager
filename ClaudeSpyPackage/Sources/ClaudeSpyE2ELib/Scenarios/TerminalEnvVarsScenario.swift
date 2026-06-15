@@ -49,6 +49,12 @@ public enum TerminalEnvVarsScenario {
             command: "export | grep -E 'CLAUDE_CODE_NO_FLICKER|DISABLE_AUTO_UPDATE|DISABLE_UPDATE_PROMPT'"
         )
         TestStep.wait(seconds: 1)
+        // OTEL telemetry vars (issue #597), also via the tmux `-e` path.
+        Shortcut.tmuxRunCommand(
+            target: "${envPane}",
+            command: "export | grep -E 'CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_'"
+        )
+        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-env-vars-output")
 
         // 5. Capture the pane and verify all 5 KEY=VALUE pairs surfaced
@@ -62,5 +68,16 @@ public enum TerminalEnvVarsScenario {
         TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_NO_FLICKER=1")
         TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_AUTO_UPDATE=true")
         TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_UPDATE_PROMPT=true")
+
+        // OTEL telemetry vars (issue #597) — proves Claude Code is pointed at the
+        // Mac-local OTLP receiver with no content gates enabled.
+        TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_ENABLE_TELEMETRY=1")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_METRICS_EXPORTER=otlp")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_LOGS_EXPORTER=otlp")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_EXPORTER_OTLP_PROTOCOL=http/json")
+        TestStep.assertStoredContains(
+            key: "envOutput", substring: "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318"
+        )
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_METRIC_EXPORT_INTERVAL=10000")
     }
 }

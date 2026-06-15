@@ -49,6 +49,18 @@ struct SessionSidebarRow: View {
         return nil
     }
 
+    /// The pane state backing `claudeSession`, for its OTEL telemetry (#597).
+    private var claudePaneState: PaneState? {
+        for window in session.windows {
+            for pane in window.panes {
+                if let state = windowManager.paneStates[pane.paneId], state.agentSession != nil {
+                    return state
+                }
+            }
+        }
+        return nil
+    }
+
     /// CLI-driven state override, if any pane in the session has one set.
     private var cliSessionState: CLISessionState? {
         for window in session.windows {
@@ -92,17 +104,25 @@ struct SessionSidebarRow: View {
                 customEmoji: primaryPaneState?.customEmoji
             )
 
-            SessionFieldsView(
-                fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
-                customDescription: primaryPaneState?.customDescription,
-                projectName: claudeSession?.displayName,
-                sessionName: session.sessionName,
-                terminalTitle: terminalTitle,
-                command: primaryPane?.command,
-                currentPath: primaryPane?.currentPath,
-                gitBranch: primaryPaneState?.gitBranch,
-                latestEvent: sessionSubtitle
-            )
+            VStack(alignment: .leading, spacing: 2) {
+                SessionFieldsView(
+                    fields: claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields,
+                    customDescription: primaryPaneState?.customDescription,
+                    projectName: claudeSession?.displayName,
+                    sessionName: session.sessionName,
+                    terminalTitle: terminalTitle,
+                    command: primaryPane?.command,
+                    currentPath: primaryPane?.currentPath,
+                    gitBranch: primaryPaneState?.gitBranch,
+                    latestEvent: sessionSubtitle
+                )
+
+                // OTEL meter + model + permission-mode chip (issue #597).
+                SessionTelemetrySummary(
+                    telemetry: claudePaneState?.telemetry,
+                    permissionMode: claudePaneState?.permissionMode
+                )
+            }
 
             Spacer()
         }

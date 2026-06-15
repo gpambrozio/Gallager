@@ -84,6 +84,18 @@ final public class TmuxService {
             "CLAUDE_CODE_NO_FLICKER=1",
             "DISABLE_AUTO_UPDATE=true",
             "DISABLE_UPDATE_PROMPT=true",
+            // OpenTelemetry export → the Mac-local OTLP receiver (issue #597).
+            // Augments the hook channel with per-session token/cost/latency,
+            // commit/PR milestones, and permission-mode changes. One-way push;
+            // no content gates are enabled (no OTEL_LOG_USER_PROMPTS etc.), so
+            // no prompt/tool/body content ever leaves the Claude process. The
+            // receiver binds 127.0.0.1 only.
+            "CLAUDE_CODE_ENABLE_TELEMETRY=1",
+            "OTEL_METRICS_EXPORTER=otlp",
+            "OTEL_LOGS_EXPORTER=otlp",
+            "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
+            "OTEL_METRIC_EXPORT_INTERVAL=10000",
         ]
         // Pin spawned panes to the app's own TMPDIR so tooling that resolves
         // `$TMPDIR/<file>` sees the same temp dir the app does. In production this

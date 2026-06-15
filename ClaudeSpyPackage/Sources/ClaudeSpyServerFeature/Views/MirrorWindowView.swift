@@ -53,6 +53,17 @@ struct MirrorWindowView: View {
 
             Text("\(streamWidth ?? paneState.width)x\(streamHeight ?? paneState.height)")
 
+            // Live OTEL meter for the focused session (issue #597, surface C).
+            if let telemetry = liveTelemetry, telemetry.tokensUsed > 0 || telemetry.costUSD > 0 {
+                Divider()
+                    .frame(height: 12)
+                SessionMeterView(telemetry: telemetry)
+                if let latency = telemetry.lastTurnLatencyMs {
+                    Text("· \(latency.latencyString)")
+                        .monospacedDigit()
+                }
+            }
+
             Spacer()
         }
         .font(.caption)
@@ -63,6 +74,12 @@ struct MirrorWindowView: View {
     }
 
     // MARK: - Computed Properties
+
+    /// Live telemetry for this pane, read from the observable window manager so
+    /// the meter updates as `api_request` events arrive.
+    private var liveTelemetry: SessionTelemetry? {
+        windowManager.paneStates[paneState.paneId]?.telemetry
+    }
 
     private var statusColor: Color {
         switch streamState {

@@ -22,6 +22,7 @@ public enum Symbols: String {
     case bolt
     case boltFill = "bolt.fill"
     case bubbleLeftAndExclamationmarkBubbleRight = "bubble.left.and.exclamationmark.bubble.right"
+    case chartLineUptrendXyaxis = "chart.line.uptrend.xyaxis"
     case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
