@@ -56,6 +56,17 @@ actor OTLPReceiver {
     private let onMilestone: MilestoneHandler
     private let onModeChange: ModeChangeHandler
 
+    /// Ordered hand-off from the (nonisolated) connection callbacks to a single
+    /// actor-isolated consumer, so request bodies are processed strictly in
+    /// arrival order. Spawning one independent `Task` per request did not
+    /// guarantee that — tasks awaiting the same actor can run out of submission
+    /// order, which would scramble `recentTurns` (the sparkline X-axis) and
+    /// miscompute commit/PR counter deltas (diffed against `lastCounterValue`).
+    /// This is the project's "Ingress Event Ordering" rule: one FIFO consumer.
+    private let requestStream: AsyncStream<(path: String, body: Data)>
+    private nonisolated let requestContinuation: AsyncStream<(path: String, body: Data)>.Continuation
+    private var consumerTask: Task<Void, Never>?
+
     init(
         port: UInt16 = OTLPReceiver.defaultPort,
         onTelemetry: @escaping TelemetryHandler,
@@ -66,6 +77,9 @@ actor OTLPReceiver {
         self.onTelemetry = onTelemetry
         self.onMilestone = onMilestone
         self.onModeChange = onModeChange
+        let (stream, continuation) = AsyncStream<(path: String, body: Data)>.makeStream()
+        self.requestStream = stream
+        self.requestContinuation = continuation
     }
 
     // MARK: Lifecycle
@@ -90,10 +104,25 @@ actor OTLPReceiver {
         }
         listener.start(queue: .global(qos: .utility))
         self.listener = listener
+        startConsumer()
         logger.info("OTLP receiver listening on 127.0.0.1:\(port)")
     }
 
+    /// Single FIFO consumer: drains buffered request bodies and processes them
+    /// in arrival order on the actor (see `requestStream`).
+    private func startConsumer() {
+        guard consumerTask == nil else { return }
+        consumerTask = Task { [weak self, stream = requestStream] in
+            for await item in stream {
+                await self?.process(path: item.path, body: item.body)
+            }
+        }
+    }
+
     func stop() {
+        requestContinuation.finish()
+        consumerTask?.cancel()
+        consumerTask = nil
         listener?.cancel()
         listener = nil
     }
@@ -157,11 +186,10 @@ actor OTLPReceiver {
             return
         }
 
-        let body = parsed.body
-        let path = parsed.path
-        Task { [weak self] in
-            await self?.process(path: path, body: body)
-        }
+        // Hand the body to the single ordered consumer, then ack immediately —
+        // the 200 isn't gated on processing, but processing stays in arrival
+        // order (see `requestStream`).
+        requestContinuation.yield((path: parsed.path, body: parsed.body))
         respond(connection)
 
         let remainder = buffer.count > parsed.consumed

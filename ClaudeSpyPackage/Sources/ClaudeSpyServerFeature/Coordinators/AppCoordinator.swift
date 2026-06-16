@@ -174,10 +174,12 @@
         @ObservationIgnored
         private var pendingProgressPush: Task<Void, Never>?
 
-        /// Trailing-edge throttle for OTEL telemetry pushes to viewers (issue
-        /// #597). The host's own sidebar updates synchronously via the
-        /// `paneStates` assignment; only the cross-device push is coalesced to
-        /// ~1/sec so a burst of `api_request` events collapses into one send.
+        /// Throttle handle for OTEL telemetry pushes to viewers (issue #597). A
+        /// true trailing throttle (not a debounce): the first event opens a 1s
+        /// window and later events fold into a single push at its end (carrying
+        /// the latest pane state), so a sustained burst still flushes ~1/sec
+        /// instead of starving. The host's own sidebar updates synchronously via
+        /// the `paneStates` assignment; only the cross-device push is throttled.
         @ObservationIgnored
         private var pendingTelemetryPush: Task<Void, Never>?
 
@@ -1140,16 +1142,22 @@
         }
 
         /// Stamps accumulated telemetry onto the joined pane (the host sidebar
-        /// updates synchronously), then coalesces the cross-device push to ~1/sec.
+        /// updates synchronously), then throttles the cross-device push to at
+        /// most once per second.
         private func handleTelemetry(sessionID: String, telemetry: SessionTelemetry) async {
             guard windowManager.applyTelemetry(telemetry, forClaudeSessionID: sessionID) != nil else {
                 return // no pane bound to this session id yet
             }
             guard let connectionManager = connectedViewerManager else { return }
-            pendingTelemetryPush?.cancel()
-            pendingTelemetryPush = Task {
+            // Trailing throttle, not a debounce: if a push is already scheduled
+            // this window, fold into it (it reads the latest pane state when it
+            // fires). A debounce would cancel-and-reschedule on every event and
+            // starve viewers during a sustained burst; this guarantees a flush
+            // every ~1s while telemetry keeps arriving.
+            guard pendingTelemetryPush == nil else { return }
+            pendingTelemetryPush = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { return }
+                self?.pendingTelemetryPush = nil
                 await connectionManager.pushSessionStateToAll()
             }
         }

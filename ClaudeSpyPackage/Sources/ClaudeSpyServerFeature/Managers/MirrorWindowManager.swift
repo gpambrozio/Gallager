@@ -296,8 +296,8 @@ final public class MirrorWindowManager {
         // Only the four tool/prompt/stop events carry it; others pass nil, which
         // must NOT clobber a mode already known (incl. one just learned from an
         // OTEL `permission_mode_changed`). Stamped after the session-id reset above
-        // so a fresh session's first hook wins. (`default` is stamped too; the chip
-        // presentation hides it — only non-default modes render.)
+        // so a fresh session's first hook wins. (`default` is stamped and renders
+        // its own gray-shield chip; only a truly unknown/empty mode shows nothing.)
         if let permissionMode {
             paneStates[paneId]?.permissionMode = permissionMode
         }

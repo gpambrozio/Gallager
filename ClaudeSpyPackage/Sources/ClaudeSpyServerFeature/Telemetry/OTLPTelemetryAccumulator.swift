@@ -175,6 +175,10 @@ struct OTLPTelemetryAccumulator {
             let counterKey = "\(sessionID)|\(metric.name ?? "")"
             let previous = lastCounterValue[counterKey] ?? 0
             lastCounterValue[counterKey] = total
+            // Bound the counter map too: a session that only ever emits
+            // commit/PR counters (never an `api_request` log) must still count
+            // against the cap, not grow unbounded until `evict()` at session end.
+            track(sessionID: sessionID)
             let delta = Int((total - previous).rounded())
             if delta > 0 {
                 result.milestones.append(TelemetryMilestone(sessionID: sessionID, kind: kind, count: delta))
@@ -200,12 +204,21 @@ struct OTLPTelemetryAccumulator {
         }
     }
 
-    /// Stores a snapshot and enforces the session cap (oldest-first eviction).
+    /// Stores a snapshot and registers the session in the bounded cap.
     private mutating func store(_ telemetry: SessionTelemetry, for sessionID: String) {
-        if metricsBySession[sessionID] == nil {
+        metricsBySession[sessionID] = telemetry
+        track(sessionID: sessionID)
+    }
+
+    /// Registers a session in the insertion-ordered cap (idempotent) and evicts
+    /// the oldest beyond `maxSessions`. Both the logs (`store`) and metrics
+    /// (`process(metric:)`) paths funnel through here, so every tracked session —
+    /// including counter-only ones — is bounded, and a session can't be appended
+    /// twice if it arrives first via a metric and later via a log.
+    private mutating func track(sessionID: String) {
+        if !sessionOrder.contains(sessionID) {
             sessionOrder.append(sessionID)
         }
-        metricsBySession[sessionID] = telemetry
         while sessionOrder.count > maxSessions {
             let oldest = sessionOrder.removeFirst()
             discardState(for: oldest)
