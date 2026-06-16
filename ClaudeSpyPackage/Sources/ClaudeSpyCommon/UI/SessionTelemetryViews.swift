@@ -200,6 +200,47 @@ public struct SessionTelemetrySummary: View {
     }
 }
 
+// MARK: - Status Bar
+
+/// Inline telemetry for a terminal status bar (issue #597, surface C): a leading
+/// divider, the token meter, last-turn latency, the model tag, and the
+/// permission-mode chip. Renders nothing when there's nothing worth showing, so a
+/// plain or just-started session leaves the bar untouched. Self-contained (its own
+/// `HStack`), so it drops in as one element of the status bar. Shared by the host
+/// main-window, the Mac-viewer main-window, and the mirror-window status bars.
+public struct SessionTelemetryStatusBar: View {
+    private let telemetry: SessionTelemetry?
+    private let permissionMode: String?
+
+    public init(telemetry: SessionTelemetry?, permissionMode: String?) {
+        self.telemetry = telemetry
+        self.permissionMode = permissionMode
+    }
+
+    public var body: some View {
+        let showMeter = (telemetry?.tokensUsed ?? 0) > 0 || (telemetry?.costUSD ?? 0) > 0
+        let model = telemetry?.model
+        let hasMode = PermissionModePresentation(mode: permissionMode) != nil
+        if showMeter || model != nil || hasMode {
+            HStack(spacing: 8) {
+                Divider()
+                    .frame(height: 12)
+                if showMeter, let telemetry {
+                    SessionMeterView(telemetry: telemetry)
+                    if let latency = telemetry.lastTurnLatencyMs {
+                        Text("· \(latency.latencyString)")
+                            .monospacedDigit()
+                    }
+                }
+                if let model {
+                    ModelTag(model: model)
+                }
+                PermissionModeChip(mode: permissionMode)
+            }
+        }
+    }
+}
+
 // MARK: - Sparkline
 
 /// A minimal line chart over a series of values, normalized to its own

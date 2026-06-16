@@ -22,26 +22,34 @@ struct WindowPaneLayoutView: View {
     @Environment(MirrorWindowManager.self) private var windowManager
 
     var body: some View {
-        if let layout = TmuxLayoutParser.parse(window.windowLayout) {
-            VStack(spacing: 0) {
-                tiledLayout(from: layout)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            paneContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if settings.showStatusBar {
-                    statusBar
-                }
+            if settings.showStatusBar {
+                statusBar
             }
-        } else if
-            window.isSinglePane, let pane = window.panes.first,
-            let paneState = windowManager.paneStates[pane.paneId] {
-            // Fallback for unparseable single-pane layout
-            MirrorWindowView(paneState: paneState)
+        }
+    }
+
+    /// The window's terminals: the parsed tmux split layout, or — when the layout
+    /// string can't be parsed — a simple vertical stack of the window's panes. Both
+    /// render the same `PaneTileView` and share the window-level `statusBar`.
+    @ViewBuilder
+    private var paneContent: some View {
+        if let layout = TmuxLayoutParser.parse(window.windowLayout) {
+            tiledLayout(from: layout)
         } else {
-            // Fallback: stack panes vertically if layout parsing fails
             VStack(spacing: 1) {
                 ForEach(window.panes) { pane in
                     if let paneState = windowManager.paneStates[pane.paneId] {
-                        MirrorWindowView(paneState: paneState)
+                        PaneTileView(
+                            paneState: paneState,
+                            paneInfo: pane,
+                            isSingle: window.isSinglePane,
+                            isActiveInTmux: pane.paneId == window.activePane?.paneId,
+                            onOpenURL: onOpenURL
+                        )
                     }
                 }
             }
@@ -209,17 +217,13 @@ struct WindowPaneLayoutView: View {
                 Text("\(activePane.width)x\(activePane.height)")
             }
 
-            // Live OTEL meter for the window's focused session (issue #597,
-            // surface C) — matches the detached mirror window's status bar.
-            if let telemetry = liveTelemetry {
-                Divider()
-                    .frame(height: 12)
-                SessionMeterView(telemetry: telemetry)
-                if let latency = telemetry.lastTurnLatencyMs {
-                    Text("· \(latency.latencyString)")
-                        .monospacedDigit()
-                }
-            }
+            // Live OTEL meter + model tag + permission-mode chip for the window's
+            // focused session (issue #597, surface C) — matches the detached mirror
+            // window's status bar.
+            SessionTelemetryStatusBar(
+                telemetry: focusedAgentPane?.telemetry,
+                permissionMode: focusedAgentPane?.permissionMode
+            )
 
             Spacer()
         }
@@ -230,15 +234,14 @@ struct WindowPaneLayoutView: View {
         .background(.bar)
     }
 
-    /// Telemetry for the window's agent session: the first pane in the window
-    /// carrying a non-empty meter. Read from the observable window manager so it
-    /// updates live as `api_request` events arrive.
-    private var liveTelemetry: SessionTelemetry? {
+    /// The window's agent-session pane (first pane carrying an `AgentSession`) —
+    /// the source of the status-bar meter / model / permission chip. Read from the
+    /// observable window manager so it updates live as telemetry and permission-mode
+    /// changes arrive.
+    private var focusedAgentPane: PaneState? {
         for pane in window.panes {
-            if
-                let telemetry = windowManager.paneStates[pane.paneId]?.telemetry,
-                telemetry.tokensUsed > 0 || telemetry.costUSD > 0 {
-                return telemetry
+            if let state = windowManager.paneStates[pane.paneId], state.agentSession != nil {
+                return state
             }
         }
         return nil
