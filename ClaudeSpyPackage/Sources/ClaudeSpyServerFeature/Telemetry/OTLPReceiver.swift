@@ -25,6 +25,23 @@ actor OTLPReceiver {
     /// `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`.
     static let defaultPort: UInt16 = 4_318
 
+    /// The port this process actually binds **and** advertises to launched
+    /// Claude instances. The single source of truth shared by the receiver
+    /// (`setupOTLPReceiver`) and the env injection (`TmuxService`), so the two
+    /// can never drift. Honors an `--otlp-port <port>` launch override: E2E
+    /// gives each app instance its own port so concurrent instances — and a
+    /// developer's real app already holding 4318 off to the side — never share
+    /// a loopback receiver. Falls back to `defaultPort` in production.
+    static var resolvedPort: UInt16 {
+        if
+            let idx = CommandLine.arguments.firstIndex(of: "--otlp-port"),
+            idx + 1 < CommandLine.arguments.count,
+            let parsed = UInt16(CommandLine.arguments[idx + 1]) {
+            return parsed
+        }
+        return defaultPort
+    }
+
     /// Hard cap on a single buffered request, guarding against a misbehaving
     /// local client. OTLP batches are small (KBs); 32 MB is generous.
     private static let maxRequestBytes = 32 * 1_024 * 1_024

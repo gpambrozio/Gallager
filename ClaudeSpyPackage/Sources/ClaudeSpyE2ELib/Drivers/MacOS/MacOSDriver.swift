@@ -20,12 +20,28 @@ public actor MacOSDriver {
     /// Default port for the in-app TestAccessibilityServer HTTP endpoint.
     public static let defaultTestAccessibilityPort: UInt16 = 18_081
 
+    /// Default base port for the in-app OTLP telemetry receiver, passed via
+    /// `--otlp-port`. Deliberately distinct from production's `4318` so an E2E
+    /// instance never shares a receiver with a developer's real app, and each
+    /// instance gets `defaultOTLPPort + instance` so concurrent instances don't
+    /// collide either (the OTEL channel's counterpart to the per-instance
+    /// accessibility port / ingress socket / tmux socket).
+    public static let defaultOTLPPort: UInt16 = 14_318
+
     /// Port for the in-app TestAccessibilityServer HTTP endpoint.
     let testAccessibilityPort: UInt16
 
-    public init(label: String = "e2e.macos-driver", testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort) {
+    /// Port the in-app OTLP receiver binds and advertises (via `--otlp-port`).
+    let otlpPort: UInt16
+
+    public init(
+        label: String = "e2e.macos-driver",
+        testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort,
+        otlpPort: UInt16 = MacOSDriver.defaultOTLPPort
+    ) {
         self.logger = Logger(label: label)
         self.testAccessibilityPort = testAccessibilityPort
+        self.otlpPort = otlpPort
     }
 
     /// Whether the app instance launched by `launchApp` is still running.

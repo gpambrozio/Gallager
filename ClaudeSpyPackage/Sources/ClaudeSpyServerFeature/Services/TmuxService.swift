@@ -95,7 +95,7 @@ final public class TmuxService {
             "OTEL_METRICS_EXPORTER=otlp",
             "OTEL_LOGS_EXPORTER=otlp",
             "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318",
+            "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:\(OTLPReceiver.resolvedPort)",
             "OTEL_METRIC_EXPORT_INTERVAL=10000",
             // Advertise 24-bit color so agents (Claude Code, Codex) and other CLI
             // tools emit RGB sequences instead of downgrading to 256 colors. The

@@ -58,7 +58,7 @@ Key files: `EditorOverride.swift` (pure helpers + `EditorOverrideMode`/`VisualPr
 
 **Limitations:** the injected line is visible in scrollback; a nested shell (`exec zsh`) re-sources rc with no re-injection; changing the setting doesn't affect already-running agents; the override also affects `git commit`/`crontab` in those panes; typing within the first ~second of a pane opening (or an rc ending in `exec`) can interleave with / swallow the injected line. All are accepted trade-offs for users who explicitly opted in.
 
-`baseEnvironmentVars` (injected via tmux `-e`, so they reach both app-launched and manually-typed `claude`) sets the Claude rendering/update flags **and** the OTEL export vars that point Claude Code at the Mac-local `OTLPReceiver` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*` → `http://127.0.0.1:4318`; issue #597). No content gates are enabled.
+`baseEnvironmentVars` (injected via tmux `-e`, so they reach both app-launched and manually-typed `claude`) sets the Claude rendering/update flags **and** the OTEL export vars that point Claude Code at the Mac-local `OTLPReceiver` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*` → `http://127.0.0.1:<OTLPReceiver.resolvedPort>`; issue #597). No content gates are enabled. The endpoint port is `OTLPReceiver.resolvedPort` — the single source of truth the env injection and the receiver bind share, so they can't drift (`4318` in production, or a per-instance `--otlp-port` under E2E).
 
 ### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
 
@@ -204,7 +204,8 @@ Codex contributes additional events (`PreCompact`/`PostCompact`, `SubagentStart`
 
 `actor` — a Mac-local OpenTelemetry receiver that **augments** the hook channel with quantitative, content-free data from Claude Code's OTEL export (issue #597). One-way push only; nothing is ever sent back into Claude.
 
-- Loopback-only `NWListener` on `127.0.0.1:4318` (`requiredInterfaceType = .loopback`, so no Local Network Privacy prompt and unreachable off-host). Accepts `POST /v1/metrics` and `POST /v1/logs` as OTLP/JSON; responds `200 {}`. No protobuf/gRPC dependency.
+- Loopback-only `NWListener` on `127.0.0.1:<OTLPReceiver.resolvedPort>` (`requiredInterfaceType = .loopback`, so no Local Network Privacy prompt and unreachable off-host). Accepts `POST /v1/metrics` and `POST /v1/logs` as OTLP/JSON; responds `200 {}`. No protobuf/gRPC dependency.
+- **Port** = `OTLPReceiver.resolvedPort`, the one value the bind and the injected `OTEL_EXPORTER_OTLP_ENDPOINT` both read (so they can't drift): `defaultPort` (`4318`) in production, or an `--otlp-port <port>` launch override. E2E passes a per-instance port (`MacOSDriver.defaultOTLPPort + instance`, base `14318`) so concurrent app instances — and a developer's real app already holding `4318` — never share a receiver. The OTEL channel's counterpart to the per-instance accessibility port / ingress socket / tmux socket.
 - Decoding lives in `OTLPModels.swift` (tolerant: int64 may arrive as a JSON string or number). Accumulation lives in `OTLPTelemetryAccumulator.swift` (pure value logic, unit-tested), keyed by `session.id`:
   - `claude_code.api_request` log events → summed tokens (by type), summed `cost_usd`, latest `duration_ms`/`model`, and a capped ring of the last ~20 turns.
   - `claude_code.commit.count` / `pull_request.count` counters → milestone deltas between exports.

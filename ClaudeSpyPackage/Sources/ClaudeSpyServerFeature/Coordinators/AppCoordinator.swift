@@ -1120,6 +1120,7 @@
         /// milestones → one-shot notifications, mode changes → stamp the pane.
         private func setupOTLPReceiver() async {
             let receiver = OTLPReceiver(
+                port: OTLPReceiver.resolvedPort,
                 onTelemetry: { [weak self] sessionID, telemetry in
                     await self?.handleTelemetry(sessionID: sessionID, telemetry: telemetry)
                 },

@@ -5,9 +5,13 @@ import Foundation
 /// Proves the full receive → join → render pipeline without a live Claude:
 /// 1. A tmux session is created and bound to a Claude `session.id` via a
 ///    synthetic `SessionStart` hook (sets `PaneState.claudeSessionID`).
-/// 2. Synthetic OTLP/JSON is POSTed to the Mac-local receiver (`127.0.0.1:4318`)
-///    from the pane's own shell via `curl` — the same loopback endpoint the
-///    injected `OTEL_*` env vars point real Claude instances at.
+/// 2. Synthetic OTLP/JSON is POSTed to the Mac-local receiver from the pane's
+///    own shell via `curl`, addressed by the `${otlpEndpoint}` context variable
+///    (resolved by the orchestrator to this instance's `--otlp-port`). Using the
+///    variable instead of a hardcoded `127.0.0.1:4318` means the POST follows the
+///    instance's own receiver port, so concurrent instances — and a developer's
+///    real app on 4318 — never cross-talk. (The env-injection half of the
+///    contract is covered separately by TerminalEnvVarsScenario.)
 /// 3. The receiver joins by `session.id` and stamps the pane, so the sidebar's
 ///    `SessionTelemetrySummary` shows the meter and the model tag. The
 ///    permission-mode chip is seeded from the hook channel (a `UserPromptSubmit`
@@ -23,12 +27,12 @@ public enum OTELTelemetryRenderScenario {
     /// exact form production receives (a synthetic full-name `eventName` field
     /// would mask the namespace-stripping the accumulator must do).
     private static let apiRequestCurl =
-        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"input_tokens","value":{"intValue":"12000"}},{"key":"output_tokens","value":{"intValue":"400"}},{"key":"cost_usd","value":{"doubleValue":0.42}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"input_tokens","value":{"intValue":"12000"}},{"key":"output_tokens","value":{"intValue":"400"}},{"key":"cost_usd","value":{"doubleValue":0.42}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
 
     /// `permission_mode_changed` log → the "Bypass" permission-mode chip. Same
     /// real wire shape: bare `event.name` attribute + fully-qualified body.
     private static let modeChangeCurl =
-        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.permission_mode_changed"},"attributes":[{"key":"event.name","value":{"stringValue":"permission_mode_changed"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"to_mode","value":{"stringValue":"bypassPermissions"}},{"key":"trigger","value":{"stringValue":"shift_tab"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.permission_mode_changed"},"attributes":[{"key":"event.name","value":{"stringValue":"permission_mode_changed"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"to_mode","value":{"stringValue":"bypassPermissions"}},{"key":"trigger","value":{"stringValue":"shift_tab"}}]}]}]}]}'"#
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "OTEL Telemetry Render",
@@ -66,7 +70,7 @@ public enum OTELTelemetryRenderScenario {
         //    `UserPromptSubmit` hook carries the current `permission_mode`; the
         //    chip must appear from it alone, before any OTEL mode event. This is
         //    the exact case from the bug report (issue #597). Runs without the
-        //    OTLP receiver, so it's exercised even when port 4318 is held off-box.
+        //    OTLP receiver, so it's exercised even if the receiver never bound.
         TestStep.macSendHookEvent(
             json: """
             {
