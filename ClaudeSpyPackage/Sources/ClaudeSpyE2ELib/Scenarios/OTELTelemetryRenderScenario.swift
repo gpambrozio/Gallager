@@ -14,12 +14,19 @@ import Foundation
 public enum OTELTelemetryRenderScenario {
     /// `api_request` log: 12 000 input + 400 output tokens, $0.42, opus-4.8.
     /// → meter "⚡ 12.4k · $0.42" and model tag "opus-4.8".
+    ///
+    /// Uses Claude's *real* wire shape (verified against v2.1.178): the log
+    /// `body` is the fully-qualified `claude_code.api_request`, while the
+    /// `event.name` attribute is the bare `api_request`. This exercises the
+    /// exact form production receives (a synthetic full-name `eventName` field
+    /// would mask the namespace-stripping the accumulator must do).
     private static let apiRequestCurl =
-        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"claude_code.api_request","attributes":[{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"input_tokens","value":{"intValue":"12000"}},{"key":"output_tokens","value":{"intValue":"400"}},{"key":"cost_usd","value":{"doubleValue":0.42}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"input_tokens","value":{"intValue":"12000"}},{"key":"output_tokens","value":{"intValue":"400"}},{"key":"cost_usd","value":{"doubleValue":0.42}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
 
-    /// `permission_mode_changed` log → the "Bypass" permission-mode chip.
+    /// `permission_mode_changed` log → the "Bypass" permission-mode chip. Same
+    /// real wire shape: bare `event.name` attribute + fully-qualified body.
     private static let modeChangeCurl =
-        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"claude_code.permission_mode_changed","attributes":[{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"to_mode","value":{"stringValue":"bypassPermissions"}},{"key":"trigger","value":{"stringValue":"shift_tab"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST http://127.0.0.1:4318/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.permission_mode_changed"},"attributes":[{"key":"event.name","value":{"stringValue":"permission_mode_changed"}},{"key":"session.id","value":{"stringValue":"e2e-otel-session"}},{"key":"to_mode","value":{"stringValue":"bypassPermissions"}},{"key":"trigger","value":{"stringValue":"shift_tab"}}]}]}]}]}'"#
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "OTEL Telemetry Render",

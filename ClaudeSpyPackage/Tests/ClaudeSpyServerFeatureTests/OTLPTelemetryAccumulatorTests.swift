@@ -35,17 +35,23 @@
             func intValue(_ value: Int) -> String {
                 intsAsStrings ? "{\"intValue\": \"\(value)\"}" : "{\"intValue\": \(value)}"
             }
-            let eventField = useEventNameField ? "\"eventName\": \"claude_code.api_request\"," : ""
-            let eventAttr = useEventNameField
-                ? ""
-                : ",{\"key\": \"event.name\", \"value\": {\"stringValue\": \"claude_code.api_request\"}}"
+            // Faithfully model Claude's real OTLP shape (verified against
+            // v2.1.178): the log *body* is the fully-qualified
+            // `claude_code.api_request`, while the `event.name` *attribute* is
+            // the bare `api_request`. `useEventNameField` additionally sets the
+            // newer top-level `eventName` field (also bare). The accumulator
+            // must match regardless of which form it reads — so the default
+            // (field absent, attribute + body present) reproduces production.
+            let eventField = useEventNameField ? "\"eventName\": \"api_request\"," : ""
             return """
             {
               "resourceLogs": [{
                 "scopeLogs": [{
                   "logRecords": [{
                     \(eventField)
+                    "body": {"stringValue": "claude_code.api_request"},
                     "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "api_request"}},
                       {"key": "session.id", "value": {"stringValue": "\(sessionID)"}},
                       {"key": "input_tokens", "value": \(intValue(input))},
                       {"key": "output_tokens", "value": \(intValue(output))},
@@ -54,7 +60,6 @@
                       {"key": "cost_usd", "value": {"doubleValue": \(costUSD)}},
                       {"key": "duration_ms", "value": \(intValue(durationMs))},
                       {"key": "model", "value": {"stringValue": "\(model)"}}
-                      \(eventAttr)
                     ]
                   }]
                 }]
@@ -187,8 +192,9 @@
               "resourceLogs": [{
                 "scopeLogs": [{
                   "logRecords": [{
-                    "eventName": "claude_code.permission_mode_changed",
+                    "body": {"stringValue": "claude_code.permission_mode_changed"},
                     "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "permission_mode_changed"}},
                       {"key": "session.id", "value": {"stringValue": "sess-2"}},
                       {"key": "from_mode", "value": {"stringValue": "default"}},
                       {"key": "to_mode", "value": {"stringValue": "bypassPermissions"}},

@@ -66,11 +66,24 @@ struct OTLPTelemetryAccumulator {
     /// map must not grow without bound.
     private let maxSessions = 256
 
-    private static let apiRequestEvent = "claude_code.api_request"
-    private static let permissionModeEvent = "claude_code.permission_mode_changed"
+    // Claude's OTLP *log* events identify themselves inconsistently: the bare
+    // name (`api_request`) lives in the `event.name` attribute, while the log
+    // body carries the fully-qualified `claude_code.api_request`. We match on
+    // the bare name and strip the `claude_code.` namespace from whatever
+    // `resolvedEventName()` surfaces, so both forms resolve to the same case.
+    // (Metric names, by contrast, are always fully qualified on the wire.)
+    private static let apiRequestEvent = "api_request"
+    private static let permissionModeEvent = "permission_mode_changed"
+    private static let eventNamespace = "claude_code."
     private static let commitMetric = "claude_code.commit.count"
     private static let pullRequestMetric = "claude_code.pull_request.count"
     private static let sessionIDKey = "session.id"
+
+    /// Strips the `claude_code.` namespace so the bare-name `event.name`
+    /// attribute and the fully-qualified log body both match the same constant.
+    private static func canonicalEventName(_ name: String) -> String {
+        name.hasPrefix(eventNamespace) ? String(name.dropFirst(eventNamespace.count)) : name
+    }
 
     // MARK: Logs
 
@@ -95,7 +108,7 @@ struct OTLPTelemetryAccumulator {
             !sessionID.isEmpty
         else { return }
 
-        switch record.resolvedEventName() {
+        switch Self.canonicalEventName(record.resolvedEventName() ?? "") {
         case Self.apiRequestEvent:
             var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
             telemetry.accumulate(
