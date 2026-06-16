@@ -153,19 +153,15 @@ public struct SessionMeterView: View {
     }
 
     public var body: some View {
-        Label {
-            Text(meterText)
-                .monospacedDigit()
-        } icon: {
-            Symbols.bolt.image
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .accessibilityElement(children: .ignore)
-        .accessibilityIdentifier("session-meter")
-        .accessibilityLabel(
-            "\(telemetry.tokensUsed) tokens, \(telemetry.costUSD.usdCostString)"
-        )
+        Text(meterText)
+            .monospacedDigit()
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("session-meter")
+            .accessibilityLabel(
+                "\(telemetry.tokensUsed) tokens, \(telemetry.costUSD.usdCostString)"
+            )
     }
 }
 
@@ -191,14 +187,9 @@ public struct SessionTelemetrySummary: View {
         if showMeter || model != nil || hasMode {
             HStack(spacing: 6) {
                 if showMeter, let telemetry {
-                    // The bolt SF Symbol carries intrinsic left side-bearing, so the
-                    // meter would sit visually inset from the text fields stacked
-                    // above it. Cancel that bearing so the glyph aligns flush to the
-                    // row's leading edge. (Only applied to the leading meter — the
-                    // model tag / mode chip are capsules whose inset reads as
-                    // intentional.)
+                    Symbols.bolt.image
+
                     SessionMeterView(telemetry: telemetry)
-                        .padding(.leading, -2)
                 }
                 if let model {
                     ModelTag(model: model)
