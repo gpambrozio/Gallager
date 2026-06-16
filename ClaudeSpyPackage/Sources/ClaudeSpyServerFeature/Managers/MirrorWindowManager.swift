@@ -591,3 +591,17 @@ final public class MirrorWindowManager {
         paneStates.removeValue(forKey: paneId)
     }
 }
+
+#if DEBUG
+    extension MirrorWindowManager {
+        /// SwiftUI-preview seam (DEBUG only): inject fully-formed pane states so a
+        /// preview can render every row variant without driving the live tmux,
+        /// hook, or OTEL pipelines. `paneStates` is otherwise `private(set)`; this
+        /// is never called from shipping code.
+        func setPaneStatesForPreview(_ states: [PaneState]) {
+            for state in states {
+                paneStates[state.paneId] = state
+            }
+        }
+    }
+#endif

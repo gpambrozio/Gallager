@@ -141,3 +141,249 @@ struct SessionSidebarRow: View {
         }
     }
 }
+
+#if DEBUG
+    // MARK: - Preview
+
+    /// Builds one preview row as a `(session, state)` pair. The session wraps a
+    /// single active window/pane keyed by `paneId`; the matching `PaneState` carries
+    /// the status, custom styling, telemetry, and git metadata the row renders. The
+    /// row reads `command`/`currentPath` off the pane and everything else off the
+    /// state, so both are populated consistently.
+    private func previewSidebarRow(
+        paneId: String,
+        sessionName: String,
+        command: String,
+        currentPath: String,
+        customEmoji: String? = nil,
+        customColor: SessionColor? = nil,
+        customDescription: String? = nil,
+        gitBranch: String? = nil,
+        terminalTitle: String? = nil,
+        agentState: AgentState? = nil,
+        projectPath: String? = nil,
+        cliSessionState: CLISessionState? = nil,
+        telemetry: SessionTelemetry? = nil,
+        permissionMode: String? = nil,
+        progress: TerminalProgressState? = nil
+    ) -> (session: LocalTmuxSession, state: PaneState) {
+        let target = "\(sessionName):0.0"
+        let pane = PaneInfo(
+            paneId: paneId,
+            target: target,
+            sessionName: sessionName,
+            windowIndex: 0,
+            paneIndex: 0,
+            command: command,
+            currentPath: currentPath,
+            width: 120,
+            height: 40,
+            isActive: true,
+            windowName: "main",
+            isWindowActive: true
+        )
+        let window = LocalTmuxWindow(
+            id: "\(sessionName):0",
+            sessionName: sessionName,
+            windowIndex: 0,
+            windowName: "main",
+            windowLayout: "",
+            isWindowActive: true,
+            panes: [pane]
+        )
+        let session = LocalTmuxSession(sessionName: sessionName, windows: [window])
+
+        let agentSession = agentState.map {
+            AgentSession(
+                paneId: paneId,
+                pluginID: "claude-code",
+                detectedProjectPath: projectPath,
+                state: $0
+            )
+        }
+        let state = PaneState(
+            paneId: paneId,
+            target: target,
+            sessionName: sessionName,
+            command: command,
+            currentPath: currentPath,
+            isActive: true,
+            windowName: "main",
+            isWindowActive: true,
+            customDescription: customDescription,
+            customColor: customColor,
+            customEmoji: customEmoji,
+            terminalTitle: terminalTitle,
+            gitBranch: gitBranch,
+            agentSession: agentSession,
+            cliSessionState: cliSessionState,
+            progress: progress,
+            permissionMode: permissionMode,
+            telemetry: telemetry
+        )
+        return (session, state)
+    }
+
+    /// One of every distinct sidebar row the app can show: Claude sessions across
+    /// all statuses and permission modes (incl. the OTEL token meter), a session
+    /// with custom styling + git branch + progress, and plain / CLI-driven terminals.
+    private let previewSidebarVariants: [(session: LocalTmuxSession, state: PaneState)] = [
+        // Claude — working, default mode (calm shield chip) + live token meter.
+        previewSidebarRow(
+            paneId: "%1", sessionName: "claudespy", command: "claude",
+            currentPath: "~/Development/ClaudeSpy",
+            agentState: .working, projectPath: "/Users/dev/Development/ClaudeSpy",
+            telemetry: SessionTelemetry(tokensUsed: 12_400, costUSD: 0.42, model: "claude-opus-4-8"),
+            permissionMode: "default"
+        ),
+        // Claude — working unsupervised (loud bypass chip) + a custom description.
+        previewSidebarRow(
+            paneId: "%2", sessionName: "infra", command: "claude",
+            currentPath: "~/Development/Infra",
+            customDescription: "Migrating the relay",
+            agentState: .working, projectPath: "/Users/dev/Development/Infra",
+            telemetry: SessionTelemetry(tokensUsed: 305_000, costUSD: 2.18, model: "claude-opus-4-8"),
+            permissionMode: "bypassPermissions"
+        ),
+        // Claude — idle, acceptEdits chip.
+        previewSidebarRow(
+            paneId: "%3", sessionName: "docs", command: "claude",
+            currentPath: "~/Development/Docs",
+            agentState: .idle, projectPath: "/Users/dev/Development/Docs",
+            telemetry: SessionTelemetry(tokensUsed: 4_200, costUSD: 0.09, model: "claude-sonnet-4-6"),
+            permissionMode: "acceptEdits"
+        ),
+        // Claude — done / needs attention, plan chip.
+        previewSidebarRow(
+            paneId: "%4", sessionName: "api", command: "claude",
+            currentPath: "~/Development/API",
+            agentState: .doneWorking(summary: "Added the endpoint"),
+            projectPath: "/Users/dev/Development/API",
+            telemetry: SessionTelemetry(tokensUsed: 88_000, costUSD: 0.74, model: "claude-opus-4-8"),
+            permissionMode: "plan"
+        ),
+        // Claude — awaiting a permission decision.
+        previewSidebarRow(
+            paneId: "%5", sessionName: "scripts", command: "claude",
+            currentPath: "~/Development/Scripts",
+            agentState: .awaitingPermission(
+                PermissionRequest(title: "Run command", description: "Allow `rm -rf build`?"),
+                requestID: "req-perm"
+            ),
+            projectPath: "/Users/dev/Development/Scripts"
+        ),
+        // Claude — awaiting a question reply.
+        previewSidebarRow(
+            paneId: "%6", sessionName: "webapp", command: "claude",
+            currentPath: "~/Development/WebApp",
+            agentState: .awaitingReplies(
+                AskUserQuestionRequest(questions: []),
+                requestID: "req-q"
+            ),
+            projectPath: "/Users/dev/Development/WebApp"
+        ),
+        // Claude — awaiting plan approval.
+        previewSidebarRow(
+            paneId: "%7", sessionName: "planner", command: "claude",
+            currentPath: "~/Development/Planner",
+            agentState: .awaitingPlanApproval(
+                ApprovePlanRequest(title: "Refactor plan", plan: "1. Extract service\n2. Wire DI"),
+                requestID: "req-plan"
+            ),
+            projectPath: "/Users/dev/Development/Planner"
+        ),
+        // Claude — working with a determinate progress bar across the bottom.
+        previewSidebarRow(
+            paneId: "%8", sessionName: "build", command: "claude",
+            currentPath: "~/Development/Build",
+            agentState: .working, projectPath: "/Users/dev/Development/Build",
+            telemetry: SessionTelemetry(tokensUsed: 21_000, costUSD: 0.31, model: "claude-opus-4-8"),
+            permissionMode: "default",
+            progress: .normal(65)
+        ),
+        // Claude — custom emoji + color bar + custom description + git branch.
+        previewSidebarRow(
+            paneId: "%9", sessionName: "feature", command: "claude",
+            currentPath: "~/Development/Feature",
+            customEmoji: "🚀", customColor: .purple,
+            customDescription: "Sidebar telemetry",
+            gitBranch: "feature/otel-telemetry",
+            agentState: .working, projectPath: "/Users/dev/Development/Feature",
+            telemetry: SessionTelemetry(tokensUsed: 9_900, costUSD: 0.18, model: "claude-opus-4-8"),
+            permissionMode: "default"
+        ),
+        // Plain terminal — no agent session (uses the terminal field layout).
+        previewSidebarRow(
+            paneId: "%10", sessionName: "shell", command: "zsh",
+            currentPath: "~/Development",
+            terminalTitle: "zsh — ~/Development"
+        ),
+        // Terminal — CLI-driven "working" status.
+        previewSidebarRow(
+            paneId: "%11", sessionName: "devserver", command: "npm run dev",
+            currentPath: "~/Development/WebApp",
+            terminalTitle: "npm run dev",
+            cliSessionState: .working
+        ),
+        // Terminal — CLI-driven "waiting for input" status.
+        previewSidebarRow(
+            paneId: "%12", sessionName: "deploy", command: "./deploy.sh",
+            currentPath: "~/Development/Infra",
+            terminalTitle: "deploy.sh",
+            cliSessionState: .waiting
+        ),
+    ]
+
+    /// Hosts a live `MirrorWindowManager` (built off-screen, like `PaneListPreview`)
+    /// seeded with every row variant, then renders them in a sidebar `List`.
+    private struct SessionSidebarRowPreview: View {
+        @State private var settings = AppSettings()
+        @State private var tmuxService = TmuxService()
+        @State private var windowManager: MirrorWindowManager?
+
+        var body: some View {
+            Group {
+                if let windowManager {
+                    List(previewSidebarVariants.map(\.session)) { session in
+                        SessionSidebarRow(session: session)
+                    }
+                    .listStyle(.sidebar)
+                    .environment(windowManager)
+                    .environment(settings)
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(width: 300, height: 780)
+            .onAppear {
+                // Show the OTEL token meter (opt-in field) plus the git branch so the
+                // telemetry + git rows are exercised.
+                settings.sidebarFields = [.customDescription, .projectName, .currentPath, .gitBranch, .tokenUsage]
+                let controlClientManager = TmuxControlClientManager(
+                    tmuxPath: settings.tmuxPath,
+                    socketPath: settings.tmuxSocket.isEmpty ? nil : settings.tmuxSocket
+                )
+                let manager = MirrorWindowManager(
+                    settings: settings,
+                    tmuxService: tmuxService,
+                    paneStreamManager: .init(
+                        tmuxService: tmuxService,
+                        controlClientManager: controlClientManager
+                    ),
+                    editorSessionManager: EditorSessionManager()
+                )
+                manager.setPaneStatesForPreview(previewSidebarVariants.map(\.state))
+                windowManager = manager
+            }
+        }
+    }
+
+    #Preview("Sidebar rows — all variants") {
+        SessionSidebarRowPreview()
+    }
+
+    #Preview("Sidebar rows — dark") {
+        SessionSidebarRowPreview()
+            .preferredColorScheme(.dark)
+    }
+#endif
