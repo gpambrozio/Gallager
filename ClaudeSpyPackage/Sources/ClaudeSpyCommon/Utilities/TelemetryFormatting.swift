@@ -10,7 +10,7 @@ public extension Int {
     var abbreviatedTokenCount: String {
         guard self > 0 else { return "0" }
         switch self {
-        case 0..<1_000:
+        case 1..<1_000:
             return "\(self)"
         case 1_000..<1_000_000:
             return Self.trimmed(Double(self) / 1_000) + "k"

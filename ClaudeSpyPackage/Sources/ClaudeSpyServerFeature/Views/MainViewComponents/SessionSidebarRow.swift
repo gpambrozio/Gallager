@@ -79,17 +79,6 @@ struct SessionSidebarRow: View {
         return nil
     }
 
-    /// The plugin model dropped the per-event buffer (spec §16), so there is no
-    /// "latest event" subtitle to surface; the field renders empty.
-    private var sessionSubtitle: String? {
-        for window in session.windows {
-            for pane in window.panes where windowManager.paneStates[pane.paneId]?.agentSession != nil {
-                return nil
-            }
-        }
-        return nil
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             SessionStatusBadge(
@@ -108,7 +97,9 @@ struct SessionSidebarRow: View {
                     command: primaryPane?.command,
                     currentPath: primaryPane?.currentPath,
                     gitBranch: primaryPaneState?.gitBranch,
-                    latestEvent: sessionSubtitle
+                    // The plugin model dropped the per-event buffer (spec §16),
+                    // so there's no "latest event" subtitle to surface.
+                    latestEvent: nil
                 )
 
                 // OTEL meter + model + permission-mode chip (issue #597).
