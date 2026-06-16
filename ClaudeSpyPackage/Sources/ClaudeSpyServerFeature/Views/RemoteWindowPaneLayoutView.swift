@@ -229,6 +229,19 @@ struct RemoteWindowPaneLayoutView: View {
                 Text("\(activePane.width)x\(activePane.height)")
             }
 
+            // Live OTEL meter for the window's focused session (issue #597,
+            // surface C) — mirrors the host's `WindowPaneLayoutView` so a Mac
+            // viewer sees the same meter the host does.
+            if let telemetry = liveTelemetry {
+                Divider()
+                    .frame(height: 12)
+                SessionMeterView(telemetry: telemetry)
+                if let latency = telemetry.lastTurnLatencyMs {
+                    Text("· \(latency.latencyString)")
+                        .monospacedDigit()
+                }
+            }
+
             Spacer()
         }
         .font(.caption)
@@ -236,6 +249,19 @@ struct RemoteWindowPaneLayoutView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    /// Telemetry for the window's agent session: the first pane carrying a
+    /// non-empty meter. Read straight off the relay-delivered `PaneState`s.
+    private var liveTelemetry: SessionTelemetry? {
+        for pane in window.panes {
+            if
+                let telemetry = pane.telemetry,
+                telemetry.tokensUsed > 0 || telemetry.costUSD > 0 {
+                return telemetry
+            }
+        }
+        return nil
     }
 }
 

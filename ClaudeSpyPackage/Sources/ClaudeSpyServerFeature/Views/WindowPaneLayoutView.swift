@@ -209,6 +209,18 @@ struct WindowPaneLayoutView: View {
                 Text("\(activePane.width)x\(activePane.height)")
             }
 
+            // Live OTEL meter for the window's focused session (issue #597,
+            // surface C) — matches the detached mirror window's status bar.
+            if let telemetry = liveTelemetry {
+                Divider()
+                    .frame(height: 12)
+                SessionMeterView(telemetry: telemetry)
+                if let latency = telemetry.lastTurnLatencyMs {
+                    Text("· \(latency.latencyString)")
+                        .monospacedDigit()
+                }
+            }
+
             Spacer()
         }
         .font(.caption)
@@ -216,5 +228,19 @@ struct WindowPaneLayoutView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    /// Telemetry for the window's agent session: the first pane in the window
+    /// carrying a non-empty meter. Read from the observable window manager so it
+    /// updates live as `api_request` events arrive.
+    private var liveTelemetry: SessionTelemetry? {
+        for pane in window.panes {
+            if
+                let telemetry = windowManager.paneStates[pane.paneId]?.telemetry,
+                telemetry.tokensUsed > 0 || telemetry.costUSD > 0 {
+                return telemetry
+            }
+        }
+        return nil
     }
 }
