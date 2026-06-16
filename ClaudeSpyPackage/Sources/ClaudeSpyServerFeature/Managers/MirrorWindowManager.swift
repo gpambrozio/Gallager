@@ -249,12 +249,18 @@ final public class MirrorWindowManager {
     ///   - tmuxPane: The pane this state targets (the session key).
     ///   - projectPath: Optional project path, recorded on the session so the
     ///     sidebar can render a name before any tmux refresh tick.
+    ///   - permissionMode: The session's current permission mode, when the
+    ///     originating hook carried one (`UserPromptSubmit`/`PreToolUse`/
+    ///     `PostToolUse`/`Stop`). `nil` leaves the existing value unchanged — this
+    ///     is the hook-channel seed so a non-default starting mode shows its chip
+    ///     without waiting for an OTEL `permission_mode_changed` (issue #597).
     public func applyState(
         pluginID: String,
         sessionID: String,
         state: AgentState,
         tmuxPane: String?,
-        projectPath: String?
+        projectPath: String?,
+        permissionMode: String? = nil
     ) {
         guard let paneId = tmuxPane, !paneId.isEmpty else {
             logger.debug("Dropping plugin state with no tmuxPane", metadata: [
@@ -284,6 +290,16 @@ final public class MirrorWindowManager {
             paneStates[paneId]?.telemetry = nil
             paneStates[paneId]?.permissionMode = nil
             paneStates[paneId]?.permissionModeTrigger = nil
+        }
+
+        // Seed the current permission mode from the hook channel (issue #597).
+        // Only the four tool/prompt/stop events carry it; others pass nil, which
+        // must NOT clobber a mode already known (incl. one just learned from an
+        // OTEL `permission_mode_changed`). Stamped after the session-id reset above
+        // so a fresh session's first hook wins. (`default` is stamped too; the chip
+        // presentation hides it — only non-default modes render.)
+        if let permissionMode {
+            paneStates[paneId]?.permissionMode = permissionMode
         }
 
         // Record arrival order for the "most recent activity" sort.

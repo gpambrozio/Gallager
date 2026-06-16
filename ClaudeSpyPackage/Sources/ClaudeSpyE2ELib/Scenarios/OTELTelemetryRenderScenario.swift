@@ -9,8 +9,10 @@ import Foundation
 ///    from the pane's own shell via `curl` — the same loopback endpoint the
 ///    injected `OTEL_*` env vars point real Claude instances at.
 /// 3. The receiver joins by `session.id` and stamps the pane, so the sidebar's
-///    `SessionTelemetrySummary` shows the meter, the model tag, and (after a
-///    `permission_mode_changed` event) the permission-mode chip.
+///    `SessionTelemetrySummary` shows the meter and the model tag. The
+///    permission-mode chip is seeded from the hook channel (a `UserPromptSubmit`
+///    carrying `permission_mode: "default"` — the bug-report case) and then
+///    overridden by an OTEL `permission_mode_changed` event — proving both sources.
 public enum OTELTelemetryRenderScenario {
     /// `api_request` log: 12 000 input + 400 output tokens, $0.42, opus-4.8.
     /// → meter "⚡ 12.4k · $0.42" and model tag "opus-4.8".
@@ -57,18 +59,43 @@ public enum OTELTelemetryRenderScenario {
         // Let the host pick up the session row.
         TestStep.wait(seconds: 2)
 
-        // 3. POST a synthetic api_request to the loopback receiver from the pane.
+        // 3. The permission-mode chip is seeded from the HOOK channel, not OTEL.
+        //    OTEL only emits `permission_mode_changed` on a *change*, never the
+        //    starting value — so a brand-new session that simply runs in `default`
+        //    (and never toggles) would otherwise show no mode at all. A
+        //    `UserPromptSubmit` hook carries the current `permission_mode`; the
+        //    chip must appear from it alone, before any OTEL mode event. This is
+        //    the exact case from the bug report (issue #597). Runs without the
+        //    OTLP receiver, so it's exercised even when port 4318 is held off-box.
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "e2e-otel-session",
+                "permission_mode": "default",
+                "prompt": "hello",
+                "timestamp": "2026-02-14T10:00:03.000000Z"
+            }
+            """,
+            tmuxPane: "${otelPane}",
+            projectPath: "/Users/test/OtelProject"
+        )
+        TestStep.macWaitForElementQuery(.anyTextMatches("Default"), timeout: 10)
+        TestStep.macScreenshot(label: "mac-otel-hook-default-mode")
+
+        // 4. POST a synthetic api_request to the loopback receiver from the pane.
         Shortcut.tmuxRunCommand(target: "otel-session:0.0", command: apiRequestCurl)
         TestStep.wait(seconds: 2)
 
-        // 4. The meter and model tag now render in the sidebar row. Match on the
+        // 5. The meter and model tag now render in the sidebar row. Match on the
         //    accessibility labels (SwiftUI identifiers don't reliably surface as
         //    AXIdentifier on macOS, but labels do — same path project names use).
         TestStep.macWaitForElementQuery(.anyTextMatches("$0.42"), timeout: 10)
         TestStep.macWaitForElementQuery(.anyTextMatches("opus-4.8"), timeout: 5)
         TestStep.macScreenshot(label: "mac-otel-meter")
 
-        // 5. A permission-mode change surfaces the (loud) bypass chip.
+        // 6. A later OTEL `permission_mode_changed` overrides the hook-seeded mode
+        //    (latest wins across channels), surfacing the (loud) bypass chip.
         Shortcut.tmuxRunCommand(target: "otel-session:0.0", command: modeChangeCurl)
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Bypass"), timeout: 10)

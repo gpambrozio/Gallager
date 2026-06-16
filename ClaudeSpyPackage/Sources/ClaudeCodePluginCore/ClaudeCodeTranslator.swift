@@ -106,7 +106,12 @@ enum ClaudeCodeTranslator {
             notification: notification,
             appActions: appActions,
             tmuxPane: tmuxPane,
-            projectPath: projectPath
+            projectPath: projectPath,
+            // Seed the current permission mode off the hook (the four tool/prompt/
+            // stop events carry it; others return nil and leave it unchanged), so a
+            // session starting in a non-default mode shows its chip immediately
+            // rather than waiting for an OTEL `permission_mode_changed` (issue #597).
+            permissionMode: body.permissionMode
         )
         return Output(event: event, pending: pending)
     }

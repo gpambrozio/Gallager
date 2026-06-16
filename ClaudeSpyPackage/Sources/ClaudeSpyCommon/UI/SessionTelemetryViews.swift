@@ -29,9 +29,11 @@ public func shortModelName(_ model: String) -> String {
 
 // MARK: - Permission Mode
 
-/// Visual presentation for a Claude permission mode chip. Returns `nil` for the
-/// default (or unset) mode so callers simply render nothing — only the
-/// interesting, supervision-relevant modes get a chip (issue #597, surface A).
+/// Visual presentation for a Claude permission mode chip. Returns `nil` only for
+/// an *unknown* mode (`nil`/empty — e.g. before any hook has reported one), so a
+/// session with a known mode always shows a chip. `default` renders a calm,
+/// neutral chip; the supervision-relevant modes get louder treatment, and
+/// `bypassPermissions` is loud/filled (issue #597, surface A).
 public struct PermissionModePresentation {
     public let label: String
     public let symbol: Symbols
@@ -40,8 +42,16 @@ public struct PermissionModePresentation {
     public let isElevated: Bool
 
     public init?(mode: String?) {
-        guard let mode, !mode.isEmpty, mode != "default" else { return nil }
+        guard let mode, !mode.isEmpty else { return nil }
         switch mode {
+        case "default":
+            // The normal, supervised mode (Claude asks before acting). A neutral
+            // gray shield — the calm counterpart to bypass's loud warning lock —
+            // kept unobtrusive since it rides every default session's row.
+            self.label = "Default"
+            self.symbol = .shield
+            self.tint = .secondary
+            self.isElevated = false
         case "plan":
             self.label = "Plan"
             self.symbol = .listBulletClipboard
@@ -74,8 +84,8 @@ public struct PermissionModePresentation {
     }
 }
 
-/// A small capsule chip indicating a non-default permission mode. Renders
-/// nothing for the default/unset mode.
+/// A small capsule chip indicating the session's permission mode. Renders
+/// nothing only when the mode is unknown (unset/`nil`).
 public struct PermissionModeChip: View {
     private let presentation: PermissionModePresentation?
 
@@ -181,7 +191,14 @@ public struct SessionTelemetrySummary: View {
         if showMeter || model != nil || hasMode {
             HStack(spacing: 6) {
                 if showMeter, let telemetry {
+                    // The bolt SF Symbol carries intrinsic left side-bearing, so the
+                    // meter would sit visually inset from the text fields stacked
+                    // above it. Cancel that bearing so the glyph aligns flush to the
+                    // row's leading edge. (Only applied to the leading meter — the
+                    // model tag / mode chip are capsules whose inset reads as
+                    // intentional.)
                     SessionMeterView(telemetry: telemetry)
+                        .padding(.leading, -2)
                 }
                 if let model {
                     ModelTag(model: model)

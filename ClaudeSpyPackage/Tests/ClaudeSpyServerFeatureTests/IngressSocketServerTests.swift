@@ -26,13 +26,14 @@
 
         private func makeDispatcher(_ collector: EventCollector) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await collector.record(PluginEvent(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     ))
                 }
             )

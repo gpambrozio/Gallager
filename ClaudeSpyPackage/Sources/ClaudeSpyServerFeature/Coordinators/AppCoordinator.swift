@@ -531,13 +531,14 @@
 
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
-                onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await self?.handlePluginState(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     )
                     // (handlePluginState also forwards agent_session_status to iOS;
                     // the open form rides AgentSession.state so it's in the snapshot.)
@@ -1051,14 +1052,16 @@
             sessionID: String,
             state: AgentState,
             tmuxPane: String?,
-            projectPath: String?
+            projectPath: String?,
+            permissionMode: String?
         ) async {
             windowManager.applyState(
                 pluginID: pluginID,
                 sessionID: sessionID,
                 state: state,
                 tmuxPane: tmuxPane,
-                projectPath: projectPath
+                projectPath: projectPath,
+                permissionMode: permissionMode
             )
             updateSleepPrevention()
 

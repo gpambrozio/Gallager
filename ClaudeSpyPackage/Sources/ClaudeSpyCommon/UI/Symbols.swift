@@ -86,6 +86,7 @@ public enum Symbols: String {
     case rectangleSplit2x1 = "rectangle.split.2x1"
     case rectangleSplit2x1Fill = "rectangle.split.2x1.fill"
     case rectangleStackBadgeMinus = "rectangle.stack.badge.minus"
+    case shield
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"

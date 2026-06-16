@@ -14,6 +14,7 @@
             let state: AgentState
             let tmuxPane: String?
             let projectPath: String?
+            let permissionMode: String?
         }
 
         struct Notification: Equatable {
@@ -56,13 +57,14 @@
         yolo: Bool = false
     ) -> PluginEventDispatcher {
         PluginEventDispatcher(
-            onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+            onState: { pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                 await recorder.recordState(.init(
                     pluginID: pluginID,
                     sessionID: sessionID,
                     state: state,
                     tmuxPane: tmuxPane,
-                    projectPath: projectPath
+                    projectPath: projectPath,
+                    permissionMode: permissionMode
                 ))
             },
             onNotification: { pluginID, sessionID, notification in
@@ -106,9 +108,26 @@
             #expect(states == [
                 .init(
                     pluginID: "echo", sessionID: "s1", state: .working,
-                    tmuxPane: "%3", projectPath: "/tmp/proj"
+                    tmuxPane: "%3", projectPath: "/tmp/proj", permissionMode: nil
                 ),
             ])
+        }
+
+        @Test("a state event carries the hook-seeded permission mode to the state sink")
+        func permissionModeFansOut() async {
+            let recorder = DispatchRecorder()
+            let dispatcher = makeDispatcher(recorder)
+
+            await dispatcher.dispatch(PluginEvent(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                state: .working,
+                tmuxPane: "%3",
+                permissionMode: "bypassPermissions"
+            ))
+
+            let states = await recorder.states
+            #expect(states.first?.permissionMode == "bypassPermissions")
         }
 
         @Test("a nil-state event fires no state sink but still pushes its notification")
