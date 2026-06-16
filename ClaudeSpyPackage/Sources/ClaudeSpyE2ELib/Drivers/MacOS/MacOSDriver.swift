@@ -469,6 +469,16 @@ public actor MacOSDriver {
         }
     }
 
+    /// Set the configured Claude-session sidebar fields via the in-app HTTP
+    /// server (mutating live `AppSettings` requires in-process access).
+    public func setSidebarFields(_ fields: [String]) async throws {
+        logger.info("Setting sidebar fields to \(fields)")
+        let success = try await MacAppHTTPClient.setSidebarFields(fields, port: testAccessibilityPort)
+        if !success {
+            throw MacOSDriverError.elementNotFound("AppSettings for sidebar fields")
+        }
+    }
+
     /// Focus a text field by title so subsequent typing goes into it.
     public func focusElement(titled: String) async throws {
         let pid = try requirePID()

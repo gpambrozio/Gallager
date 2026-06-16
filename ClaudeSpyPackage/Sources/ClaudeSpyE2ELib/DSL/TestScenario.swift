@@ -324,6 +324,10 @@ public enum TestStep: Sendable {
     case macResizeWindow(width: Int, height: Int, instance: Int = 0)
     /// Set the sidebar width of the NavigationSplitView
     case macSetSidebarWidth(_ width: Int, instance: Int = 0)
+    /// Set the configured sidebar fields (Claude sessions) by raw `SidebarField`
+    /// value, e.g. `["projectName", "tokenUsage"]`. Lets a scenario opt into
+    /// fields that are off by default.
+    case macSetSidebarFields(_ fields: [String], instance: Int = 0)
     /// Focus a text field by title so subsequent typing goes into it
     case macFocusElement(titled: String, instance: Int = 0)
     /// Type text into the macOS app (via AppleScript keystroke).

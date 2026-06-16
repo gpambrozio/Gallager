@@ -75,6 +75,8 @@ struct SessionFieldsView: View {
         case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
         case .gitBranch: gitBranch
         case .latestEvent: latestEvent
+        // Rich field: drawn by the row as a telemetry meter, not a text value.
+        case .tokenUsage: nil
         }
     }
 }
@@ -129,6 +131,7 @@ struct SessionSortData {
             case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
             case .gitBranch: gitBranch
             case .latestEvent: nil // excluded from primary label computation
+            case .tokenUsage: nil // rich field, no text value to sort by
             }
             if let value, !value.isEmpty {
                 return value

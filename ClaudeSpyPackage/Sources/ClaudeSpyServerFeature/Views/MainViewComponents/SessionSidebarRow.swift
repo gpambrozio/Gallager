@@ -102,11 +102,16 @@ struct SessionSidebarRow: View {
                     latestEvent: nil
                 )
 
-                // OTEL meter + model + permission-mode chip (issue #597).
-                SessionTelemetrySummary(
-                    telemetry: primaryAgentPaneState?.telemetry,
-                    permissionMode: primaryAgentPaneState?.permissionMode
-                )
+                // OTEL meter + model + permission-mode chip (issue #597), shown
+                // only when the user has added the "Token Usage" field to the
+                // sidebar (Preferences > Sidebar). Opt-in, so rows stay clean by
+                // default.
+                if settings.sidebarFields.contains(.tokenUsage) {
+                    SessionTelemetrySummary(
+                        telemetry: primaryAgentPaneState?.telemetry,
+                        permissionMode: primaryAgentPaneState?.permissionMode
+                    )
+                }
             }
 
             Spacer()

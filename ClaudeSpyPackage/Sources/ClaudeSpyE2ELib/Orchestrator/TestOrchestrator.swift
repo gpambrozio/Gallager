@@ -792,6 +792,9 @@ public actor TestOrchestrator {
         case let .macSetSidebarWidth(width, instance):
             try await macDriver(for: instance).setSidebarWidth(width)
 
+        case let .macSetSidebarFields(fields, instance):
+            try await macDriver(for: instance).setSidebarFields(fields)
+
         case let .macFocusElement(titled, instance):
             try await macDriver(for: instance).focusElement(titled: titled)
 

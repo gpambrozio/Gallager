@@ -204,6 +204,12 @@
         public init(settings: AppSettings = AppSettings()) {
             self.settings = settings
 
+            #if canImport(AppKit) && DEBUG
+                // Expose live settings to the E2E test server so a scenario can
+                // opt into off-by-default sidebar fields (e.g. Token Usage).
+                TestAccessibilityServer.liveSettings = settings
+            #endif
+
             // Create tmux service
             self.tmuxService = TmuxService(
                 tmuxPath: settings.tmuxPath,

@@ -36,6 +36,9 @@ public enum OTELTelemetryRenderScenario {
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macSetSidebarWidth(280)
+        // The OTEL meter is an opt-in sidebar field (issue #597), off by
+        // default — enable it so the telemetry summary renders in the row.
+        TestStep.macSetSidebarFields(["customDescription", "projectName", "currentPath", "tokenUsage"])
 
         // 2. Create a session and bind it to a known Claude session id.
         TestStep.tmuxCreateSession(name: "otel-session", width: 80, height: 24)
