@@ -282,7 +282,9 @@
             }
             // Faithful to real Codex 0.140: the top-level `eventName` field is a
             // Rust source location (NOT the event name), the real name lives only
-            // in the `event.name` attribute, and there is no string body (#602).
+            // in the `event.name` attribute, there is no string body, and
+            // `input/output_token_count` arrive as OTLP `stringValue` (while
+            // `cached_token_count` is `intValue`) — all #602.
             return """
             {
               "resourceLogs": [{
@@ -294,8 +296,8 @@
                       {"key": "event.kind", "value": {"stringValue": "\(kind)"}},
                       {"key": "conversation.id", "value": {"stringValue": "\(conversationID)"}},
                       {"key": "model", "value": {"stringValue": "\(model)"}},
-                      {"key": "input_token_count", "value": \(intValue(inputTokenCount))},
-                      {"key": "output_token_count", "value": \(intValue(outputTokenCount))},
+                      {"key": "input_token_count", "value": {"stringValue": "\(inputTokenCount)"}},
+                      {"key": "output_token_count", "value": {"stringValue": "\(outputTokenCount)"}},
                       {"key": "cached_token_count", "value": \(intValue(cachedTokenCount))},
                       {"key": "reasoning_token_count", "value": \(intValue(reasoningTokenCount))},
                       {"key": "tool_token_count", "value": \(intValue(0))}
@@ -429,8 +431,8 @@
                       {"key": "event.kind", "value": {"stringValue": "response.completed"}},
                       {"key": "conversation.id", "value": {"stringValue": "conv-1"}},
                       {"key": "model", "value": {"stringValue": "gpt-5.5"}},
-                      {"key": "input_token_count", "value": {"intValue": "1000"}},
-                      {"key": "output_token_count", "value": {"intValue": "200"}},
+                      {"key": "input_token_count", "value": {"stringValue": "1000"}},
+                      {"key": "output_token_count", "value": {"stringValue": "200"}},
                       {"key": "cached_token_count", "value": {"intValue": "0"}}
                     ]
                   }]

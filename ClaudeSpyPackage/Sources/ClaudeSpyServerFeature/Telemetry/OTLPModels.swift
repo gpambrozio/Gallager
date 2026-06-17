@@ -146,7 +146,15 @@ extension Array where Element == OTLPKeyValue {
 
     func int(for key: String) -> Int? {
         guard let value = value(for: key) else { return nil }
-        return value.intValue ?? value.doubleValue.map(Int.init)
+        if let intValue = value.intValue { return intValue }
+        if let doubleValue = value.doubleValue { return Int(doubleValue) }
+        // Codex encodes some integer telemetry — notably `input_token_count` and
+        // `output_token_count` — as an OTLP *stringValue* holding a decimal string
+        // rather than `intValue` (inconsistently: `cached_token_count` arrives as
+        // `intValue`). Parse a numeric stringValue too, or the token meter reads 0
+        // while the (stringValue) model still shows (issue #602).
+        if let stringValue = value.stringValue, let parsed = Int(stringValue) { return parsed }
+        return nil
     }
 
     func double(for key: String) -> Double? {
