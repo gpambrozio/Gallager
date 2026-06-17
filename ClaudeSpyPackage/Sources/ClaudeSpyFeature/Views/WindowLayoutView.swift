@@ -554,6 +554,7 @@
                 showKeyboardButton: false,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
+                telemetry: pane.telemetry,
                 // Tiled panes pass `responseState: .constant(nil)`, so no response
                 // form is shown here and the submit closure is never invoked.
                 submitResponse: { _ in }
@@ -654,7 +655,10 @@
                     SessionInfoView(
                         session: activeService.session,
                         paneId: activeService.paneId,
-                        isPaneActive: activeService.isPaneActive
+                        isPaneActive: activeService.isPaneActive,
+                        telemetry: activeService.telemetry,
+                        permissionMode: activeService.permissionMode,
+                        permissionModeTrigger: activeService.permissionModeTrigger
                     )
                     .navigationTitle("Session Info")
                     .navigationBarTitleDisplayMode(.inline)
@@ -757,6 +761,13 @@
         let session: AgentSession?
         let paneId: String
         let isPaneActive: Bool
+        var telemetry: SessionTelemetry?
+        var permissionMode: String?
+        var permissionModeTrigger: String?
+
+        private var hasMode: Bool {
+            PermissionModePresentation(mode: permissionMode) != nil
+        }
 
         var body: some View {
             if let session {
@@ -781,6 +792,10 @@
                             }
                         }
                     }
+
+                    if telemetry != nil || hasMode {
+                        usageSection
+                    }
                 }
             } else {
                 ContentUnavailableView(
@@ -788,6 +803,55 @@
                     symbol: .exclamationmarkTriangle,
                     description: "This session may have ended."
                 )
+            }
+        }
+
+        /// OTEL usage breakdown (issue #597, surface B): tokens by type, cost,
+        /// model, last-turn latency, permission mode + trigger, and a per-turn
+        /// latency sparkline.
+        private var usageSection: some View {
+            Section("Usage") {
+                if let telemetry {
+                    LabeledContent("Total tokens", value: telemetry.tokensUsed.abbreviatedTokenCount)
+                    LabeledContent("Input", value: telemetry.inputTokens.abbreviatedTokenCount)
+                    LabeledContent("Output", value: telemetry.outputTokens.abbreviatedTokenCount)
+                    LabeledContent("Cache read", value: telemetry.cacheReadTokens.abbreviatedTokenCount)
+                    LabeledContent("Cache write", value: telemetry.cacheCreationTokens.abbreviatedTokenCount)
+                    LabeledContent("Cost", value: telemetry.costUSD.usdCostString)
+                    if let model = telemetry.model {
+                        LabeledContent("Model", value: shortModelName(model))
+                    }
+                    if let latency = telemetry.lastTurnLatencyMs {
+                        LabeledContent("Last turn", value: latency.latencyString)
+                    }
+                }
+
+                if hasMode {
+                    LabeledContent("Permission mode") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            PermissionModeChip(mode: permissionMode)
+                            if let trigger = permissionModeTrigger, !trigger.isEmpty {
+                                Text(trigger)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                if let telemetry {
+                    let latencies = telemetry.recentTurns.compactMap { $0.latencyMs.map(Double.init) }
+                    if latencies.count >= 2 {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Turn latency")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Sparkline(values: latencies)
+                                .frame(height: 32)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
         }
     }

@@ -36,6 +36,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
     case currentPath
     case gitBranch
     case latestEvent
+    case tokenUsage
 
     public var id: String { rawValue }
 
@@ -50,14 +51,17 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
         case .currentPath: "Current Path"
         case .gitBranch: "Git Branch"
         case .latestEvent: "Latest Event"
+        case .tokenUsage: "Token Usage"
         }
     }
 
     /// Whether this field is available for plain terminal sessions (no Claude session)
     public var availableForTerminals: Bool {
         switch self {
+        // Telemetry, project name, and latest-event are Claude-only signals.
         case .projectName,
-             .latestEvent: false
+             .latestEvent,
+             .tokenUsage: false
         case .customDescription,
              .sessionName,
              .terminalTitle,

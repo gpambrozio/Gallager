@@ -1,4 +1,5 @@
 import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import SwiftUI
 
 /// Preferences tab for customizing which fields appear in sidebar session rows and their order.
@@ -204,17 +205,29 @@ private struct SidebarPreview: View {
                         .padding(.top, 4)
                 }
 
-                SessionFieldsView(
-                    fields: fields,
-                    customDescription: "My Feature Branch",
-                    projectName: isTerminal ? nil : "Gallager",
-                    sessionName: "dev",
-                    terminalTitle: isTerminal ? nil : "claude",
-                    command: isTerminal ? "zsh" : "claude",
-                    currentPath: "~/Development/Gallager",
-                    gitBranch: "feature/sidebar-git-branch",
-                    latestEvent: isTerminal ? nil : "Reading file Package.swift"
-                )
+                VStack(alignment: .leading, spacing: 2) {
+                    SessionFieldsView(
+                        fields: fields,
+                        customDescription: "My Feature Branch",
+                        projectName: isTerminal ? nil : "Gallager",
+                        sessionName: "dev",
+                        terminalTitle: isTerminal ? nil : "claude",
+                        command: isTerminal ? "zsh" : "claude",
+                        currentPath: "~/Development/Gallager",
+                        gitBranch: "feature/sidebar-git-branch",
+                        latestEvent: isTerminal ? nil : "Reading file Package.swift"
+                    )
+
+                    // The Token Usage field renders a rich telemetry meter, not a
+                    // text value — show a representative sample so the preview is
+                    // honest about what enabling the field looks like.
+                    if fields.contains(.tokenUsage) {
+                        SessionTelemetrySummary(
+                            telemetry: SessionTelemetry(tokensUsed: 12_400, costUSD: 0.42, model: "claude-opus-4-8"),
+                            permissionMode: "acceptEdits"
+                        )
+                    }
+                }
             }
             .padding(12)
             .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))

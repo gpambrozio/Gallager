@@ -45,6 +45,10 @@
         /// Submits a structured `AgentResponse` for the open response form.
         let submitResponse: ResponseSender
 
+        /// Live OTEL telemetry for this pane's session (issue #597), shown as a
+        /// thin meter strip above the terminal (surface C).
+        var telemetry: SessionTelemetry?
+
         @Environment(ViewerRelayClient.self) private var relayClient
         @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
@@ -66,6 +70,7 @@
             showKeyboardButton: Bool = true,
             isActive: Bool = true,
             settings: IOSSettings,
+            telemetry: SessionTelemetry? = nil,
             submitResponse: @escaping ResponseSender
         ) {
             self.paneId = paneId
@@ -77,6 +82,7 @@
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
             self.isActive = isActive
+            self.telemetry = telemetry
             self.submitResponse = submitResponse
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
@@ -106,6 +112,11 @@
                     .id(responseState.requestID)
 
                     Divider()
+                }
+
+                // Live OTEL meter strip for the viewed session (issue #597, surface C).
+                if let telemetry, telemetry.tokensUsed > 0 || telemetry.costUSD > 0 {
+                    mirrorMeterStrip(telemetry)
                 }
 
                 // Terminal content with overlay keyboard button when nav bar is hidden
@@ -162,6 +173,24 @@
             .onChange(of: coordinator.pendingClipboardContent) { _, newContent in
                 clipboardContent = newContent
             }
+        }
+
+        /// Thin meter strip showing the viewed session's live tokens · cost ·
+        /// last-turn latency (issue #597, surface C).
+        private func mirrorMeterStrip(_ telemetry: SessionTelemetry) -> some View {
+            HStack(spacing: 8) {
+                SessionMeterView(telemetry: telemetry)
+                if let latency = telemetry.lastTurnLatencyMs {
+                    Text("· \(latency.latencyString)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(.bar)
         }
 
         /// Overlay button for keyboard toggle when navigation bar is hidden

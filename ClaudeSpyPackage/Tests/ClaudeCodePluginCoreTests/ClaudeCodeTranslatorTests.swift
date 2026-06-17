@@ -572,6 +572,54 @@ struct ClaudeCodeTranslatorTests {
         #expect(event.appActions.isEmpty)
     }
 
+    @Test("the tool/prompt/stop events carry permission_mode into the PluginEvent")
+    func permissionModeSeededFromHooks() async throws {
+        let (core, _) = try await makeCore()
+
+        // Each of the four events Claude Code stamps with permission_mode should
+        // surface it on the PluginEvent so a session's *current* mode is known from
+        // the hook channel alone — OTEL only reports a mode *change* (issue #597).
+        let carriers: [(event: String, extra: String)] = [
+            ("PreToolUse", #""tool_name": "Bash", "tool_input": { "command": "ls" }"#),
+            ("PostToolUse", #""tool_name": "Bash", "tool_input": { "command": "ls" }"#),
+            ("UserPromptSubmit", #""prompt": "hi""#),
+            ("Stop", #""last_assistant_message": "done""#),
+        ]
+        for carrier in carriers {
+            let json = """
+            {
+                "hook_event_name": "\(carrier.event)",
+                "session_id": "sess-mode",
+                "permission_mode": "bypassPermissions",
+                \(carrier.extra)
+            }
+            """
+            let event = try #require(
+                await core.handleIngress(frame(json)),
+                "\(carrier.event) should translate"
+            )
+            #expect(
+                event.permissionMode == "bypassPermissions",
+                "\(carrier.event) should carry permission_mode"
+            )
+        }
+    }
+
+    @Test("an event without permission_mode leaves it nil (must not clobber a known mode)")
+    func permissionModeAbsentIsNil() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-pre",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" }
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == nil)
+    }
+
     @Test("unparseable payload is dropped and logged")
     func unparseableDropped() async throws {
         let (core, host) = try await makeCore()

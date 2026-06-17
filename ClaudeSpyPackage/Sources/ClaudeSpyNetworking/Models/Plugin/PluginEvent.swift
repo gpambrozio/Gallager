@@ -28,6 +28,14 @@ public struct PluginEvent: Codable, Sendable, Equatable {
     /// Lets the app render the project name before any tmux refresh tick.
     public let projectPath: String?
 
+    /// The session's current permission mode (`default` / `plan` / `acceptEdits`
+    /// / `bypassPermissions`), when the originating hook carried one. `nil` means
+    /// "no opinion, leave it unchanged" — most events don't carry it. This is the
+    /// hook-channel seed for the *current* mode so a session that starts in a
+    /// non-default mode shows its chip immediately, without waiting for an OTEL
+    /// `permission_mode_changed` event (which only fires on a change; issue #597).
+    public let permissionMode: String?
+
     public init(
         pluginID: String,
         sessionID: String,
@@ -35,7 +43,8 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         notification: NotificationSpec? = nil,
         appActions: [AppAction] = [],
         tmuxPane: String? = nil,
-        projectPath: String? = nil
+        projectPath: String? = nil,
+        permissionMode: String? = nil
     ) {
         self.pluginID = pluginID
         self.sessionID = sessionID
@@ -44,6 +53,7 @@ public struct PluginEvent: Codable, Sendable, Equatable {
         self.appActions = appActions
         self.tmuxPane = tmuxPane
         self.projectPath = projectPath
+        self.permissionMode = permissionMode
     }
 }
 

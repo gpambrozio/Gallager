@@ -3,7 +3,7 @@
     import SwiftUI
 
     /// Convenience wrapper that reads from `EditorSessionManager` and shows `PromptEditorOverlay`
-    /// when an editor session is active for the given pane. Used by both `MirrorWindowView` and
+    /// when an editor session is active for the given pane. Used by
     /// `WindowPaneLayoutView.PaneTileView`.
     struct PaneEditorOverlay: View {
         let paneId: String

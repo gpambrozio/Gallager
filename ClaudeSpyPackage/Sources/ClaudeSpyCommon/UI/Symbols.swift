@@ -22,6 +22,7 @@ public enum Symbols: String {
     case bolt
     case boltFill = "bolt.fill"
     case bubbleLeftAndExclamationmarkBubbleRight = "bubble.left.and.exclamationmark.bubble.right"
+    case chartLineUptrendXyaxis = "chart.line.uptrend.xyaxis"
     case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
@@ -85,6 +86,7 @@ public enum Symbols: String {
     case rectangleSplit2x1 = "rectangle.split.2x1"
     case rectangleSplit2x1Fill = "rectangle.split.2x1.fill"
     case rectangleStackBadgeMinus = "rectangle.stack.badge.minus"
+    case shield
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"
@@ -93,6 +95,7 @@ public enum Symbols: String {
     case stopFill = "stop.fill"
     case terminal
     case textBubbleFill = "text.bubble.fill"
+    case wandAndStars = "wand.and.stars"
     case wifi
     case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"

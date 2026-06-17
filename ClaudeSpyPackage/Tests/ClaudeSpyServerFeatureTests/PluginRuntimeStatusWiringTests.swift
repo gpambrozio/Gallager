@@ -47,13 +47,14 @@
         /// wires its state sink (the other sinks are irrelevant here).
         private func makeDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await windowManager.applyState(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     )
                 }
             )
@@ -66,13 +67,14 @@
         /// ordering clears the session rather than leaving it resurrected.
         private func makeStateAndAppActionDispatcher(_ windowManager: MirrorWindowManager) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await windowManager.applyState(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     )
                 },
                 onAppAction: { action in
@@ -185,6 +187,57 @@
             #expect(windowManager.paneStates["%7"]?.agentSession != nil)
             #expect(windowManager.paneStates["%7"]?.agentSession?.isWorking == false)
             #expect(windowManager.paneStates["%7"]?.agentSession?.needsAttention == false)
+        }
+
+        @Test("applyState seeds permissionMode from the hook and a nil leaves it unchanged")
+        func applyStateSeedsPermissionMode() {
+            let windowManager = makeWindowManager()
+
+            // A hook carrying permission_mode stamps the pane (issue #597).
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                state: .working,
+                tmuxPane: "%7",
+                projectPath: nil,
+                permissionMode: "bypassPermissions"
+            )
+            #expect(windowManager.paneStates["%7"]?.permissionMode == "bypassPermissions")
+
+            // A later event without permission_mode (nil) must NOT clobber the known
+            // mode — most hooks don't carry it.
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s1",
+                state: .idle,
+                tmuxPane: "%7",
+                projectPath: nil,
+                permissionMode: nil
+            )
+            #expect(windowManager.paneStates["%7"]?.permissionMode == "bypassPermissions")
+
+            // A new session id resets the mode, but a permission_mode on the same
+            // call wins (stamped after the reset).
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s2",
+                state: .working,
+                tmuxPane: "%7",
+                projectPath: nil,
+                permissionMode: "plan"
+            )
+            #expect(windowManager.paneStates["%7"]?.permissionMode == "plan")
+
+            // A new session id with no mode resets it to nil.
+            windowManager.applyState(
+                pluginID: "claude-code",
+                sessionID: "s3",
+                state: .working,
+                tmuxPane: "%7",
+                projectPath: nil,
+                permissionMode: nil
+            )
+            #expect(windowManager.paneStates["%7"]?.permissionMode == nil)
         }
 
         @Test("a blocking-form state survives mark-handled-on-view; a doneWorking one clears")

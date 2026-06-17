@@ -44,6 +44,20 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Set the configured Claude-session sidebar fields (raw `SidebarField`
+    /// values). Requires in-process access to mutate the live `AppSettings`.
+    @discardableResult
+    static func setSidebarFields(_ fields: [String], port: UInt16 = defaultPort) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/set-sidebar-fields")!
+        components.queryItems = [URLQueryItem(name: "fields", value: fields.joined(separator: ","))]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP set-sidebar-fields \(fields): \(body)")
+        return body == "ok"
+    }
+
     /// Update the in-process `VersionCompatibility` overrides and kick a reconnect.
     ///
     /// Both parameters are always sent. A `nil` value clears the override so the

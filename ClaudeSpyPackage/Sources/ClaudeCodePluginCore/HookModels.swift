@@ -109,6 +109,21 @@ public protocol HookBodyProtocol: Codable, Sendable {
     var hookEventName: String { get }
     var timestamp: String? { get }
     var shouldSendToServer: Bool { get }
+
+    /// The session's permission mode (`default` / `plan` / `acceptEdits` /
+    /// `bypassPermissions`) at the time the hook fired. Claude Code includes it on
+    /// the tool/prompt/stop events (`UserPromptSubmit`, `PreToolUse`,
+    /// `PostToolUse`, `Stop`) and on permission events; other events omit it, so
+    /// the default is `nil`. This is the hook-channel source of the *current* mode
+    /// — OTEL only emits `permission_mode_changed` on a change, never the starting
+    /// value (issue #597).
+    var permissionMode: String? { get }
+}
+
+public extension HookBodyProtocol {
+    /// Most hook bodies don't carry a permission mode; the four that do override
+    /// this with a stored property.
+    var permissionMode: String? { nil }
 }
 
 // MARK: - Common Hook Fields
@@ -277,6 +292,7 @@ public struct PreToolUseBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let permissionMode: String?
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
     public var shouldSendToServer: Bool {
@@ -289,6 +305,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case permissionMode = "permission_mode"
         case toolName = "tool_name"
         case toolInput = "tool_input"
     }
@@ -299,6 +316,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         cwd: String? = nil,
         hookEventName: String,
         timestamp: String? = nil,
+        permissionMode: String? = nil,
         toolName: String? = nil,
         toolInput: ClaudeCodeTool? = nil
     ) {
@@ -307,6 +325,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         self.cwd = cwd
         self.hookEventName = hookEventName
         self.timestamp = timestamp
+        self.permissionMode = permissionMode
         self.toolName = toolName
         self.toolInput = toolInput
     }
@@ -318,6 +337,7 @@ public struct PreToolUseBody: HookBodyProtocol {
         self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
         self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
 
         // Decode tool_input based on tool_name
@@ -525,6 +545,7 @@ public struct PostToolUseBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let permissionMode: String?
     public let toolName: String?
     public let toolInput: ClaudeCodeTool?
     public let toolResponse: AnyCodable?
@@ -539,6 +560,7 @@ public struct PostToolUseBody: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case permissionMode = "permission_mode"
         case toolName = "tool_name"
         case toolInput = "tool_input"
         case toolResponse = "tool_response"
@@ -552,6 +574,7 @@ public struct PostToolUseBody: HookBodyProtocol {
         self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
         self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
         self.toolUseId = try container.decodeIfPresent(String.self, forKey: .toolUseId)
         self.toolResponse = try container.decodeIfPresent(AnyCodable.self, forKey: .toolResponse)
@@ -596,6 +619,7 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let permissionMode: String?
     public let prompt: String?
     public var shouldSendToServer: Bool {
         true
@@ -607,6 +631,7 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case permissionMode = "permission_mode"
         case prompt
     }
 }
@@ -617,6 +642,7 @@ public struct StopBody: HookBodyProtocol {
     public let cwd: String?
     public let hookEventName: String
     public let timestamp: String?
+    public let permissionMode: String?
     public let stopHookActive: Bool?
     public let lastAssistantMessage: String?
     public var shouldSendToServer: Bool {
@@ -629,6 +655,7 @@ public struct StopBody: HookBodyProtocol {
         case cwd
         case hookEventName = "hook_event_name"
         case timestamp
+        case permissionMode = "permission_mode"
         case stopHookActive = "stop_hook_active"
         case lastAssistantMessage = "last_assistant_message"
     }
@@ -639,6 +666,7 @@ public struct StopBody: HookBodyProtocol {
         cwd: String? = nil,
         hookEventName: String,
         timestamp: String? = nil,
+        permissionMode: String? = nil,
         stopHookActive: Bool? = nil,
         lastAssistantMessage: String? = nil
     ) {
@@ -647,6 +675,7 @@ public struct StopBody: HookBodyProtocol {
         self.cwd = cwd
         self.hookEventName = hookEventName
         self.timestamp = timestamp
+        self.permissionMode = permissionMode
         self.stopHookActive = stopHookActive
         self.lastAssistantMessage = lastAssistantMessage
     }

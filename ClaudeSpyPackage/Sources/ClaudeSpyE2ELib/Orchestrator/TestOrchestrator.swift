@@ -166,6 +166,12 @@ public actor TestOrchestrator {
         // and place watched fixture files (e.g. a codex `config.toml`) inside
         // the per-scenario sandbox the orchestrator already cleans up.
         context.set("gallagerStateRoot", value: gallagerStateRootPath(for: 0))
+        // Instance 0's OTLP receiver endpoint, matching the `--otlp-port` the
+        // launch args pass (`defaultOTLPPort + 0`). Telemetry scenarios POST
+        // synthetic OTLP here via `${otlpEndpoint}`, so the curl follows this
+        // instance's own receiver port instead of a hardcoded 4318 (which could
+        // be held by another instance or a developer's real app).
+        context.set("otlpEndpoint", value: "http://127.0.0.1:\(MacOSDriver.defaultOTLPPort)")
 
         // Clear any leftover fake-editor log from a previous run so scenario
         // assertions don't see stale entries.
@@ -584,6 +590,11 @@ public actor TestOrchestrator {
                 "--tmux-socket", instanceSocket,
                 "--gallager-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
+                // Per-instance OTLP receiver port so concurrent instances (and a
+                // dev's real app on 4318) never share a loopback telemetry
+                // receiver. The env injection reads the same `--otlp-port`, so
+                // launched panes POST to this instance's own receiver.
+                "--otlp-port", "\(driver.otlpPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
@@ -791,6 +802,9 @@ public actor TestOrchestrator {
 
         case let .macSetSidebarWidth(width, instance):
             try await macDriver(for: instance).setSidebarWidth(width)
+
+        case let .macSetSidebarFields(fields, instance):
+            try await macDriver(for: instance).setSidebarFields(fields)
 
         case let .macFocusElement(titled, instance):
             try await macDriver(for: instance).focusElement(titled: titled)
@@ -1123,8 +1137,9 @@ public actor TestOrchestrator {
             return driver
         }
         let port = MacOSDriver.defaultTestAccessibilityPort + UInt16(instance)
+        let otlpPort = MacOSDriver.defaultOTLPPort + UInt16(instance)
         let label = instance == 0 ? "e2e.macos-driver" : "e2e.macos-driver-\(instance + 1)"
-        let driver = MacOSDriver(label: label, testAccessibilityPort: port)
+        let driver = MacOSDriver(label: label, testAccessibilityPort: port, otlpPort: otlpPort)
         macDrivers[instance] = driver
         return driver
     }

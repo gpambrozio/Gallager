@@ -59,6 +59,12 @@ public enum TerminalEnvVarsScenario {
             command: "export | grep -E '^(CLAUDE_CODE_NO_FLICKER|CLAUDE_CODE_ACCESSIBILITY|DISABLE_AUTO_UPDATE|DISABLE_UPDATE_PROMPT|LANG)='"
         )
         TestStep.wait(seconds: 1)
+        // OTEL telemetry vars (issue #597), also via the tmux `-e` path.
+        Shortcut.tmuxRunCommand(
+            target: "${envPane}",
+            command: "export | grep -E 'CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_'"
+        )
+        TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-env-vars-output")
 
         // 5. Capture the pane and verify each KEY=VALUE pair surfaced
@@ -77,6 +83,22 @@ public enum TerminalEnvVarsScenario {
         TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_ACCESSIBILITY=1")
         TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_AUTO_UPDATE=true")
         TestStep.assertStoredContains(key: "envOutput", substring: "DISABLE_UPDATE_PROMPT=true")
+
+        // OTEL telemetry vars (issue #597) — proves Claude Code is pointed at the
+        // Mac-local OTLP receiver with no content gates enabled.
+        TestStep.assertStoredContains(key: "envOutput", substring: "CLAUDE_CODE_ENABLE_TELEMETRY=1")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_METRICS_EXPORTER=otlp")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_LOGS_EXPORTER=otlp")
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_EXPORTER_OTLP_PROTOCOL=http/json")
+        // Port-agnostic: E2E injects a per-instance `--otlp-port` (not the
+        // production 4318), so assert only the loopback endpoint prefix. The
+        // exact port is proven end-to-end by OTELTelemetryRenderScenario, where
+        // the pane's curl POSTs to this same var and the meter renders.
+        TestStep.assertStoredContains(
+            key: "envOutput", substring: "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:"
+        )
+        TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_METRIC_EXPORT_INTERVAL=10000")
+
         // LANG is always a UTF-8 locale, but the exact value depends on what the
         // app inherited at launch (an already-UTF-8 locale is preserved, else the
         // en_US.UTF-8 fallback applies), so assert presence rather than an exact,

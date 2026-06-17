@@ -1,6 +1,7 @@
 #if canImport(AppKit)
     #if DEBUG
         import AppKit
+        import ClaudeSpyCommon
         import ClaudeSpyNetworking
         import Foundation
         import Network
@@ -18,6 +19,12 @@
         final public class TestAccessibilityServer {
             private var listener: NWListener?
             private static var instance: TestAccessibilityServer?
+
+            /// The live app settings, set at startup so the E2E
+            /// `/set-sidebar-fields` endpoint can mutate the configured sidebar
+            /// fields in-process (needed to opt a scenario into off-by-default
+            /// fields like Token Usage). Weak so it never extends settings' life.
+            public weak static var liveSettings: AppSettings?
 
             /// Start the server if running in E2E test mode.
             /// Reads `--test-accessibility-port <port>` from launch arguments (default: 18081).
@@ -217,6 +224,31 @@
                             }
                         }
                         let body = found ? "ok" : "not_found"
+                        let response = Data(
+                            "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
+                                .utf8
+                        )
+                        connection.send(content: response, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                    }
+                } else if request.hasPrefix("POST /set-sidebar-fields") {
+                    // Opt a scenario into off-by-default sidebar fields by
+                    // setting the live AppSettings. `fields` is a comma-separated
+                    // list of raw `SidebarField` values.
+                    let raw = Self.extractQueryParam(from: request, key: "fields") ?? ""
+                    Task { @MainActor in
+                        let parsed = raw
+                            .split(separator: ",")
+                            .compactMap { SidebarField(rawValue: String($0)) }
+                        let ok: Bool
+                        if let settings = TestAccessibilityServer.liveSettings, !parsed.isEmpty {
+                            settings.sidebarFields = parsed
+                            ok = true
+                        } else {
+                            ok = false
+                        }
+                        let body = ok ? "ok" : "not_found"
                         let response = Data(
                             "HTTP/1.1 200 OK\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n\(body)"
                                 .utf8

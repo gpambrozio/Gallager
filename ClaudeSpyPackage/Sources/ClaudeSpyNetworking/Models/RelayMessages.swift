@@ -161,6 +161,29 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
     public var progress: TerminalProgressState?
 
+    // MARK: - OTEL Telemetry (issue #597)
+
+    /// The Claude Code `session.id` (identical to the hook `session_id`) running
+    /// in this pane, used to join the OTEL telemetry channel to this pane. Set
+    /// from `applyState`; reset when a new session starts (e.g. `/clear`). This
+    /// is the host-side join key — viewers don't read it.
+    public var claudeSessionID: String?
+
+    /// The current permission mode reported by the OTEL
+    /// `permission_mode_changed` event (e.g. "plan", "acceptEdits",
+    /// "bypassPermissions"). `nil` until the first mode change is observed.
+    public var permissionMode: String?
+
+    /// What triggered the latest permission-mode change (e.g. "shift_tab",
+    /// "command"), from the OTEL event's `trigger` attribute. Shown in the
+    /// session detail view alongside the mode.
+    public var permissionModeTrigger: String?
+
+    /// Quantitative, content-free OTEL telemetry (tokens, cost, latency, model,
+    /// per-turn samples) accumulated by the Mac-local OTLP receiver. `nil` until
+    /// the first `api_request` is observed for this pane's session.
+    public var telemetry: SessionTelemetry?
+
     // MARK: - Computed Properties
 
     public var id: String {
@@ -195,7 +218,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
         editorSession: EditorSessionInfo? = nil,
-        progress: TerminalProgressState? = nil
+        progress: TerminalProgressState? = nil,
+        claudeSessionID: String? = nil,
+        permissionMode: String? = nil,
+        permissionModeTrigger: String? = nil,
+        telemetry: SessionTelemetry? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -220,6 +247,10 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.cliSessionState = cliSessionState
         self.editorSession = editorSession
         self.progress = progress
+        self.claudeSessionID = claudeSessionID
+        self.permissionMode = permissionMode
+        self.permissionModeTrigger = permissionModeTrigger
+        self.telemetry = telemetry
     }
 }
 

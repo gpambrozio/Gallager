@@ -27,7 +27,8 @@
             _ sessionID: String,
             _ state: AgentState,
             _ tmuxPane: String?,
-            _ projectPath: String?
+            _ projectPath: String?,
+            _ permissionMode: String?
         ) async -> Void
 
         /// A pre-baked notification to surface Mac-side and push to iOS.
@@ -67,7 +68,7 @@
         // MARK: - Initialization
 
         public init(
-            onState: @escaping StateSink = { _, _, _, _, _ in },
+            onState: @escaping StateSink = { _, _, _, _, _, _ in },
             onNotification: @escaping NotificationSink = { _, _, _ in },
             onAutoApprove: @escaping AutoApproveSink = { _, _, _ in },
             onAppAction: @escaping AppActionSink = { _ in },
@@ -106,7 +107,8 @@
                     event.sessionID,
                     effectiveState,
                     event.tmuxPane,
-                    event.projectPath
+                    event.projectPath,
+                    event.permissionMode
                 )
                 if let notification = event.notification, !suppressNotification {
                     await onNotification(event.pluginID, paneID, notification)
