@@ -55,10 +55,13 @@ struct OTLPProcessingResult: Equatable {
 ///   Commit / PR milestones come from the monotonic counter metrics, tracked as
 ///   deltas between exports. Permission modes come from `permission_mode_changed`.
 /// - **Codex**: tokens + model come from `codex.sse_event` (`response.completed`)
-///   and latency from `codex.api_request` — the two log events that carry
-///   `conversation.id` (Codex metrics omit it, openai/codex#15905, so metrics
-///   can't be joined). No cost is emitted (cost stays 0). Permission/approval
-///   mode is seeded from the hook channel, not OTEL.
+///   and per-turn latency from `codex.turn_ttft` (`duration_ms`, time to first
+///   token). Both carry `conversation.id`; Codex metrics omit it
+///   (openai/codex#15905), so they can't be joined. Note that `codex.api_request`
+///   does *not* carry `conversation.id` (verified against live Codex 0.139.0: it is
+///   the `/models` capability check, and turn calls run over websocket), so it is
+///   unusable as a join source. No cost is emitted (cost stays 0). Permission/
+///   approval mode is seeded from the hook channel, not OTEL.
 struct OTLPTelemetryAccumulator {
     /// session id → accumulated telemetry snapshot. The id is Claude's `session.id`
     /// or Codex's `conversation.id`; both join to a pane's `claudeSessionID`.
@@ -89,10 +92,11 @@ struct OTLPTelemetryAccumulator {
 
     // Codex bare log event names (after stripping the `codex.` namespace).
     // `sse_event` carries token counts only on its `response.completed` kind;
-    // `api_request` carries the per-request `duration_ms` (latency).
+    // `turn_ttft` carries the per-turn `duration_ms` (time to first token) and,
+    // unlike `codex.api_request`, the `conversation.id` needed to join it.
     private static let codexTokenEvent = "sse_event"
     private static let codexTokenEventKind = "response.completed"
-    private static let codexLatencyEvent = "api_request"
+    private static let codexLatencyEvent = "turn_ttft"
 
     /// Which coding agent produced a log record, used to pick the right
     /// session-id attribute and event vocabulary. Classified by the event-name
@@ -204,8 +208,8 @@ struct OTLPTelemetryAccumulator {
         }
     }
 
-    /// Codex: tokens + model on `sse_event` (`response.completed`); per-request
-    /// latency on `api_request`. The two events that carry `conversation.id`.
+    /// Codex: tokens + model on `sse_event` (`response.completed`); per-turn
+    /// latency on `turn_ttft` (`duration_ms`). Both carry `conversation.id`.
     private mutating func processCodexLog(
         event: String,
         attributes: [OTLPKeyValue],
@@ -234,7 +238,7 @@ struct OTLPTelemetryAccumulator {
                 cacheReadTokens: cached,
                 cacheCreationTokens: 0,
                 costUSD: 0, // Codex emits no cost
-                durationMs: nil, // latency arrives on codex.api_request
+                durationMs: nil, // latency arrives on codex.turn_ttft
                 model: attributes.string(for: "model")
             )
             store(telemetry, for: sessionID)

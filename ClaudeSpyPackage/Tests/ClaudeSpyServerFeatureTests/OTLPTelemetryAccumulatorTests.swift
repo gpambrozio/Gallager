@@ -304,15 +304,18 @@
             """
         }
 
-        /// Builds a Codex `codex.api_request` log (latency only — no token counts),
-        /// joined by `conversation.id`. Uses the newer top-level `eventName` field.
-        private func codexApiRequestLogs(conversationID: String, durationMs: Int) -> String {
+        /// Builds a Codex `codex.turn_ttft` log (per-turn latency only — no token
+        /// counts), joined by `conversation.id`. This is the real per-turn latency
+        /// source: unlike `codex.api_request` (the `/models` capability check, which
+        /// carries no `conversation.id`), `turn_ttft` carries the join key. Uses the
+        /// newer top-level `eventName` field.
+        private func codexTurnTtftLogs(conversationID: String, durationMs: Int) -> String {
             """
             {
               "resourceLogs": [{
                 "scopeLogs": [{
                   "logRecords": [{
-                    "eventName": "codex.api_request",
+                    "eventName": "codex.turn_ttft",
                     "attributes": [
                       {"key": "conversation.id", "value": {"stringValue": "\(conversationID)"}},
                       {"key": "duration_ms", "value": {"intValue": "\(durationMs)"}},
@@ -366,10 +369,10 @@
             #expect(telemetry.tokensUsed == 75)
         }
 
-        @Test("Codex api_request stamps latency and back-fills the token turn's sample")
-        func codexApiRequestRecordsLatency() throws {
+        @Test("Codex turn_ttft stamps latency and back-fills the token turn's sample")
+        func codexTurnTtftRecordsLatency() throws {
             var accumulator = OTLPTelemetryAccumulator()
-            // Normal per-turn ordering: tokens (sse_event) then duration (api_request).
+            // Per-turn ordering: tokens (sse_event) then time-to-first-token (turn_ttft).
             _ = try ingestLogs(
                 codexSseCompletedLogs(
                     conversationID: "conv-1", inputTokenCount: 100, outputTokenCount: 50,
@@ -378,7 +381,7 @@
                 into: &accumulator
             )
             let result = try ingestLogs(
-                codexApiRequestLogs(conversationID: "conv-1", durationMs: 1_500),
+                codexTurnTtftLogs(conversationID: "conv-1", durationMs: 1_500),
                 into: &accumulator
             )
             let telemetry = try #require(result.telemetryUpdates["conv-1"])

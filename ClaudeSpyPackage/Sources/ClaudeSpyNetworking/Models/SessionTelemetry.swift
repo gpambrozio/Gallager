@@ -131,15 +131,15 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         }
     }
 
-    /// Records a turn's end-to-end latency that arrived on a *separate* event
-    /// from its token counts. Claude Code reports tokens and `duration_ms` on one
-    /// `api_request` log, so `accumulate(durationMs:)` covers it; Codex reports
-    /// tokens on `codex.sse_event` (response.completed) but latency on
-    /// `codex.api_request` (issue #602). This stamps the headline
-    /// `lastTurnLatencyMs` and back-fills the most recent sample's latency when it
-    /// arrived without one — so the just-completed turn's sparkline point gets its
-    /// latency under the normal ordering (tokens event, then the request-duration
-    /// event). No-op for a non-positive duration.
+    /// Records a turn's latency that arrived on a *separate* event from its token
+    /// counts. Claude Code reports tokens and `duration_ms` on one `api_request`
+    /// log, so `accumulate(durationMs:)` covers it; Codex reports tokens on
+    /// `codex.sse_event` (response.completed) but per-turn latency on
+    /// `codex.turn_ttft` (time-to-first-token `duration_ms`, issue #602). This
+    /// stamps the headline `lastTurnLatencyMs` and back-fills the most recent
+    /// sample's latency when it arrived without one. The headline is authoritative;
+    /// the sparkline back-fill is best-effort, since Codex can interleave the
+    /// ttft and sse_event records around a turn. No-op for a non-positive duration.
     public mutating func recordTurnLatency(_ durationMs: Int) {
         guard durationMs > 0 else { return }
         lastTurnLatencyMs = durationMs

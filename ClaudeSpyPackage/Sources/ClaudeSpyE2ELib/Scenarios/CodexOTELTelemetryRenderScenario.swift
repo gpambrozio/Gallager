@@ -11,8 +11,8 @@ import Foundation
 /// 2. Synthetic Codex OTLP/JSON is POSTed to the Mac-local receiver from the
 ///    pane's own shell via `curl`, addressed by the `${otlpEndpoint}` context
 ///    variable (this instance's `--otlp-port`). Tokens ride `codex.sse_event`
-///    (`response.completed`) and latency rides `codex.api_request` — the two
-///    Codex log events that carry `conversation.id`.
+///    (`response.completed`) and per-turn latency rides `codex.turn_ttft`. Both
+///    Codex log events carry `conversation.id` (`codex.api_request` does not).
 /// 3. The receiver joins by `conversation.id` and stamps the pane, so the
 ///    sidebar's `SessionTelemetrySummary` shows the token meter (no `$`, since
 ///    Codex emits no cost) and the model tag. The approval/permission-mode chip
@@ -25,10 +25,11 @@ public enum CodexOTELTelemetryRenderScenario {
     private static let sseEventCurl =
         #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"codex.sse_event"},"attributes":[{"key":"event.name","value":{"stringValue":"codex.sse_event"}},{"key":"event.kind","value":{"stringValue":"response.completed"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}},{"key":"input_token_count","value":{"intValue":"12000"}},{"key":"output_token_count","value":{"intValue":"400"}},{"key":"cached_token_count","value":{"intValue":"0"}}]}]}]}]}'"#
 
-    /// `codex.api_request`: the turn's `duration_ms` (latency lives on a separate
-    /// event from tokens for Codex, since only these two logs carry `conversation.id`).
-    private static let apiRequestCurl =
-        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"codex.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"codex.api_request"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}}]}]}]}]}'"#
+    /// `codex.turn_ttft`: the turn's time-to-first-token `duration_ms` (per-turn
+    /// latency rides a separate event from tokens; `turn_ttft` carries the
+    /// `conversation.id` join key, while `codex.api_request` does not).
+    private static let turnTtftCurl =
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"codex.turn_ttft"},"attributes":[{"key":"event.name","value":{"stringValue":"codex.turn_ttft"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}}]}]}]}]}'"#
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Codex OTEL Telemetry Render",
@@ -79,11 +80,11 @@ public enum CodexOTELTelemetryRenderScenario {
         TestStep.macWaitForElementQuery(.anyTextMatches("Default"), timeout: 10)
         TestStep.macScreenshot(label: "mac-codex-otel-hook-default-mode")
 
-        // 4. POST a synthetic Codex sse_event (tokens) then api_request (latency)
+        // 4. POST a synthetic Codex sse_event (tokens) then turn_ttft (latency)
         //    to the loopback receiver from the pane.
         Shortcut.tmuxRunCommand(target: "codex-otel-session:0.0", command: sseEventCurl)
         TestStep.wait(seconds: 1)
-        Shortcut.tmuxRunCommand(target: "codex-otel-session:0.0", command: apiRequestCurl)
+        Shortcut.tmuxRunCommand(target: "codex-otel-session:0.0", command: turnTtftCurl)
         TestStep.wait(seconds: 2)
 
         // 5. The meter + model tag render in the sidebar row. Codex emits no cost,
