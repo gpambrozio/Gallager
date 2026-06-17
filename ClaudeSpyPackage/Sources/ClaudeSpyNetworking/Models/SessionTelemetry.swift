@@ -67,6 +67,32 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
     /// first). Never longer than ``maxRecentTurns``.
     public var recentTurns: [TurnSample]
 
+    // MARK: Aggregate counters (issue #598)
+
+    /// Cumulative active time in seconds (`claude_code.active_time.total`), the
+    /// time the user/CLI was actively engaged. Drives the recap's "N min active".
+    /// `0` until the first export carries it.
+    public var activeTimeSeconds: Int
+
+    /// Lines of code added across the session (`claude_code.lines_of_code.count`
+    /// with `type=added`). `0` until reported.
+    public var linesAdded: Int
+
+    /// Lines of code removed across the session (`claude_code.lines_of_code.count`
+    /// with `type=removed`). `0` until reported.
+    public var linesRemoved: Int
+
+    /// Number of tool calls observed (`claude_code.tool_result` log events),
+    /// counted one per event — the same per-event accumulation `api_request` uses.
+    public var toolInvocations: Int
+
+    /// Cumulative commits made this session (`claude_code.commit.count`). Carried
+    /// here — beyond the one-shot milestone — so the recap can show "3 commits".
+    public var commitCount: Int
+
+    /// Cumulative pull requests opened this session (`claude_code.pull_request.count`).
+    public var pullRequestCount: Int
+
     public init(
         tokensUsed: Int = 0,
         inputTokens: Int = 0,
@@ -76,7 +102,13 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         costUSD: Double = 0,
         lastTurnLatencyMs: Int? = nil,
         model: String? = nil,
-        recentTurns: [TurnSample] = []
+        recentTurns: [TurnSample] = [],
+        activeTimeSeconds: Int = 0,
+        linesAdded: Int = 0,
+        linesRemoved: Int = 0,
+        toolInvocations: Int = 0,
+        commitCount: Int = 0,
+        pullRequestCount: Int = 0
     ) {
         self.tokensUsed = tokensUsed
         self.inputTokens = inputTokens
@@ -87,6 +119,12 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.lastTurnLatencyMs = lastTurnLatencyMs
         self.model = model
         self.recentTurns = recentTurns
+        self.activeTimeSeconds = activeTimeSeconds
+        self.linesAdded = linesAdded
+        self.linesRemoved = linesRemoved
+        self.toolInvocations = toolInvocations
+        self.commitCount = commitCount
+        self.pullRequestCount = pullRequestCount
     }
 
     /// Folds one completed `api_request` turn into the running totals and
@@ -119,6 +157,12 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         }
     }
 
+    /// Counts one observed `tool_result` log event. Per-event (not cumulative),
+    /// matching how `accumulate` folds each `api_request`.
+    public mutating func recordToolResult() {
+        toolInvocations += 1
+    }
+
     // MARK: - Codable
 
     /// Tolerant decode so a host on a different version than the viewer
@@ -134,6 +178,12 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         case lastTurnLatencyMs
         case model
         case recentTurns
+        case activeTimeSeconds
+        case linesAdded
+        case linesRemoved
+        case toolInvocations
+        case commitCount
+        case pullRequestCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -150,5 +200,13 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.lastTurnLatencyMs = try container.decodeIfPresent(Int.self, forKey: .lastTurnLatencyMs)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)
         self.recentTurns = try container.decodeIfPresent([TurnSample].self, forKey: .recentTurns) ?? []
+        // Issue #598 aggregate counters — all optional-with-default so an older
+        // host that omits them still decodes (the recap just shows 0s for those).
+        self.activeTimeSeconds = try container.decodeIfPresent(Int.self, forKey: .activeTimeSeconds) ?? 0
+        self.linesAdded = try container.decodeIfPresent(Int.self, forKey: .linesAdded) ?? 0
+        self.linesRemoved = try container.decodeIfPresent(Int.self, forKey: .linesRemoved) ?? 0
+        self.toolInvocations = try container.decodeIfPresent(Int.self, forKey: .toolInvocations) ?? 0
+        self.commitCount = try container.decodeIfPresent(Int.self, forKey: .commitCount) ?? 0
+        self.pullRequestCount = try container.decodeIfPresent(Int.self, forKey: .pullRequestCount) ?? 0
     }
 }

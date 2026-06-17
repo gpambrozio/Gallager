@@ -39,16 +39,48 @@ struct SessionTelemetryTests {
         #expect(telemetry.recentTurns.last?.latencyMs == SessionTelemetry.maxRecentTurns + 2)
     }
 
-    @Test("Codable round-trips")
+    @Test("recordToolResult counts one tool per call (issue #598)")
+    func recordToolResultCounts() {
+        var telemetry = SessionTelemetry()
+        telemetry.recordToolResult()
+        telemetry.recordToolResult()
+        #expect(telemetry.toolInvocations == 2)
+    }
+
+    @Test("Codable round-trips (incl. issue #598 aggregate counters)")
     func codableRoundTrip() throws {
         var telemetry = SessionTelemetry()
         telemetry.accumulate(
             inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheCreationTokens: 5,
             costUSD: 0.20, durationMs: 900, model: "claude-opus-4-8"
         )
+        telemetry.recordToolResult()
+        telemetry.activeTimeSeconds = 720
+        telemetry.linesAdded = 120
+        telemetry.linesRemoved = 30
+        telemetry.commitCount = 3
+        telemetry.pullRequestCount = 1
         let data = try JSONEncoder().encode(telemetry)
         let decoded = try JSONDecoder().decode(SessionTelemetry.self, from: data)
         #expect(decoded == telemetry)
+        #expect(decoded.activeTimeSeconds == 720)
+        #expect(decoded.linesAdded == 120)
+        #expect(decoded.commitCount == 3)
+    }
+
+    @Test("Older host without #598 counters decodes them as zero")
+    func aggregateCountersDefaultToZero() throws {
+        // A #597-era host sends only the token/cost fields.
+        let json = """
+        {"tokensUsed": 42, "costUSD": 0.5, "inputTokens": 42}
+        """
+        let decoded = try JSONDecoder().decode(SessionTelemetry.self, from: Data(json.utf8))
+        #expect(decoded.activeTimeSeconds == 0)
+        #expect(decoded.toolInvocations == 0)
+        #expect(decoded.linesAdded == 0)
+        #expect(decoded.linesRemoved == 0)
+        #expect(decoded.commitCount == 0)
+        #expect(decoded.pullRequestCount == 0)
     }
 
     @Test("Tolerant decode fills defaults for a partial payload (version skew)")

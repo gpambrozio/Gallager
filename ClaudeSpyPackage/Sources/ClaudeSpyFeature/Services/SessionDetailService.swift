@@ -66,6 +66,12 @@ final public class SessionDetailService {
         sessionStore.paneState(for: paneId, hostId: hostId)?.permissionModeTrigger
     }
 
+    /// End-of-turn recap for this pane (issue #598), or `nil` when the agent is
+    /// mid-turn or has produced no telemetry.
+    public var recap: SessionRecap? {
+        sessionStore.paneState(for: paneId, hostId: hostId)?.recap
+    }
+
     /// Whether the host is connected to the relay
     public var isHostConnected: Bool {
         relayClient.isHostConnected

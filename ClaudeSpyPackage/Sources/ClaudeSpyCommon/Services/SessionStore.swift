@@ -45,6 +45,11 @@ final public class SessionStore {
     /// Home directory path for each host, keyed by pairId
     public private(set) var homeDirectoryByHost: [String: String] = [:]
 
+    /// Cross-session cost/usage rollup per host (issue #598), from each host's
+    /// `SessionStateMessage.usageOverview`. Absent for hosts that don't send one
+    /// (older peers), so the overview surface degrades gracefully.
+    public private(set) var usageOverviewByHost: [String: UsageOverview] = [:]
+
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
@@ -138,6 +143,12 @@ final public class SessionStore {
         agentProjectsByHost[hostId] ?? []
     }
 
+    /// The cross-session usage overview for a specific host, if it sent one
+    /// (issue #598).
+    public func usageOverview(for hostId: String) -> UsageOverview? {
+        usageOverviewByHost[hostId]
+    }
+
     /// Check if a host has any sessions or panes
     public func hasSessions(for hostId: String) -> Bool {
         paneStates.keys.contains { $0.pairId == hostId }
@@ -194,6 +205,11 @@ final public class SessionStore {
         paneStates = newPaneStates
         agentProjectsByHost[hostId] = state.agentProjects ?? []
         homeDirectoryByHost[hostId] = state.homeDirectory
+        if let usageOverview = state.usageOverview {
+            usageOverviewByHost[hostId] = usageOverview
+        } else {
+            usageOverviewByHost.removeValue(forKey: hostId)
+        }
         hostsWithReceivedState.insert(hostId)
 
         // Open response forms ride `AgentSession.state` inside `paneStates`, so a
@@ -208,6 +224,7 @@ final public class SessionStore {
         // Clear stored projects
         agentProjectsByHost.removeValue(forKey: hostId)
         homeDirectoryByHost.removeValue(forKey: hostId)
+        usageOverviewByHost.removeValue(forKey: hostId)
         hostsWithReceivedState.remove(hostId)
 
         logger.info("Cleared all sessions for host: \(hostId)")

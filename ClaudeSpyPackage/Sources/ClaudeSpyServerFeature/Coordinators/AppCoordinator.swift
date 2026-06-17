@@ -126,6 +126,19 @@
         @ObservationIgnored
         private var otlpReceiver: OTLPReceiver?
 
+        /// Durable cross-session cost/usage aggregation (issue #598). Persists
+        /// per-(project, day) totals under the gallager state tree so they outlive
+        /// session end and app restarts. Fed from telemetry updates; finalized on
+        /// session end.
+        @ObservationIgnored
+        private var usageStore: UsageAggregationStore?
+
+        /// Latest cross-session usage rollup for the host's own surfaces (the menu
+        /// bar today-total, issue #598). Observable so those views refresh; `nil`
+        /// until there's something worth showing. Viewers get their copy via
+        /// `SessionStateMessage.usageOverview`, not this property.
+        public private(set) var usageOverview: UsageOverview?
+
         /// Per-plugin log sinks (one per active plugin), retained so the host's
         /// `log()` calls keep landing in the right file.
         @ObservationIgnored
@@ -1065,6 +1078,23 @@
                 projectPath: projectPath,
                 permissionMode: permissionMode
             )
+            // Issue #598: when the agent finishes a turn, snapshot a recap card
+            // from the accumulated telemetry. Only when there's real telemetry to
+            // show; `applyState` already cleared any prior recap if a new turn
+            // started instead.
+            if
+                let paneId = tmuxPane, !paneId.isEmpty,
+                case let .doneWorking(summary) = state,
+                let telemetry = windowManager.paneStates[paneId]?.telemetry,
+                telemetry.tokensUsed > 0 {
+                let recap = SessionRecap(
+                    telemetry: telemetry,
+                    projectName: windowManager.paneStates[paneId]?.agentSession?.displayName,
+                    summary: summary,
+                    isFinal: false
+                )
+                windowManager.applyRecap(recap, forPane: paneId)
+            }
             updateSleepPrevention()
 
             // High-frequency per-session update to iOS (spec §7.2). Keyed by the
@@ -1121,6 +1151,15 @@
         /// content-free signals into the app: telemetry → stamp the joined pane,
         /// milestones → one-shot notifications, mode changes → stamp the pane.
         private func setupOTLPReceiver() async {
+            // Durable cross-session usage store (issue #598). Lives in the gallager
+            // state tree so it shares the E2E redirect and survives restarts.
+            let stateRoot = (gallagerPaths ?? GallagerPaths()).stateRoot
+            let store = UsageAggregationStore(
+                fileURL: stateRoot.appendingPathComponent("usage-aggregates.json")
+            )
+            usageStore = store
+            usageOverview = await currentUsageOverview()
+
             let receiver = OTLPReceiver(
                 port: OTLPReceiver.resolvedPort,
                 onTelemetry: { [weak self] sessionID, telemetry in
@@ -1147,6 +1186,18 @@
         private func handleTelemetry(sessionID: String, telemetry: SessionTelemetry) async {
             guard windowManager.applyTelemetry(telemetry, forClaudeSessionID: sessionID) != nil else {
                 return // no pane bound to this session id yet
+            }
+            // Fold this snapshot into the durable per-project/day store (issue
+            // #598) and refresh the host's own overview surfaces. Keyed by the
+            // pane's detected project; skipped when none is known (can't attribute).
+            if let usageStore, let projectPath = windowManager.detectedProjectPath(forClaudeSessionID: sessionID) {
+                await usageStore.record(
+                    projectPath: projectPath,
+                    sessionID: sessionID,
+                    telemetry: telemetry,
+                    date: Date()
+                )
+                usageOverview = await currentUsageOverview()
             }
             guard let connectionManager = connectedViewerManager else { return }
             // Trailing throttle, not a debounce: if a push is already scheduled
@@ -1192,6 +1243,62 @@
                     : "Claude opened a pull request in \(project)"
                 return NotificationSpec(title: title, body: body)
             }
+        }
+
+        /// Formats the one-shot end-of-session recap notification (issue #598).
+        /// The body reuses the shared recap formatter so the push reads identically
+        /// to the recap card.
+        private static func recapNotification(_ recap: SessionRecap) -> NotificationSpec {
+            let title = recap.projectName.map { "Done — \($0)" } ?? "Session complete"
+            return NotificationSpec(title: title, body: recapDetailLine(recap))
+        }
+
+        /// The current durable usage rollup, or `nil` when nothing has accrued yet
+        /// (so a host with no usage doesn't push an empty overview or render an
+        /// empty header). Recomputed from the store on demand.
+        private func currentUsageOverview() async -> UsageOverview? {
+            guard let usageStore else { return nil }
+            let overview = await usageStore.overview(asOf: Date())
+            return overview.isEmpty ? nil : overview
+        }
+
+        /// On session end (issue #598): fold the pane's final telemetry into the
+        /// durable usage store, push a one-shot end-of-session recap, then evict the
+        /// session's live state from both the store baselines and the OTLP receiver
+        /// (#597). Reads the pane state before `endAgentSession` clears it. No-op
+        /// when the pane never carried a Claude session id.
+        private func finalizeEndedSession(paneId: String) async {
+            guard let claudeSessionID = windowManager.paneStates[paneId]?.claudeSessionID else { return }
+            let pane = windowManager.paneStates[paneId]
+            if let telemetry = pane?.telemetry {
+                if
+                    let usageStore,
+                    let projectPath = pane?.agentSession?.detectedProjectPath,
+                    !projectPath.isEmpty {
+                    await usageStore.record(
+                        projectPath: projectPath,
+                        sessionID: claudeSessionID,
+                        telemetry: telemetry,
+                        date: Date()
+                    )
+                    await usageStore.evictSession(claudeSessionID)
+                    usageOverview = await currentUsageOverview()
+                }
+                if telemetry.tokensUsed > 0 {
+                    var summary: String?
+                    if case let .doneWorking(lastMessage) = pane?.agentSession?.state {
+                        summary = lastMessage
+                    }
+                    let recap = SessionRecap(
+                        telemetry: telemetry,
+                        projectName: pane?.agentSession?.displayName,
+                        summary: summary,
+                        isFinal: true
+                    )
+                    await handlePluginNotification(Self.recapNotification(recap), paneId: paneId)
+                }
+            }
+            await otlpReceiver?.evictSession(claudeSessionID)
         }
 
         /// Records a permission-mode change on the joined pane and pushes it (mode
@@ -1245,12 +1352,11 @@
                     windowManager.setYoloMode(enabled: false, for: sessionID)
                     sessionStateChanged = true
                 }
-                // Evict this session's OTEL telemetry from the receiver to bound
-                // its memory (issue #597). Capture the join key before
-                // `endAgentSession` clears it from the pane.
-                if let claudeSessionID = windowManager.paneStates[sessionID]?.claudeSessionID {
-                    await otlpReceiver?.evictSession(claudeSessionID)
-                }
+                // Snapshot the final recap and fold the session's last telemetry
+                // into the durable store (issue #598), then evict its live state
+                // from the store and the OTLP receiver (issue #597) — all before
+                // `endAgentSession` clears the pane's join key and telemetry.
+                await finalizeEndedSession(paneId: sessionID)
                 // Remove the agent session so the pane reverts from the idle moon
                 // glyph to a plain terminal (the legacy `claudeSession = nil` on
                 // SessionEnd). The status path set working=false earlier in this
@@ -2468,6 +2574,11 @@
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []
 
+                // Cross-session cost/usage rollup (issue #598). Computed fresh so a
+                // viewer connecting or refreshing gets current totals; `nil` when
+                // empty, so an older viewer sees no field at all (graceful skew).
+                let usageOverview = await self?.currentUsageOverview()
+
                 // Open response forms ride `AgentSession.state` in `paneStates`, so a
                 // viewer connecting after a form opened still renders it from the
                 // snapshot — no separate form field is needed.
@@ -2476,7 +2587,8 @@
                     pairId: "",
                     paneStates: paneStates,
                     agentProjects: agentProjects,
-                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                    usageOverview: usageOverview
                 )
             }
 

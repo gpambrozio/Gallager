@@ -658,7 +658,8 @@
                         isPaneActive: activeService.isPaneActive,
                         telemetry: activeService.telemetry,
                         permissionMode: activeService.permissionMode,
-                        permissionModeTrigger: activeService.permissionModeTrigger
+                        permissionModeTrigger: activeService.permissionModeTrigger,
+                        recap: activeService.recap
                     )
                     .navigationTitle("Session Info")
                     .navigationBarTitleDisplayMode(.inline)
@@ -764,6 +765,7 @@
         var telemetry: SessionTelemetry?
         var permissionMode: String?
         var permissionModeTrigger: String?
+        var recap: SessionRecap?
 
         private var hasMode: Bool {
             PermissionModePresentation(mode: permissionMode) != nil
@@ -772,6 +774,13 @@
         var body: some View {
             if let session {
                 List {
+                    if let recap, recap.hasMeaningfulMetrics {
+                        Section {
+                            SessionRecapCard(recap: recap)
+                                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        }
+                    }
+
                     Section("Session Info") {
                         LabeledContent("Pane ID", value: paneId)
 
@@ -823,6 +832,22 @@
                     }
                     if let latency = telemetry.lastTurnLatencyMs {
                         LabeledContent("Last turn", value: latency.latencyString)
+                    }
+                    // Issue #598 aggregate counters, shown when non-zero.
+                    if telemetry.activeTimeSeconds > 0 {
+                        LabeledContent("Active time", value: telemetry.activeTimeSeconds.activeTimeString)
+                    }
+                    if telemetry.toolInvocations > 0 {
+                        LabeledContent("Tools", value: "\(telemetry.toolInvocations)")
+                    }
+                    if telemetry.linesAdded > 0 || telemetry.linesRemoved > 0 {
+                        LabeledContent("Lines", value: "+\(telemetry.linesAdded) / −\(telemetry.linesRemoved)")
+                    }
+                    if telemetry.commitCount > 0 {
+                        LabeledContent("Commits", value: "\(telemetry.commitCount)")
+                    }
+                    if telemetry.pullRequestCount > 0 {
+                        LabeledContent("Pull requests", value: "\(telemetry.pullRequestCount)")
                     }
                 }
 

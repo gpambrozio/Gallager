@@ -89,6 +89,55 @@
             """
         }
 
+        /// `lines_of_code.count` with one data point per `type` (added/removed) —
+        /// the shape that needs per-type totals rather than one value per session.
+        private func linesMetric(sessionID: String, added: Int, removed: Int) -> String {
+            func point(type: String, value: Int) -> String {
+                """
+                {
+                  "attributes": [
+                    {"key": "session.id", "value": {"stringValue": "\(sessionID)"}},
+                    {"key": "type", "value": {"stringValue": "\(type)"}}
+                  ],
+                  "asInt": "\(value)"
+                }
+                """
+            }
+            return """
+            {
+              "resourceMetrics": [{
+                "scopeMetrics": [{
+                  "metrics": [{
+                    "name": "claude_code.lines_of_code.count",
+                    "sum": {"dataPoints": [\(point(type: "added", value: added)), \(point(type: "removed", value: removed))]}
+                  }]
+                }]
+              }]
+            }
+            """
+        }
+
+        /// `count` `tool_result` log records for one session, each a separate event.
+        private func toolResultLogs(sessionID: String, count: Int) -> String {
+            let records = (0..<count).map { _ in
+                """
+                {
+                  "eventName": "tool_result",
+                  "attributes": [{"key": "session.id", "value": {"stringValue": "\(sessionID)"}}]
+                }
+                """
+            }.joined(separator: ",")
+            return """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [\(records)]
+                }]
+              }]
+            }
+            """
+        }
+
         @Test("api_request accumulates tokens, cost, latency, and model (int-as-string)")
         func apiRequestStringInts() throws {
             var accumulator = OTLPTelemetryAccumulator()
@@ -259,6 +308,81 @@
                 into: &accumulator
             )
             #expect(result.milestones == [TelemetryMilestone(sessionID: "sess-1", kind: .commit, count: 2)])
+        }
+
+        // MARK: - Issue #598 aggregate counters
+
+        @Test("commit.count carries the cumulative total onto the snapshot (issue #598)")
+        func commitCarriesCumulativeIntoTelemetry() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            _ = try ingestMetrics(
+                counterMetric(name: "claude_code.commit.count", sessionID: "sess-1", value: 3, asString: true),
+                into: &accumulator
+            )
+            let telemetry = try #require(accumulator.telemetry(for: "sess-1"))
+            #expect(telemetry.commitCount == 3)
+
+            _ = try ingestMetrics(
+                counterMetric(name: "claude_code.pull_request.count", sessionID: "sess-1", value: 1, asString: false),
+                into: &accumulator
+            )
+            #expect(accumulator.telemetry(for: "sess-1")?.pullRequestCount == 1)
+            // Commit total is preserved across a different counter's update.
+            #expect(accumulator.telemetry(for: "sess-1")?.commitCount == 3)
+        }
+
+        @Test("active_time.total carries cumulative seconds onto the snapshot (issue #598)")
+        func activeTimeAccumulates() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let result = try ingestMetrics(
+                counterMetric(name: "claude_code.active_time.total", sessionID: "sess-1", value: 720, asString: true),
+                into: &accumulator
+            )
+            #expect(result.telemetryUpdates["sess-1"]?.activeTimeSeconds == 720)
+            #expect(result.milestones.isEmpty) // active time is not a milestone
+
+            // A later, larger cumulative replaces the value (not added to).
+            let next = try ingestMetrics(
+                counterMetric(name: "claude_code.active_time.total", sessionID: "sess-1", value: 900, asString: false),
+                into: &accumulator
+            )
+            #expect(next.telemetryUpdates["sess-1"]?.activeTimeSeconds == 900)
+        }
+
+        @Test("lines_of_code.count splits added/removed by type (issue #598)")
+        func linesOfCodeByType() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let result = try ingestMetrics(linesMetric(sessionID: "sess-1", added: 120, removed: 30), into: &accumulator)
+            let telemetry = try #require(result.telemetryUpdates["sess-1"])
+            #expect(telemetry.linesAdded == 120)
+            #expect(telemetry.linesRemoved == 30)
+            #expect(result.milestones.isEmpty)
+        }
+
+        @Test("tool_result log events count one per event (issue #598)")
+        func toolResultCounts() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            _ = try ingestLogs(toolResultLogs(sessionID: "sess-1", count: 3), into: &accumulator)
+            #expect(accumulator.telemetry(for: "sess-1")?.toolInvocations == 3)
+            // Subsequent events keep counting (per-event, not cumulative).
+            _ = try ingestLogs(toolResultLogs(sessionID: "sess-1", count: 2), into: &accumulator)
+            #expect(accumulator.telemetry(for: "sess-1")?.toolInvocations == 5)
+        }
+
+        @Test("api_request tokens and tool_result counts coexist on one snapshot (issue #598)")
+        func tokensAndToolsCoexist() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            _ = try ingestLogs(
+                apiRequestLogs(
+                    sessionID: "sess-1", input: 100, output: 50, cacheRead: 0, cacheCreation: 0,
+                    costUSD: 0.25, durationMs: 1_000, model: "claude-opus-4-8", intsAsStrings: true
+                ),
+                into: &accumulator
+            )
+            _ = try ingestLogs(toolResultLogs(sessionID: "sess-1", count: 4), into: &accumulator)
+            let telemetry = try #require(accumulator.telemetry(for: "sess-1"))
+            #expect(telemetry.tokensUsed == 150)
+            #expect(telemetry.toolInvocations == 4)
         }
     }
 #endif
