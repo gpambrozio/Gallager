@@ -17,18 +17,28 @@ public struct CodexSettings: Codable, Sendable, Equatable {
     /// ClaudeCodeSettings.additionalConfigFolders.
     public var additionalConfigFolders: [String]
 
+    /// When true (default), app-launched Codex panes get `-c otel.…` launch
+    /// overrides pointing Codex's OTLP log export at the Mac-local receiver
+    /// (issue #602), so the session's token/latency/model surface in the UI.
+    /// One-way push; no prompt/tool content leaves the process
+    /// (`log_user_prompt = false`). Opt-out for users who manage their own
+    /// `[otel]` config or want zero telemetry from Gallager-launched panes.
+    public var exportTelemetry: Bool
+
     public init(
         commandPath: String = "codex",
         autoRun: Bool = true,
         logLevel: LogLevel = .info,
         closePaneOnSessionEnd: Bool = false,
-        additionalConfigFolders: [String] = []
+        additionalConfigFolders: [String] = [],
+        exportTelemetry: Bool = true
     ) {
         self.commandPath = commandPath
         self.autoRun = autoRun
         self.logLevel = logLevel
         self.closePaneOnSessionEnd = closePaneOnSessionEnd
         self.additionalConfigFolders = additionalConfigFolders
+        self.exportTelemetry = exportTelemetry
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -37,6 +47,7 @@ public struct CodexSettings: Codable, Sendable, Equatable {
         case logLevel = "log_level"
         case closePaneOnSessionEnd = "close_pane_on_session_end"
         case additionalConfigFolders = "additional_config_folders"
+        case exportTelemetry = "export_telemetry"
     }
 
     public init(from decoder: Decoder) throws {
@@ -48,6 +59,7 @@ public struct CodexSettings: Codable, Sendable, Equatable {
             .decodeIfPresent(Bool.self, forKey: .closePaneOnSessionEnd) ?? false
         self.additionalConfigFolders = try container
             .decodeIfPresent([String].self, forKey: .additionalConfigFolders) ?? []
+        self.exportTelemetry = try container.decodeIfPresent(Bool.self, forKey: .exportTelemetry) ?? true
     }
 
     /// Decode from raw `settings.json` bytes, falling back to defaults when the

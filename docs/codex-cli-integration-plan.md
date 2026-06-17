@@ -196,8 +196,16 @@ The work is structured so each phase is **independently shippable** — none of 
 Out of scope for v1, but worth tracking:
 
 - **App-server-protocol stream** (`codex exec --json` or a long-running app-server connection): gives token-by-token deltas and command-exec streams. Useful for a richer "what is Codex doing right now" view than discrete hooks provide.
-- **OpenTelemetry collector** embedded in the Mac app: zero-trust-prompt, structured metrics, but a much bigger lift.
+- ~~**OpenTelemetry**~~ — **shipped (issue #602).** Not an embedded collector: app-launched Codex panes are pointed at the existing Mac-local `OTLPReceiver` via `-c otel.…` launch overrides (Codex doesn't read `OTEL_*`), surfacing a per-session token meter, per-turn latency, model, and the approval/sandbox-mode chip. Logs-only (the channel that carries `conversation.id`), `log_user_prompt = false`, ephemeral (never writes the user's global config). See `docs/services-reference.md` → **OTLPReceiver** and `CodexOtelConfig`. Spike caveats below.
 - **Codex-as-MCP-server** (`codex mcp`): would let ClaudeSpy *drive* a Codex session, not just observe one.
+
+#### Codex OTEL — verified assumptions & spike caveats (issue #602)
+
+Verified against the codex-rs source while implementing:
+- **Schema** (`codex-rs/config/src/types.rs` `OtelExporterKind`): kebab-case externally-tagged enum → `otel.exporter = { otlp-http = { endpoint = "…", protocol = "json" } }`; `protocol` ∈ `json`/`binary`; `metrics_exporter` defaults to `statsig` (so we set it `"none"`), `trace_exporter`/`exporter` default `none`. Serde tolerates unknown keys (only `schemars` has `deny_unknown_fields`).
+- **`-c` runtime overrides reach `otel`** (`codex-rs/config/src/loader/mod.rs`): `otel` is on `PROJECT_LOCAL_CONFIG_DENYLIST` (repo-local config only); the comment confirms it "is still supported from user, system, managed, and **runtime**" layers, and `-c` is the runtime layer.
+- **Token attributes** (`codex-rs/otel/src/events/session_telemetry.rs` `sse_event_completed`): `codex.sse_event` / `event.kind = response.completed` carries `input_token_count` / `output_token_count` / `cached_token_count` / `reasoning_token_count` / `tool_token_count`; `cached`/`reasoning` are nested inside input/output. `codex.api_request` carries `duration_ms`. Every log gets `conversation.id` + `model`; metrics omit `conversation.id` (openai/codex#15905).
+- **Assumed (could not run a live spike), to confirm on real hardware:** that the OTEL `conversation.id` equals the Codex **hook** `session_id` we store as `claudeSessionID` (the join). If they differ, the meter simply won't bind (no crash). The interactive TUI's actual delivery of `otlp-http` + `protocol=json` to a loopback endpoint is likewise unverified end-to-end here.
 
 ## 7. Open questions
 

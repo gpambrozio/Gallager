@@ -31,6 +31,12 @@ public actor CodexPluginCore: PluginCore {
     private var marketplaceSource = URL(fileURLWithPath: "/")
     private var command = "codex"
 
+    /// Base URL of the Mac-local OTLP receiver (e.g. `http://127.0.0.1:4318`),
+    /// from `PluginEnv`. Used to build the `-c otel.…` launch overrides that
+    /// point Codex's OTLP log export here (issue #602). `nil` when no receiver
+    /// is running, in which case Codex launches with no OTEL overrides.
+    private var otlpReceiverEndpoint: URL?
+
     /// Per-`requestID` context retained from `handleIngress` so `deliverResponse`
     /// can translate the structured answer into keystrokes (spec §7.1).
     private var pendingRequests: [String: PendingRequest] = [:]
@@ -78,6 +84,7 @@ public actor CodexPluginCore: PluginCore {
         // `env.settings` is the authoritative initial settings value (spec §11).
         settings = CodexSettings.decode(from: env.settings)
         marketplaceSource = env.marketplaceSource
+        otlpReceiverEndpoint = env.otlpReceiverEndpoint
         command = settings.commandPath
         await refreshProjects()
         #if os(macOS)
@@ -334,7 +341,13 @@ public actor CodexPluginCore: PluginCore {
 
     public func commandForLaunch(projectPath _: String) async -> LaunchCommand? {
         guard settings.autoRun else { return nil }
-        return LaunchCommand(command: settings.commandPath)
+        // Point Codex's OTLP log export at the Mac-local receiver via `-c`
+        // overrides (issue #602). Gated on the per-agent `exportTelemetry`
+        // setting; empty (no overrides) when off or when no receiver is running.
+        let otelArgs = settings.exportTelemetry
+            ? CodexOtelConfig.launchOverrides(otlpEndpoint: otlpReceiverEndpoint)
+            : []
+        return LaunchCommand(command: settings.commandPath, args: otelArgs)
     }
 
     // MARK: - CLI-based plugin install

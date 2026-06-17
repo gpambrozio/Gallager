@@ -44,14 +44,24 @@ struct OTLPProcessingResult: Equatable {
 /// logic with no I/O, so the parsing/accumulation rules are unit-testable in
 /// isolation from the network transport.
 ///
-/// Tokens, cost, latency, and model come **only** from `claude_code.api_request`
-/// log events (the issue's single source of truth); the `token.usage` /
-/// `cost.usage` metrics are intentionally ignored to avoid double-counting.
-/// Commit / PR milestones come from the monotonic counter metrics, tracked as
-/// deltas between exports. Permission modes come from `permission_mode_changed`
-/// events.
+/// Agent-blind: one receiver serves both Claude Code (issue #597) and Codex
+/// (issue #602), so each log record is classified by its event-name namespace
+/// (`claude_code.` vs `codex.`) — see ``Agent`` — and parsed with that agent's
+/// vocabulary, funneling into the same ``SessionTelemetry``.
+///
+/// - **Claude**: tokens, cost, latency, and model come **only** from
+///   `claude_code.api_request` log events (the single source of truth); the
+///   `token.usage` / `cost.usage` metrics are ignored to avoid double-counting.
+///   Commit / PR milestones come from the monotonic counter metrics, tracked as
+///   deltas between exports. Permission modes come from `permission_mode_changed`.
+/// - **Codex**: tokens + model come from `codex.sse_event` (`response.completed`)
+///   and latency from `codex.api_request` — the two log events that carry
+///   `conversation.id` (Codex metrics omit it, openai/codex#15905, so metrics
+///   can't be joined). No cost is emitted (cost stays 0). Permission/approval
+///   mode is seeded from the hook channel, not OTEL.
 struct OTLPTelemetryAccumulator {
-    /// `session.id` → accumulated telemetry snapshot.
+    /// session id → accumulated telemetry snapshot. The id is Claude's `session.id`
+    /// or Codex's `conversation.id`; both join to a pane's `claudeSessionID`.
     private var metricsBySession: [String: SessionTelemetry] = [:]
 
     /// `"<session.id>|<metric name>"` → last observed cumulative counter value,
@@ -66,23 +76,65 @@ struct OTLPTelemetryAccumulator {
     /// map must not grow without bound.
     private let maxSessions = 256
 
-    // Claude's OTLP *log* events identify themselves inconsistently: the bare
-    // name (`api_request`) lives in the `event.name` attribute, while the log
-    // body carries the fully-qualified `claude_code.api_request`. We match on
-    // the bare name and strip the `claude_code.` namespace from whatever
-    // `resolvedEventName()` surfaces, so both forms resolve to the same case.
-    // (Metric names, by contrast, are always fully qualified on the wire.)
+    // Claude bare (namespace-stripped) log event names. Claude's OTLP *log*
+    // events identify themselves inconsistently: the bare name (`api_request`)
+    // lives in the `event.name` attribute, while the log body carries the
+    // fully-qualified `claude_code.api_request`. We strip the namespace so both
+    // forms resolve to the same case. (Metric names are always fully qualified.)
     private static let apiRequestEvent = "api_request"
     private static let permissionModeEvent = "permission_mode_changed"
-    private static let eventNamespace = "claude_code."
     private static let commitMetric = "claude_code.commit.count"
     private static let pullRequestMetric = "claude_code.pull_request.count"
     private static let sessionIDKey = "session.id"
 
-    /// Strips the `claude_code.` namespace so the bare-name `event.name`
-    /// attribute and the fully-qualified log body both match the same constant.
-    private static func canonicalEventName(_ name: String) -> String {
-        name.hasPrefix(eventNamespace) ? String(name.dropFirst(eventNamespace.count)) : name
+    // Codex bare log event names (after stripping the `codex.` namespace).
+    // `sse_event` carries token counts only on its `response.completed` kind;
+    // `api_request` carries the per-request `duration_ms` (latency).
+    private static let codexTokenEvent = "sse_event"
+    private static let codexTokenEventKind = "response.completed"
+    private static let codexLatencyEvent = "api_request"
+
+    /// Which coding agent produced a log record, used to pick the right
+    /// session-id attribute and event vocabulary. Classified by the event-name
+    /// namespace so one receiver serves both agents (issue #602).
+    private enum Agent {
+        case claude
+        case codex
+
+        /// Codex always namespaces with `codex.`; Claude uses `claude_code.` on
+        /// the log body and the bare name on the `event.name` attribute, so a
+        /// bare known event is Claude. Anything else is unrecognized (`nil`).
+        init?(eventName: String) {
+            if eventName.hasPrefix("codex.") {
+                self = .codex
+            } else if eventName.hasPrefix(Agent.claudeNamespace) || Agent.bareClaudeEvents.contains(eventName) {
+                self = .claude
+            } else {
+                return nil
+            }
+        }
+
+        private static let claudeNamespace = "claude_code."
+        private static let codexNamespace = "codex."
+        private static let bareClaudeEvents: Set<String> = [apiRequestEvent, permissionModeEvent]
+
+        /// The attribute key carrying the per-session join id.
+        var sessionIDKey: String {
+            switch self {
+            case .claude: OTLPTelemetryAccumulator.sessionIDKey
+            case .codex: "conversation.id"
+            }
+        }
+
+        /// Strips the agent's namespace so a fully-qualified body and a bare
+        /// `event.name` attribute resolve to the same constant.
+        func canonicalEventName(_ name: String) -> String {
+            let namespace = switch self {
+            case .claude: Agent.claudeNamespace
+            case .codex: Agent.codexNamespace
+            }
+            return name.hasPrefix(namespace) ? String(name.dropFirst(namespace.count)) : name
+        }
     }
 
     // MARK: Logs
@@ -102,13 +154,29 @@ struct OTLPTelemetryAccumulator {
     }
 
     private mutating func process(logRecord record: OTLPLogRecord, into result: inout OTLPProcessingResult) {
-        guard
-            let attributes = record.attributes,
-            let sessionID = attributes.string(for: Self.sessionIDKey),
-            !sessionID.isEmpty
-        else { return }
+        guard let attributes = record.attributes else { return }
+        let rawEvent = record.resolvedEventName() ?? ""
+        guard let agent = Agent(eventName: rawEvent) else { return }
+        guard let sessionID = attributes.string(for: agent.sessionIDKey), !sessionID.isEmpty else { return }
+        let event = agent.canonicalEventName(rawEvent)
 
-        switch Self.canonicalEventName(record.resolvedEventName() ?? "") {
+        switch agent {
+        case .claude:
+            processClaudeLog(event: event, attributes: attributes, sessionID: sessionID, into: &result)
+        case .codex:
+            processCodexLog(event: event, attributes: attributes, sessionID: sessionID, into: &result)
+        }
+    }
+
+    /// Claude Code: tokens/cost/latency/model on `api_request`; permission-mode
+    /// changes on `permission_mode_changed`.
+    private mutating func processClaudeLog(
+        event: String,
+        attributes: [OTLPKeyValue],
+        sessionID: String,
+        into result: inout OTLPProcessingResult
+    ) {
+        switch event {
         case Self.apiRequestEvent:
             var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
             telemetry.accumulate(
@@ -130,6 +198,52 @@ struct OTLPTelemetryAccumulator {
                 toMode: toMode,
                 trigger: attributes.string(for: "trigger")
             ))
+
+        default:
+            break
+        }
+    }
+
+    /// Codex: tokens + model on `sse_event` (`response.completed`); per-request
+    /// latency on `api_request`. The two events that carry `conversation.id`.
+    private mutating func processCodexLog(
+        event: String,
+        attributes: [OTLPKeyValue],
+        sessionID: String,
+        into result: inout OTLPProcessingResult
+    ) {
+        switch event {
+        case Self.codexTokenEvent:
+            // Token counts ride only the `response.completed` kind of `sse_event`.
+            guard attributes.string(for: "event.kind") == Self.codexTokenEventKind else { return }
+            let input = attributes.int(for: "input_token_count") ?? 0
+            let output = attributes.int(for: "output_token_count") ?? 0
+            let cached = attributes.int(for: "cached_token_count") ?? 0
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            // OpenAI's usage model nests `cached` inside `input` (and reasoning
+            // inside `output`), unlike Claude's disjoint buckets — so the real
+            // total is input + output. Map onto the shared fields as fresh-input +
+            // cache-read (fresh = input − cached) so `tokensUsed`'s sum is correct
+            // and the per-turn cached re-read is excluded from the headline (the
+            // #597 cache-read exclusion).
+            telemetry.accumulate(
+                inputTokens: max(0, input - cached),
+                outputTokens: output,
+                cacheReadTokens: cached,
+                cacheCreationTokens: 0,
+                costUSD: 0, // Codex emits no cost
+                durationMs: nil, // latency arrives on codex.api_request
+                model: attributes.string(for: "model")
+            )
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
+
+        case Self.codexLatencyEvent:
+            guard let durationMs = attributes.int(for: "duration_ms"), durationMs > 0 else { return }
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            telemetry.recordTurnLatency(durationMs)
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
 
         default:
             break

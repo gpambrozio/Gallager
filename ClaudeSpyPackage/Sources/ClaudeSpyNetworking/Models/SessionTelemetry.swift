@@ -24,12 +24,15 @@ public struct TurnSample: Codable, Sendable, Equatable {
 // MARK: - Session Telemetry
 
 /// Quantitative, content-free telemetry for one coding-agent session, derived
-/// from Claude Code's OpenTelemetry export (`claude_code.api_request` events).
+/// from the agent's OpenTelemetry export — Claude Code's `claude_code.api_request`
+/// events (issue #597) or Codex's `codex.sse_event` / `codex.api_request` events
+/// (issue #602). Agent-blind once accumulated: the same fields drive the UI for
+/// either agent.
 ///
 /// This **augments** the hook channel — it never replaces it (issue #597).
 /// Accumulated on the Mac by the OTLP receiver, joined to a pane by the hook
-/// `session_id`, stamped onto `PaneState`, and carried to iOS viewers inside the
-/// existing `SessionStateMessage`.
+/// `session_id` (Claude) / `conversation.id` (Codex), stamped onto `PaneState`,
+/// and carried to iOS viewers inside the existing `SessionStateMessage`.
 ///
 /// The maximum number of per-turn samples retained for the sparkline. Bounds the
 /// wire size of `recentTurns`.
@@ -116,6 +119,23 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         recentTurns.append(TurnSample(costUSD: costUSD, latencyMs: durationMs))
         if recentTurns.count > Self.maxRecentTurns {
             recentTurns.removeFirst(recentTurns.count - Self.maxRecentTurns)
+        }
+    }
+
+    /// Records a turn's end-to-end latency that arrived on a *separate* event
+    /// from its token counts. Claude Code reports tokens and `duration_ms` on one
+    /// `api_request` log, so `accumulate(durationMs:)` covers it; Codex reports
+    /// tokens on `codex.sse_event` (response.completed) but latency on
+    /// `codex.api_request` (issue #602). This stamps the headline
+    /// `lastTurnLatencyMs` and back-fills the most recent sample's latency when it
+    /// arrived without one — so the just-completed turn's sparkline point gets its
+    /// latency under the normal ordering (tokens event, then the request-duration
+    /// event). No-op for a non-positive duration.
+    public mutating func recordTurnLatency(_ durationMs: Int) {
+        guard durationMs > 0 else { return }
+        lastTurnLatencyMs = durationMs
+        if let last = recentTurns.last, last.latencyMs == nil {
+            recentTurns[recentTurns.count - 1] = TurnSample(costUSD: last.costUSD, latencyMs: durationMs)
         }
     }
 

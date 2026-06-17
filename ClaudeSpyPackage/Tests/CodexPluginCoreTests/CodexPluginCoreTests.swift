@@ -6,16 +6,16 @@ import Testing
 
 /// Lifecycle + auto-launch behavior of the core itself (the pieces not covered
 /// by the translator / keystroke / scanner / installer / correlation suites).
-@Suite("CodexPluginCore")
 struct CodexPluginCoreTests {
-    private func makeEnv(settings: Data = Data()) -> PluginEnv {
+    private func makeEnv(settings: Data = Data(), otlpEndpoint: URL? = nil) -> PluginEnv {
         PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("gallager-cx-core-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settings,
-            marketplaceSource: URL(fileURLWithPath: "/")
+            marketplaceSource: URL(fileURLWithPath: "/"),
+            otlpReceiverEndpoint: otlpEndpoint
         )
     }
 
@@ -64,6 +64,52 @@ struct CodexPluginCoreTests {
 
         let launch = await core.commandForLaunch(projectPath: "/Users/test/Proj")
         #expect(launch?.command == "/opt/codex")
+    }
+
+    @Test("commandForLaunch appends -c otel overrides when a receiver endpoint is present")
+    func commandForLaunchInjectsOtel() async throws {
+        let settings = try JSONEncoder().encode(CodexSettings(commandPath: "codex", autoRun: true))
+        let host = MockPluginHost()
+        let core = makeCore()
+        try await core.initialize(
+            makeEnv(settings: settings, otlpEndpoint: URL(string: "http://127.0.0.1:4318")),
+            host: host
+        )
+
+        let launch = await core.commandForLaunch(projectPath: "/Users/test/Proj")
+        #expect(launch?.command == "codex")
+        let args = launch?.args ?? []
+        #expect(args.contains("-c"))
+        #expect(args.contains(#"otel.exporter.otlp-http.endpoint="http://127.0.0.1:4318/v1/logs""#))
+        #expect(args.contains(#"otel.log_user_prompt=false"#))
+    }
+
+    @Test("commandForLaunch omits otel overrides when exportTelemetry is off")
+    func commandForLaunchRespectsTelemetryOptOut() async throws {
+        let settings = try JSONEncoder().encode(
+            CodexSettings(commandPath: "codex", autoRun: true, exportTelemetry: false)
+        )
+        let host = MockPluginHost()
+        let core = makeCore()
+        try await core.initialize(
+            makeEnv(settings: settings, otlpEndpoint: URL(string: "http://127.0.0.1:4318")),
+            host: host
+        )
+
+        let launch = await core.commandForLaunch(projectPath: "/Users/test/Proj")
+        #expect(launch?.command == "codex")
+        #expect(launch?.args.isEmpty == true)
+    }
+
+    @Test("commandForLaunch omits otel overrides when no receiver endpoint is available")
+    func commandForLaunchNoEndpoint() async throws {
+        let settings = try JSONEncoder().encode(CodexSettings(commandPath: "codex", autoRun: true))
+        let host = MockPluginHost()
+        let core = makeCore()
+        try await core.initialize(makeEnv(settings: settings), host: host) // no endpoint
+
+        let launch = await core.commandForLaunch(projectPath: "/Users/test/Proj")
+        #expect(launch?.args.isEmpty == true)
     }
 
     @Test("commandForLaunch declines when autoRun is off")

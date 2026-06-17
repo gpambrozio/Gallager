@@ -260,5 +260,192 @@
             )
             #expect(result.milestones == [TelemetryMilestone(sessionID: "sess-1", kind: .commit, count: 2)])
         }
+
+        // MARK: - Codex (issue #602)
+
+        /// Builds a Codex `codex.sse_event` / `response.completed` log carrying
+        /// token counts, joined by `conversation.id` (Codex's key, not `session.id`).
+        /// Models codex-rs's `sse_event_completed` attributes verbatim.
+        private func codexSseCompletedLogs(
+            conversationID: String,
+            inputTokenCount: Int,
+            outputTokenCount: Int,
+            cachedTokenCount: Int,
+            reasoningTokenCount: Int = 0,
+            model: String,
+            kind: String = "response.completed",
+            intsAsStrings: Bool = false
+        ) -> String {
+            func intValue(_ value: Int) -> String {
+                intsAsStrings ? "{\"intValue\": \"\(value)\"}" : "{\"intValue\": \(value)}"
+            }
+            return """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [{
+                    "body": {"stringValue": "codex.sse_event"},
+                    "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
+                      {"key": "event.kind", "value": {"stringValue": "\(kind)"}},
+                      {"key": "conversation.id", "value": {"stringValue": "\(conversationID)"}},
+                      {"key": "model", "value": {"stringValue": "\(model)"}},
+                      {"key": "input_token_count", "value": \(intValue(inputTokenCount))},
+                      {"key": "output_token_count", "value": \(intValue(outputTokenCount))},
+                      {"key": "cached_token_count", "value": \(intValue(cachedTokenCount))},
+                      {"key": "reasoning_token_count", "value": \(intValue(reasoningTokenCount))},
+                      {"key": "tool_token_count", "value": \(intValue(0))}
+                    ]
+                  }]
+                }]
+              }]
+            }
+            """
+        }
+
+        /// Builds a Codex `codex.api_request` log (latency only — no token counts),
+        /// joined by `conversation.id`. Uses the newer top-level `eventName` field.
+        private func codexApiRequestLogs(conversationID: String, durationMs: Int) -> String {
+            """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [{
+                    "eventName": "codex.api_request",
+                    "attributes": [
+                      {"key": "conversation.id", "value": {"stringValue": "\(conversationID)"}},
+                      {"key": "duration_ms", "value": {"intValue": "\(durationMs)"}},
+                      {"key": "model", "value": {"stringValue": "gpt-5-codex"}}
+                    ]
+                  }]
+                }]
+              }]
+            }
+            """
+        }
+
+        @Test("Codex sse_event sums tokens, excludes the cached re-read, emits no cost")
+        func codexSseAccumulatesTokens() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let result = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "conv-1", inputTokenCount: 1_000, outputTokenCount: 200,
+                    cachedTokenCount: 300, model: "gpt-5-codex"
+                ),
+                into: &accumulator
+            )
+            let telemetry = try #require(result.telemetryUpdates["conv-1"])
+            // `cached` (300) is nested inside `input` (1000), so fresh input is 700
+            // and the headline total is input + output = 1200 — the cached re-read
+            // is not double-counted.
+            #expect(telemetry.inputTokens == 700)
+            #expect(telemetry.cacheReadTokens == 300)
+            #expect(telemetry.outputTokens == 200)
+            #expect(telemetry.cacheCreationTokens == 0)
+            #expect(telemetry.tokensUsed == 1_200)
+            #expect(telemetry.costUSD == 0) // Codex emits no cost
+            #expect(telemetry.model == "gpt-5-codex")
+            #expect(telemetry.lastTurnLatencyMs == nil) // latency rides codex.api_request
+            #expect(telemetry.recentTurns.count == 1)
+            #expect(telemetry.recentTurns.last?.latencyMs == nil)
+        }
+
+        @Test("Codex tokens decode as proto3 int-as-string too")
+        func codexSseStringInts() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let result = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "conv-1", inputTokenCount: 50, outputTokenCount: 25,
+                    cachedTokenCount: 0, model: "gpt-5-codex", intsAsStrings: true
+                ),
+                into: &accumulator
+            )
+            let telemetry = try #require(result.telemetryUpdates["conv-1"])
+            #expect(telemetry.tokensUsed == 75)
+        }
+
+        @Test("Codex api_request stamps latency and back-fills the token turn's sample")
+        func codexApiRequestRecordsLatency() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            // Normal per-turn ordering: tokens (sse_event) then duration (api_request).
+            _ = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "conv-1", inputTokenCount: 100, outputTokenCount: 50,
+                    cachedTokenCount: 0, model: "gpt-5-codex"
+                ),
+                into: &accumulator
+            )
+            let result = try ingestLogs(
+                codexApiRequestLogs(conversationID: "conv-1", durationMs: 1_500),
+                into: &accumulator
+            )
+            let telemetry = try #require(result.telemetryUpdates["conv-1"])
+            #expect(telemetry.lastTurnLatencyMs == 1_500)
+            #expect(telemetry.tokensUsed == 150) // unchanged by the latency event
+            #expect(telemetry.recentTurns.count == 1)
+            #expect(telemetry.recentTurns.last?.latencyMs == 1_500) // back-filled
+        }
+
+        @Test("Codex sse_event without response.completed kind carries no tokens")
+        func codexSseIgnoresNonCompletedKind() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let result = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "conv-1", inputTokenCount: 100, outputTokenCount: 50,
+                    cachedTokenCount: 0, model: "gpt-5-codex", kind: "response.output_item.done"
+                ),
+                into: &accumulator
+            )
+            #expect(result.isEmpty)
+        }
+
+        @Test("A Codex event lacking conversation.id is ignored")
+        func codexMissingConversationIDIgnored() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            // session.id is Claude's key; a Codex event must carry conversation.id.
+            let json = """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [{
+                    "eventName": "codex.sse_event",
+                    "attributes": [
+                      {"key": "event.kind", "value": {"stringValue": "response.completed"}},
+                      {"key": "session.id", "value": {"stringValue": "sess-1"}},
+                      {"key": "input_token_count", "value": {"intValue": "100"}}
+                    ]
+                  }]
+                }]
+              }]
+            }
+            """
+            let result = try ingestLogs(json, into: &accumulator)
+            #expect(result.isEmpty)
+        }
+
+        @Test("Claude and Codex sessions accumulate independently on one receiver")
+        func claudeAndCodexCoexist() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            _ = try ingestLogs(
+                apiRequestLogs(
+                    sessionID: "claude-1", input: 100, output: 50, cacheRead: 0, cacheCreation: 0,
+                    costUSD: 0.25, durationMs: 900, model: "claude-opus-4-8", intsAsStrings: true
+                ),
+                into: &accumulator
+            )
+            _ = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "codex-1", inputTokenCount: 80, outputTokenCount: 20,
+                    cachedTokenCount: 0, model: "gpt-5-codex"
+                ),
+                into: &accumulator
+            )
+            let claude = try #require(accumulator.telemetry(for: "claude-1"))
+            let codex = try #require(accumulator.telemetry(for: "codex-1"))
+            #expect(claude.tokensUsed == 150)
+            #expect(claude.costUSD == 0.25)
+            #expect(codex.tokensUsed == 100)
+            #expect(codex.costUSD == 0)
+        }
     }
 #endif
