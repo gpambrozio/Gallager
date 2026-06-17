@@ -94,7 +94,7 @@ struct RecapAndOverviewTests {
             todaySessionCount: 4,
             todayCommits: 2,
             projects: [
-                ProjectUsage(projectPath: "/a", projectName: "a", costUSD: 2.0, tokens: 20_000, commits: 1, sessionCount: 2),
+                ProjectUsage(projectPath: "/a", projectName: "a", costUSD: 2, tokens: 20_000, commits: 1, sessionCount: 2),
             ],
             days: [DayUsage(day: "2026-06-16", costUSD: 3.2, tokens: 42_100)]
         )
@@ -122,7 +122,7 @@ struct RecapAndOverviewTests {
 
     @Test("SessionStateMessage carries an optional usageOverview; older message decodes nil")
     func sessionStateMessageOverview() throws {
-        let overview = UsageOverview(todayCostUSD: 1.0, todayTokens: 100)
+        let overview = UsageOverview(todayCostUSD: 1, todayTokens: 100)
         let message = SessionStateMessage(pairId: "p", paneStates: [:], usageOverview: overview)
         let decoded = try JSONDecoder().decode(SessionStateMessage.self, from: JSONEncoder().encode(message))
         #expect(decoded.usageOverview == overview)

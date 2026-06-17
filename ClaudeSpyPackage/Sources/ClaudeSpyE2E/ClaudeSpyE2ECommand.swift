@@ -310,6 +310,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         RenameViewerDeviceScenario.scenario,
         TerminalEnvVarsScenario.scenario,
         OTELTelemetryRenderScenario.scenario,
+        OTELUsageOverviewScenario.scenario,
         BrowserTabFromTerminalLinkScenario.scenario,
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,

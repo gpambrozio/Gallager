@@ -110,7 +110,7 @@ actor UsageAggregationStore {
     func overview(asOf date: Date) -> UsageOverview {
         let today = Self.dayKey(date, calendar: calendar)
 
-        var todayCost = 0.0
+        var todayCost: Double = 0
         var todayTokens = 0
         var todayCommits = 0
         var todaySessions = Set<String>()

@@ -52,3 +52,32 @@ public struct SessionRecapCard: View {
         .accessibilityLabel("\(title). \(recapDetailLine(recap))")
     }
 }
+
+#Preview("End-of-turn recap") {
+    SessionRecapCard(recap: SessionRecap(
+        projectName: "Gallager",
+        model: "claude-opus-4-8",
+        tokensUsed: 45_000,
+        costUSD: 1.20,
+        commitCount: 3,
+        activeTimeSeconds: 720,
+        toolInvocations: 28,
+        linesAdded: 120,
+        linesRemoved: 30,
+        summary: "Wired up the recap card",
+        isFinal: false
+    ))
+    .padding()
+    .frame(width: 360)
+}
+
+#Preview("Final recap, minimal") {
+    SessionRecapCard(recap: SessionRecap(
+        tokensUsed: 1_200,
+        costUSD: 0.05,
+        toolInvocations: 1,
+        isFinal: true
+    ))
+    .padding()
+    .frame(width: 360)
+}

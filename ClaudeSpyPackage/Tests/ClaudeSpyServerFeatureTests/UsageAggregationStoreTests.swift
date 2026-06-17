@@ -60,7 +60,7 @@
             let store = makeStore(url)
             let day = date(2_026, 6, 16)
 
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
             await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 250, cost: 2.5), date: day)
 
             let overview = await store.overview(asOf: day)
@@ -77,9 +77,9 @@
             let store = makeStore(url)
             let day = date(2_026, 6, 16)
 
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0, commits: 1), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1, commits: 1), date: day)
             await store.record(projectPath: "/proj/a", sessionID: "s2", telemetry: telemetry(tokens: 50, cost: 0.5), date: day)
-            await store.record(projectPath: "/proj/b", sessionID: "s3", telemetry: telemetry(tokens: 200, cost: 2.0), date: day)
+            await store.record(projectPath: "/proj/b", sessionID: "s3", telemetry: telemetry(tokens: 200, cost: 2), date: day)
 
             let overview = await store.overview(asOf: day)
             #expect(overview.todaySessionCount == 3)
@@ -100,17 +100,17 @@
             defer { try? FileManager.default.removeItem(at: url) }
             let store = makeStore(url)
 
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: date(2_026, 6, 15))
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: date(2_026, 6, 15))
             // Same session continues the next day; only the new $2.00 lands on 6/16.
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 400, cost: 3.0), date: date(2_026, 6, 16))
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 400, cost: 3), date: date(2_026, 6, 16))
 
             let overview = await store.overview(asOf: date(2_026, 6, 16))
-            #expect(overview.todayCostUSD == 2.0)
+            #expect(overview.todayCostUSD == 2)
             #expect(overview.todayTokens == 300)
 
             let byDay = Dictionary(uniqueKeysWithValues: overview.days.map { ($0.day, $0.costUSD) })
-            #expect(byDay["2026-06-15"] == 1.0)
-            #expect(byDay["2026-06-16"] == 2.0)
+            #expect(byDay["2026-06-15"] == 1)
+            #expect(byDay["2026-06-16"] == 2)
         }
 
         @Test("Aggregates persist across a restart and don't double-count")
@@ -120,13 +120,13 @@
             let day = date(2_026, 6, 16)
 
             let first = makeStore(url)
-            await first.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await first.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
 
             // Fresh store over the same file == an app restart: records and the
             // per-session baseline are reloaded.
             let restarted = makeStore(url)
             let afterLoad = await restarted.overview(asOf: day)
-            #expect(afterLoad.todayCostUSD == 1.0)
+            #expect(afterLoad.todayCostUSD == 1)
 
             // The same session continues post-restart. Because the baseline was
             // restored, only the $0.50 increment is added — not the full $1.50.
@@ -143,15 +143,15 @@
             let store = makeStore(url)
             let day = date(2_026, 6, 16)
 
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
             await store.evictSession("s1")
 
             // Accrued total survives the evict.
-            #expect(await store.overview(asOf: day).todayCostUSD == 1.0)
+            #expect(await store.overview(asOf: day).todayCostUSD == 1)
 
             // The baseline is gone, so re-recording the same cumulative counts
             // fresh (a new session reusing the id) — proving the evict cleared it.
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
             #expect(await store.overview(asOf: day).todayTokens == 200)
         }
 
@@ -162,8 +162,8 @@
             let store = makeStore(url)
             let day = date(2_026, 6, 16)
 
-            await store.record(projectPath: "   ", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
-            await store.record(projectPath: "/proj/a", sessionID: "", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await store.record(projectPath: "   ", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "", telemetry: telemetry(tokens: 100, cost: 1), date: day)
 
             #expect(await store.overview(asOf: day).isEmpty)
         }
@@ -175,11 +175,11 @@
             let store = makeStore(url)
             let day = date(2_026, 6, 16)
 
-            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1.0), date: day)
+            await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
             // A spurious lower cumulative (reset / reused id): clamp the delta at 0.
             await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 10, cost: 0.1), date: day)
 
-            #expect(await store.overview(asOf: day).todayCostUSD == 1.0)
+            #expect(await store.overview(asOf: day).todayCostUSD == 1)
         }
     }
 #endif
