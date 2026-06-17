@@ -58,7 +58,7 @@ struct OTLPProcessingResult: Equatable {
 ///   and per-turn latency from `codex.turn_ttft` (`duration_ms`, time to first
 ///   token). Both carry `conversation.id`; Codex metrics omit it
 ///   (openai/codex#15905), so they can't be joined. Note that `codex.api_request`
-///   does *not* carry `conversation.id` (verified against live Codex 0.139.0: it is
+///   does *not* carry `conversation.id` (verified against live Codex 0.139: it is
 ///   the `/models` capability check, and turn calls run over websocket), so it is
 ///   unusable as a join source. No cost is emitted (cost stays 0). Permission/
 ///   approval mode is seeded from the hook channel, not OTEL.
