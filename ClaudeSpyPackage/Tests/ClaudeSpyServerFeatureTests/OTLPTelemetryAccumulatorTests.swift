@@ -280,12 +280,15 @@
             func intValue(_ value: Int) -> String {
                 intsAsStrings ? "{\"intValue\": \"\(value)\"}" : "{\"intValue\": \(value)}"
             }
+            // Faithful to real Codex 0.140: the top-level `eventName` field is a
+            // Rust source location (NOT the event name), the real name lives only
+            // in the `event.name` attribute, and there is no string body (#602).
             return """
             {
               "resourceLogs": [{
                 "scopeLogs": [{
                   "logRecords": [{
-                    "body": {"stringValue": "codex.sse_event"},
+                    "eventName": "event otel/src/events/session_telemetry.rs:925",
                     "attributes": [
                       {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
                       {"key": "event.kind", "value": {"stringValue": "\(kind)"}},
@@ -310,13 +313,16 @@
         /// carries no `conversation.id`), `turn_ttft` carries the join key. Uses the
         /// newer top-level `eventName` field.
         private func codexTurnTtftLogs(conversationID: String, durationMs: Int) -> String {
+            // Faithful to real Codex 0.140: top-level `eventName` is a source
+            // location; the real name is in the `event.name` attribute (#602).
             """
             {
               "resourceLogs": [{
                 "scopeLogs": [{
                   "logRecords": [{
-                    "eventName": "codex.turn_ttft",
+                    "eventName": "event otel/src/events/session_telemetry.rs:640",
                     "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "codex.turn_ttft"}},
                       {"key": "conversation.id", "value": {"stringValue": "\(conversationID)"}},
                       {"key": "duration_ms", "value": {"intValue": "\(durationMs)"}},
                       {"key": "model", "value": {"stringValue": "gpt-5-codex"}}
@@ -402,6 +408,40 @@
                 into: &accumulator
             )
             #expect(result.isEmpty)
+        }
+
+        @Test("Codex record whose top-level eventName is a source location still classifies via event.name")
+        func codexSourceLocationEventNameField() throws {
+            // Real Codex 0.140 fills the top-level `eventName` field with a Rust
+            // source location, not the event name — the name is only in the
+            // `event.name` attribute. Trusting the field would drop every Codex
+            // record (the #602 "no meter" bug); classification must fall through
+            // to the attribute.
+            var accumulator = OTLPTelemetryAccumulator()
+            let json = """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [{
+                    "eventName": "event otel/src/events/session_telemetry.rs:925",
+                    "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
+                      {"key": "event.kind", "value": {"stringValue": "response.completed"}},
+                      {"key": "conversation.id", "value": {"stringValue": "conv-1"}},
+                      {"key": "model", "value": {"stringValue": "gpt-5.5"}},
+                      {"key": "input_token_count", "value": {"intValue": "1000"}},
+                      {"key": "output_token_count", "value": {"intValue": "200"}},
+                      {"key": "cached_token_count", "value": {"intValue": "0"}}
+                    ]
+                  }]
+                }]
+              }]
+            }
+            """
+            let result = try ingestLogs(json, into: &accumulator)
+            let telemetry = try #require(result.telemetryUpdates["conv-1"])
+            #expect(telemetry.tokensUsed == 1_200)
+            #expect(telemetry.model == "gpt-5.5")
         }
 
         @Test("A Codex event lacking conversation.id is ignored")

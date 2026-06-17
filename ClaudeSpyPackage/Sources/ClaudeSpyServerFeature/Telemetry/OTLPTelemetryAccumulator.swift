@@ -159,8 +159,18 @@ struct OTLPTelemetryAccumulator {
 
     private mutating func process(logRecord record: OTLPLogRecord, into result: inout OTLPProcessingResult) {
         guard let attributes = record.attributes else { return }
-        let rawEvent = record.resolvedEventName() ?? ""
-        guard let agent = Agent(eventName: rawEvent) else { return }
+        // Classify against each candidate name and take the first recognized one.
+        // Exporters disagree on where the event name lives: Codex fills the
+        // top-level `eventName` field with a Rust source location rather than the
+        // event name, so the `event.name` attribute is the reliable source — a
+        // single "resolved name" that trusted the field would drop every Codex
+        // record (issue #602).
+        guard
+            let (agent, rawEvent) = record.eventNameCandidates()
+                .lazy
+                .compactMap({ name in Agent(eventName: name).map { ($0, name) } })
+                .first
+        else { return }
         guard let sessionID = attributes.string(for: agent.sessionIDKey), !sessionID.isEmpty else { return }
         let event = agent.canonicalEventName(rawEvent)
 

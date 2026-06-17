@@ -20,16 +20,19 @@ import Foundation
 public enum CodexOTELTelemetryRenderScenario {
     /// `codex.sse_event` / `response.completed`: 12 000 input + 400 output tokens,
     /// `gpt-5-codex`. → meter "⚡ 12.4k" (no cost) and model tag "gpt-5-codex".
-    /// Uses Codex's real attribute names (`input_token_count` etc.) and join key
-    /// (`conversation.id`), verified against codex-rs `sse_event_completed`.
+    /// Faithful to real Codex 0.140: the top-level `eventName` field is a Rust
+    /// source location (NOT the event name), so the receiver must read the name
+    /// from the `event.name` attribute — trusting `eventName` dropped every Codex
+    /// record (the #602 "no meter" bug). Real attribute names + join key
+    /// (`conversation.id`) verified against codex-rs `sse_event_completed`.
     private static let sseEventCurl =
-        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"codex.sse_event"},"attributes":[{"key":"event.name","value":{"stringValue":"codex.sse_event"}},{"key":"event.kind","value":{"stringValue":"response.completed"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}},{"key":"input_token_count","value":{"intValue":"12000"}},{"key":"output_token_count","value":{"intValue":"400"}},{"key":"cached_token_count","value":{"intValue":"0"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"event otel/src/events/session_telemetry.rs:925","attributes":[{"key":"event.name","value":{"stringValue":"codex.sse_event"}},{"key":"event.kind","value":{"stringValue":"response.completed"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}},{"key":"input_token_count","value":{"intValue":"12000"}},{"key":"output_token_count","value":{"intValue":"400"}},{"key":"cached_token_count","value":{"intValue":"0"}}]}]}]}]}'"#
 
     /// `codex.turn_ttft`: the turn's time-to-first-token `duration_ms` (per-turn
     /// latency rides a separate event from tokens; `turn_ttft` carries the
     /// `conversation.id` join key, while `codex.api_request` does not).
     private static let turnTtftCurl =
-        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"codex.turn_ttft"},"attributes":[{"key":"event.name","value":{"stringValue":"codex.turn_ttft"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"event otel/src/events/session_telemetry.rs:640","attributes":[{"key":"event.name","value":{"stringValue":"codex.turn_ttft"}},{"key":"conversation.id","value":{"stringValue":"e2e-codex-otel-session"}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"gpt-5-codex"}}]}]}]}]}'"#
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Codex OTEL Telemetry Render",

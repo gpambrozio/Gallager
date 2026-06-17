@@ -155,15 +155,24 @@ extension Array where Element == OTLPKeyValue {
 }
 
 extension OTLPLogRecord {
-    /// Resolves the event name from, in order: the `eventName` field, the
-    /// `event.name` attribute, then a string body. Claude Code's exporter has
-    /// used the attribute form; the field form is the newer OTLP convention.
-    func resolvedEventName() -> String? {
-        if let eventName, !eventName.isEmpty { return eventName }
+    /// Candidate event-name strings for this record, in the order to try when
+    /// classifying it. Exporters disagree on where the event name lives, so every
+    /// source is returned and the caller uses the first that it recognizes:
+    ///
+    /// 1. the `event.name` **attribute** — the reliable form, set by both Claude
+    ///    Code's exporter (bare `api_request`) and Codex (`codex.sse_event`);
+    /// 2. the top-level `eventName` field (newer OTLP convention). **Codex misuses
+    ///    this for a Rust source location** (e.g. `"event otel/src/.../
+    ///    session_telemetry.rs:925"`), not the event name, so it must not shadow
+    ///    the attribute (issue #602) — it's tried only as a fallback;
+    ///    3. a string `body` — Claude Code's fully-qualified `claude_code.api_request`.
+    func eventNameCandidates() -> [String] {
+        var names: [String] = []
         if let attributeName = attributes?.string(for: "event.name"), !attributeName.isEmpty {
-            return attributeName
+            names.append(attributeName)
         }
-        if let bodyString = body?.stringValue, !bodyString.isEmpty { return bodyString }
-        return nil
+        if let eventName, !eventName.isEmpty { names.append(eventName) }
+        if let bodyString = body?.stringValue, !bodyString.isEmpty { names.append(bodyString) }
+        return names
     }
 }
