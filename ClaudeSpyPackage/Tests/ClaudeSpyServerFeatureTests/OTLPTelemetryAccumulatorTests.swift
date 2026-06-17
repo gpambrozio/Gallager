@@ -104,7 +104,8 @@
             #expect(telemetry.outputTokens == 50)
             #expect(telemetry.cacheReadTokens == 10)
             #expect(telemetry.cacheCreationTokens == 5)
-            #expect(telemetry.tokensUsed == 165)
+            // Headline excludes cache reads: input(100) + output(50) + cache write(5).
+            #expect(telemetry.tokensUsed == 155)
             #expect(telemetry.costUSD == 0.25)
             #expect(telemetry.lastTurnLatencyMs == 1_200)
             #expect(telemetry.model == "claude-opus-4-8")
@@ -335,14 +336,15 @@
                 into: &accumulator
             )
             let telemetry = try #require(result.telemetryUpdates["conv-1"])
-            // `cached` (300) is nested inside `input` (1000), so fresh input is 700
-            // and the headline total is input + output = 1200 — the cached re-read
-            // is not double-counted.
+            // `cached` (300) is nested inside `input` (1000), so fresh input is 700.
+            // The headline excludes the cached re-read (the #597 exclusion): fresh
+            // input(700) + output(200) = 900, not the 1200 that would re-count the
+            // per-turn cached context.
             #expect(telemetry.inputTokens == 700)
             #expect(telemetry.cacheReadTokens == 300)
             #expect(telemetry.outputTokens == 200)
             #expect(telemetry.cacheCreationTokens == 0)
-            #expect(telemetry.tokensUsed == 1_200)
+            #expect(telemetry.tokensUsed == 900)
             #expect(telemetry.costUSD == 0) // Codex emits no cost
             #expect(telemetry.model == "gpt-5-codex")
             #expect(telemetry.lastTurnLatencyMs == nil) // latency rides codex.api_request

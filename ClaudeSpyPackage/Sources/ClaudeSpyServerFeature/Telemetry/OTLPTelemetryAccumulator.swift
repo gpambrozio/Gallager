@@ -221,11 +221,13 @@ struct OTLPTelemetryAccumulator {
             let cached = attributes.int(for: "cached_token_count") ?? 0
             var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
             // OpenAI's usage model nests `cached` inside `input` (and reasoning
-            // inside `output`), unlike Claude's disjoint buckets — so the real
-            // total is input + output. Map onto the shared fields as fresh-input +
-            // cache-read (fresh = input − cached) so `tokensUsed`'s sum is correct
-            // and the per-turn cached re-read is excluded from the headline (the
-            // #597 cache-read exclusion).
+            // inside `output`), unlike Claude's disjoint buckets. Split it onto
+            // the shared fields as fresh-input + cache-read (fresh = input −
+            // cached) so the shared headline rule (input + output + cache write,
+            // excluding cache reads) excludes the per-turn cached re-read — Codex
+            // re-reports the cached context every turn, so counting it would
+            // inflate the meter (the #597 cache-read exclusion). The cached total
+            // stays tracked in `cacheReadTokens` for the detail breakdown.
             telemetry.accumulate(
                 inputTokens: max(0, input - cached),
                 outputTokens: output,

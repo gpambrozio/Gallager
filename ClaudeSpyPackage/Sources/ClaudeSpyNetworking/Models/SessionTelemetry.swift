@@ -40,8 +40,14 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
     /// The maximum number of per-turn samples kept in `recentTurns`.
     public static let maxRecentTurns = 20
 
-    /// Total tokens across all types (input + output + cache read + creation).
-    /// The single glanceable number for the row meter.
+    /// Headline token count for the glanceable meter: summed `input + output +
+    /// cache_creation` across the session. Cache *reads* are deliberately
+    /// excluded — Claude re-reads the whole prompt cache every turn (and Codex
+    /// re-reports its cached context per turn), so summing `cache_read_tokens`
+    /// would re-count the same context on each turn and inflate the meter to
+    /// several times the real context size (issue #597). The full cache-read
+    /// total is still tracked in ``cacheReadTokens`` and shown in the detail
+    /// breakdown.
     public var tokensUsed: Int
 
     /// Summed `input_tokens` across the session.
@@ -108,7 +114,10 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.outputTokens += outputTokens
         self.cacheReadTokens += cacheReadTokens
         self.cacheCreationTokens += cacheCreationTokens
-        tokensUsed = self.inputTokens + self.outputTokens + self.cacheReadTokens + self.cacheCreationTokens
+        // Exclude cache *reads*: agents re-report the whole cached context on
+        // every turn, so summing them would inflate the headline to many times
+        // the real context size (issue #597). Cache reads stay tracked above.
+        tokensUsed = self.inputTokens + self.outputTokens + self.cacheCreationTokens
         self.costUSD += costUSD
         if let durationMs {
             lastTurnLatencyMs = durationMs
@@ -162,10 +171,11 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
         self.cacheReadTokens = try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens) ?? 0
         self.cacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
-        // `tokensUsed` is a derived sum. If an older host omits it but sends the
-        // individual fields, recompute the total instead of showing 0.
+        // `tokensUsed` is a derived sum (input + output + cache write, excluding
+        // cache reads — see the property doc). If a peer omits it but sends the
+        // components, recompute with the same definition instead of showing 0.
         self.tokensUsed = try container.decodeIfPresent(Int.self, forKey: .tokensUsed)
-            ?? (inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens)
+            ?? (inputTokens + outputTokens + cacheCreationTokens)
         self.costUSD = try container.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
         self.lastTurnLatencyMs = try container.decodeIfPresent(Int.self, forKey: .lastTurnLatencyMs)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)
