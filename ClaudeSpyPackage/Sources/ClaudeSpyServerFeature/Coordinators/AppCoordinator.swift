@@ -727,6 +727,16 @@
                 // env injection in `TmuxService`), so a core that configures OTEL
                 // through its agent's own config (Codex) targets the same loopback
                 // receiver Claude's `OTEL_*` env vars point at (issue #602).
+                //
+                // Start-ordering note: this endpoint is built unconditionally,
+                // before `setupOTLPReceiver()` binds the port — plugin `initialize`
+                // fires during `registry.enable`, which runs ahead of the later
+                // `await setupOTLPReceiver()` in `setupPluginRuntime()`. So it stays
+                // non-nil even if the receiver subsequently fails to bind (e.g. port
+                // taken). That degrades gracefully by design: Codex's push-only OTLP
+                // export silently drops the ECONNREFUSED, so a dead endpoint means
+                // "no meter", never an error — not worth gating env construction on a
+                // bind result that almost always succeeds.
                 otlpReceiverEndpoint: URL(string: "http://127.0.0.1:\(OTLPReceiver.resolvedPort)")
             )
         }

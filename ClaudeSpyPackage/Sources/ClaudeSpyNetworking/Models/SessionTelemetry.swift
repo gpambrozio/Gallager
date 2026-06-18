@@ -143,6 +143,11 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
     public mutating func recordTurnLatency(_ durationMs: Int) {
         guard durationMs > 0 else { return }
         lastTurnLatencyMs = durationMs
+        // Back-fill assumes the turn's token event (`codex.sse_event`) already
+        // appended this turn's sample before its latency event (`codex.turn_ttft`)
+        // arrives — the order codex-rs emits them within a turn. If that ordering
+        // ever flips (latency first) or `last` already carries a latency, this
+        // no-ops and the headline `lastTurnLatencyMs` alone stays authoritative.
         if let last = recentTurns.last, last.latencyMs == nil {
             recentTurns[recentTurns.count - 1] = TurnSample(costUSD: last.costUSD, latencyMs: durationMs)
         }

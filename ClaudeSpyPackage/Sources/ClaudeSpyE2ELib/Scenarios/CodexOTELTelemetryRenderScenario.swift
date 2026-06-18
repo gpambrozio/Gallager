@@ -84,7 +84,10 @@ public enum CodexOTELTelemetryRenderScenario {
         TestStep.macScreenshot(label: "mac-codex-otel-hook-default-mode")
 
         // 4. POST a synthetic Codex sse_event (tokens) then turn_ttft (latency)
-        //    to the loopback receiver from the pane.
+        //    to the loopback receiver from the pane. Posting turn_ttft here also
+        //    smoke-tests that the live receiver accepts its real OTLP wire shape
+        //    (eventName-as-source-location + `event.name` attribute + the
+        //    `conversation.id` join key) end-to-end, not just in unit tests.
         Shortcut.tmuxRunCommand(target: "codex-otel-session:0.0", command: sseEventCurl)
         TestStep.wait(seconds: 1)
         Shortcut.tmuxRunCommand(target: "codex-otel-session:0.0", command: turnTtftCurl)
@@ -93,6 +96,15 @@ public enum CodexOTELTelemetryRenderScenario {
         // 5. The meter + model tag render in the sidebar row. Codex emits no cost,
         //    so the meter is tokens-only ("12.4k", no "$…"); the model tag proves
         //    the codex.sse_event was parsed and joined by conversation.id.
+        //
+        //    The turn_ttft latency ("1.5s") is deliberately NOT asserted here:
+        //    latency is a status-bar-only field (`SessionTelemetryStatusBar`),
+        //    intentionally omitted from the compact sidebar `SessionTelemetrySummary`
+        //    this scenario screenshots — so it can't surface on this surface (the
+        //    sibling `OTELTelemetryRenderScenario` posts `duration_ms` and skips the
+        //    same assertion for the same reason). The full receive → join → stamp →
+        //    back-fill path for turn_ttft is covered by the
+        //    `codexTurnTtftRecordsLatency` accumulator unit test.
         TestStep.macWaitForElementQuery(.anyTextMatches("12.4k"), timeout: 10)
         TestStep.macWaitForElementQuery(.anyTextMatches("gpt-5-codex"), timeout: 5)
         TestStep.macScreenshot(label: "mac-codex-otel-meter")
