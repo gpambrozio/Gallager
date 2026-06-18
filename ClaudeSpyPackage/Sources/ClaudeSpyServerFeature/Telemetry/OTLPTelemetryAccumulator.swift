@@ -71,6 +71,14 @@ struct OTLPTelemetryAccumulator {
     /// for computing milestone deltas across exports.
     private var lastCounterValue: [String: Double] = [:]
 
+    /// Codex session id → last *cumulative* `(input, cached)` token counts seen on
+    /// `codex.sse_event`. Codex re-reports the whole growing conversation context
+    /// on every model call (several per turn with tool use), so token counts are
+    /// accumulated as deltas against this — not summed raw — to avoid multiply-
+    /// counting the same context (issue #602). Bounded with `metricsBySession` via
+    /// `discardState`.
+    private var lastCodexUsage: [String: (input: Int, cached: Int)] = [:]
+
     /// Session insertion order, for bounding memory with a simple cap.
     private var sessionOrder: [String] = []
 
@@ -233,19 +241,27 @@ struct OTLPTelemetryAccumulator {
             let input = attributes.int(for: "input_token_count") ?? 0
             let output = attributes.int(for: "output_token_count") ?? 0
             let cached = attributes.int(for: "cached_token_count") ?? 0
+            // Codex's `input_token_count` / `cached_token_count` are CUMULATIVE:
+            // each model call re-sends the whole growing conversation context, so a
+            // single user turn with tool use fires several `response.completed`
+            // events whose input climbs monotonically (e.g. 14k → 25k → 26k).
+            // Summing each event's input would multiply-count the same context — a
+            // 3-tool turn over-counts by ~1.5× (confirmed against live Codex 0.140,
+            // issue #602). So accumulate only the positive *delta* since this
+            // session's previous event; `output` is per-call (not cumulative) and
+            // is summed as-is. OpenAI nests `cached` inside `input`, so the fresh
+            // (newly-sent, non-cached) input for this step is `inputDelta −
+            // cachedDelta`; the cached delta lands in `cacheReadTokens`, excluded
+            // from the headline (the #597 cache-read exclusion).
+            let previous = lastCodexUsage[sessionID] ?? (input: 0, cached: 0)
+            let inputDelta = max(0, input - previous.input)
+            let cachedDelta = max(0, cached - previous.cached)
+            lastCodexUsage[sessionID] = (input: input, cached: cached)
             var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
-            // OpenAI's usage model nests `cached` inside `input` (and reasoning
-            // inside `output`), unlike Claude's disjoint buckets. Split it onto
-            // the shared fields as fresh-input + cache-read (fresh = input −
-            // cached) so the shared headline rule (input + output + cache write,
-            // excluding cache reads) excludes the per-turn cached re-read — Codex
-            // re-reports the cached context every turn, so counting it would
-            // inflate the meter (the #597 cache-read exclusion). The cached total
-            // stays tracked in `cacheReadTokens` for the detail breakdown.
             telemetry.accumulate(
-                inputTokens: max(0, input - cached),
+                inputTokens: max(0, inputDelta - cachedDelta),
                 outputTokens: output,
-                cacheReadTokens: cached,
+                cacheReadTokens: cachedDelta,
                 cacheCreationTokens: 0,
                 costUSD: 0, // Codex emits no cost
                 durationMs: nil, // latency arrives on codex.turn_ttft
@@ -328,6 +344,7 @@ struct OTLPTelemetryAccumulator {
     /// `sessionOrder` — callers that already popped the id own that bookkeeping.
     private mutating func discardState(for sessionID: String) {
         metricsBySession.removeValue(forKey: sessionID)
+        lastCodexUsage.removeValue(forKey: sessionID)
         let prefix = "\(sessionID)|"
         for key in lastCounterValue.keys where key.hasPrefix(prefix) {
             lastCounterValue.removeValue(forKey: key)

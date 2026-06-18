@@ -336,7 +336,7 @@
             """
         }
 
-        @Test("Codex sse_event sums tokens, excludes the cached re-read, emits no cost")
+        @Test("Codex sse_event records fresh tokens, excludes the cached re-read, emits no cost")
         func codexSseAccumulatesTokens() throws {
             var accumulator = OTLPTelemetryAccumulator()
             let result = try ingestLogs(
@@ -347,8 +347,9 @@
                 into: &accumulator
             )
             let telemetry = try #require(result.telemetryUpdates["conv-1"])
-            // `cached` (300) is nested inside `input` (1000), so fresh input is 700.
-            // The headline excludes the cached re-read (the #597 exclusion): fresh
+            // First event for the session, so the delta == the raw counts. `cached`
+            // (300) is nested inside `input` (1000), so fresh input is 700. The
+            // headline excludes the cached re-read (the #597 exclusion): fresh
             // input(700) + output(200) = 900, not the 1200 that would re-count the
             // per-turn cached context.
             #expect(telemetry.inputTokens == 700)
@@ -361,6 +362,45 @@
             #expect(telemetry.lastTurnLatencyMs == nil) // latency rides codex.api_request
             #expect(telemetry.recentTurns.count == 1)
             #expect(telemetry.recentTurns.last?.latencyMs == nil)
+        }
+
+        @Test("Codex cumulative per-call token counts accumulate as deltas, not summed (no over-count)")
+        func codexCumulativeTokensUseDeltas() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            // A single user turn with tool use fires several `response.completed`
+            // events whose `input_token_count` / `cached_token_count` are
+            // CUMULATIVE — each model call re-sends the whole growing conversation
+            // context (confirmed against live Codex 0.140, issue #602). The
+            // accumulator must add only the per-event delta; summing the raw
+            // per-call input would multiply-count the same context.
+            // (input, output, cached) per call, input/cached climbing monotonically:
+            let calls = [
+                (input: 1_000, output: 100, cached: 0),
+                (input: 1_500, output: 50, cached: 400),
+                (input: 1_600, output: 20, cached: 1_550),
+            ]
+            var last: OTLPProcessingResult?
+            for call in calls {
+                last = try ingestLogs(
+                    codexSseCompletedLogs(
+                        conversationID: "conv-1", inputTokenCount: call.input,
+                        outputTokenCount: call.output, cachedTokenCount: call.cached,
+                        model: "gpt-5-codex"
+                    ),
+                    into: &accumulator
+                )
+            }
+            let telemetry = try #require(last?.telemetryUpdates["conv-1"])
+            // Fresh-input deltas (inputDelta − cachedDelta, floored at 0):
+            //   1000 + (500−400) + max(0, 100−1150) = 1000 + 100 + 0 = 1100
+            #expect(telemetry.inputTokens == 1_100)
+            // Output is per-call, summed: 100 + 50 + 20 = 170.
+            #expect(telemetry.outputTokens == 170)
+            // Cache-read deltas: 0 + 400 + 1150 = 1550 (the final cumulative cache).
+            #expect(telemetry.cacheReadTokens == 1_550)
+            // Headline excludes cache reads: 1100 + 170 = 1270 — NOT the 2320 a
+            // naive per-event sum of (input−cached)+output would report.
+            #expect(telemetry.tokensUsed == 1_270)
         }
 
         @Test("Codex tokens decode as proto3 int-as-string too")
