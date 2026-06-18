@@ -97,12 +97,15 @@ public enum CodexOTELTelemetryRenderScenario {
         //    so the meter is tokens-only (visible "12.4k", no "$…"); the model tag
         //    proves the codex.sse_event was parsed and joined by conversation.id.
         //
-        //    Assert on "12400", not the visible "12.4k": `SessionMeterView` ignores
-        //    its children for accessibility and exposes the raw count as its label
-        //    ("12400 tokens"), so the abbreviated glyph never reaches the AX tree.
-        //    The Claude sibling asserts the cost ("$0.42") for the same reason —
-        //    that string IS in the label — but Codex has no cost, so the headline
-        //    token total is what this surface can match.
+        //    Assert on "12,400" (with a grouping comma), not the visible "12.4k":
+        //    the sidebar row collapses its children into one combined AX element
+        //    whose label concatenates each child's *accessibility label*, not the
+        //    on-screen glyph. `SessionMeterView` exposes "<tokensUsed> tokens", so
+        //    the abbreviated "12.4k" never reaches AX — and macOS inserts the
+        //    locale grouping separator when surfacing the number, so "12400"
+        //    appears as "12,400". The Claude sibling asserts its cost ("$0.42")
+        //    for the same combined-label reason; Codex has no cost, so the token
+        //    total is the headline this surface can match.
         //
         //    The turn_ttft latency ("1.5s") is deliberately NOT asserted here:
         //    latency is a status-bar-only field (`SessionTelemetryStatusBar`),
@@ -112,7 +115,7 @@ public enum CodexOTELTelemetryRenderScenario {
         //    same assertion for the same reason). The full receive → join → stamp →
         //    back-fill path for turn_ttft is covered by the
         //    `codexTurnTtftRecordsLatency` accumulator unit test.
-        TestStep.macWaitForElementQuery(.anyTextMatches("12400"), timeout: 10)
+        TestStep.macWaitForElementQuery(.anyTextMatches("12,400"), timeout: 10)
         TestStep.macWaitForElementQuery(.anyTextMatches("gpt-5-codex"), timeout: 5)
         TestStep.macScreenshot(label: "mac-codex-otel-meter")
     }
