@@ -95,13 +95,20 @@ public struct PermissionModeChip: View {
 
     public var body: some View {
         if let presentation {
-            Label {
-                Text(presentation.label)
-            } icon: {
+            // Hand-rolled instead of `Label`: a fixed-size, scaled-to-fit icon
+            // box keeps every chip the same height regardless of the symbol's
+            // glyph bounds (e.g. `wand.and.stars` is taller than `shield`, which
+            // otherwise made the louder modes' chips visibly taller), and a tight
+            // explicit `HStack` spacing pulls the icon closer to the label than
+            // `Label`'s default gap.
+            HStack(spacing: 3) {
                 presentation.symbol.image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 10, height: 10)
+                Text(presentation.label)
             }
             .font(.caption2.weight(.semibold))
-            .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .foregroundStyle(presentation.isElevated ? Color.white : presentation.tint)
