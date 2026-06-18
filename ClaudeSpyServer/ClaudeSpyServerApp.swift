@@ -393,16 +393,16 @@ struct TmuxPaneMirrorApp: App {
                 InstallCLIMenuItem()
             }
 
-            // File menu - replace default items with Close Tab
-            CommandGroup(replacing: .newItem) {}
+            // File menu - New Session (⌘N) opens the Local section's popover
+            CommandGroup(replacing: .newItem) {
+                Button("New Session") {
+                    NotificationCenter.default.post(name: .newLocalSession, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .newItem) {
                 CloseTabMenuItem()
-
-                Button("Open in Editor…") {
-                    NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: .command)
             }
 
             CommandGroup(after: .textEditing) {
