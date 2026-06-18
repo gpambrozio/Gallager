@@ -104,8 +104,8 @@
             #expect(telemetry.outputTokens == 50)
             #expect(telemetry.cacheReadTokens == 10)
             #expect(telemetry.cacheCreationTokens == 5)
-            // Headline excludes cache reads: input(100) + output(50) + cache write(5).
-            #expect(telemetry.tokensUsed == 155)
+            // Headline excludes both cache reads and writes: input(100) + output(50).
+            #expect(telemetry.tokensUsed == 150)
             #expect(telemetry.costUSD == 0.25)
             #expect(telemetry.lastTurnLatencyMs == 1_200)
             #expect(telemetry.model == "claude-opus-4-8")

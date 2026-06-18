@@ -19,8 +19,8 @@ struct SessionTelemetryTests {
         #expect(telemetry.outputTokens == 60)
         #expect(telemetry.cacheReadTokens == 10)
         #expect(telemetry.cacheCreationTokens == 5)
-        // Headline excludes cache reads: input(120) + output(60) + cache write(5).
-        #expect(telemetry.tokensUsed == 185)
+        // Headline excludes both cache reads and writes: input(120) + output(60).
+        #expect(telemetry.tokensUsed == 180)
         #expect(abs(telemetry.costUSD - 0.25) < 0.0_001)
         #expect(telemetry.lastTurnLatencyMs == 1_500)
         #expect(telemetry.model == "claude-sonnet-4-6")
@@ -121,8 +121,8 @@ struct SessionTelemetryTests {
         {"inputTokens": 100, "outputTokens": 50, "cacheReadTokens": 10, "cacheCreationTokens": 5}
         """
         let decoded = try JSONDecoder().decode(SessionTelemetry.self, from: Data(json.utf8))
-        // Recomputed total excludes cache reads: input(100) + output(50) + cache write(5).
-        #expect(decoded.tokensUsed == 155)
+        // Recomputed total excludes both cache reads and writes: input(100) + output(50).
+        #expect(decoded.tokensUsed == 150)
     }
 
     @Test("PaneState without telemetry fields decodes (older host)")
