@@ -108,8 +108,14 @@ public enum CodexGuardianSuppressionScenario {
         // Mac first: "Working" proves the event WAS processed (so the iOS
         // absence checks below aren't racing the round-trip), and the
         // "Permission" status never appears.
+        //
+        // The status checks match the EXACT label "Permission" (the awaiting-
+        // permission `statusLabel`), not a contains-match: the permission-mode
+        // chip seeded by this event's `permission_mode: "default"` exposes the
+        // a11y label "Permission mode Default", which a `titled:` contains-query
+        // would match — making the "did the status disappear?" check never pass.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
-        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
+        TestStep.macWaitForElementQueryToDisappear(.label("Permission"), timeout: 5)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-working")
 
         // No iOS response UI (neither the Accept button nor the form's
@@ -244,7 +250,9 @@ public enum CodexGuardianSuppressionScenario {
         // match a bare "Accept" contains-query). apply_patch is otherwise
         // guardian-reviewable, so only the user posture explains the form.
         TestStep.iosWaitForElement(.labelContains("apply_patch"), timeout: 10)
-        TestStep.macWaitForElement(titled: "Permission", timeout: 10)
+        // Exact label so this matches the real awaiting-permission status, not
+        // the always-present "Permission mode Default" chip (see Phase 3).
+        TestStep.macWaitForElementQuery(.label("Permission"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-user-posture-form-shows")
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterUserFlip")
         TestStep.assertStoredContains(
@@ -289,7 +297,7 @@ public enum CodexGuardianSuppressionScenario {
         // The mac "Permission" status from Phase 6 gives way to "Working":
         // a real transition proving the suppressed event replaced the state.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
-        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
+        TestStep.macWaitForElementQueryToDisappear(.label("Permission"), timeout: 5)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-again")
 
         // The MCP form never appears on iOS, and no push went out.

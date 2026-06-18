@@ -94,8 +94,15 @@ public enum CodexOTELTelemetryRenderScenario {
         TestStep.wait(seconds: 2)
 
         // 5. The meter + model tag render in the sidebar row. Codex emits no cost,
-        //    so the meter is tokens-only ("12.4k", no "$…"); the model tag proves
-        //    the codex.sse_event was parsed and joined by conversation.id.
+        //    so the meter is tokens-only (visible "12.4k", no "$…"); the model tag
+        //    proves the codex.sse_event was parsed and joined by conversation.id.
+        //
+        //    Assert on "12400", not the visible "12.4k": `SessionMeterView` ignores
+        //    its children for accessibility and exposes the raw count as its label
+        //    ("12400 tokens"), so the abbreviated glyph never reaches the AX tree.
+        //    The Claude sibling asserts the cost ("$0.42") for the same reason —
+        //    that string IS in the label — but Codex has no cost, so the headline
+        //    token total is what this surface can match.
         //
         //    The turn_ttft latency ("1.5s") is deliberately NOT asserted here:
         //    latency is a status-bar-only field (`SessionTelemetryStatusBar`),
@@ -105,7 +112,7 @@ public enum CodexOTELTelemetryRenderScenario {
         //    same assertion for the same reason). The full receive → join → stamp →
         //    back-fill path for turn_ttft is covered by the
         //    `codexTurnTtftRecordsLatency` accumulator unit test.
-        TestStep.macWaitForElementQuery(.anyTextMatches("12.4k"), timeout: 10)
+        TestStep.macWaitForElementQuery(.anyTextMatches("12400"), timeout: 10)
         TestStep.macWaitForElementQuery(.anyTextMatches("gpt-5-codex"), timeout: 5)
         TestStep.macScreenshot(label: "mac-codex-otel-meter")
     }
