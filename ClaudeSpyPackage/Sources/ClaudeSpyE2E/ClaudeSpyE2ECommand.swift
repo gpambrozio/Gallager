@@ -339,6 +339,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         GitTabFileActionsScenario.scenario,
         ComposerBandRecaptureScenario.scenario,
         CodexGuardianSuppressionScenario.scenario,
+        CodexOTELTelemetryRenderScenario.scenario,
         ScrollbackBandRecaptureScenario.scenario,
         LongTitleTruncationIOSScenario.scenario,
     ]

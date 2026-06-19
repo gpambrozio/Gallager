@@ -21,12 +21,31 @@ public struct PluginEnv: Sendable {
     /// `<agent> plugin marketplace add`.
     public let marketplaceSource: URL
 
-    public init(pluginRoot: URL, stateDir: URL, appVersion: String, settings: Data, marketplaceSource: URL) {
+    /// The base URL of the Mac-local OTLP/JSON receiver the host is listening on
+    /// (e.g. `http://127.0.0.1:4318`), or `nil` when no receiver is running.
+    ///
+    /// Cores whose agent reads `OTEL_*` env vars (Claude Code) ignore this — the
+    /// host injects those vars directly into the pane. Cores whose agent is
+    /// configured only through its own config (Codex CLI, which does not read
+    /// `OTEL_*`) use this to point the agent's OTLP export at the receiver
+    /// (issue #602). One-way push, signal-specific paths are appended by the
+    /// core (`/v1/logs`).
+    public let otlpReceiverEndpoint: URL?
+
+    public init(
+        pluginRoot: URL,
+        stateDir: URL,
+        appVersion: String,
+        settings: Data,
+        marketplaceSource: URL,
+        otlpReceiverEndpoint: URL? = nil
+    ) {
         self.pluginRoot = pluginRoot
         self.stateDir = stateDir
         self.appVersion = appVersion
         self.settings = settings
         self.marketplaceSource = marketplaceSource
+        self.otlpReceiverEndpoint = otlpReceiverEndpoint
     }
 }
 
