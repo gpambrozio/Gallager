@@ -74,6 +74,7 @@ enum CodexTranslator {
         pluginID: String,
         tmuxPane: String?,
         contextProjectDir: String?,
+        occurrenceID: String,
         closePaneOnSessionEnd: Bool = false,
         approvalsReviewer: CodexApprovalsReviewer = .user
     ) -> Output? {
@@ -110,7 +111,8 @@ enum CodexTranslator {
             : Self.state(
                 for: action,
                 sessionID: sessionID,
-                hookEvent: hookEvent
+                hookEvent: hookEvent,
+                occurrenceID: occurrenceID
             )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
@@ -219,16 +221,19 @@ enum CodexTranslator {
     /// Stop / StopFailure → `.doneWorking`; SessionStart → `.idle`; otherwise the
     /// working bit (`true → .working`, `false`/`nil → nil` "no opinion").
     ///
-    /// `requestID` is stable per (session, event) so a Mac-side answer and an iOS
-    /// answer can't double-fire: `"\(sessionID):\(eventName):\(timestamp)"`.
+    /// `requestID` is unique per opened form via the core-supplied `occurrenceID`
+    /// so a Mac-side answer and an iOS answer can't double-fire, and a *second*
+    /// form of the same type never reuses the first's id:
+    /// `"\(sessionID):\(eventName):\(occurrenceID)"`.
     private static func state(
         for action: HookAction,
         sessionID: String,
-        hookEvent: HookEvent
+        hookEvent: HookEvent,
+        occurrenceID: String
     ) -> (AgentState?, PendingRequest?) {
         switch action {
         case let .permissionRequest(body):
-            let id = requestID(sessionID: sessionID, action: action)
+            let id = requestID(sessionID: sessionID, action: action, occurrenceID: occurrenceID)
             switch body.toolInput {
             case let .askUserQuestion(params):
                 return (
@@ -409,12 +414,14 @@ enum CodexTranslator {
         return AskUserQuestionRequest(questions: questions)
     }
 
-    /// Stable, occurrence-unique request id: `"\(sessionID):\(eventName):\(timestamp)"`.
-    /// The hook timestamp disambiguates repeated events of the same type in one
-    /// session (otherwise a second form would reuse the first id and iOS would
-    /// treat it as already-handled).
-    static func requestID(sessionID: String, action: HookAction) -> String {
-        "\(sessionID):\(action.eventName):\(action.body.timestamp ?? "")"
+    /// Stable, occurrence-unique request id: `"\(sessionID):\(eventName):\(occurrenceID)"`.
+    /// The `occurrenceID` is minted fresh by the core for each ingress frame
+    /// (hooks carry no timestamp/sequence), so a second permission/question form in
+    /// the same session gets a distinct id. Without it, every form collapsed to
+    /// `"\(sessionID):PermissionRequest:"` and iOS restored the first form's
+    /// persisted answer onto the second.
+    static func requestID(sessionID: String, action: HookAction, occurrenceID: String) -> String {
+        "\(sessionID):\(action.eventName):\(occurrenceID)"
     }
 
     // MARK: - App actions
