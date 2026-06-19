@@ -24,12 +24,15 @@ public struct TurnSample: Codable, Sendable, Equatable {
 // MARK: - Session Telemetry
 
 /// Quantitative, content-free telemetry for one coding-agent session, derived
-/// from Claude Code's OpenTelemetry export (`claude_code.api_request` events).
+/// from the agent's OpenTelemetry export — Claude Code's `claude_code.api_request`
+/// events (issue #597) or Codex's `codex.sse_event` / `codex.api_request` events
+/// (issue #602). Agent-blind once accumulated: the same fields drive the UI for
+/// either agent.
 ///
 /// This **augments** the hook channel — it never replaces it (issue #597).
 /// Accumulated on the Mac by the OTLP receiver, joined to a pane by the hook
-/// `session_id`, stamped onto `PaneState`, and carried to iOS viewers inside the
-/// existing `SessionStateMessage`.
+/// `session_id` (Claude) / `conversation.id` (Codex), stamped onto `PaneState`,
+/// and carried to iOS viewers inside the existing `SessionStateMessage`.
 ///
 /// The maximum number of per-turn samples retained for the sparkline. Bounds the
 /// wire size of `recentTurns`.
@@ -37,8 +40,14 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
     /// The maximum number of per-turn samples kept in `recentTurns`.
     public static let maxRecentTurns = 20
 
-    /// Total tokens across all types (input + output + cache read + creation).
-    /// The single glanceable number for the row meter.
+    /// Headline token count for the glanceable meter: summed `input + output`
+    /// across the session. Both cache *reads* and cache *writes* (creation) are
+    /// deliberately excluded — Claude re-reads the whole prompt cache every turn
+    /// (and Codex re-reports its cached context per turn), so summing the cache
+    /// figures would re-count the same context on each turn and inflate the
+    /// meter to several times the real context size (issue #597). The full
+    /// cache totals are still tracked in ``cacheReadTokens`` /
+    /// ``cacheCreationTokens`` and shown in the detail breakdown.
     public var tokensUsed: Int
 
     /// Summed `input_tokens` across the session.
@@ -105,7 +114,11 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.outputTokens += outputTokens
         self.cacheReadTokens += cacheReadTokens
         self.cacheCreationTokens += cacheCreationTokens
-        tokensUsed = self.inputTokens + self.outputTokens + self.cacheReadTokens + self.cacheCreationTokens
+        // Exclude both cache *reads* and cache *writes*: agents re-report the
+        // whole cached context on every turn, so summing them would inflate the
+        // headline to many times the real context size (issue #597). Both cache
+        // totals stay tracked above for the detail breakdown.
+        tokensUsed = self.inputTokens + self.outputTokens
         self.costUSD += costUSD
         if let durationMs {
             lastTurnLatencyMs = durationMs
@@ -116,6 +129,28 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         recentTurns.append(TurnSample(costUSD: costUSD, latencyMs: durationMs))
         if recentTurns.count > Self.maxRecentTurns {
             recentTurns.removeFirst(recentTurns.count - Self.maxRecentTurns)
+        }
+    }
+
+    /// Records a turn's latency that arrived on a *separate* event from its token
+    /// counts. Claude Code reports tokens and `duration_ms` on one `api_request`
+    /// log, so `accumulate(durationMs:)` covers it; Codex reports tokens on
+    /// `codex.sse_event` (response.completed) but per-turn latency on
+    /// `codex.turn_ttft` (time-to-first-token `duration_ms`, issue #602). This
+    /// stamps the headline `lastTurnLatencyMs` and back-fills the most recent
+    /// sample's latency when it arrived without one. The headline is authoritative;
+    /// the sparkline back-fill is best-effort, since Codex can interleave the
+    /// ttft and sse_event records around a turn. No-op for a non-positive duration.
+    public mutating func recordTurnLatency(_ durationMs: Int) {
+        guard durationMs > 0 else { return }
+        lastTurnLatencyMs = durationMs
+        // Back-fill assumes the turn's token event (`codex.sse_event`) already
+        // appended this turn's sample before its latency event (`codex.turn_ttft`)
+        // arrives — the order codex-rs emits them within a turn. If that ordering
+        // ever flips (latency first) or `last` already carries a latency, this
+        // no-ops and the headline `lastTurnLatencyMs` alone stays authoritative.
+        if let last = recentTurns.last, last.latencyMs == nil {
+            recentTurns[recentTurns.count - 1] = TurnSample(costUSD: last.costUSD, latencyMs: durationMs)
         }
     }
 
@@ -142,10 +177,12 @@ public struct SessionTelemetry: Codable, Sendable, Equatable {
         self.outputTokens = try container.decodeIfPresent(Int.self, forKey: .outputTokens) ?? 0
         self.cacheReadTokens = try container.decodeIfPresent(Int.self, forKey: .cacheReadTokens) ?? 0
         self.cacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .cacheCreationTokens) ?? 0
-        // `tokensUsed` is a derived sum. If an older host omits it but sends the
-        // individual fields, recompute the total instead of showing 0.
+        // `tokensUsed` is a derived sum (input + output, excluding both cache
+        // reads and cache writes — see the property doc). If a peer omits it but
+        // sends the components, recompute with the same definition instead of
+        // showing 0.
         self.tokensUsed = try container.decodeIfPresent(Int.self, forKey: .tokensUsed)
-            ?? (inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens)
+            ?? (inputTokens + outputTokens)
         self.costUSD = try container.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
         self.lastTurnLatencyMs = try container.decodeIfPresent(Int.self, forKey: .lastTurnLatencyMs)
         self.model = try container.decodeIfPresent(String.self, forKey: .model)

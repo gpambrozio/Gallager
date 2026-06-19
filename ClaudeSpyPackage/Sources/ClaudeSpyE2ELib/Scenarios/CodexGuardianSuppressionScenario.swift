@@ -108,8 +108,21 @@ public enum CodexGuardianSuppressionScenario {
         // Mac first: "Working" proves the event WAS processed (so the iOS
         // absence checks below aren't racing the round-trip), and the
         // "Permission" status never appears.
+        //
+        // The status checks match the sidebar row's combined label, which
+        // concatenates the row's children as "<status>, <project>, <path>" — e.g.
+        // "Permission, CodexGuardian, ~" while awaiting, "Working, CodexGuardian, ~"
+        // otherwise. A bare "Permission" any-text match can't be used: the
+        // permission-mode chip seeded by `permission_mode: "default"` is a separate
+        // element (id `permission-mode-chip`) exposing "Permission mode Default" as
+        // both an AXImage label and an AXStaticText value — always present, so a
+        // substring match never lets this disappear-check pass. Matching the
+        // status+project substring "Permission, CodexGuardian" tracks only the row
+        // (the chip never carries the project name) and is role-independent: the
+        // row's AX role flips between AXButton (awaiting, bell icon) and AXGroup
+        // (working, ProgressView), so role-scoping the query would miss one state.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
-        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
+        TestStep.macWaitForElementQueryToDisappear(.labelContains("Permission, CodexGuardian"), timeout: 5)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-working")
 
         // No iOS response UI (neither the Accept button nor the form's
@@ -244,7 +257,10 @@ public enum CodexGuardianSuppressionScenario {
         // match a bare "Accept" contains-query). apply_patch is otherwise
         // guardian-reviewable, so only the user posture explains the form.
         TestStep.iosWaitForElement(.labelContains("apply_patch"), timeout: 10)
-        TestStep.macWaitForElement(titled: "Permission", timeout: 10)
+        // The row's combined label flips to "Permission, CodexGuardian, …" — match
+        // that status+project substring so this hits the real awaiting-permission
+        // status, not the always-present permission-mode chip — see Phase 3.
+        TestStep.macWaitForElementQuery(.labelContains("Permission, CodexGuardian"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-user-posture-form-shows")
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterUserFlip")
         TestStep.assertStoredContains(
@@ -289,7 +305,7 @@ public enum CodexGuardianSuppressionScenario {
         // The mac "Permission" status from Phase 6 gives way to "Working":
         // a real transition proving the suppressed event replaced the state.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
-        TestStep.macWaitForElementToDisappear(titled: "Permission", timeout: 5)
+        TestStep.macWaitForElementQueryToDisappear(.labelContains("Permission, CodexGuardian"), timeout: 5)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-again")
 
         // The MCP form never appears on iOS, and no push went out.
