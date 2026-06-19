@@ -28,6 +28,8 @@ public struct MainView: View {
     @State private var projects: [AgentProject] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
+    /// Bumped by the ⌘N menu command to open the Local section's new-session popover.
+    @State private var localNewSessionTrigger = 0
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
 
@@ -87,10 +89,6 @@ public struct MainView: View {
     /// session's GitWorkbench config so the package can persist the diff style and
     /// column widths through the host (it never touches `UserDefaults` itself).
     @Dependency(PreferencesService.self) private var preferences
-
-    /// File path for which the "Open in Editor" picker is currently shown
-    /// (triggered by Cmd+E on a focused file tab).
-    @State private var editorPickerPath: String?
 
     /// In-flight terminal-link confirmation, shown when
     /// `settings.browserLinkBehavior == .ask` and the user clicks a web URL.
@@ -297,11 +295,8 @@ public struct MainView: View {
         .modifier(MenuCommandsModifier(
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
-            onSelectNextTab: { selectAdjacentTab(direction: 1) }
-        ))
-        .modifier(EditorPickerDialogModifier(
-            editorPickerPath: $editorPickerPath,
-            onCmdE: { handleOpenCurrentTabInEditor() }
+            onSelectNextTab: { selectAdjacentTab(direction: 1) },
+            onNewLocalSession: { localNewSessionTrigger += 1 }
         ))
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
@@ -407,7 +402,8 @@ public struct MainView: View {
             SectionHeader(
                 title: "Local",
                 symbol: .house,
-                newSessionButtonIdentifier: "new-session-local"
+                newSessionButtonIdentifier: "new-session-local",
+                openPopoverTrigger: localNewSessionTrigger
             ) {
                 localNewSessionPopover
             }
@@ -3601,37 +3597,6 @@ public struct MainView: View {
     /// clear `selectedFileTabId` when the selected tab is removed, otherwise
     /// the id will dangle and the content area will render `OpenFileTabContentView`
     /// against a stale tab.
-    /// Resolves the path of the currently-focused file (open file tab when one
-    /// is selected, otherwise the file selected in the file browser detail
-    /// pane) and stores it in `editorPickerPath` so the Cmd+E confirmation
-    /// dialog presents the editor list. No-op when nothing file-shaped is in
-    /// view.
-    private func handleOpenCurrentTabInEditor() {
-        guard let window = selectedWindow else { return }
-        guard
-            let sessionName = tmuxService.sessions
-                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
-                .sessionName
-        else { return }
-
-        if
-            let tabs = sessionFileTabsStates[sessionName],
-            let selectedId = tabs.selectedFileTabId,
-            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId }) {
-            editorPickerPath = tab.path
-            return
-        }
-
-        guard
-            fileBrowserActiveWindowIds.contains(window.id),
-            let browserState = fileBrowserStates[sessionName]
-        else { return }
-        let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
-        if let path = browserState.selectedFilePath(directoryPath: directoryPath) {
-            editorPickerPath = path
-        }
-    }
-
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }

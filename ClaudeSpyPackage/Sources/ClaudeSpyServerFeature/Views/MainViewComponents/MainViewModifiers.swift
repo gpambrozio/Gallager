@@ -1,16 +1,16 @@
 import ClaudeSpyCommon
-import Dependencies
 import SwiftUI
 
 /// Bundles the global menu-driven notification observers used by the panes
-/// scene (Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-]) so the main `body` chain
-/// stays under the Swift type checker's complexity threshold. Cmd-W routes
-/// through the scene-scoped `closeCurrentTabAction` focused value instead —
-/// see `MenuCommandFocusedValues.swift`.
+/// scene (Cmd-N, Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-]) so the main `body`
+/// chain stays under the Swift type checker's complexity threshold. Cmd-W
+/// routes through the scene-scoped `closeCurrentTabAction` focused value
+/// instead — see `MenuCommandFocusedValues.swift`.
 struct MenuCommandsModifier: ViewModifier {
     let onOpenContentSearch: () -> Void
     let onSelectPreviousTab: () -> Void
     let onSelectNextTab: () -> Void
+    let onNewLocalSession: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -23,78 +23,9 @@ struct MenuCommandsModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .selectNextTab)) { _ in
                 onSelectNextTab()
             }
-    }
-}
-
-/// Confirmation dialog driven by `editorPickerPath` that lists the user's
-/// configured editors and forwards the selection to ``EditorClient``.
-///
-/// Lives in its own modifier so the SwiftUI view-builder for `MainView.body`
-/// stays small enough for the type-checker to handle.
-struct EditorPickerDialogModifier: ViewModifier {
-    @Binding var editorPickerPath: String?
-    let onCmdE: () -> Void
-
-    @Environment(AppSettings.self) private var settings
-    @Environment(\.openSettings) private var openSettings
-
-    private var dialogIsPresented: Binding<Bool> {
-        Binding(
-            get: { editorPickerPath != nil },
-            set: { newValue in
-                if !newValue { editorPickerPath = nil }
+            .onReceive(NotificationCenter.default.publisher(for: .newLocalSession)) { _ in
+                onNewLocalSession()
             }
-        )
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .openCurrentTabInEditor)) { _ in
-                onCmdE()
-            }
-            .confirmationDialog(
-                "Open in Editor",
-                isPresented: dialogIsPresented,
-                titleVisibility: .visible,
-                presenting: editorPickerPath,
-                actions: dialogActions,
-                message: dialogMessage
-            )
-    }
-
-    @ViewBuilder
-    private func dialogActions(path: String) -> some View {
-        ForEach(settings.editors) { editor in
-            Button(editor.displayName) {
-                // Resolve the dependency inside the action so test overrides
-                // installed via `withDependencies` are picked up correctly —
-                // stored properties on a ViewModifier would re-resolve on every
-                // body evaluation and side-step scoped overrides.
-                @Dependency(EditorClient.self) var client
-                let editorName = editor.displayName
-                Task {
-                    let launched = await client.openFile(editor, path)
-                    if !launched {
-                        postEditorLaunchFailed(editorName: editorName, path: path)
-                    }
-                }
-                editorPickerPath = nil
-            }
-        }
-        if settings.editors.isEmpty {
-            Button("Configure Editors…") {
-                settings.selectedSettingsTab = .editors
-                openSettings()
-                editorPickerPath = nil
-            }
-        }
-        Button("Cancel", role: .cancel) {
-            editorPickerPath = nil
-        }
-    }
-
-    private func dialogMessage(path: String) -> some View {
-        Text(URL(fileURLWithPath: path).lastPathComponent)
     }
 }
 

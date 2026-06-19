@@ -71,6 +71,8 @@
         @State private var logLevel: LogLevel = .info
         @State private var closePaneOnSessionEnd = false
         @State private var additionalConfigFolders: [String] = []
+        // Codex-only: point Codex's OTLP export at the loopback receiver (#602).
+        @State private var exportTelemetry = true
 
         // Whether the agent binary was not found
         @State private var agentUnavailable = false
@@ -133,6 +135,20 @@
                     Toggle("Close pane when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
                         .onChange(of: closePaneOnSessionEnd) { _, _ in persist() }
                         .accessibilityIdentifier("agentClosePane-\(pluginID)")
+
+                    // Codex configures OTEL through its own config (it doesn't read
+                    // `OTEL_*` env vars like Claude), so the export is opt-out-able
+                    // per-agent here (#602). Claude has no equivalent toggle.
+                    if pluginID == "codex" {
+                        Toggle("Export telemetry (tokens, latency, model)", isOn: $exportTelemetry)
+                            .onChange(of: exportTelemetry) { _, _ in persist() }
+                            .accessibilityIdentifier("agentExportTelemetry-\(pluginID)")
+                            .help(
+                                "Point this agent's OpenTelemetry export at Gallager's loopback receiver "
+                                    + "so the session's token meter, latency, and model show in the UI. "
+                                    + "One-way and local only — no prompt or tool content leaves your Mac."
+                            )
+                    }
                 }
 
                 // Config folders
@@ -207,6 +223,7 @@
                 logLevel = s.logLevel
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
+                exportTelemetry = true
             case "codex":
                 let s = CodexSettings.decode(from: data)
                 commandPath = s.commandPath
@@ -214,6 +231,7 @@
                 logLevel = s.logLevel
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
+                exportTelemetry = s.exportTelemetry
             default:
                 // Unknown plugin — use empty defaults; can't decode typed settings
                 commandPath = ""
@@ -221,6 +239,7 @@
                 logLevel = .info
                 closePaneOnSessionEnd = false
                 additionalConfigFolders = []
+                exportTelemetry = true
             }
 
             // Check agent availability for the default root
@@ -262,7 +281,8 @@
                     autoRun: autoRun,
                     logLevel: logLevel,
                     closePaneOnSessionEnd: closePaneOnSessionEnd,
-                    additionalConfigFolders: additionalConfigFolders
+                    additionalConfigFolders: additionalConfigFolders,
+                    exportTelemetry: exportTelemetry
                 )
                 return (try? encoder.encode(s)) ?? Data()
             default:

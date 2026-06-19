@@ -821,7 +821,7 @@
         private var usageSection: some View {
             Section("Usage") {
                 if let telemetry {
-                    LabeledContent("Total tokens", value: telemetry.tokensUsed.abbreviatedTokenCount)
+                    LabeledContent("Tokens (input + output)", value: telemetry.tokensUsed.abbreviatedTokenCount)
                     LabeledContent("Input", value: telemetry.inputTokens.abbreviatedTokenCount)
                     LabeledContent("Output", value: telemetry.outputTokens.abbreviatedTokenCount)
                     LabeledContent("Cache read", value: telemetry.cacheReadTokens.abbreviatedTokenCount)

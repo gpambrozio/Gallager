@@ -19,7 +19,8 @@ struct SessionTelemetryTests {
         #expect(telemetry.outputTokens == 60)
         #expect(telemetry.cacheReadTokens == 10)
         #expect(telemetry.cacheCreationTokens == 5)
-        #expect(telemetry.tokensUsed == 195)
+        // Headline excludes both cache reads and writes: input(120) + output(60).
+        #expect(telemetry.tokensUsed == 180)
         #expect(abs(telemetry.costUSD - 0.25) < 0.0_001)
         #expect(telemetry.lastTurnLatencyMs == 1_500)
         #expect(telemetry.model == "claude-sonnet-4-6")
@@ -45,6 +46,54 @@ struct SessionTelemetryTests {
         telemetry.recordToolResult()
         telemetry.recordToolResult()
         #expect(telemetry.toolInvocations == 2)
+    }
+
+    @Test("recordTurnLatency stamps the headline and back-fills the latest sample")
+    func recordTurnLatencyBackfills() {
+        // Codex's flow: tokens arrive with no latency (durationMs: nil), then a
+        // separate event reports the turn's duration.
+        var telemetry = SessionTelemetry()
+        telemetry.accumulate(
+            inputTokens: 100, outputTokens: 50, cacheReadTokens: 20, cacheCreationTokens: 0,
+            costUSD: 0, durationMs: nil, model: "gpt-5-codex"
+        )
+        #expect(telemetry.lastTurnLatencyMs == nil)
+        #expect(telemetry.recentTurns.last?.latencyMs == nil)
+
+        telemetry.recordTurnLatency(1_234)
+        #expect(telemetry.lastTurnLatencyMs == 1_234)
+        // The token-turn's sample is back-filled rather than a new one appended.
+        #expect(telemetry.recentTurns.count == 1)
+        #expect(telemetry.recentTurns.last?.latencyMs == 1_234)
+    }
+
+    @Test("recordTurnLatency ignores non-positive durations and never appends a sample")
+    func recordTurnLatencyGuards() {
+        var telemetry = SessionTelemetry()
+        telemetry.recordTurnLatency(0)
+        telemetry.recordTurnLatency(-5)
+        #expect(telemetry.lastTurnLatencyMs == nil)
+        #expect(telemetry.recentTurns.isEmpty)
+
+        // With no prior nil-latency sample (e.g. latency before any tokens), it
+        // only stamps the headline and leaves the (empty) ring untouched.
+        telemetry.recordTurnLatency(900)
+        #expect(telemetry.lastTurnLatencyMs == 900)
+        #expect(telemetry.recentTurns.isEmpty)
+    }
+
+    @Test("recordTurnLatency does not clobber a sample that already has a latency")
+    func recordTurnLatencyPreservesPairedSample() {
+        var telemetry = SessionTelemetry()
+        // A sample that already carries its own latency (Claude's paired flow).
+        telemetry.accumulate(
+            inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0,
+            costUSD: 0.01, durationMs: 700, model: nil
+        )
+        telemetry.recordTurnLatency(9_999)
+        // Headline updates, but the existing paired sample is left as-is.
+        #expect(telemetry.lastTurnLatencyMs == 9_999)
+        #expect(telemetry.recentTurns.last?.latencyMs == 700)
     }
 
     @Test("Codable round-trips (incl. issue #598 aggregate counters)")
@@ -104,7 +153,8 @@ struct SessionTelemetryTests {
         {"inputTokens": 100, "outputTokens": 50, "cacheReadTokens": 10, "cacheCreationTokens": 5}
         """
         let decoded = try JSONDecoder().decode(SessionTelemetry.self, from: Data(json.utf8))
-        #expect(decoded.tokensUsed == 165)
+        // Recomputed total excludes both cache reads and writes: input(100) + output(50).
+        #expect(decoded.tokensUsed == 150)
     }
 
     @Test("PaneState without telemetry fields decodes (older host)")

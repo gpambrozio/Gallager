@@ -11,16 +11,15 @@ import Foundation
 ///    editor's append-only log under `$TMPDIR`.
 /// 3. The same submenu is reachable on the file *tab* context menu, proving
 ///    the shared `FileContextMenu` wiring picks up the new entry.
-/// 4. The `Cmd+E` keyboard shortcut, registered as a top-level menu command,
-///    surfaces the same editor list as a confirmation dialog when a file
-///    tab is focused.
+/// 4. The Settings window's "Editors" tab lists every editor registered
+///    through the `EditorClient` dependency.
 ///
 /// In E2E mode the macOS app's `EditorClient` dependency is replaced with
 /// `EditorClient.fakeScript(...)` (see `--fake-editor-script`), which:
 /// - returns *two* editors ("Fake Editor", "Fake Editor 2") from
-///   `detectInstalledKnownEditors` so the menu and dialog render their
-///   multi-row layout — a single-entry list would never exercise the
-///   `ForEach` paths.
+///   `detectInstalledKnownEditors` so the submenu and the Settings list
+///   render their multi-row layout — a single-entry list would never
+///   exercise the `ForEach` paths.
 /// - launches `fake_editor.py` with the file path as its only argument
 /// - additionally appends each `(filePath)` to a known log so the assertion
 ///   does not race with the script's own write
@@ -110,55 +109,12 @@ public enum OpenInEditorScenario {
         TestStep.assertStoredContains(key: "tabMenuLog", substring: "README.md")
         TestStep.macScreenshot(label: "mac-tab-menu-fake-editor-launched")
 
-        // ── Phase 4: Cmd+E keyboard shortcut on focused tab ──────
-        //
-        // Open `hello.txt` in a new tab (so the tab is focused), then send
-        // Cmd+E via AppleScript keystroke. The `Open in Editor` confirmation
-        // dialog appears showing both fake editors; click "Fake Editor 2" to
-        // exercise the second row and dispatch.
-        TestStep.log("Phase 4: Cmd+E on a focused file tab")
-        TestStep.macClickButton(titled: "Files")
-        TestStep.wait(seconds: 1)
-        TestStep.macContextMenuClick(elementTitle: "hello.txt", menuItem: "Open in New Tab")
-        TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 5)
-        TestStep.macClickButton(titled: "File tab: hello.txt")
-        TestStep.wait(seconds: 1)
-
-        // Wipe the log so the post-dispatch assertion can't be satisfied by a
-        // stale Phase 2 entry — that was the original false-positive in this
-        // phase. With a fresh log, `waitForFileContains` only succeeds if the
-        // Cmd+E dispatch actually ran the script.
-        TestStep.removeFile(path: "${fakeEditorLogPath}")
-
-        // Send Cmd+E to trigger the top-level "Open in Editor…" command. The
-        // confirmation dialog appears showing the editor list.
-        TestStep.macPressKey(.character("e"), modifiers: .command)
-        // Both editors should be visible in the multi-row dialog.
-        TestStep.macWaitForElement(titled: "Fake Editor", timeout: 5)
-        TestStep.macWaitForElement(titled: "Fake Editor 2", timeout: 5)
-        TestStep.macScreenshot(label: "mac-cmd-e-dialog")
-        // SwiftUI's confirmationDialog renders its action buttons in a sheet
-        // whose AXPress handler is unreliable from outside the process; a
-        // CGEvent click at the element's frame goes through correctly. Clicking
-        // the second-row entry also exercises the multi-editor `ForEach`.
-        TestStep.macCGClick(titled: "Fake Editor 2")
-
-        // Fresh log → only the Cmd+E dispatch can put "hello.txt" in there.
-        TestStep.waitForFileContains(
-            path: "${fakeEditorLogPath}",
-            substring: "hello.txt",
-            storeAs: "cmdELog",
-            timeout: 10
-        )
-        TestStep.assertStoredContains(key: "cmdELog", substring: "hello.txt")
-        TestStep.macScreenshot(label: "mac-cmd-e-dispatched")
-
-        // ── Phase 5: Settings → Editors tab shows both fake editors ─
+        // ── Phase 4: Settings → Editors tab shows both fake editors ─
         //
         // The Settings window's new "Editors" tab should list both editors
         // seeded by the E2E launch arg. Asserting on both rows guards
         // against a regression that collapses the multi-row list view.
-        TestStep.log("Phase 5: Settings → Editors lists both fake editors")
+        TestStep.log("Phase 4: Settings → Editors lists both fake editors")
         TestStep.macOpenSettings()
         TestStep.wait(seconds: 2)
         TestStep.macSelectSettingsTab("Editors")

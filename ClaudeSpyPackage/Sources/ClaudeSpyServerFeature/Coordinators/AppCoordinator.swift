@@ -735,7 +735,22 @@
                 stateDir: paths.pluginStateDir(id),
                 appVersion: VersionCompatibility.currentAppVersion,
                 settings: settingsData,
-                marketplaceSource: marketplaceSource
+                marketplaceSource: marketplaceSource,
+                // The single source of truth for the receiver port (shared with the
+                // env injection in `TmuxService`), so a core that configures OTEL
+                // through its agent's own config (Codex) targets the same loopback
+                // receiver Claude's `OTEL_*` env vars point at (issue #602).
+                //
+                // Start-ordering note: this endpoint is built unconditionally,
+                // before `setupOTLPReceiver()` binds the port — plugin `initialize`
+                // fires during `registry.enable`, which runs ahead of the later
+                // `await setupOTLPReceiver()` in `setupPluginRuntime()`. So it stays
+                // non-nil even if the receiver subsequently fails to bind (e.g. port
+                // taken). That degrades gracefully by design: Codex's push-only OTLP
+                // export silently drops the ECONNREFUSED, so a dead endpoint means
+                // "no meter", never an error — not worth gating env construction on a
+                // bind result that almost always succeeds.
+                otlpReceiverEndpoint: URL(string: "http://127.0.0.1:\(OTLPReceiver.resolvedPort)")
             )
         }
 
@@ -1219,7 +1234,14 @@
         private func handleTelemetryMilestone(_ milestone: TelemetryMilestone) async {
             guard let paneId = windowManager.paneId(forClaudeSessionID: milestone.sessionID) else { return }
             let project = windowManager.projectName(forClaudeSessionID: milestone.sessionID) ?? "your project"
-            let spec = Self.milestoneNotification(milestone, project: project)
+            // Agent-aware copy (issue #602): milestone counters are Claude-only
+            // today (`claude_code.commit.count` etc.), but resolve the owning
+            // agent's short name from its manifest so the notification stays
+            // correct if a Codex commit/PR source ever lands. Falls back to
+            // "Claude" when the pane's plugin id can't be resolved.
+            let pluginID = windowManager.paneStates[paneId]?.agentSession?.pluginID
+            let agent = pluginID.flatMap { pluginRegistry?.manifest($0)?.shortName } ?? "Claude"
+            let spec = Self.milestoneNotification(milestone, agent: agent, project: project)
             await handlePluginNotification(spec, paneId: paneId)
         }
 
@@ -1227,20 +1249,21 @@
         /// occurred within a single export window.
         private static func milestoneNotification(
             _ milestone: TelemetryMilestone,
+            agent: String,
             project: String
         ) -> NotificationSpec {
             switch milestone.kind {
             case .commit:
                 let title = "Committed"
                 let body = milestone.count > 1
-                    ? "Claude made \(milestone.count) commits in \(project)"
-                    : "Claude committed in \(project)"
+                    ? "\(agent) made \(milestone.count) commits in \(project)"
+                    : "\(agent) committed in \(project)"
                 return NotificationSpec(title: title, body: body)
             case .pullRequest:
                 let title = "Pull Request"
                 let body = milestone.count > 1
-                    ? "Claude opened \(milestone.count) pull requests in \(project)"
-                    : "Claude opened a pull request in \(project)"
+                    ? "\(agent) opened \(milestone.count) pull requests in \(project)"
+                    : "\(agent) opened a pull request in \(project)"
                 return NotificationSpec(title: title, body: body)
             }
         }
@@ -1465,9 +1488,14 @@
             guard let launch = await pluginRegistry?.core(pluginID)?.commandForLaunch(projectPath: projectPath) else {
                 return (nil, [])
             }
+            // POSIX-quote the args (the command stays bare so the caller's first-
+            // token window-name derivation still reads "codex"/"claude"), matching
+            // the `handleCreateSession` / `onProjectStart` launch paths. Without
+            // this, a Codex `-c 'otel.…="…"'` override's embedded quotes would be
+            // eaten by the shell when the command is typed into the pane (#602).
             let runCommand = launch.args.isEmpty
                 ? launch.command
-                : ([launch.command] + launch.args).joined(separator: " ")
+                : ([launch.command] + launch.args.map(\.posixSingleQuoted)).joined(separator: " ")
             let env = launch.env.map { "\($0.key)=\($0.value)" }
             return (runCommand, env)
         }

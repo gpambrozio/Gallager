@@ -3,7 +3,6 @@ import Foundation
 import GallagerPluginProtocol
 import Testing
 
-@Suite("CodexSettings")
 struct CodexSettingsTests {
     @Test("defaults match the spec")
     func defaults() {
@@ -60,9 +59,27 @@ struct CodexSettingsTests {
         #expect(settings.additionalConfigFolders == ["/home/user/.codex", "/opt/codex"])
     }
 
+    @Test("exportTelemetry defaults to true")
+    func exportTelemetryDefault() {
+        #expect(CodexSettings().exportTelemetry == true)
+    }
+
+    @Test("decodes export_telemetry from JSON and defaults true when absent (older settings)")
+    func decodesExportTelemetry() throws {
+        let off = try JSONDecoder().decode(CodexSettings.self, from: Data(#"{ "export_telemetry": false }"#.utf8))
+        #expect(off.exportTelemetry == false)
+        // An older settings.json without the key keeps the opt-in default.
+        let legacy = try JSONDecoder().decode(CodexSettings.self, from: Data(#"{ "auto_run": true }"#.utf8))
+        #expect(legacy.exportTelemetry == true)
+    }
+
     @Test("new fields round-trip through JSON")
     func newFieldsRoundTrip() throws {
-        let original = CodexSettings(closePaneOnSessionEnd: true, additionalConfigFolders: ["/custom/path"])
+        let original = CodexSettings(
+            closePaneOnSessionEnd: true,
+            additionalConfigFolders: ["/custom/path"],
+            exportTelemetry: false
+        )
         let data = try JSONEncoder().encode(original)
         #expect(CodexSettings.decode(from: data) == original)
     }
