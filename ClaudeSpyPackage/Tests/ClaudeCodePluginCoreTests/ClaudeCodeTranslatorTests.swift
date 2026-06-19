@@ -138,6 +138,40 @@ struct ClaudeCodeTranslatorTests {
         #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
     }
 
+    @Test("two same-type forms in one session get distinct requestIDs (no timestamp collision)")
+    func repeatedFormsGetDistinctRequestIDs() async throws {
+        let (core, _) = try await makeCore()
+        // Two AskUserQuestion forms, byte-identical payloads and NO timestamp —
+        // exactly the production shape (Claude hooks carry no timestamp/sequence).
+        // Before the per-occurrence id, both collapsed to the constant
+        // "sess-q:PermissionRequest:" and iOS restored the first form's persisted
+        // "All questions answered" state onto the brand-new second question.
+        let json = """
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "sess-q",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Pick a fruit",
+                        "header": "Fruit",
+                        "options": [ {"label": "Apple", "description": ""} ],
+                        "multiSelect": false
+                    }
+                ]
+            }
+        }
+        """
+        let first = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+        let second = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+
+        #expect(first != second)
+        // Both still carry the readable `session:event` prefix for debuggability.
+        #expect(first.hasPrefix("sess-q:PermissionRequest:"))
+        #expect(second.hasPrefix("sess-q:PermissionRequest:"))
+    }
+
     @Test("permissionRequest maps permission_suggestions to chips")
     func permissionSuggestions() async throws {
         let (core, _) = try await makeCore()

@@ -146,6 +146,11 @@ public actor CodexPluginCore: PluginCore {
                 pluginID: frame.pluginID,
                 tmuxPane: tmuxPane,
                 contextProjectDir: frame.context["CODEX_PROJECT_DIR"],
+                // Mint a unique id per ingress frame so each opened form gets a
+                // distinct requestID. Hooks carry no timestamp/sequence, so this is
+                // the only disambiguator between two same-type forms in one session
+                // — without it iOS reuses the first form's persisted answer.
+                occurrenceID: UUID().uuidString,
                 closePaneOnSessionEnd: settings.closePaneOnSessionEnd,
                 approvalsReviewer: reviewer
             )
