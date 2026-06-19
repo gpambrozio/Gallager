@@ -128,6 +128,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Services:** `docs/services-reference.md` - TmuxService, PaneStream, CodingAgent, project scanners, etc.
 - **Architecture:** `docs/architecture.md` (Mac app) and `docs/distributed-architecture-plan.md` (Mac/Server/iOS)
 - **Codex CLI integration:** `docs/codex-cli-integration-plan.md` - `CodingAgent` abstraction, hook bridge, project discovery
+- **Folder layout persistence (macOS):** `docs/folder-layout-persistence-plan.md` - Per-folder workbench restore (file/browser tabs, split, sidebar); `LayoutStore`, seed-on-birth, auto-save
 - **Encryption:** `docs/e2ee-encryption-plan.md`
 - **E2E testing:** `docs/e2e-testing.md` - Test framework, running tests, writing scenarios
 - **Self-hosting:** `docs/self-hosting.md` - Deploy your own relay server

@@ -400,6 +400,23 @@ opens it in its default app.
 - Exposes `canCheckForUpdates` binding
 - `checkForUpdates()` action
 
+### LayoutStore (`ClaudeSpyServerFeature/Services/LayoutPersistence/LayoutStore.swift`)
+
+`@DependencyClient` that persists per-folder workbench layouts (open file/browser
+tabs, split arrangement, sidebar width) so a session restores its workbench
+across app restarts and a new session on a known folder inherits the folder's
+last-known layout. See `docs/folder-layout-persistence-plan.md`.
+
+- Records keyed by durable session identity (host + tmux name) with the folder
+  recorded; `record(for:)` does the exact (cold-launch) restore, `folderDefault(_:excluding:)` derives the per-folder seed by most-recently-active query.
+- `save` / `remove` / `prune`; `liveValue` writes a single JSON file under the
+  Gallager state root (`~/.gallager/state/Layouts/`, or `--gallager-state-root`
+  under E2E), `inMemory()` for previews/tests.
+- `MainView` drives it: `seedLayoutIfNeeded()` restores once-while-empty on
+  session selection/launch; a 2s `.task` auto-saves changed layouts via
+  `persistChangedLayouts()`. `LayoutSnapshotMapper` translates the live
+  `SessionFileTabsState` ⇄ the `SavedFolderLayout` snapshot.
+
 ## iOS Services
 
 ### RelayClient (`ClaudeSpyFeature/Services/RelayClient.swift`)
