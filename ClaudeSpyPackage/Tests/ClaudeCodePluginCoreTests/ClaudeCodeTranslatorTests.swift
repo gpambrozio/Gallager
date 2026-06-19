@@ -133,8 +133,8 @@ struct ClaudeCodeTranslatorTests {
         #expect(permission.allowsCustomInstructions == true)
         // Bash is yolo-auto-approvable, so isAutoApprovable is true.
         #expect(permission.isAutoApprovable == true)
-        // requestID is `<session>:<event>:<timestamp>` (timestamp makes repeated
-        // events of the same type unique); this payload has no timestamp.
+        // requestID is `<session>:<event>:<occurrenceID>` — the core mints a fresh
+        // occurrenceID per ingress frame, so repeated same-type forms stay unique.
         #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
     }
 
