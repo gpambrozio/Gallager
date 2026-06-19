@@ -93,6 +93,11 @@ public actor ClaudeCodePluginCore: PluginCore {
                 pluginID: frame.pluginID,
                 tmuxPane: frame.tmuxPane,
                 contextProjectDir: frame.context["CLAUDE_PROJECT_DIR"],
+                // Mint a unique id per ingress frame so each opened form gets a
+                // distinct requestID. Claude hooks carry no timestamp/sequence, so
+                // this is the only disambiguator between two same-type forms in one
+                // session — without it iOS reuses the first form's persisted answer.
+                occurrenceID: UUID().uuidString,
                 closePaneOnSessionEnd: settings.closePaneOnSessionEnd
             )
         else {
