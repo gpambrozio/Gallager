@@ -10,7 +10,6 @@ import Testing
 /// `agent=codex`, so the payloads parse into the same `HookAction` enum; the
 /// notification copy differs (Codex-flavored). Asserts the working / attention /
 /// notification / responseRequest / appActions fields the dispatcher fans out.
-@Suite("CodexTranslator")
 struct CodexTranslatorTests {
     // MARK: - Helpers
 
@@ -527,6 +526,37 @@ struct CodexTranslatorTests {
         #expect(event.state?.openForm == nil)
         #expect(event.notification == nil)
         #expect(event.appActions.isEmpty)
+    }
+
+    @Test("permission_mode on a hook seeds the event's permissionMode (chip seed, issue #602)")
+    func permissionModeSeededFromHook() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-mode",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" },
+            "permission_mode": "default"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == "default")
+    }
+
+    @Test("an event without permission_mode leaves it nil (so it doesn't clobber a known mode)")
+    func permissionModeAbsentLeavesNil() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-nomode",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" }
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == nil)
     }
 
     @Test("PreCompact (neutral, no notification) is dropped")

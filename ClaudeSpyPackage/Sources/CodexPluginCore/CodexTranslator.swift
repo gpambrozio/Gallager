@@ -137,7 +137,14 @@ enum CodexTranslator {
             notification: notification,
             appActions: appActions,
             tmuxPane: tmuxPane,
-            projectPath: projectPath
+            projectPath: projectPath,
+            // Seed the permission-mode chip off the hook (issue #602), mirroring
+            // Claude. Codex reports a Claude-compatible `permission_mode` on its
+            // tool/prompt/stop events (the guardian path already keys on
+            // `== "default"`); `nil` on other events leaves the existing value
+            // unchanged. OTEL carries no mid-session mode-change signal for Codex,
+            // so the hook channel is the sole source.
+            permissionMode: body.permissionMode
         )
         return Output(event: event, pending: pending, guardianHandled: guardianHandled)
     }

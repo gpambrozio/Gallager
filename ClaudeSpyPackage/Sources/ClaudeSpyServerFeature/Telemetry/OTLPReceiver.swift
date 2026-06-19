@@ -3,14 +3,15 @@ import Foundation
 import Logging
 import Network
 
-/// Mac-local OTLP/JSON receiver (issue #597). A loopback-only HTTP listener that
-/// accepts `POST /v1/metrics` and `POST /v1/logs` from the Claude Code instances
-/// the app launches (which are pointed here via injected `OTEL_*` env vars),
-/// accumulates per-session telemetry, and pushes the results out via injected
-/// callbacks.
+/// Mac-local OTLP/JSON receiver (issue #597, #602). A loopback-only HTTP listener
+/// that accepts `POST /v1/metrics` and `POST /v1/logs` from the coding-agent
+/// instances the app launches — Claude Code (pointed here via injected `OTEL_*`
+/// env vars) and Codex (via injected `-c otel.…` launch overrides, since Codex
+/// doesn't read `OTEL_*`) — accumulates per-session telemetry, and pushes the
+/// results out via injected callbacks.
 ///
-/// This is a one-way push channel — it never sends anything back into Claude. It
-/// **augments** the hook channel and changes nothing about it.
+/// This is a one-way push channel — it never sends anything back into the agent.
+/// It **augments** the hook channel and changes nothing about it.
 ///
 /// Bound to the loopback interface only, so it never triggers Local Network
 /// Privacy and is unreachable off-host. Modeled on `TestAccessibilityServer`'s
