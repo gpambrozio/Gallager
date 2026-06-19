@@ -126,7 +126,8 @@ struct UsageProjectRow: View {
 }
 
 /// One day's total across all projects: short date on the left, tokens · cost on
-/// the right (tokens-first, matching the session meter).
+/// the right (tokens-first, matching the session meter). Cost is omitted when
+/// zero (Codex emits none), like the project row.
 struct UsageDayRow: View {
     let day: DayUsage
 
@@ -135,7 +136,9 @@ struct UsageDayRow: View {
         if day.tokens > 0 {
             parts.append(day.tokens.abbreviatedTokenCount)
         }
-        parts.append(day.costUSD.usdCostString)
+        if day.costUSD > 0 {
+            parts.append(day.costUSD.usdCostString)
+        }
         return parts.joined(separator: " · ")
     }
 

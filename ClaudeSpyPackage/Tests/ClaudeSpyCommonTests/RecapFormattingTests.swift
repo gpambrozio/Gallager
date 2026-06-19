@@ -55,9 +55,12 @@ struct RecapFormattingTests {
         let overview = UsageOverview(todayCostUSD: 3.2, todayTokens: 42_100, todaySessionCount: 4)
         #expect(usageTodayLine(overview) == "42.1k · $3.20 · 4 sessions")
 
-        // No tokens yet: cost still leads the line so it never renders empty.
         let single = UsageOverview(todayCostUSD: 0.5, todayTokens: 0, todaySessionCount: 1)
         #expect(usageTodayLine(single) == "$0.50 · 1 session")
+
+        // Codex reports no cost: the misleading "$0.00" is dropped.
+        let codex = UsageOverview(todayCostUSD: 0, todayTokens: 31_000, todaySessionCount: 2)
+        #expect(usageTodayLine(codex) == "31k · 2 sessions")
     }
 
     @Test("usageShortDay drops the year")

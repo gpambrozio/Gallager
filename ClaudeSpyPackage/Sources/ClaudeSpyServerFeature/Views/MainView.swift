@@ -35,6 +35,11 @@ public struct MainView: View {
 
     @State private var showingDisconnectConfirmation = false
 
+    /// The local session whose info sheet is open, keyed by its agent pane id.
+    /// The sheet reads live state from `windowManager.paneStates[id]`, so the
+    /// recap / token counts keep updating while it's open.
+    @State private var sessionInfoSheet: SessionInfoSheetTarget?
+
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
     /// ID to scroll to in the sidebar when a window moves between sections
@@ -154,6 +159,13 @@ public struct MainView: View {
         // {session appears, probe finishes} happens last.
         .sheet(isPresented: $coordinator.isShowingEditorOverrideDialog) {
             EditorOverrideDialog()
+        }
+        // Session info sheet (right-click a local session → "Session Info"),
+        // the macOS counterpart to the iOS detail popover.
+        .sheet(item: $sessionInfoSheet) { target in
+            LocalSessionInfoSheet(paneId: target.id) {
+                sessionInfoSheet = nil
+            }
         }
         .onChange(of: tmuxService.sessions.isEmpty) { _, isEmpty in
             if !isEmpty { coordinator.maybePresentEditorOverrideDialog() }
@@ -606,6 +618,16 @@ public struct MainView: View {
                 windowManager.setSessionEmoji(emoji, for: sessionName)
             },
             additionalMenu: {
+                if let claudePane {
+                    Button {
+                        sessionInfoSheet = SessionInfoSheetTarget(id: claudePane.paneId)
+                    } label: {
+                        Label("Session Info", symbol: .infoCircle)
+                    }
+
+                    Divider()
+                }
+
                 ColorContextMenuButtons(currentColor: color) { newColor in
                     windowManager.setSessionColor(newColor, for: session.sessionName)
                 }

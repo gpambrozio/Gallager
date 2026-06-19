@@ -311,6 +311,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TerminalEnvVarsScenario.scenario,
         OTELTelemetryRenderScenario.scenario,
         OTELUsageOverviewScenario.scenario,
+        MacSessionInfoSheetScenario.scenario,
         BrowserTabFromTerminalLinkScenario.scenario,
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,

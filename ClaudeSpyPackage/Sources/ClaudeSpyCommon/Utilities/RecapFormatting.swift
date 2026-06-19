@@ -36,13 +36,16 @@ public func recapDetailLine(_ recap: SessionRecap) -> String {
 /// One-line "today" summary for the usage overview header / Mac menu bar (issue
 /// #598), e.g. `"42.1k · $3.20 · 4 sessions"`. Tokens lead, then cost, then the
 /// session count — matching the live session meter's `tokens · $` order so the
-/// sidebar total reads the same way as the rows beneath it.
+/// sidebar total reads the same way as the rows beneath it. Cost is omitted when
+/// zero (Codex emits none, so a `$0.00` would be misleading).
 public func usageTodayLine(_ overview: UsageOverview) -> String {
     var parts: [String] = []
     if overview.todayTokens > 0 {
         parts.append(overview.todayTokens.abbreviatedTokenCount)
     }
-    parts.append(overview.todayCostUSD.usdCostString)
+    if overview.todayCostUSD > 0 {
+        parts.append(overview.todayCostUSD.usdCostString)
+    }
     let sessions = overview.todaySessionCount
     if sessions > 0 {
         parts.append(sessions == 1 ? "1 session" : "\(sessions) sessions")
