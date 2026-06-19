@@ -50,11 +50,12 @@ struct RecapFormattingTests {
 
     // MARK: - usageTodayLine / usageShortDay
 
-    @Test("usageTodayLine leads with cost, appends tokens and sessions")
+    @Test("usageTodayLine leads with tokens, then cost and sessions")
     func todayLine() {
         let overview = UsageOverview(todayCostUSD: 3.2, todayTokens: 42_100, todaySessionCount: 4)
-        #expect(usageTodayLine(overview) == "$3.20 · 42.1k · 4 sessions")
+        #expect(usageTodayLine(overview) == "42.1k · $3.20 · 4 sessions")
 
+        // No tokens yet: cost still leads the line so it never renders empty.
         let single = UsageOverview(todayCostUSD: 0.5, todayTokens: 0, todaySessionCount: 1)
         #expect(usageTodayLine(single) == "$0.50 · 1 session")
     }

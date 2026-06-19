@@ -17,7 +17,7 @@ import Foundation
 ///    `UsageOverviewHeader` "Today" total.
 public enum OTELUsageOverviewScenario {
     /// `api_request` log: 30 000 input + 1 000 output tokens, $1.23, opus-4.8.
-    /// → today total "$1.23 · 31k · 1 session". Real wire shape (bare `event.name`
+    /// → today total "31k · $1.23 · 1 session". Real wire shape (bare `event.name`
     /// attribute + fully-qualified body), matching the render scenario.
     private static let apiRequestCurl =
         #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-usage-session"}},{"key":"input_tokens","value":{"intValue":"30000"}},{"key":"output_tokens","value":{"intValue":"1000"}},{"key":"cost_usd","value":{"doubleValue":1.23}},{"key":"duration_ms","value":{"intValue":"1500"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#

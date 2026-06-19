@@ -84,20 +84,20 @@ public struct UsageOverviewView: View {
 
 // MARK: - Rows
 
-/// One project's recent-window totals: name on the left, cost · tokens · commits
-/// · PRs on the right.
+/// One project's recent-window totals: name on the left, tokens · cost · commits
+/// · PRs on the right (tokens-first, matching the session meter).
 struct UsageProjectRow: View {
     let project: ProjectUsage
 
     private var detail: String {
         var parts: [String] = []
+        if project.tokens > 0 {
+            parts.append(project.tokens.abbreviatedTokenCount)
+        }
         // Codex emits no cost, so a `$0.00` would be misleading — omit it like the
         // recap line does.
         if project.costUSD > 0 {
             parts.append(project.costUSD.usdCostString)
-        }
-        if project.tokens > 0 {
-            parts.append(project.tokens.abbreviatedTokenCount)
         }
         if project.commits > 0 {
             parts.append(project.commits == 1 ? "1 commit" : "\(project.commits) commits")
@@ -125,16 +125,17 @@ struct UsageProjectRow: View {
     }
 }
 
-/// One day's total across all projects: short date on the left, cost · tokens on
-/// the right.
+/// One day's total across all projects: short date on the left, tokens · cost on
+/// the right (tokens-first, matching the session meter).
 struct UsageDayRow: View {
     let day: DayUsage
 
     private var detail: String {
-        var parts = [day.costUSD.usdCostString]
+        var parts: [String] = []
         if day.tokens > 0 {
             parts.append(day.tokens.abbreviatedTokenCount)
         }
+        parts.append(day.costUSD.usdCostString)
         return parts.joined(separator: " · ")
     }
 
