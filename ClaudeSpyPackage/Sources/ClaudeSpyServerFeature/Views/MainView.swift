@@ -94,6 +94,18 @@ public struct MainView: View {
     /// `settings.browserLinkBehavior == .ask` and the user clicks a web URL.
     @State private var pendingBrowserURLPrompt: PendingBrowserURLPrompt?
 
+    /// Per-folder workbench persistence (see
+    /// `docs/folder-layout-persistence-plan.md`). Restores open file/browser
+    /// tabs + split layout when a session is first viewed.
+    @Dependency(LayoutStore.self) private var layoutStore
+    /// Sessions whose workbench has already been seeded from persisted layout
+    /// this app run, so seeding happens at most once per session (and re-fires
+    /// for a recycled session name only after cleanup clears it).
+    @State private var seededSessions: Set<String> = []
+    /// Last layout snapshot persisted per session, so an unchanged workbench
+    /// doesn't trigger a redundant disk write on every tmux refresh.
+    @State private var lastPersistedLayouts: [String: SavedFolderLayout] = [:]
+
     public var body: some View {
         @Bindable var coordinator = coordinator
 
@@ -120,6 +132,10 @@ public struct MainView: View {
             trackedActiveSessionPaneIds = windowManager.activeSessionPaneIds
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
+            // Garbage-collect stale layout records, then seed whatever session is
+            // already selected (e.g. on a cold launch re-attaching to tmux).
+            await layoutStore.prune(LayoutStore.defaultMaxAge, LayoutStore.defaultMaxCount)
+            seedLayoutIfNeeded()
         }
         .task {
             // Silently rescan every 60s so new projects appear without restarting.
@@ -194,6 +210,16 @@ public struct MainView: View {
                 }
             }
 
+            // Retry seeding the selected session in case its folder only became
+            // resolvable now that panes have loaded (cold-launch timing). Cheap:
+            // a no-op once the session is in `seededSessions`.
+            seedLayoutIfNeeded()
+
+            // Auto-save each session's live workbench layout (skips unchanged
+            // ones). Runs before cleanup so a session still present this refresh
+            // gets its final state captured.
+            persistChangedLayouts()
+
             // Clean up session-scoped state for sessions that no longer exist
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
             for key in fileBrowserStates.keys where !currentSessionNames.contains(key) {
@@ -201,6 +227,12 @@ public struct MainView: View {
             }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
                 sessionFileTabsStates.removeValue(forKey: key)
+            }
+            // Forget seed/persist bookkeeping for removed sessions so a recycled
+            // session name re-seeds from scratch next time.
+            seededSessions.formIntersection(currentSessionNames)
+            for key in lastPersistedLayouts.keys where !currentSessionNames.contains(key) {
+                lastPersistedLayouts.removeValue(forKey: key)
             }
             for key in gitWorkbenchStores.keys where !currentSessionNames.contains(key) {
                 gitWorkbenchStores.removeValue(forKey: key)
@@ -1939,6 +1971,7 @@ public struct MainView: View {
         lastAutoResizeDimensions.removeAll()
         handleAutoResize()
         markSelectedSessionsHandledIfActive()
+        seedLayoutIfNeeded()
     }
 
     private func handleAutoResize() {
@@ -4082,4 +4115,117 @@ struct RemoteSessionTabsKey: Hashable {
 struct GitStoreEntry {
     let path: String
     let store: GitWorkbenchStore
+}
+
+// MARK: - Folder layout persistence
+
+/// Seeding and auto-save glue for per-folder workbench persistence. Kept in this
+/// file so it can read `MainView`'s private session-tab `@State`. See
+/// `docs/folder-layout-persistence-plan.md`.
+private extension MainView {
+    /// Host identifier for locally-managed sessions. v1 persists local only.
+    var layoutHost: String { "local" }
+
+    /// Windows belonging to `sessionName`, in tmux order.
+    func windows(forSession sessionName: String) -> [LocalTmuxWindow] {
+        tmuxService.windows.filter { $0.sessionName == sessionName }
+    }
+
+    /// Canonical project folder for a session: the active pane's detected
+    /// project path when known, else its working directory. `nil` until a pane
+    /// (and thus a path) is available.
+    func resolveFolder(forSession sessionName: String) -> String? {
+        let sessionWindows = windows(forSession: sessionName)
+        guard
+            let active = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first,
+            let pane = active.activePane
+        else { return nil }
+        let raw = windowManager.paneStates[pane.paneId]?.agentSession?.detectedProjectPath
+            ?? pane.currentPath
+        return LayoutFolderKey.canonicalize(raw)
+    }
+
+    /// Restore the selected session's workbench from persisted layout — once,
+    /// and only while it's still empty so user-opened tabs are never clobbered.
+    /// Resolution order (plan §4.3): the session's own record (if its folder
+    /// still matches) → the folder's most-recent layout → nothing.
+    func seedLayoutIfNeeded() {
+        guard let sessionName = selectedWindow?.sessionName else { return }
+        guard !seededSessions.contains(sessionName) else { return }
+
+        // Don't seed a session the user has already populated.
+        if let existing = sessionFileTabsStates[sessionName], !isWorkbenchEmpty(existing) {
+            seededSessions.insert(sessionName)
+            return
+        }
+        guard let folder = resolveFolder(forSession: sessionName) else {
+            // Folder not resolvable yet — leave unmarked so a later change retries.
+            return
+        }
+        seededSessions.insert(sessionName)
+
+        let key = SavedSessionLayout.Key(host: layoutHost, sessionName: sessionName)
+        Task {
+            let exact = await layoutStore.record(key)
+            let chosen: SavedFolderLayout? =
+                if let exact, exact.folder == folder {
+                    exact.layout
+                } else {
+                    await layoutStore.folderDefault(folder, key)?.layout
+                }
+            guard let chosen, !chosen.isEmpty else { return }
+
+            // Re-check freshness now that we've awaited the store.
+            let tabs = sessionFileTabsStates[sessionName] ?? {
+                let new = SessionFileTabsState()
+                sessionFileTabsStates[sessionName] = new
+                return new
+            }()
+            guard isWorkbenchEmpty(tabs) else { return }
+
+            let sessionWindows = windows(forSession: sessionName)
+            LayoutSnapshotMapper.apply(
+                chosen,
+                to: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                makeBrowserState: { BrowserTabState(initialURL: $0.url) }
+            )
+            lastPersistedLayouts[sessionName] = chosen
+        }
+    }
+
+    /// Persist every session whose layout changed since its last write. Empty
+    /// workbenches aren't recorded (nothing to restore). Called on each tmux
+    /// refresh — the change check keeps the disk write rare.
+    func persistChangedLayouts() {
+        for (sessionName, tabs) in sessionFileTabsStates {
+            guard let folder = resolveFolder(forSession: sessionName) else { continue }
+            let sessionWindows = windows(forSession: sessionName)
+            let snapshot = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+            guard !snapshot.isEmpty else { continue }
+            guard lastPersistedLayouts[sessionName] != snapshot else { continue }
+            lastPersistedLayouts[sessionName] = snapshot
+
+            let record = SavedSessionLayout(
+                host: layoutHost,
+                sessionName: sessionName,
+                folder: folder,
+                lastActive: Date(),
+                layout: snapshot
+            )
+            Task { await layoutStore.save(record) }
+        }
+    }
+
+    /// A workbench is "empty" (safe to seed) when the user hasn't opened any
+    /// file/browser tab or split — `tabOrder` is ignored because the tab strip
+    /// auto-populates window/explorer entries even for a fresh session.
+    func isWorkbenchEmpty(_ tabs: SessionFileTabsState) -> Bool {
+        tabs.openFileTabs.isEmpty && tabs.openBrowserTabs.isEmpty && tabs.rightSide.isEmpty
+    }
 }
