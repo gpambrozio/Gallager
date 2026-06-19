@@ -21,6 +21,11 @@ import Foundation
 /// 6. The Git tab's state also survives a full session switch: selecting a
 ///    different session in the sidebar and returning restores the History view
 ///    (the per-session store is keyed by session name, not recreated).
+/// 7. The branch rail's folder collapse state survives a session switch too:
+///    expanding the collapsed `fix` folder and switching sessions leaves it
+///    expanded on return (GitWorkbench 1.4.1 keeps that state on the per-session
+///    store, not in view `@State`). This is the regression guard for the reported
+///    "tree resets after a session change" bug.
 ///
 /// The provider is the deterministic `MockGitProvider` (wired in
 /// `ClaudeSpyServerApp` under `--e2e-test` via `GitWorkbenchProviderClient.mock`,
@@ -157,6 +162,31 @@ public enum GitBrowserScenario {
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Add structured Logger"), timeout: 5)
         TestStep.macScreenshot(label: "mac-git-session-preserved")
+
+        // ── Phase 7: Branch-tree expansion survives a session switch ──
+        //
+        // The rail's folder collapse state lives on the per-session GitWorkbench
+        // store (GitWorkbench 1.4.1), so expanding a folder and switching sessions
+        // must leave it expanded on return — the regression guard for the reported
+        // "tree resets after a session change" bug. By default `feat` (the current
+        // branch's folder) is expanded and `fix` is collapsed, so its child
+        // "log-levels" is hidden until we expand it.
+        TestStep.log("Phase 7: Expand the 'fix' branch folder; it must stay expanded across a session switch")
+        // The folder button carries GitWorkbench's branch-folder-<key> identifier.
+        TestStep.macCGClickElement(query: .identifier("branch-folder-L:fix"), timeout: 5)
+        // The fix/log-levels leaf only renders while the fix folder is expanded.
+        TestStep.macWaitForElementQuery(.anyTextMatches("log-levels"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-branch-folder-expanded")
+
+        // Switch to the other session and back; the fix folder must still be open.
+        TestStep.macClickButton(titled: "otherproj")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "repobrowse")
+        TestStep.wait(seconds: 2)
+        // "log-levels" still present ⇒ the fix folder survived the session switch
+        // expanded (a view-local @State would have reset it to collapsed).
+        TestStep.macWaitForElementQuery(.anyTextMatches("log-levels"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-branch-expansion-preserved")
 
         // ── Tear down ────────────────────────────────────────────
         Shortcut.tmuxRunCommand(target: "repobrowse:0.0", command: "exit")
