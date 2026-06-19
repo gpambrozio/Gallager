@@ -18,7 +18,8 @@ public struct SessionRecap: Codable, Sendable, Equatable {
     /// The model the session ran on (e.g. "claude-opus-4-8"), if known.
     public var model: String?
 
-    /// Total tokens across all types for the session.
+    /// Headline token count for the session: `input + output` (cache reads and
+    /// writes excluded, matching ``SessionTelemetry/tokensUsed``).
     public var tokensUsed: Int
 
     /// Cumulative cost in USD.
