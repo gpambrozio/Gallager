@@ -93,8 +93,9 @@ struct RecapAndOverviewTests {
             todayTokens: 42_100,
             todaySessionCount: 4,
             todayCommits: 2,
+            todayPullRequests: 1,
             projects: [
-                ProjectUsage(projectPath: "/a", projectName: "a", costUSD: 2, tokens: 20_000, commits: 1, sessionCount: 2),
+                ProjectUsage(projectPath: "/a", projectName: "a", costUSD: 2, tokens: 20_000, commits: 1, pullRequests: 1, sessionCount: 2),
             ],
             days: [DayUsage(day: "2026-06-16", costUSD: 3.2, tokens: 42_100)]
         )

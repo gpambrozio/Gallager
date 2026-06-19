@@ -5,16 +5,19 @@ import Foundation
 /// `"45k tokens · $1.20 · 3 commits · 12 min active · 28 tools"`. Shared by the
 /// recap card and the end-of-session push so they read identically.
 ///
-/// Cost is always shown (the headline number); the other components are omitted
-/// when zero so a quick turn doesn't read a row of `0`s. Lives alongside the
-/// other telemetry formatters so the abbreviations (`12.3k`, `$1.20`, `12 min`)
-/// stay consistent with the live meter.
+/// Every component is omitted when zero so a quick turn doesn't read a row of
+/// `0`s — including cost, which is always `0` for Codex (it emits no cost), where
+/// a `"$0.00"` would be misleading. Lives alongside the other telemetry
+/// formatters so the abbreviations (`12.3k`, `$1.20`, `12 min`) stay consistent
+/// with the live meter.
 public func recapDetailLine(_ recap: SessionRecap) -> String {
     var parts: [String] = []
     if recap.tokensUsed > 0 {
         parts.append("\(recap.tokensUsed.abbreviatedTokenCount) tokens")
     }
-    parts.append(recap.costUSD.usdCostString)
+    if recap.costUSD > 0 {
+        parts.append(recap.costUSD.usdCostString)
+    }
     if recap.commitCount > 0 {
         parts.append(recap.commitCount == 1 ? "1 commit" : "\(recap.commitCount) commits")
     }
@@ -48,7 +51,8 @@ public func usageTodayLine(_ overview: UsageOverview) -> String {
 /// The `MM-dd` tail of a `yyyy-MM-dd` day key, for compact per-day rows without
 /// locale-dependent date parsing.
 public func usageShortDay(_ dayKey: String) -> String {
-    let parts = dayKey.split(separator: "-")
-    guard parts.count == 3 else { return dayKey }
-    return "\(parts[1])-\(parts[2])"
+    // Day keys are fixed-width "yyyy-MM-dd"; the MM-dd tail starts at index 5.
+    // The length guard is the safety valve for an unexpectedly-shaped key.
+    guard dayKey.count == 10 else { return dayKey }
+    return String(dayKey.dropFirst(5))
 }

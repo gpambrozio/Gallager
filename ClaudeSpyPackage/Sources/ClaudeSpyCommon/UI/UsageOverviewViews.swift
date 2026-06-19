@@ -85,17 +85,25 @@ public struct UsageOverviewView: View {
 // MARK: - Rows
 
 /// One project's recent-window totals: name on the left, cost · tokens · commits
-/// on the right.
+/// · PRs on the right.
 struct UsageProjectRow: View {
     let project: ProjectUsage
 
     private var detail: String {
-        var parts = [project.costUSD.usdCostString]
+        var parts: [String] = []
+        // Codex emits no cost, so a `$0.00` would be misleading — omit it like the
+        // recap line does.
+        if project.costUSD > 0 {
+            parts.append(project.costUSD.usdCostString)
+        }
         if project.tokens > 0 {
             parts.append(project.tokens.abbreviatedTokenCount)
         }
         if project.commits > 0 {
             parts.append(project.commits == 1 ? "1 commit" : "\(project.commits) commits")
+        }
+        if project.pullRequests > 0 {
+            parts.append(project.pullRequests == 1 ? "1 PR" : "\(project.pullRequests) PRs")
         }
         return parts.joined(separator: " · ")
     }
@@ -154,9 +162,10 @@ private let previewOverview = UsageOverview(
     todayTokens: 42_100,
     todaySessionCount: 4,
     todayCommits: 2,
+    todayPullRequests: 1,
     projects: [
-        ProjectUsage(projectPath: "/work/Gallager", projectName: "Gallager", costUSD: 2, tokens: 28_000, commits: 2, sessionCount: 2),
-        ProjectUsage(projectPath: "/work/relay", projectName: "relay", costUSD: 1.20, tokens: 14_100, commits: 0, sessionCount: 2),
+        ProjectUsage(projectPath: "/work/Gallager", projectName: "Gallager", costUSD: 2, tokens: 28_000, commits: 2, pullRequests: 1, sessionCount: 2),
+        ProjectUsage(projectPath: "/work/relay", projectName: "relay", costUSD: 1.20, tokens: 14_100, commits: 0, pullRequests: 0, sessionCount: 2),
     ],
     days: [
         DayUsage(day: "2026-06-14", costUSD: 1.10, tokens: 12_000),

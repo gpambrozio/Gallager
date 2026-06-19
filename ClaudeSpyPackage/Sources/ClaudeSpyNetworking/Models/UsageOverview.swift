@@ -27,6 +27,9 @@ public struct UsageOverview: Codable, Sendable, Equatable {
     /// Commits made today (across all projects).
     public var todayCommits: Int
 
+    /// Pull requests opened today (across all projects).
+    public var todayPullRequests: Int
+
     /// Per-project rollup over a recent window (newest-relevant first, capped).
     public var projects: [ProjectUsage]
 
@@ -39,6 +42,7 @@ public struct UsageOverview: Codable, Sendable, Equatable {
         todayTokens: Int = 0,
         todaySessionCount: Int = 0,
         todayCommits: Int = 0,
+        todayPullRequests: Int = 0,
         projects: [ProjectUsage] = [],
         days: [DayUsage] = []
     ) {
@@ -47,6 +51,7 @@ public struct UsageOverview: Codable, Sendable, Equatable {
         self.todayTokens = todayTokens
         self.todaySessionCount = todaySessionCount
         self.todayCommits = todayCommits
+        self.todayPullRequests = todayPullRequests
         self.projects = projects
         self.days = days
     }
@@ -72,6 +77,7 @@ public struct UsageOverview: Codable, Sendable, Equatable {
         case todayTokens
         case todaySessionCount
         case todayCommits
+        case todayPullRequests
         case projects
         case days
     }
@@ -83,6 +89,7 @@ public struct UsageOverview: Codable, Sendable, Equatable {
         self.todayTokens = try container.decodeIfPresent(Int.self, forKey: .todayTokens) ?? 0
         self.todaySessionCount = try container.decodeIfPresent(Int.self, forKey: .todaySessionCount) ?? 0
         self.todayCommits = try container.decodeIfPresent(Int.self, forKey: .todayCommits) ?? 0
+        self.todayPullRequests = try container.decodeIfPresent(Int.self, forKey: .todayPullRequests) ?? 0
         self.projects = try container.decodeIfPresent([ProjectUsage].self, forKey: .projects) ?? []
         self.days = try container.decodeIfPresent([DayUsage].self, forKey: .days) ?? []
     }
@@ -99,6 +106,7 @@ public struct ProjectUsage: Codable, Sendable, Equatable, Identifiable {
     public var costUSD: Double
     public var tokens: Int
     public var commits: Int
+    public var pullRequests: Int
     public var sessionCount: Int
 
     public var id: String {
@@ -111,6 +119,7 @@ public struct ProjectUsage: Codable, Sendable, Equatable, Identifiable {
         costUSD: Double,
         tokens: Int,
         commits: Int,
+        pullRequests: Int = 0,
         sessionCount: Int
     ) {
         self.projectPath = projectPath
@@ -118,6 +127,7 @@ public struct ProjectUsage: Codable, Sendable, Equatable, Identifiable {
         self.costUSD = costUSD
         self.tokens = tokens
         self.commits = commits
+        self.pullRequests = pullRequests
         self.sessionCount = sessionCount
     }
 }

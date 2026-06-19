@@ -1291,30 +1291,40 @@
         /// (#597). Reads the pane state before `endAgentSession` clears it. No-op
         /// when the pane never carried a Claude session id.
         private func finalizeEndedSession(paneId: String) async {
+            // Snapshot everything needed off the pane *before* the first `await`:
+            // `AppCoordinator` is `@MainActor`, so an interleaved event could mutate
+            // (or clear) `paneStates[paneId]` across the actor hops below. Reading
+            // immutable locals keeps the logic from silently picking up replaced state.
             guard let claudeSessionID = windowManager.paneStates[paneId]?.claudeSessionID else { return }
             let pane = windowManager.paneStates[paneId]
+            let agentSession = pane?.agentSession
+            let projectPath = agentSession?.detectedProjectPath
+            let projectName = agentSession?.displayName
+            let agentState = agentSession?.state
             if let telemetry = pane?.telemetry {
-                if
-                    let usageStore,
-                    let projectPath = pane?.agentSession?.detectedProjectPath,
-                    !projectPath.isEmpty {
-                    await usageStore.record(
-                        projectPath: projectPath,
-                        sessionID: claudeSessionID,
-                        telemetry: telemetry,
-                        date: Date()
-                    )
+                if let usageStore {
+                    if let projectPath, !projectPath.isEmpty {
+                        await usageStore.record(
+                            projectPath: projectPath,
+                            sessionID: claudeSessionID,
+                            telemetry: telemetry,
+                            date: Date()
+                        )
+                        usageOverview = await currentUsageOverview()
+                    }
+                    // Always evict the baseline — even for a session that never
+                    // resolved a project path (path arrived after `SessionEnd`, plain
+                    // terminal, etc.) — so it can't leak toward `maxBaselines`.
                     await usageStore.evictSession(claudeSessionID)
-                    usageOverview = await currentUsageOverview()
                 }
                 if telemetry.tokensUsed > 0 {
                     var summary: String?
-                    if case let .doneWorking(lastMessage) = pane?.agentSession?.state {
+                    if case let .doneWorking(lastMessage) = agentState {
                         summary = lastMessage
                     }
                     let recap = SessionRecap(
                         telemetry: telemetry,
-                        projectName: pane?.agentSession?.displayName,
+                        projectName: projectName,
                         summary: summary,
                         isFinal: true
                     )

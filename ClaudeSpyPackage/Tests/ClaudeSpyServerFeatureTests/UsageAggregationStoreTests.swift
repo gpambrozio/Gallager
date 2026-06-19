@@ -30,6 +30,7 @@
             tokens: Int = 0,
             cost: Double = 0,
             commits: Int = 0,
+            pullRequests: Int = 0,
             activeTime: Int = 0,
             linesAdded: Int = 0,
             linesRemoved: Int = 0
@@ -40,7 +41,8 @@
                 activeTimeSeconds: activeTime,
                 linesAdded: linesAdded,
                 linesRemoved: linesRemoved,
-                commitCount: commits
+                commitCount: commits,
+                pullRequestCount: pullRequests
             )
         }
 
@@ -153,6 +155,41 @@
             // fresh (a new session reusing the id) — proving the evict cleared it.
             await store.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: day)
             #expect(await store.overview(asOf: day).todayTokens == 200)
+        }
+
+        @Test("Pull requests aggregate into today and per-project totals")
+        func aggregatesPullRequests() async {
+            let url = tempFile()
+            defer { try? FileManager.default.removeItem(at: url) }
+            let store = makeStore(url)
+            let day = date(2_026, 6, 16)
+
+            await store.record(
+                projectPath: "/proj/a", sessionID: "s1",
+                telemetry: telemetry(tokens: 100, cost: 1, commits: 1, pullRequests: 2), date: day
+            )
+
+            let overview = await store.overview(asOf: day)
+            #expect(overview.todayPullRequests == 2)
+            #expect(overview.projects.first?.pullRequests == 2)
+        }
+
+        @Test("A fresh store prunes records older than the retention window on startup")
+        func startupPrunesStaleRecords() async {
+            let url = tempFile()
+            defer { try? FileManager.default.removeItem(at: url) }
+            // Far outside the 400-day window relative to any real "now": the record
+            // survives its own write (pruned against its own day) but must be dropped
+            // when a later store loads and prunes against the current date — the path
+            // that a `record()`-less restart would otherwise never trigger.
+            let ancient = date(2_000, 1, 1)
+
+            let first = makeStore(url)
+            await first.record(projectPath: "/proj/a", sessionID: "s1", telemetry: telemetry(tokens: 100, cost: 1), date: ancient)
+            #expect(await first.overview(asOf: ancient).todayCostUSD == 1)
+
+            let restarted = makeStore(url)
+            #expect(await restarted.overview(asOf: ancient).isEmpty)
         }
 
         @Test("Blank project path or session id is ignored")

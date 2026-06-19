@@ -27,13 +27,17 @@ struct RecapFormattingTests {
         #expect(recapDetailLine(recap) == "45k tokens · $1.20 · 3 commits · 12 min active · 28 tools")
     }
 
-    @Test("recapDetailLine omits zero components but always shows cost")
+    @Test("recapDetailLine omits zero components, including cost")
     func recapLineOmitsZeros() {
         let recap = SessionRecap(tokensUsed: 1_200, costUSD: 0.05)
         #expect(recapDetailLine(recap) == "1.2k tokens · $0.05")
 
+        // Codex emits no cost: tokens show, the misleading "$0.00" is dropped.
+        let codex = SessionRecap(tokensUsed: 1_200, costUSD: 0)
+        #expect(recapDetailLine(codex) == "1.2k tokens")
+
         let empty = SessionRecap()
-        #expect(recapDetailLine(empty) == "$0.00")
+        #expect(recapDetailLine(empty) == "")
     }
 
     @Test("recapDetailLine singularizes single commit / tool / PR")

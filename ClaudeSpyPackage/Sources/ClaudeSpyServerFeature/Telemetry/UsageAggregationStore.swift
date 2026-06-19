@@ -40,7 +40,6 @@ actor UsageAggregationStore {
 
     private let fileURL: URL
     private let calendar: Calendar
-    private let logger = Logger(label: "com.claudespy.usagestore")
 
     /// `(projectPath, day)` → accumulated totals.
     private var records: [BucketKey: UsageRecord] = [:]
@@ -60,9 +59,23 @@ actor UsageAggregationStore {
         self.fileURL = fileURL
         self.calendar = calendar
         let loaded = Self.loadState(from: fileURL)
-        self.records = loaded.records
+        // Trim stale records on startup so a long-lived host that only ever sees
+        // path-less sessions (which never reach the `record()` → `prune()` path)
+        // still ages out old buckets. Rewrite the file only when something changed.
+        // (Static helpers, since an actor's synchronous init can't call its own
+        // isolated methods.)
+        let pruned = Self.pruning(loaded.records, asOf: Date(), calendar: calendar)
+        self.records = pruned
         self.baselines = loaded.baselines
         self.baselineOrder = loaded.baselineOrder
+        if pruned.count != loaded.records.count {
+            Self.write(
+                records: pruned,
+                baselines: loaded.baselines,
+                baselineOrder: loaded.baselineOrder,
+                to: fileURL
+            )
+        }
     }
 
     // MARK: Recording
@@ -113,11 +126,13 @@ actor UsageAggregationStore {
         var todayCost: Double = 0
         var todayTokens = 0
         var todayCommits = 0
+        var todayPullRequests = 0
         var todaySessions = Set<String>()
         for record in records.values where record.day == today {
             todayCost += record.costUSD
             todayTokens += record.tokens
             todayCommits += record.commits
+            todayPullRequests += record.pullRequests
             todaySessions.formUnion(record.sessionIDs)
         }
 
@@ -130,6 +145,7 @@ actor UsageAggregationStore {
             todayTokens: todayTokens,
             todaySessionCount: todaySessions.count,
             todayCommits: todayCommits,
+            todayPullRequests: todayPullRequests,
             projects: projects,
             days: days
         )
@@ -139,44 +155,49 @@ actor UsageAggregationStore {
     /// capped at ``maxProjects``.
     private func rankedProjects(asOf date: Date) -> [ProjectUsage] {
         let window = Set(recentDayKeys(asOf: date, count: Self.projectWindowDays))
-        var byProject: [String: (cost: Double, tokens: Int, commits: Int, sessions: Set<String>)] = [:]
+        var byProject: [String: (cost: Double, tokens: Int, commits: Int, pullRequests: Int, sessions: Set<String>)] = [:]
         for record in records.values where window.contains(record.day) {
-            var acc = byProject[record.projectPath] ?? (0, 0, 0, [])
+            var acc = byProject[record.projectPath] ?? (0, 0, 0, 0, [])
             acc.cost += record.costUSD
             acc.tokens += record.tokens
             acc.commits += record.commits
+            acc.pullRequests += record.pullRequests
             acc.sessions.formUnion(record.sessionIDs)
             byProject[record.projectPath] = acc
         }
-        return byProject
-            .map { path, acc in
-                ProjectUsage(
-                    projectPath: path,
-                    projectName: Self.projectName(for: path),
-                    costUSD: acc.cost,
-                    tokens: acc.tokens,
-                    commits: acc.commits,
-                    sessionCount: acc.sessions.count
-                )
-            }
-            .sorted { lhs, rhs in
-                lhs.costUSD != rhs.costUSD ? lhs.costUSD > rhs.costUSD : lhs.tokens > rhs.tokens
-            }
-            .prefix(Self.maxProjects)
-            .map { $0 }
+        let projects: [ProjectUsage] = byProject.map { path, acc in
+            ProjectUsage(
+                projectPath: path,
+                projectName: Self.projectName(for: path),
+                costUSD: acc.cost,
+                tokens: acc.tokens,
+                commits: acc.commits,
+                pullRequests: acc.pullRequests,
+                sessionCount: acc.sessions.count
+            )
+        }
+        let ranked = projects.sorted { lhs, rhs in
+            lhs.costUSD != rhs.costUSD ? lhs.costUSD > rhs.costUSD : lhs.tokens > rhs.tokens
+        }
+        return Array(ranked.prefix(Self.maxProjects))
     }
 
     /// Per-day cost/token totals across all projects, oldest day first.
     private func dailyTrend(asOf date: Date) -> [DayUsage] {
+        let dayKeys = recentDayKeys(asOf: date, count: Self.trendDays)
+        let window = Set(dayKeys)
         var totals: [String: (cost: Double, tokens: Int)] = [:]
-        for record in records.values {
+        // Only fold records inside the trend window — the output is just these few
+        // days, so scanning all history (O(all records) for a handful of rows) is
+        // wasted work on a long-lived, many-project host (mirrors `rankedProjects`).
+        for record in records.values where window.contains(record.day) {
             var acc = totals[record.day] ?? (0, 0)
             acc.cost += record.costUSD
             acc.tokens += record.tokens
             totals[record.day] = acc
         }
         // Oldest → newest so a chart reads left-to-right.
-        return recentDayKeys(asOf: date, count: Self.trendDays).reversed().map { day in
+        return dayKeys.reversed().map { day in
             let acc = totals[day] ?? (0, 0)
             return DayUsage(day: day, costUSD: acc.cost, tokens: acc.tokens)
         }
@@ -208,9 +229,20 @@ actor UsageAggregationStore {
     /// Drops records older than the retention window. String comparison is valid
     /// because day keys are fixed-width zero-padded.
     private func prune(asOf date: Date) {
-        guard let cutoffDate = calendar.date(byAdding: .day, value: -Self.maxRetentionDays, to: date) else { return }
-        let cutoff = Self.dayKey(cutoffDate, calendar: calendar)
-        records = records.filter { $0.key.day >= cutoff }
+        records = Self.pruning(records, asOf: date, calendar: calendar)
+    }
+
+    /// Pure record-pruning, so both the instance `prune` and the synchronous
+    /// `init` (which can't touch isolated state) share one implementation. String
+    /// comparison is valid because day keys are fixed-width zero-padded.
+    private static func pruning(
+        _ records: [BucketKey: UsageRecord],
+        asOf date: Date,
+        calendar: Calendar
+    ) -> [BucketKey: UsageRecord] {
+        guard let cutoffDate = calendar.date(byAdding: .day, value: -maxRetentionDays, to: date) else { return records }
+        let cutoff = dayKey(cutoffDate, calendar: calendar)
+        return records.filter { $0.key.day >= cutoff }
     }
 
     /// Marks a baseline most-recently-used and evicts the oldest past the cap.
@@ -254,6 +286,18 @@ actor UsageAggregationStore {
     }
 
     private func persist() {
+        Self.write(records: records, baselines: baselines, baselineOrder: baselineOrder, to: fileURL)
+    }
+
+    /// Atomically writes the state document. `static` so the synchronous `init`
+    /// can persist a startup prune without calling isolated members; touches only
+    /// its arguments.
+    private static func write(
+        records: [BucketKey: UsageRecord],
+        baselines: [String: Baseline],
+        baselineOrder: [String],
+        to fileURL: URL
+    ) {
         let state = PersistedState(
             version: 1,
             records: Array(records.values),
@@ -268,7 +312,8 @@ actor UsageAggregationStore {
             let data = try JSONEncoder().encode(state)
             try data.write(to: fileURL, options: .atomic)
         } catch {
-            logger.warning("Failed to persist usage aggregates: \(error)")
+            Logger(label: "com.claudespy.usagestore")
+                .warning("Failed to persist usage aggregates: \(error)")
         }
     }
 }
