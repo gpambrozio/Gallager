@@ -1,11 +1,11 @@
 # Folder Layout Persistence Plan
 
-Status: 🚧 **In progress** — Phases 1–3 implemented on branch
-`feat/folder-layout-persistence`; Phase 4 (E2E) and flush-on-quit pending.
-Last updated: 2026-06-18
+Status: 🚧 **Implemented + E2E-proven** on branch
+`feat/folder-layout-persistence`; flush-on-quit and file-tree expansion still
+pending. Last updated: 2026-06-18
 
-> **Implementation notes vs. the plan below.** What actually shipped in the
-> first cut, where it diverges from the design:
+> **Implementation notes vs. the plan below.** What actually shipped, where it
+> diverges from the design:
 > - **Model + mappers + store** (`Services/LayoutPersistence/`):
 >   `SavedFolderLayout` / `SavedSessionLayout` / `SavedTabRef`,
 >   `LayoutSnapshotMapper`, `LayoutFolderKey`, and the `LayoutStore` dependency
@@ -14,22 +14,34 @@ Last updated: 2026-06-18
 > - **File/browser tab UUIDs are preserved** into the restored session (a fresh
 >   session has nothing to collide with), so only `.window` refs are re-mapped
 >   by index. Simpler than the original "regenerate all ids" framing.
-> - **Auto-save is change-gated per tmux refresh**, not a timer debounce:
->   `persistChangedLayouts()` runs inside `MainView`'s existing
->   `.onChange(of: tmuxService.panes)` and writes only when a session's snapshot
->   actually changed (`SavedFolderLayout` is `Equatable`). Cheap and naturally
->   batched; the loss window on a hard crash is one refresh interval.
+> - **Auto-save runs on a 2s timer**, not on tmux events. The first cut hung it
+>   on `.onChange(of: tmuxService.panes)`, but opening a file/browser tab or
+>   splitting doesn't touch tmux, so a layout change could sit unsaved. A
+>   periodic `MainView` `.task` calls `persistChangedLayouts()`, which writes
+>   only when a session's snapshot actually changed (`SavedFolderLayout` is
+>   `Equatable`). Loss window on a hard crash is ≤2s.
 > - **Seeding is once-per-session and clobber-safe**: `seedLayoutIfNeeded()`
 >   (called from `handleSelectionChanged()`, the initial `.task`, and the pane
 >   refresh) seeds only while the workbench is empty (`openFileTabs` /
 >   `openBrowserTabs` / `rightSide` all empty — `tabOrder` is ignored since the
 >   strip auto-populates window entries). No 40-site creation-funnel refactor.
-> - **Storage backend:** a single JSON file
->   `~/Library/Application Support/Gallager/Layouts/layouts.json` (the plan left
->   per-file vs. combined open; combined won because debounced writes are rare).
-> - **Still pending:** flush-on-quit (per-refresh save makes it low-priority);
+> - **Storage backend:** a single JSON file under the Gallager **state root**
+>   (`~/.gallager/state/Layouts/layouts.json`, or the per-instance
+>   `--gallager-state-root` under E2E) — consistent with the rest of the app's
+>   state and isolated/auto-cleaned in tests. (The first cut used Application
+>   Support; moved so E2E runs don't touch the real user library.)
+> - **Same-folder cloning is intentional (decided 2026-06-18):** on the E2E tmux
+>   socket every session shares one cwd, so selecting an empty sibling session
+>   clones the folder's layout onto it. This broke `SplitTabScenario` Phase 5
+>   (which expected an empty sibling); fixed by putting that scenario's `other`
+>   session in a distinct cwd. Any scenario that opens tabs in one session and
+>   asserts a same-folder sibling is empty needs the same treatment.
+> - **E2E proof:** `FolderLayoutPersistenceScenario` (passes 3×) covers the
+>   folder-default clone, post-clone divergence, and restore across a full app
+>   restart (terminate + relaunch → the running session restores from disk).
+> - **Still pending:** flush-on-quit (the 2s save makes it low-priority);
 >   `SavedFileTree.expandedPaths` is captured as `[]` for now (only
->   `sidebarWidth` restores); the E2E scenario (Phase 4).
+>   `sidebarWidth` restores).
 
 ## 1. Goal
 

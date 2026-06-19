@@ -342,6 +342,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         CodexOTELTelemetryRenderScenario.scenario,
         ScrollbackBandRecaptureScenario.scenario,
         LongTitleTruncationIOSScenario.scenario,
+        FolderLayoutPersistenceScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

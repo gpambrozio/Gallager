@@ -102,15 +102,26 @@
             self.loaded = true
         }
 
+        /// Stored under the Gallager state root (`~/.gallager/state/Layouts`, or
+        /// the per-instance `--gallager-state-root` under E2E) so test runs stay
+        /// isolated and auto-cleaned rather than touching the real user library.
         static var defaultDirectory: URL? {
-            guard
-                let base = FileManager.default.urls(
-                    for: .applicationSupportDirectory,
-                    in: .userDomainMask
-                ).first else { return nil }
-            return base
-                .appendingPathComponent("Gallager", isDirectory: true)
+            GallagerPaths(stateRootOverride: parseStateRootOverride())
+                .stateRoot
                 .appendingPathComponent("Layouts", isDirectory: true)
+        }
+
+        /// Mirror of `AppCoordinator`'s `--gallager-state-root` parse so the
+        /// static live store lands in the same isolated tree the rest of the app
+        /// uses, without threading `GallagerPaths` through a `@Dependency`.
+        private static func parseStateRootOverride() -> URL? {
+            let args = CommandLine.arguments
+            guard
+                let flagIndex = args.firstIndex(of: "--gallager-state-root"),
+                flagIndex + 1 < args.count,
+                !args[flagIndex + 1].isEmpty
+            else { return nil }
+            return URL(fileURLWithPath: args[flagIndex + 1], isDirectory: true)
         }
 
         func record(for key: SavedSessionLayout.Key) -> SavedSessionLayout? {

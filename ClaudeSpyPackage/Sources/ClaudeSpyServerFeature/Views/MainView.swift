@@ -148,6 +148,21 @@ public struct MainView: View {
                 await loadProjects(showLoadingIndicator: false)
             }
         }
+        .task {
+            // Auto-save the live workbench layout on a steady cadence. The
+            // `.onChange(of: tmuxService.panes)` hook only fires on structural
+            // pane changes, but opening a file/browser tab or splitting doesn't
+            // touch tmux — so persist on a timer too. The per-session change
+            // check keeps the disk write rare.
+            while true {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                persistChangedLayouts()
+            }
+        }
         .modifier(AlertsModifier(
             attachError: $attachError,
             closeConfirmation: $closeConfirmation,
