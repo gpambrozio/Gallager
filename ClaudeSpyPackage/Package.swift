@@ -24,7 +24,7 @@ func macOnlyDependencies() -> [Package.Dependency] {
             .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
             .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
-            .package(url: "https://github.com/gpambrozio/GitWorkbench", from: "1.3.0"),
+            .package(url: "https://github.com/gpambrozio/GitWorkbench", exact: "1.4.1"),
         ]
     #else
         return []

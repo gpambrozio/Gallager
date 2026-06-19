@@ -20,7 +20,15 @@ import Foundation
 /// not only that the iOS UI advances correctly but that the expected bytes
 /// actually land in tmux.
 ///
-/// All three phases share one pairing/tmux setup to keep the run cheap.
+/// Regression guard: the `PermissionRequest` payloads deliberately carry NO
+/// `timestamp`, matching the production hook shape (Claude hooks carry no
+/// timestamp/sequence). Each later phase is a *separate* form in the *same*
+/// session, so before the per-occurrence requestID fix every phase collapsed to
+/// the same `"e2e-test-session-1:PermissionRequest:"` id and Phase 2+ showed the
+/// stale "All questions answered" banner instead of the new question. Do not add
+/// timestamps back — they would re-mask that bug.
+///
+/// All four phases share one pairing/tmux setup to keep the run cheap.
 public enum AskUserQuestionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Ask User Question",
@@ -42,7 +50,6 @@ public enum AskUserQuestionScenario {
             {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:00:00.000000Z",
                 "tool_name": "AskUserQuestion",
                 "tool_input": {
                     "questions": [
@@ -113,7 +120,6 @@ public enum AskUserQuestionScenario {
             {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:01:00.000000Z",
                 "tool_name": "AskUserQuestion",
                 "tool_input": {
                     "questions": [
@@ -190,7 +196,6 @@ public enum AskUserQuestionScenario {
             {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:02:00.000000Z",
                 "tool_name": "AskUserQuestion",
                 "tool_input": {
                     "questions": [
@@ -307,7 +312,6 @@ public enum AskUserQuestionScenario {
             {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-test-session-1",
-                "timestamp": "2026-04-25T10:03:00.000000Z",
                 "tool_name": "AskUserQuestion",
                 "tool_input": {
                     "questions": [
