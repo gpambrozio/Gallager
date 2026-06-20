@@ -3,31 +3,25 @@
     import DependenciesMacros
     import Foundation
 
-    /// Persists per-session workbench layouts and answers the two restore
-    /// questions from `docs/folder-layout-persistence-plan.md` §4.3:
-    ///
-    /// 1. `record(for:)` — the exact layout for a session id (host + tmux name),
-    ///    used to restore an already-running session on cold launch.
-    /// 2. `folderDefault(folder:excluding:)` — the most-recently-active layout for
-    ///    a folder, used to seed a brand-new session on a known folder.
+    /// Persists workbench layouts, one record per **folder** (see
+    /// `docs/folder-layout-persistence-plan.md`). The store answers a single
+    /// restore question — "what's the saved layout for this folder?" — used both
+    /// to seed a brand-new session on a known folder and to restore an
+    /// already-running session on cold launch. There is no per-session record and
+    /// no "default" derivation: the folder *is* the key.
     ///
     /// Writes are awaited and immediate; debouncing lives at the call site
     /// (`MainView`). The store never throws into the app — persistence failures
     /// degrade to "no saved layout" rather than disrupting the workbench.
     @DependencyClient
     struct LayoutStore: Sendable {
-        /// Exact record for a session key, or `nil` if none.
-        var record: @Sendable (_ key: SavedSessionLayout.Key) async -> SavedSessionLayout?
-        /// Most-recently-active record on `folder`, optionally excluding one key
-        /// (the session being seeded, so it never seeds from itself).
-        var folderDefault: @Sendable (
-            _ folder: String,
-            _ excluding: SavedSessionLayout.Key?
-        ) async -> SavedSessionLayout?
-        /// Insert or replace a record.
-        var save: @Sendable (_ record: SavedSessionLayout) async -> Void
-        /// Remove a record.
-        var remove: @Sendable (_ key: SavedSessionLayout.Key) async -> Void
+        /// Saved layout for a folder key, or `nil` if none.
+        var record: @Sendable (_ key: SavedFolderRecord.Key) async -> SavedFolderRecord?
+        /// Insert or replace the folder's record (most-recent write wins when two
+        /// sessions share a folder).
+        var save: @Sendable (_ record: SavedFolderRecord) async -> Void
+        /// Remove a folder's record.
+        var remove: @Sendable (_ key: SavedFolderRecord.Key) async -> Void
         /// Garbage-collect stale records: drop anything older than `maxAge`, then
         /// cap to the `maxCount` most-recently-active. Called once on launch.
         var prune: @Sendable (_ maxAge: TimeInterval, _ maxCount: Int) async -> Void
@@ -43,7 +37,7 @@
 
     extension LayoutStore {
         /// Disk-free store seeded with `initial`, for previews and E2E/unit tests.
-        static func inMemory(_ initial: [SavedSessionLayout] = []) -> LayoutStore {
+        static func inMemory(_ initial: [SavedFolderRecord] = []) -> LayoutStore {
             let storage = LayoutStorage(inMemory: initial)
             return LayoutStore(storage: storage)
         }
@@ -70,7 +64,6 @@
         init(storage: LayoutStorage) {
             self.init(
                 record: { await storage.record(for: $0) },
-                folderDefault: { await storage.folderDefault(folder: $0, excluding: $1) },
                 save: { await storage.save($0) },
                 remove: { await storage.remove($0) },
                 prune: { await storage.prune(maxAge: $0, maxCount: $1, now: Date()) }
@@ -85,7 +78,7 @@
     /// writes are debounced upstream, so the rewrite cost is negligible.
     actor LayoutStorage {
         private let fileURL: URL?
-        private var records: [SavedSessionLayout.Key: SavedSessionLayout]
+        private var records: [SavedFolderRecord.Key: SavedFolderRecord]
         private var loaded: Bool
 
         /// Disk-backed. Loads lazily on first access.
@@ -96,7 +89,7 @@
         }
 
         /// Disk-free, seeded.
-        init(inMemory initial: [SavedSessionLayout]) {
+        init(inMemory initial: [SavedFolderRecord]) {
             self.fileURL = nil
             self.records = Dictionary(initial.map { ($0.key, $0) }, uniquingKeysWith: { _, new in new })
             self.loaded = true
@@ -124,29 +117,18 @@
             return URL(fileURLWithPath: args[flagIndex + 1], isDirectory: true)
         }
 
-        func record(for key: SavedSessionLayout.Key) -> SavedSessionLayout? {
+        func record(for key: SavedFolderRecord.Key) -> SavedFolderRecord? {
             ensureLoaded()
             return records[key]
         }
 
-        func folderDefault(folder: String, excluding: SavedSessionLayout.Key?) -> SavedSessionLayout? {
-            ensureLoaded()
-            return records.values
-                .filter { rec in
-                    guard rec.folder == folder else { return false }
-                    if let excluding, rec.key == excluding { return false }
-                    return true
-                }
-                .max { $0.lastActive < $1.lastActive }
-        }
-
-        func save(_ record: SavedSessionLayout) {
+        func save(_ record: SavedFolderRecord) {
             ensureLoaded()
             records[record.key] = record
             persist()
         }
 
-        func remove(_ key: SavedSessionLayout.Key) {
+        func remove(_ key: SavedFolderRecord.Key) {
             ensureLoaded()
             records[key] = nil
             persist()
@@ -173,7 +155,7 @@
             guard !loaded else { return }
             loaded = true
             guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return }
-            guard let decoded = try? JSONDecoder().decode([SavedSessionLayout].self, from: data) else { return }
+            guard let decoded = try? JSONDecoder().decode([SavedFolderRecord].self, from: data) else { return }
             records = Dictionary(decoded.map { ($0.key, $0) }, uniquingKeysWith: { _, new in new })
         }
 

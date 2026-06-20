@@ -2,15 +2,27 @@
 
 Status: 🚧 **Implemented + E2E-proven** on branch
 `feat/folder-layout-persistence`; flush-on-quit and file-tree expansion still
-pending. Last updated: 2026-06-18
+pending. Last updated: 2026-06-19
 
+> **Layout is keyed by folder, not by session (revised 2026-06-19).** The first
+> cut keyed records by `host + tmux sessionName` (to give each running session
+> its own restore on cold launch — old R7). That backfired: tmux recycles
+> session names (kill `ClaudeSpy-2`, create a new one on the same repo), so a
+> freshly-created session would match the *dead* session's stale record and
+> restore an old layout instead of the folder's current one. The folder-match
+> guard only caught recycled names on a *different* folder, not the common
+> same-folder case. **Fix:** one record per folder, keyed by `host + folder`
+> (`SavedFolderRecord`). Any session on a folder restores that folder's layout;
+> when two sessions share a folder, the most-recent live write wins. R7 is now
+> "the folder restores its layout," not "each session restores its own."
+>
 > **Implementation notes vs. the plan below.** What actually shipped, where it
 > diverges from the design:
 > - **Model + mappers + store** (`Services/LayoutPersistence/`):
->   `SavedFolderLayout` / `SavedSessionLayout` / `SavedTabRef`,
+>   `SavedFolderLayout` / `SavedFolderRecord` / `SavedTabRef`,
 >   `LayoutSnapshotMapper`, `LayoutFolderKey`, and the `LayoutStore` dependency
 >   (in-memory + disk-backed). Covered by `LayoutSnapshotMapperTests` and
->   `LayoutStoreTests` (11 tests).
+>   `LayoutStoreTests`.
 > - **File/browser tab UUIDs are preserved** into the restored session (a fresh
 >   session has nothing to collide with), so only `.window` refs are re-mapped
 >   by index. Simpler than the original "regenerate all ids" framing.
@@ -146,47 +158,48 @@ This invariant is what makes R4's "auto" safe with R3's two-sessions case: live
 state stays per-session and independent; nothing re-reads persisted layout into a
 running workbench, so there is no live feedback loop.
 
-### 4.2 Two-tier store — but one source of truth
+### 4.2 One record per folder
 
-R7 (each running session restores *its own* state) requires **per-session
-fidelity** that a single per-folder slot can't provide: two sessions on one
-folder would both re-seed from the same slot. So records are keyed by a
-**durable session identity**, with the folder recorded on each record. The
-"folder default" (R2/R5) is then *derived by query* rather than stored
-separately — keeping a single source of truth and avoiding dual-write drift.
+Layout state is tied to the **folder**, not to a session. Records are keyed by
+`host + folder`, so there is exactly one slot per folder and no per-session
+bookkeeping, no "default" derivation, and no dual-write drift.
 
 ```swift
-struct SavedSessionLayout: Codable, Sendable {
+struct SavedFolderRecord: Codable, Sendable {
     var host: String           // local host id (v1: local only)
-    var sessionName: String    // tmux session name — stable across app restarts
-    var folder: String         // canonical project path, for validation
-    var lastActive: Date       // for folder-default "most recent" query + pruning
+    var folder: String         // canonical project path — the identity
+    var lastActive: Date       // most-recent-write-wins + pruning
     var layout: SavedFolderLayout
 }
-// persisted store: [SessionKey(host, sessionName): SavedSessionLayout]
+// persisted store: [Key(host, folder): SavedFolderRecord]
 ```
 
-`tmux session name is the durable identity` — tmux sessions outlive the app and
-keep their names, so on cold launch a running session named `myproj` maps
-directly back to its record.
+**Why folder, not `sessionName`?** tmux session names are recycled — kill
+`ClaudeSpy-2`, later create a new one on the same repo and it reuses the name.
+Keying by name meant a brand-new session matched the dead session's stale record
+and restored an old layout instead of the folder's current one. A folder is a
+durable identity; a recycled name is not.
+
+**Trade-off (accepted):** when two sessions are live on the same folder at once,
+they share the one record — whoever writes last defines what the next-born
+session and the next app launch restore. This is the "single layout personality
+per folder" decision (R5) taken to its conclusion. The alternative (per-session
+records) is the named-layouts follow-up in §7 if it's ever wanted.
 
 ### 4.3 Resolution order at workbench birth
 
 When `MainView` would otherwise create an empty `SessionFileTabsState` for a
 session (a dictionary miss), resolve the session's canonical folder, then:
 
-1. **Record for this `host+sessionName` whose stored `folder` still matches** the
-   session's current folder → restore it **exactly**. *(R2 reopen, R7 cold-launch
-   of an existing session, R3 each session restores distinctly.)*
-2. Else → **folder default**: among all records with the same `folder`, take the
-   one with the most-recent `lastActive` and seed from it. *(R2 new session on a
-   known folder, R5 single default.)*
-3. Else → empty workbench.
+1. **Record for this `host+folder`** → seed the workbench from it. *(R2 reopen,
+   R2 new session on a known folder, R7 cold-launch of a running session — all
+   one path now.)*
+2. Else → empty workbench.
 
-Step 1's **folder-match guard** is essential: tmux names get recycled (kill
-`myproj`, later create a new `myproj` on a different project). If the stored
-folder no longer matches the live folder, fall through to the folder default
-instead of restoring a stale layout onto the wrong project.
+Seeding is **once-per-session and only while the workbench is empty**, so a live,
+already-arranged session is never re-read from disk (the §4.1 invariant). A
+recycled session name re-seeds from scratch because its seed bookkeeping is
+cleared when the old session disappears.
 
 ### 4.4 What gets saved, and how it maps back
 
@@ -258,8 +271,8 @@ implementation.
   (`remoteSessionTabsStates`) stay transient.
 - **No named layouts** (R5). If "throwaway session clobbers the folder default"
   becomes a real annoyance, named layouts are the future escape hatch (see §7).
-- **Pruning.** Records accumulate as session names come and go. Garbage-collect
-  on launch (drop records older than N days and/or cap total count).
+- **Pruning.** Records accumulate as folders come and go. Garbage-collect on
+  launch (drop records older than N days and/or cap total count).
 
 ## 5. Data model & components
 
@@ -269,10 +282,10 @@ spot if iOS ever needs them — v1 keeps them macOS-side):
 | Component | Responsibility |
 |---|---|
 | `SavedFolderLayout` | Codable snapshot: file tabs, browser tabs, split, tab order, selection, file-tree |
-| `SavedSessionLayout` | Codable record: host, sessionName, folder, lastActive, layout |
+| `SavedFolderRecord` | Codable record: host, folder, lastActive, layout — keyed by `(host, folder)` |
 | `SavedTabRef` | Logical tab reference (path / url / window index / explorer / git) |
 | `LayoutSnapshotMapper` | `SessionFileTabsState` (+ `FileBrowserState`) ⇄ `SavedFolderLayout`, with id re-mapping |
-| `LayoutStore` | `@DependencyClient`: load / upsert / folder-default query / prune / flush; `liveValue` (file-backed under Application Support, or `PreferencesService` data keyed per session) + `inMemory()` |
+| `LayoutStore` | `@DependencyClient`: `record(forFolder)` / `save` / `remove` / `prune`; `liveValue` (single JSON under the Gallager state root) + `inMemory()` |
 | MainView wiring | folder resolution, seed-on-birth, debounced write, flush-on-terminate |
 
 `LayoutStore` follows the project DI convention (`@DependencyClient struct`,
@@ -281,20 +294,17 @@ a folder with a saved layout and assert it restores.
 
 ### Storage layout
 
-Per-session keys (one record rewritten per debounced change avoids churning a
-single combined blob on every write):
+A single combined JSON file holding every folder record, rewritten atomically on
+each (debounced) change — the write is rare enough that one blob is fine:
 
 ```
-Application Support/Gallager/Layouts/<host>/<sha256(sessionName)>.json
+~/.gallager/state/Layouts/layouts.json   (or <--gallager-state-root>/Layouts/ under E2E)
 ```
-
-(or `PreferencesService.data("layout.session.<host>.<hash>")` if we prefer to
-stay on UserDefaults — decided in Phase 2.)
 
 ## 6. Implementation plan
 
 **Phase 1 — Model + mappers (pure, unit-testable).**
-`SavedFolderLayout` / `SavedSessionLayout` / `SavedTabRef` + `LayoutSnapshotMapper`.
+`SavedFolderLayout` / `SavedFolderRecord` / `SavedTabRef` + `LayoutSnapshotMapper`.
 Round-trip tests: `SessionFileTabsState` → snapshot → new `SessionFileTabsState`
 preserves file tabs, browser URLs, split ratio, and logical tab order; window
 refs absent in the target session are dropped.
@@ -310,8 +320,9 @@ only.
 
 **Phase 4 — E2E + polish.**
 E2E scenario: seed a folder layout via `inMemory()`, open a fresh session on that
-folder, screenshot that tabs/split/tree restored. Verify cold-launch path (record
-keyed by session name restores exactly; recycled-name guard falls through).
+folder, screenshot that tabs/split/tree restored. Verify cold-launch path (a
+running session restores the folder record) and that a recycled session name on
+the same folder picks up the folder's *current* layout, not a stale one.
 Pruning + edge cases.
 
 ## 7. Future work / out of scope

@@ -407,8 +407,11 @@ tabs, split arrangement, sidebar width) so a session restores its workbench
 across app restarts and a new session on a known folder inherits the folder's
 last-known layout. See `docs/folder-layout-persistence-plan.md`.
 
-- Records keyed by durable session identity (host + tmux name) with the folder
-  recorded; `record(for:)` does the exact (cold-launch) restore, `folderDefault(_:excluding:)` derives the per-folder seed by most-recently-active query.
+- One record per folder, keyed by `(host, folder)` (`SavedFolderRecord`);
+  `record(for:)` returns the folder's layout for both cold-launch restore and
+  new-session seeding. Keyed by folder — not tmux session name — so a recycled
+  session name picks up the folder's current layout, not a dead session's stale
+  one. Two sessions on a folder share the record (most-recent write wins).
 - `save` / `remove` / `prune`; `liveValue` writes a single JSON file under the
   Gallager state root (`~/.gallager/state/Layouts/`, or `--gallager-state-root`
   under E2E), `inMemory()` for previews/tests.

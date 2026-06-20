@@ -4160,10 +4160,11 @@ private extension MainView {
         return LayoutFolderKey.canonicalize(raw)
     }
 
-    /// Restore the selected session's workbench from persisted layout — once,
-    /// and only while it's still empty so user-opened tabs are never clobbered.
-    /// Resolution order (plan §4.3): the session's own record (if its folder
-    /// still matches) → the folder's most-recent layout → nothing.
+    /// Restore the selected session's workbench from the folder's persisted
+    /// layout — once, and only while it's still empty so user-opened tabs are
+    /// never clobbered. Layout is keyed by folder, so a new session inherits the
+    /// folder's current layout and a recycled session name no longer resurrects a
+    /// stale per-session record (plan §4.3).
     func seedLayoutIfNeeded() {
         guard let sessionName = selectedWindow?.sessionName else { return }
         guard !seededSessions.contains(sessionName) else { return }
@@ -4179,16 +4180,9 @@ private extension MainView {
         }
         seededSessions.insert(sessionName)
 
-        let key = SavedSessionLayout.Key(host: layoutHost, sessionName: sessionName)
+        let key = SavedFolderRecord.Key(host: layoutHost, folder: folder)
         Task {
-            let exact = await layoutStore.record(key)
-            let chosen: SavedFolderLayout? =
-                if let exact, exact.folder == folder {
-                    exact.layout
-                } else {
-                    await layoutStore.folderDefault(folder, key)?.layout
-                }
-            guard let chosen, !chosen.isEmpty else { return }
+            guard let chosen = await layoutStore.record(key)?.layout, !chosen.isEmpty else { return }
 
             // Re-check freshness now that we've awaited the store.
             let tabs = sessionFileTabsStates[sessionName] ?? {
@@ -4226,9 +4220,8 @@ private extension MainView {
             guard lastPersistedLayouts[sessionName] != snapshot else { continue }
             lastPersistedLayouts[sessionName] = snapshot
 
-            let record = SavedSessionLayout(
+            let record = SavedFolderRecord(
                 host: layoutHost,
-                sessionName: sessionName,
                 folder: folder,
                 lastActive: Date(),
                 layout: snapshot

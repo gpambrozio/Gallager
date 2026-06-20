@@ -3,26 +3,27 @@ import Foundation
 /// E2E scenario: per-folder workbench layout persistence.
 ///
 /// **Branch:** `feat/folder-layout-persistence` — open file/browser tabs and the
-/// split arrangement are persisted per folder (keyed by host + tmux session
-/// name, with the folder recorded) so a session restores its workbench, and a
-/// new session on a known folder inherits that folder's last-known layout. See
+/// split arrangement are persisted **per folder** (one record per folder, keyed
+/// by host + canonical path) so any session on a folder restores that folder's
+/// layout, and a new session on a known folder inherits it. See
 /// `docs/folder-layout-persistence-plan.md`.
 ///
 /// On the E2E tmux socket every session shares one working directory, so two
 /// sessions are always "in the same folder" — exactly the condition this feature
 /// targets. The scenario proves three things end-to-end:
 ///
-/// 1. **Folder-default clone** — open two file tabs in session `alpha`, then
-///    select the sibling session `beta` (same folder, empty) and watch it
-///    inherit `alpha`'s tabs. This exercises the live auto-save → store →
-///    seed-on-birth pipeline.
-/// 2. **Independence after clone** — closing a tab in `beta` does NOT affect
-///    `alpha`; the two diverge once seeded.
-/// 3. **Restore across an app restart** — terminate the app and relaunch; the
-///    already-running `alpha` session restores its own saved layout from disk
-///    (the cold-launch requirement). tmux survives the restart, and the layout
-///    store lives under the per-instance `--gallager-state-root`, so the record
-///    persists across the relaunch.
+/// 1. **Folder clone onto a new session** — open two file tabs in session
+///    `alpha`, then select the sibling session `beta` (same folder, empty) and
+///    watch it inherit the folder's layout. This exercises the live auto-save →
+///    store → seed-on-birth pipeline.
+/// 2. **Live independence (restore reads only at birth)** — closing a tab in the
+///    live `beta` does NOT re-seed or alter the live `alpha`; an already-arranged
+///    workbench is never re-read from disk.
+/// 3. **Folder-keyed restore across an app restart** — `beta`'s close was the
+///    most-recent write to the folder, so terminate + relaunch restores the
+///    folder's *current* layout (hello-only) — README does not come back. tmux
+///    survives the restart and the layout store lives under the per-instance
+///    `--gallager-state-root`, so the record persists across the relaunch.
 public enum FolderLayoutPersistenceScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Folder Layout Persistence",
@@ -58,33 +59,35 @@ public enum FolderLayoutPersistenceScenario {
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.macScreenshot(label: "mac-alpha-two-tabs")
 
-        // ── 2. Folder-default clone onto `beta` ──────────────────────
-        TestStep.log("Phase 2: select beta (same folder, empty) — it inherits alpha's tabs")
+        // ── 2. Folder clone onto a new session `beta` ────────────────
+        TestStep.log("Phase 2: select beta (same folder, empty) — it inherits the folder's layout")
         // Auto-save runs on a 2s cadence; give it a beat to persist alpha's
-        // layout before beta's seed-on-birth reads the folder default.
+        // layout before beta's seed-on-birth reads the folder record.
         TestStep.wait(seconds: 3)
         TestStep.macClickButton(titled: "beta")
-        // beta started empty; these tabs only appear if the folder-default seed
-        // fired. This is the headline assertion.
+        // beta started empty; these tabs only appear if the folder seed fired.
+        // This is the headline assertion.
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 10)
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.macScreenshot(label: "mac-beta-cloned-from-folder")
 
-        // ── 3. Independence after clone ──────────────────────────────
-        TestStep.log("Phase 3: close README.md in beta; alpha keeps both tabs (they diverge)")
+        // ── 3. Live independence (restore reads only at birth) ───────
+        TestStep.log("Phase 3: close README.md in beta; the live alpha is NOT re-seeded and keeps both tabs")
         TestStep.macClickButton(titled: "File tab: README.md")
         TestStep.macClickButton(titled: "Close file tab: README.md")
         TestStep.macWaitForElementToDisappear(titled: "File tab: README.md", timeout: 5)
 
         TestStep.macClickButton(titled: "alpha")
-        // alpha is unaffected by beta's close — README.md is still open here.
+        // alpha was already arranged, so its live workbench is never re-read from
+        // disk — README.md is still open here even though the folder record now
+        // reflects beta's close.
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.macScreenshot(label: "mac-alpha-unchanged-after-beta-diverged")
 
-        // ── 4. Restore across an app restart (cold launch) ───────────
-        TestStep.log("Phase 4: restart the app; the running alpha session restores its layout from disk")
+        // ── 4. Folder-keyed restore across an app restart (cold launch) ─
+        TestStep.log("Phase 4: restart the app; alpha restores the FOLDER's current layout (beta's close won — README is gone)")
         // Let the latest auto-save land on disk before quitting (the loss window
         // is one 2s cadence; wait covers it).
         TestStep.wait(seconds: 3)
@@ -97,9 +100,11 @@ public enum FolderLayoutPersistenceScenario {
 
         TestStep.macWaitForElement(titled: "alpha", timeout: 10)
         TestStep.macClickButton(titled: "alpha")
-        // Restored from the on-disk record keyed by alpha's tmux session name.
+        // Layout is keyed by folder, not session. beta's close of README was the
+        // most-recent write, so the restored folder layout is hello-only —
+        // README does NOT come back.
         TestStep.macWaitForElement(titled: "File tab: hello.txt", timeout: 10)
-        TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "File tab: README.md", timeout: 5)
         TestStep.macClickButton(titled: "File tab: hello.txt")
         TestStep.macScreenshot(label: "mac-alpha-restored-after-restart")
 

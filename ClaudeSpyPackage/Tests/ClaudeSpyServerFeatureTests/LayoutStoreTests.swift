@@ -3,20 +3,18 @@
     import Testing
     @testable import ClaudeSpyServerFeature
 
-    /// Covers the in-memory `LayoutStore`: exact-record lookup, the
-    /// "most-recently-active on this folder" default query (with self-exclusion),
-    /// and prune-by-count. See `docs/folder-layout-persistence-plan.md` §4.2–4.3.
+    /// Covers the in-memory `LayoutStore`: per-folder save/load, same-folder
+    /// overwrite (most-recent write wins), independence across folders, and
+    /// prune-by-count. See `docs/folder-layout-persistence-plan.md` §4.2–4.3.
     @Suite("LayoutStore")
     struct LayoutStoreTests {
         private func record(
-            session: String,
             folder: String,
             lastActive: TimeInterval,
             host: String = "local"
-        ) -> SavedSessionLayout {
-            SavedSessionLayout(
+        ) -> SavedFolderRecord {
+            SavedFolderRecord(
                 host: host,
-                sessionName: session,
                 folder: folder,
                 lastActive: Date(timeIntervalSince1970: lastActive),
                 layout: SavedFolderLayout(
@@ -25,70 +23,81 @@
             )
         }
 
-        @Test("save then record returns the exact record by key")
+        private func key(_ folder: String, host: String = "local") -> SavedFolderRecord.Key {
+            SavedFolderRecord.Key(host: host, folder: folder)
+        }
+
+        @Test("save then record returns the folder's record")
         func saveAndFetch() async {
             let store = LayoutStore.inMemory()
-            let rec = record(session: "alpha", folder: "/proj", lastActive: 100)
+            let rec = record(folder: "/proj", lastActive: 100)
             await store.save(rec)
 
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "alpha")) == rec)
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "missing")) == nil)
+            #expect(await store.record(key("/proj")) == rec)
+            #expect(await store.record(key("/missing")) == nil)
         }
 
-        @Test("folderDefault returns the most-recently-active record for the folder")
-        func folderDefaultMostRecent() async {
+        @Test("saving the same folder overwrites — most-recent write wins")
+        func sameFolderOverwrites() async {
+            let store = LayoutStore.inMemory([record(folder: "/proj", lastActive: 100)])
+
+            let newer = record(folder: "/proj", lastActive: 200)
+            await store.save(newer)
+
+            #expect(await store.record(key("/proj")) == newer)
+        }
+
+        @Test("records on different folders are independent")
+        func foldersAreIndependent() async {
             let store = LayoutStore.inMemory([
-                record(session: "alpha", folder: "/proj", lastActive: 100),
-                record(session: "beta", folder: "/proj", lastActive: 200),
-                record(session: "gamma", folder: "/other", lastActive: 999),
+                record(folder: "/proj", lastActive: 100),
+                record(folder: "/other", lastActive: 200),
             ])
 
-            let def = await store.folderDefault("/proj", nil)
-            #expect(def?.sessionName == "beta")
+            #expect(await store.record(key("/proj"))?.folder == "/proj")
+            #expect(await store.record(key("/other"))?.folder == "/other")
         }
 
-        @Test("folderDefault excludes the requesting session so it never seeds from itself")
-        func folderDefaultExcludesSelf() async {
-            let store = LayoutStore.inMemory([
-                record(session: "alpha", folder: "/proj", lastActive: 100),
-                record(session: "beta", folder: "/proj", lastActive: 200),
-            ])
-
-            let def = await store.folderDefault("/proj", SavedSessionLayout.Key(host: "local", sessionName: "beta"))
-            #expect(def?.sessionName == "alpha")
-        }
-
-        @Test("folderDefault returns nil when no record matches the folder")
-        func folderDefaultNoMatch() async {
-            let store = LayoutStore.inMemory([
-                record(session: "alpha", folder: "/proj", lastActive: 100),
-            ])
-            #expect(await store.folderDefault("/nope", nil) == nil)
-        }
-
-        @Test("remove deletes the record")
+        @Test("remove deletes the folder record")
         func removeDeletes() async {
-            let store = LayoutStore.inMemory([
-                record(session: "alpha", folder: "/proj", lastActive: 100),
-            ])
-            await store.remove(SavedSessionLayout.Key(host: "local", sessionName: "alpha"))
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "alpha")) == nil)
+            let store = LayoutStore.inMemory([record(folder: "/proj", lastActive: 100)])
+            await store.remove(key("/proj"))
+            #expect(await store.record(key("/proj")) == nil)
         }
 
         @Test("prune caps to the most-recently-active records")
         func pruneCapsByCount() async {
             let store = LayoutStore.inMemory([
-                record(session: "a", folder: "/p", lastActive: 1),
-                record(session: "b", folder: "/p", lastActive: 2),
-                record(session: "c", folder: "/p", lastActive: 3),
+                record(folder: "/a", lastActive: 1),
+                record(folder: "/b", lastActive: 2),
+                record(folder: "/c", lastActive: 3),
             ])
 
             // Keep only the 2 most-recent; age limit large so only count applies.
             await store.prune(.greatestFiniteMagnitude, 2)
 
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "a")) == nil)
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "b")) != nil)
-            #expect(await store.record(SavedSessionLayout.Key(host: "local", sessionName: "c")) != nil)
+            #expect(await store.record(key("/a")) == nil)
+            #expect(await store.record(key("/b")) != nil)
+            #expect(await store.record(key("/c")) != nil)
+        }
+
+        @Test("prune drops records older than maxAge")
+        func pruneDropsStale() async {
+            let now = Date()
+            let store = LayoutStore.inMemory([
+                SavedFolderRecord(
+                    host: "local",
+                    folder: "/stale",
+                    lastActive: now.addingTimeInterval(-1_000),
+                    layout: SavedFolderLayout(fileTabs: [SavedFileTab(id: UUID(), path: "/stale/f", directoryPath: "/stale")])
+                ),
+                record(folder: "/fresh", lastActive: now.timeIntervalSince1970),
+            ])
+
+            await store.prune(500, .max)
+
+            #expect(await store.record(key("/stale")) == nil)
+            #expect(await store.record(key("/fresh")) != nil)
         }
     }
 #endif
