@@ -186,6 +186,8 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.permissionMode = nil
         paneStates[paneId]?.permissionModeTrigger = nil
         paneStates[paneId]?.claudeSessionID = nil
+        // The end-of-turn recap (issue #598) belongs to the session just ended.
+        paneStates[paneId]?.recap = nil
         return true
     }
 
@@ -226,6 +228,22 @@ final public class MirrorWindowManager {
     public func projectName(forClaudeSessionID sessionID: String) -> String? {
         guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
         return paneStates[paneId]?.agentSession?.displayName
+    }
+
+    /// The detected project path for the pane bound to `sessionID` — the
+    /// aggregation key for the cross-session usage store (issue #598). `nil` when
+    /// no pane is bound or no project was detected.
+    public func detectedProjectPath(forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        return paneStates[paneId]?.agentSession?.detectedProjectPath
+    }
+
+    /// Stamps an end-of-turn recap onto a pane by its tmux pane id (issue #598).
+    /// Keyed by pane (not the Claude session.id) because the recap is built from
+    /// the `doneWorking` plugin state, which is already pane-addressed.
+    public func applyRecap(_ recap: SessionRecap, forPane paneId: String) {
+        guard paneStates[paneId] != nil else { return }
+        paneStates[paneId]?.recap = recap
     }
 
     // MARK: - Plugin State (in-process plugin runtime)
@@ -279,6 +297,13 @@ final public class MirrorWindowManager {
                 session.detectedProjectPath = projectPath
             }
             session.state = state
+        }
+
+        // A new turn started — drop any end-of-turn recap (issue #598) so the
+        // card doesn't linger over an active turn. A fresh `doneWorking` restamps
+        // it from the updated telemetry.
+        if case .working = state {
+            paneStates[paneId]?.recap = nil
         }
 
         // Persist the hook `session_id` as the join key for the OTEL telemetry

@@ -658,7 +658,8 @@
                         isPaneActive: activeService.isPaneActive,
                         telemetry: activeService.telemetry,
                         permissionMode: activeService.permissionMode,
-                        permissionModeTrigger: activeService.permissionModeTrigger
+                        permissionModeTrigger: activeService.permissionModeTrigger,
+                        recap: activeService.recap
                     )
                     .navigationTitle("Session Info")
                     .navigationBarTitleDisplayMode(.inline)
@@ -750,107 +751,6 @@
                 let result = await relayClient.sendCommand(spec, paneId: "")
                 if case let .failure(error) = result {
                     commandError = error.localizedDescription
-                }
-            }
-        }
-    }
-
-    // MARK: - Session Info
-
-    struct SessionInfoView: View {
-        let session: AgentSession?
-        let paneId: String
-        let isPaneActive: Bool
-        var telemetry: SessionTelemetry?
-        var permissionMode: String?
-        var permissionModeTrigger: String?
-
-        private var hasMode: Bool {
-            PermissionModePresentation(mode: permissionMode) != nil
-        }
-
-        var body: some View {
-            if let session {
-                List {
-                    Section("Session Info") {
-                        LabeledContent("Pane ID", value: paneId)
-
-                        if let projectPath = session.detectedProjectPath, !projectPath.isEmpty {
-                            LabeledContent("Project") {
-                                Text(projectPath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        LabeledContent("Status") {
-                            HStack {
-                                Circle()
-                                    .fill(isPaneActive ? Color.green : Color.gray)
-                                    .frame(width: 8, height: 8)
-                                Text(session.statusLabel)
-                            }
-                        }
-                    }
-
-                    if telemetry != nil || hasMode {
-                        usageSection
-                    }
-                }
-            } else {
-                ContentUnavailableView(
-                    "Session Not Found",
-                    symbol: .exclamationmarkTriangle,
-                    description: "This session may have ended."
-                )
-            }
-        }
-
-        /// OTEL usage breakdown (issue #597, surface B): tokens by type, cost,
-        /// model, last-turn latency, permission mode + trigger, and a per-turn
-        /// latency sparkline.
-        private var usageSection: some View {
-            Section("Usage") {
-                if let telemetry {
-                    LabeledContent("Tokens (input + output)", value: telemetry.tokensUsed.abbreviatedTokenCount)
-                    LabeledContent("Input", value: telemetry.inputTokens.abbreviatedTokenCount)
-                    LabeledContent("Output", value: telemetry.outputTokens.abbreviatedTokenCount)
-                    LabeledContent("Cache read", value: telemetry.cacheReadTokens.abbreviatedTokenCount)
-                    LabeledContent("Cache write", value: telemetry.cacheCreationTokens.abbreviatedTokenCount)
-                    LabeledContent("Cost", value: telemetry.costUSD.usdCostString)
-                    if let model = telemetry.model {
-                        LabeledContent("Model", value: shortModelName(model))
-                    }
-                    if let latency = telemetry.lastTurnLatencyMs {
-                        LabeledContent("Last turn", value: latency.latencyString)
-                    }
-                }
-
-                if hasMode {
-                    LabeledContent("Permission mode") {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            PermissionModeChip(mode: permissionMode)
-                            if let trigger = permissionModeTrigger, !trigger.isEmpty {
-                                Text(trigger)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-
-                if let telemetry {
-                    let latencies = telemetry.recentTurns.compactMap { $0.latencyMs.map(Double.init) }
-                    if latencies.count >= 2 {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Turn latency")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Sparkline(values: latencies)
-                                .frame(height: 32)
-                        }
-                        .padding(.vertical, 2)
-                    }
                 }
             }
         }
