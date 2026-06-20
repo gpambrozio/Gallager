@@ -4175,8 +4175,8 @@ private extension MainView {
     /// Host identifier for locally-managed sessions. v1 persists local only, so
     /// this is a constant. The store key is `(host, folder)`, so records are
     /// already host-scoped and a layout captured here can't seed another host's
-    /// session sharing the same path.
-    /// TODO: use a real per-host id when remote/viewer sessions are persisted.
+    /// session sharing the same path. When remote/viewer sessions are persisted,
+    /// this needs a real per-host id rather than the `"local"` constant.
     var layoutHost: String { "local" }
 
     /// Windows belonging to `sessionName`, in tmux order.
