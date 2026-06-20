@@ -94,9 +94,13 @@ struct OTLPTelemetryAccumulator {
     // forms resolve to the same case. (Metric names are always fully qualified.)
     private static let apiRequestEvent = "api_request"
     private static let permissionModeEvent = "permission_mode_changed"
+    private static let toolResultEvent = "tool_result"
     private static let commitMetric = "claude_code.commit.count"
     private static let pullRequestMetric = "claude_code.pull_request.count"
+    private static let activeTimeMetric = "claude_code.active_time.total"
+    private static let linesOfCodeMetric = "claude_code.lines_of_code.count"
     private static let sessionIDKey = "session.id"
+    private static let typeKey = "type"
 
     // Codex bare log event names (after stripping the `codex.` namespace).
     // `sse_event` carries token counts only on its `response.completed` kind;
@@ -128,7 +132,7 @@ struct OTLPTelemetryAccumulator {
 
         private static let claudeNamespace = "claude_code."
         private static let codexNamespace = "codex."
-        private static let bareClaudeEvents: Set<String> = [apiRequestEvent, permissionModeEvent]
+        private static let bareClaudeEvents: Set<String> = [apiRequestEvent, permissionModeEvent, toolResultEvent]
 
         /// The attribute key carrying the per-session join id.
         var sessionIDKey: String {
@@ -210,6 +214,14 @@ struct OTLPTelemetryAccumulator {
                 durationMs: attributes.int(for: "duration_ms"),
                 model: attributes.string(for: "model")
             )
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
+
+        case Self.toolResultEvent:
+            // One `tool_result` log per completed tool call — count it (issue
+            // #598). Per-event accumulation, like `api_request` above.
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            telemetry.recordToolResult()
             store(telemetry, for: sessionID)
             result.telemetryUpdates[sessionID] = telemetry
 
@@ -299,36 +311,107 @@ struct OTLPTelemetryAccumulator {
     }
 
     private mutating func process(metric: OTLPMetric, into result: inout OTLPProcessingResult) {
-        let kind: TelemetryMilestone.Kind
-        switch metric.name {
-        case Self.commitMetric: kind = .commit
-        case Self.pullRequestMetric: kind = .pullRequest
-        default: return
-        }
-
-        // Sum each session's cumulative data points, then diff against the last
-        // export to get this interval's delta.
         let dataPoints = metric.sum?.dataPoints ?? metric.gauge?.dataPoints ?? []
-        var totalsBySession: [String: Double] = [:]
-        for point in dataPoints {
-            guard let sessionID = point.attributes?.string(for: Self.sessionIDKey), !sessionID.isEmpty else {
-                continue
+        switch metric.name {
+        case Self.commitMetric:
+            processCounter(name: Self.commitMetric, kind: .commit, dataPoints: dataPoints, into: &result)
+        case Self.pullRequestMetric:
+            processCounter(name: Self.pullRequestMetric, kind: .pullRequest, dataPoints: dataPoints, into: &result)
+        case Self.activeTimeMetric:
+            // Cumulative active seconds; carry the latest total onto the snapshot
+            // (no milestone). Summed across the `type=user/cli` data points.
+            updateCumulative(dataPoints: dataPoints, into: &result) { telemetry, total in
+                telemetry.activeTimeSeconds = Int(total.rounded())
             }
-            totalsBySession[sessionID, default: 0] += point.value
+        case Self.linesOfCodeMetric:
+            processLinesOfCode(dataPoints: dataPoints, into: &result)
+        default:
+            return
         }
+    }
 
-        for (sessionID, total) in totalsBySession {
-            let counterKey = "\(sessionID)|\(metric.name ?? "")"
+    /// Sums `value` per session across `dataPoints` (ignoring points with no
+    /// `session.id`), returning a `session.id → total` map. Shared by every
+    /// counter metric.
+    private static func totalsBySession(_ dataPoints: [OTLPNumberDataPoint]) -> [String: Double] {
+        var totals: [String: Double] = [:]
+        for point in dataPoints {
+            guard let sessionID = point.attributes?.string(for: sessionIDKey), !sessionID.isEmpty else { continue }
+            totals[sessionID, default: 0] += point.value
+        }
+        return totals
+    }
+
+    /// A commit / PR counter: diff against the last export for the milestone
+    /// delta, and carry the cumulative total onto the session snapshot so the
+    /// recap (issue #598) can report "N commits".
+    private mutating func processCounter(
+        name: String,
+        kind: TelemetryMilestone.Kind,
+        dataPoints: [OTLPNumberDataPoint],
+        into result: inout OTLPProcessingResult
+    ) {
+        for (sessionID, total) in Self.totalsBySession(dataPoints) {
+            let counterKey = "\(sessionID)|\(name)"
             let previous = lastCounterValue[counterKey] ?? 0
             lastCounterValue[counterKey] = total
-            // Bound the counter map too: a session that only ever emits
-            // commit/PR counters (never an `api_request` log) must still count
-            // against the cap, not grow unbounded until `evict()` at session end.
-            track(sessionID: sessionID)
+
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            let cumulative = Int(total.rounded())
+            switch kind {
+            case .commit: telemetry.commitCount = cumulative
+            case .pullRequest: telemetry.pullRequestCount = cumulative
+            }
+            // `store` also `track`s the session, so a counter-only session (never
+            // an `api_request` log) still counts against the cap rather than
+            // growing unbounded until `evict()` at session end.
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
+
             let delta = Int((total - previous).rounded())
             if delta > 0 {
                 result.milestones.append(TelemetryMilestone(sessionID: sessionID, kind: kind, count: delta))
             }
+        }
+    }
+
+    /// Updates the session snapshot from a cumulative counter (no milestone),
+    /// applying `apply` with the latest summed total.
+    private mutating func updateCumulative(
+        dataPoints: [OTLPNumberDataPoint],
+        into result: inout OTLPProcessingResult,
+        apply: (inout SessionTelemetry, Double) -> Void
+    ) {
+        for (sessionID, total) in Self.totalsBySession(dataPoints) {
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            apply(&telemetry, total)
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
+        }
+    }
+
+    /// `lines_of_code.count` splits added / removed via the `type` attribute, so
+    /// it needs per-type totals rather than one number per session.
+    private mutating func processLinesOfCode(
+        dataPoints: [OTLPNumberDataPoint],
+        into result: inout OTLPProcessingResult
+    ) {
+        var addedBySession: [String: Double] = [:]
+        var removedBySession: [String: Double] = [:]
+        for point in dataPoints {
+            guard let sessionID = point.attributes?.string(for: Self.sessionIDKey), !sessionID.isEmpty else { continue }
+            switch point.attributes?.string(for: Self.typeKey) {
+            case "added": addedBySession[sessionID, default: 0] += point.value
+            case "removed": removedBySession[sessionID, default: 0] += point.value
+            default: break
+            }
+        }
+        for sessionID in Set(addedBySession.keys).union(removedBySession.keys) {
+            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+            if let added = addedBySession[sessionID] { telemetry.linesAdded = Int(added.rounded()) }
+            if let removed = removedBySession[sessionID] { telemetry.linesRemoved = Int(removed.rounded()) }
+            store(telemetry, for: sessionID)
+            result.telemetryUpdates[sessionID] = telemetry
         }
     }
 

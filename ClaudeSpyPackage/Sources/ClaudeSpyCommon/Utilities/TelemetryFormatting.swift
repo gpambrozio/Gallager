@@ -29,6 +29,19 @@ public extension Int {
         return Self.trimmed(Double(self) / 1_000) + "s"
     }
 
+    /// Formats an active-time duration in **seconds** for the recap / overview
+    /// (issue #598): `0 → "0m"`, `45 → "45s"`, `720 → "12 min"`, `5400 → "1h 30m"`,
+    /// `7200 → "2h"`. Negative values (never expected) read `"0m"`.
+    var activeTimeString: String {
+        guard self > 0 else { return "0m" }
+        if self < 60 { return "\(self)s" }
+        let minutes = self / 60
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+
     /// Rounds to one decimal place, printing a whole result without any trailing
     /// fractional zero (so `1.25` becomes `"1.3"` but a round value stays compact).
     private static func trimmed(_ value: Double) -> String {

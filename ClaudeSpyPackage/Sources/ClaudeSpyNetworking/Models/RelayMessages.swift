@@ -32,16 +32,24 @@ public struct SessionStateMessage: Codable, Sendable {
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
 
+    /// Cross-session cost/usage rollup for this host (issue #598, part B).
+    /// Optional so an older host that doesn't compute it — or an older viewer
+    /// that doesn't read it — degrades gracefully (it just rides the existing
+    /// snapshot, like `agentProjects`).
+    public let usageOverview: UsageOverview?
+
     public init(
         pairId: String,
         paneStates: [String: PaneState],
         agentProjects: [AgentProject]? = nil,
-        homeDirectory: String = ""
+        homeDirectory: String = "",
+        usageOverview: UsageOverview? = nil
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
         self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
+        self.usageOverview = usageOverview
     }
 
     /// Returns a copy with the `pairId` replaced. Centralises the per-connection
@@ -53,7 +61,8 @@ public struct SessionStateMessage: Codable, Sendable {
             pairId: pairId,
             paneStates: paneStates,
             agentProjects: agentProjects,
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            usageOverview: usageOverview
         )
     }
 }
@@ -184,6 +193,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// the first `api_request` is observed for this pane's session.
     public var telemetry: SessionTelemetry?
 
+    // MARK: - Session Recap (issue #598)
+
+    /// A retrospective summary stamped when the session's last turn finished
+    /// (`doneWorking`). Drives the recap card in the session detail. Cleared when
+    /// a new turn starts (`working`) or the session ends, so its presence means
+    /// "the agent just finished and nothing new has started".
+    public var recap: SessionRecap?
+
     // MARK: - Computed Properties
 
     public var id: String {
@@ -222,7 +239,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
         claudeSessionID: String? = nil,
         permissionMode: String? = nil,
         permissionModeTrigger: String? = nil,
-        telemetry: SessionTelemetry? = nil
+        telemetry: SessionTelemetry? = nil,
+        recap: SessionRecap? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -251,6 +269,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.permissionMode = permissionMode
         self.permissionModeTrigger = permissionModeTrigger
         self.telemetry = telemetry
+        self.recap = recap
     }
 }
 
