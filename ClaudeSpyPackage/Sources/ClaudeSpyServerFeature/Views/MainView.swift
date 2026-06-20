@@ -618,16 +618,6 @@ public struct MainView: View {
                 windowManager.setSessionEmoji(emoji, for: sessionName)
             },
             additionalMenu: {
-                if let claudePane {
-                    Button {
-                        sessionInfoSheet = SessionInfoSheetTarget(id: claudePane.paneId)
-                    } label: {
-                        Label("Session Info", symbol: .infoCircle)
-                    }
-
-                    Divider()
-                }
-
                 ColorContextMenuButtons(currentColor: color) { newColor in
                     windowManager.setSessionColor(newColor, for: session.sessionName)
                 }
@@ -691,6 +681,14 @@ public struct MainView: View {
                 }
 
                 Divider()
+
+                if let claudePane {
+                    Button {
+                        sessionInfoSheet = SessionInfoSheetTarget(id: claudePane.paneId)
+                    } label: {
+                        Label("Session Info", symbol: .infoCircle)
+                    }
+                }
 
                 Button(role: .destructive) {
                     requestCloseSession(session.sessionName)
