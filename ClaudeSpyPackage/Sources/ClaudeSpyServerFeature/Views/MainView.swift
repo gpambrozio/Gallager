@@ -4188,7 +4188,13 @@ private extension MainView {
     /// project path when known, else its working directory. `nil` until a pane
     /// (and thus a path) is available.
     func resolveFolder(forSession sessionName: String) -> String? {
-        let sessionWindows = windows(forSession: sessionName)
+        resolveFolder(in: windows(forSession: sessionName))
+    }
+
+    /// Same as `resolveFolder(forSession:)` but works off a precomputed window
+    /// list, so a hot loop can group `tmuxService.windows` once instead of
+    /// re-filtering per session.
+    func resolveFolder(in sessionWindows: [LocalTmuxWindow]) -> String? {
         guard
             let active = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first,
             let pane = active.activePane
@@ -4242,7 +4248,14 @@ private extension MainView {
                 windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
                 makeBrowserState: { BrowserTabState(initialURL: $0.url) }
             )
-            lastPersistedLayouts[sessionName] = chosen
+            // Baseline the change-gate from the *applied* state, not `chosen`:
+            // apply clamps the split ratio and resolves selection/window refs, so
+            // re-snapshotting avoids one redundant save right after seeding.
+            lastPersistedLayouts[sessionName] = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
         }
     }
 
@@ -4250,9 +4263,11 @@ private extension MainView {
     /// workbenches aren't recorded (nothing to restore). Called on each tmux
     /// refresh — the change check keeps the disk write rare.
     func persistChangedLayouts() {
+        // Group the window list once instead of filtering per session below.
+        let windowsBySession = Dictionary(grouping: tmuxService.windows, by: \.sessionName)
         for (sessionName, tabs) in sessionFileTabsStates {
-            guard let folder = resolveFolder(forSession: sessionName) else { continue }
-            let sessionWindows = windows(forSession: sessionName)
+            let sessionWindows = windowsBySession[sessionName] ?? []
+            guard let folder = resolveFolder(in: sessionWindows) else { continue }
             let snapshot = LayoutSnapshotMapper.snapshot(
                 from: tabs,
                 fileBrowser: fileBrowserStates[sessionName],

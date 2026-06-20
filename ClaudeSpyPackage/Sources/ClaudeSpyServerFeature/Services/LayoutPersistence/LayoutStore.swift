@@ -74,6 +74,16 @@
 
     // MARK: - Storage actor
 
+    /// Decodes a single record but tolerates a malformed one (becomes `nil`),
+    /// so one bad entry doesn't fail the whole-array decode and wipe every
+    /// folder's saved layout.
+    private struct FailableRecord: Decodable {
+        let record: SavedFolderRecord?
+        init(from decoder: Decoder) throws {
+            self.record = try? SavedFolderRecord(from: decoder)
+        }
+    }
+
     /// Holds the records in memory and (optionally) mirrors them to a single
     /// JSON file. A combined file is rewritten atomically on each mutation;
     /// writes are debounced upstream, so the rewrite cost is negligible.
@@ -138,6 +148,7 @@
 
         func prune(maxAge: TimeInterval, maxCount: Int, now: Date) {
             ensureLoaded()
+            let before = records.count
             let cutoff = now.addingTimeInterval(-maxAge)
             for (key, rec) in records where rec.lastActive < cutoff {
                 records[key] = nil
@@ -148,7 +159,11 @@
                     .prefix(maxCount)
                 records = Dictionary(keep.map { ($0.key, $0) }, uniquingKeysWith: { _, new in new })
             }
-            persist()
+            // Only rewrite the file if pruning actually dropped something —
+            // launches with nothing stale shouldn't churn the on-disk array.
+            if records.count != before {
+                persist()
+            }
         }
 
         // MARK: - Disk
@@ -156,9 +171,30 @@
         private func ensureLoaded() {
             guard !loaded else { return }
             loaded = true
-            guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return }
-            guard let decoded = try? JSONDecoder().decode([SavedFolderRecord].self, from: data) else { return }
-            records = Dictionary(decoded.map { ($0.key, $0) }, uniquingKeysWith: { _, new in new })
+            // No file yet (first run) is the common, expected case — stay silent.
+            guard let fileURL, FileManager.default.fileExists(atPath: fileURL.path) else { return }
+            let data: Data
+            do {
+                data = try Data(contentsOf: fileURL)
+            } catch {
+                logger.error("Failed to read layouts.json; starting empty: \(error)")
+                return
+            }
+            // Decode per-record so one malformed entry drops only itself rather
+            // than wiping every folder's layout. A bad top-level shape still logs.
+            do {
+                let decoded = try JSONDecoder().decode([FailableRecord].self, from: data)
+                let dropped = decoded.filter { $0.record == nil }.count
+                if dropped > 0 {
+                    logger.error("Dropped \(dropped) malformed layout record(s) while loading")
+                }
+                records = Dictionary(
+                    decoded.compactMap(\.record).map { ($0.key, $0) },
+                    uniquingKeysWith: { _, new in new }
+                )
+            } catch {
+                logger.error("Failed to decode layouts.json; starting empty: \(error)")
+            }
         }
 
         private func persist() {
