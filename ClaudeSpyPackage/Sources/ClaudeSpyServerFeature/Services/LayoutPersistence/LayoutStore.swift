@@ -2,6 +2,7 @@
     import Dependencies
     import DependenciesMacros
     import Foundation
+    import Logging
 
     /// Persists workbench layouts, one record per **folder** (see
     /// `docs/folder-layout-persistence-plan.md`). The store answers a single
@@ -80,6 +81,7 @@
         private let fileURL: URL?
         private var records: [SavedFolderRecord.Key: SavedFolderRecord]
         private var loaded: Bool
+        private let logger = Logger(label: "com.claudespy.layoutstore")
 
         /// Disk-backed. Loads lazily on first access.
         init(directory: URL?) {
@@ -169,7 +171,9 @@
                 let data = try JSONEncoder().encode(Array(records.values))
                 try data.write(to: fileURL, options: .atomic)
             } catch {
-                // Best-effort: layout persistence must never disrupt the app.
+                // Best-effort: layout persistence must never disrupt the app, but
+                // log so a silently failing disk write is diagnosable.
+                logger.error("Failed to persist layouts: \(error)")
             }
         }
     }

@@ -110,6 +110,9 @@ public struct MainView: View {
     /// Last layout snapshot persisted per session, so an unchanged workbench
     /// doesn't trigger a redundant disk write on every tmux refresh.
     @State private var lastPersistedLayouts: [String: SavedFolderLayout] = [:]
+    /// In-flight save per session, chained so rapid writes for the same session
+    /// reach the store in order (avoids a stale older snapshot landing last).
+    @State private var pendingLayoutSaves: [String: Task<Void, Never>] = [:]
 
     public var body: some View {
         @Bindable var coordinator = coordinator
@@ -260,6 +263,11 @@ public struct MainView: View {
             seededSessions.formIntersection(currentSessionNames)
             for key in lastPersistedLayouts.keys where !currentSessionNames.contains(key) {
                 lastPersistedLayouts.removeValue(forKey: key)
+            }
+            // Drop the save-chain reference (not cancelled — let the final write
+            // for a torn-down session land).
+            for key in pendingLayoutSaves.keys where !currentSessionNames.contains(key) {
+                pendingLayoutSaves.removeValue(forKey: key)
             }
             for key in gitWorkbenchStores.keys where !currentSessionNames.contains(key) {
                 gitWorkbenchStores.removeValue(forKey: key)
@@ -4164,7 +4172,11 @@ struct GitStoreEntry {
 /// file so it can read `MainView`'s private session-tab `@State`. See
 /// `docs/folder-layout-persistence-plan.md`.
 private extension MainView {
-    /// Host identifier for locally-managed sessions. v1 persists local only.
+    /// Host identifier for locally-managed sessions. v1 persists local only, so
+    /// this is a constant. The store key is `(host, folder)`, so records are
+    /// already host-scoped and a layout captured here can't seed another host's
+    /// session sharing the same path.
+    /// TODO: use a real per-host id when remote/viewer sessions are persisted.
     var layoutHost: String { "local" }
 
     /// Windows belonging to `sessionName`, in tmux order.
@@ -4210,6 +4222,10 @@ private extension MainView {
         Task {
             guard let chosen = await layoutStore.record(key)?.layout, !chosen.isEmpty else { return }
 
+            // The store await may have suspended across a cleanup pass that tore
+            // this session down. Don't resurrect a dead session's tabs state.
+            guard tmuxService.sessions.contains(where: { $0.sessionName == sessionName }) else { return }
+
             // Re-check freshness now that we've awaited the store.
             let tabs = sessionFileTabsStates[sessionName] ?? {
                 let new = SessionFileTabsState()
@@ -4252,7 +4268,13 @@ private extension MainView {
                 lastActive: Date(),
                 layout: snapshot
             )
-            Task { await layoutStore.save(record) }
+            // Chain on the session's prior save so writes reach the store in the
+            // order they were produced, even though each runs in its own Task.
+            let previous = pendingLayoutSaves[sessionName]
+            pendingLayoutSaves[sessionName] = Task {
+                await previous?.value
+                await layoutStore.save(record)
+            }
         }
     }
 

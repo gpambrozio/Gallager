@@ -13,8 +13,10 @@
     /// session has no tabs to collide with), so only window references need to be
     /// re-mapped — by tmux window *index* — at restore time.
     struct SavedFolderLayout: Codable, Sendable, Equatable {
-        /// Bumped when the wire format changes incompatibly. Decode failures and
-        /// version mismatches fall back to an empty workbench (best-effort).
+        /// Reserved for a future wire-format change; informational for now. It is
+        /// deliberately **not** gated on load — a structurally-decodable record is
+        /// applied regardless of version, so an additive change doesn't discard a
+        /// user's layout. Only an outright decode failure falls back to empty.
         var schemaVersion: Int
 
         var fileTabs: [SavedFileTab]
