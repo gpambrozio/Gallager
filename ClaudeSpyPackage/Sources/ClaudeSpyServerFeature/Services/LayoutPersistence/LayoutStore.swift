@@ -28,8 +28,8 @@
         var prune: @Sendable (_ maxAge: TimeInterval, _ maxCount: Int) async -> Void
         /// Drop every record whose `host` is not in `keepHosts`. Called on launch
         /// to GC layouts for hosts the viewer is no longer paired with (issue
-        /// #608). Local records use the `"local"` host id, which the caller always
-        /// includes, so they're never touched.
+        /// #608). The caller must always include `SavedFolderRecord.localHost` so
+        /// local records are never touched (asserted in the implementation).
         var pruneHosts: @Sendable (_ keepHosts: Set<String>) async -> Void
     }
 
@@ -173,6 +173,13 @@
         }
 
         func pruneHosts(keeping keepHosts: Set<String>) {
+            // Guard the invariant: omitting the local host would silently wipe
+            // every local layout. The launch call site always unions it in; this
+            // catches a future call site that forgets (issue #608).
+            assert(
+                keepHosts.contains(SavedFolderRecord.localHost),
+                "pruneHosts keep set must always include the local host id"
+            )
             ensureLoaded()
             let before = records.count
             for (key, _) in records where !keepHosts.contains(key.host) {

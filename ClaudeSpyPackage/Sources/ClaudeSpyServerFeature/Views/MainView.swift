@@ -349,9 +349,9 @@ public struct MainView: View {
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
-            // forever. Session-level cleanup (sessions deleted on a still-
-            // paired host) is left to host-level cleanup; in practice an
-            // empty session goes away when the user reconnects without it.
+            // forever. Per-session cleanup for sessions killed on a still-
+            // *connected* host is handled by `pruneStaleRemoteSessionBookkeeping`;
+            // this host-level pass covers full unpair.
             let currentHostIdsSet = Set(currentHostIds)
             for key in remoteSessionTabsStates.keys where !currentHostIdsSet.contains(key.hostId) {
                 remoteSessionTabsStates.removeValue(forKey: key)
@@ -3475,12 +3475,72 @@ public struct MainView: View {
         )
     }
 
+    /// Forget seed/persist bookkeeping — and the live tab state — for remote
+    /// sessions killed on a host that is *currently reporting* (connected and
+    /// syncing). The analogue of the local
+    /// `seededSessions.formIntersection(currentSessionNames)` cleanup: without
+    /// it a stale `(hostId, sessionName)` key makes `seedRemoteLayoutIfNeeded`
+    /// short-circuit, so a recreated same-named session never re-seeds from the
+    /// persisted folder layout, and the dead session's `BrowserTabState`
+    /// (`WKWebView`s) leaks (issue #608).
+    ///
+    /// Gated on `hasSessions(for:)`: a host clears its pane state on *disconnect*
+    /// too (`AppCoordinator.onHostDisconnected` → `clearSessions`), which is
+    /// indistinguishable here from a kill — so a host that currently reports
+    /// nothing is treated as disconnected and its bookkeeping is retained for
+    /// reconnect, matching `remoteSessionTabsStates` (only fully cleared on
+    /// unpair). Residual gap: a host whose *only* session is recycled under the
+    /// same name on a *different* folder won't re-seed until reconnect;
+    /// same-folder recycles are unaffected (the retained state already equals
+    /// that folder's record).
+    private func pruneStaleRemoteSessionBookkeeping() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+
+        // Live keys for hosts that currently report sessions. Hosts reporting
+        // nothing (disconnected, or briefly between a kill and a recreate) are
+        // absent, so none of their keys are treated as stale below.
+        var liveKeys: Set<RemoteSessionTabsKey> = []
+        var reportingHosts: Set<String> = []
+        for host in settings.pairedHosts where sessionStore.hasSessions(for: host.id) {
+            reportingHosts.insert(host.id)
+            for session in sessionStore.sessions(for: host.id) {
+                liveKeys.insert(RemoteSessionTabsKey(hostId: host.id, sessionName: session.sessionName))
+            }
+        }
+        guard !reportingHosts.isEmpty else { return }
+
+        func isStale(_ key: RemoteSessionTabsKey) -> Bool {
+            reportingHosts.contains(key.hostId) && !liveKeys.contains(key)
+        }
+
+        for key in seededRemoteSessions where isStale(key) {
+            seededRemoteSessions.remove(key)
+        }
+        for key in lastPersistedRemoteLayouts.keys where isStale(key) {
+            lastPersistedRemoteLayouts.removeValue(forKey: key)
+        }
+        // Save-chain task isn't cancelled — let a final write for the just-killed
+        // session land before forgetting it (matches the unpair path).
+        for key in pendingRemoteLayoutSaves.keys where isStale(key) {
+            pendingRemoteLayoutSaves.removeValue(forKey: key)
+        }
+        // Release the dead session's live tab state (browser `WKWebView`s) so a
+        // recreate starts clean — the analogue of the local
+        // `sessionFileTabsStates` removal.
+        for key in remoteSessionTabsStates.keys where isStale(key) {
+            remoteSessionTabsStates.removeValue(forKey: key)
+        }
+    }
+
     /// Prune any right-side window entries that point at remote terminals
     /// the host has just removed (a window was closed remotely). Without
     /// this, `isSplit` stays true and the right pane shows "No Tab Selected"
     /// forever even though the referenced window is gone.
     private func pruneStaleRemoteRightSideEntries() {
         guard coordinator.remoteSessionStore != nil else { return }
+        // GC bookkeeping + tab state for sessions killed on a still-connected
+        // host before reconciling the survivors' right-side entries (issue #608).
+        pruneStaleRemoteSessionBookkeeping()
         var prunedSelectedSession = false
         for (key, tabs) in remoteSessionTabsStates {
             let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
@@ -4215,7 +4275,7 @@ private extension MainView {
     /// so local and remote records on the same path can't collide. The pairId is
     /// a UUID-shaped string, so it never equals `"local"`.
     var layoutHost: String {
-        "local"
+        SavedFolderRecord.localHost
     }
 
     /// Windows belonging to `sessionName`, in tmux order.

@@ -29,13 +29,16 @@
             return stripTrailingSlash(path)
         }
 
-        /// Drop a trailing slash, keeping root (`/`) intact.
-        private static func stripTrailingSlash(_ path: String) -> String? {
+        /// Drop a trailing slash, keeping root (`/`) intact. Both callers guard a
+        /// non-empty input and the loop stops at `count > 1`, so the result is
+        /// never empty — hence a non-optional return (coerces to the callers'
+        /// `String?`).
+        private static func stripTrailingSlash(_ path: String) -> String {
             var result = path
             while result.count > 1, result.hasSuffix("/") {
                 result.removeLast()
             }
-            return result.isEmpty ? nil : result
+            return result
         }
     }
 #endif

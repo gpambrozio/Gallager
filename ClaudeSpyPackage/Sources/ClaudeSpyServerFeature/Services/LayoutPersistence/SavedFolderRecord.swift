@@ -11,7 +11,12 @@
     /// session names are recycled (kill `ClaudeSpy-2`, later create a new one on
     /// the same repo), so a name is not a durable identity. A folder is.
     struct SavedFolderRecord: Codable, Sendable, Equatable {
-        /// Local host identifier. v1 only persists local sessions.
+        /// Host id used for locally-managed sessions. Remote/viewer records key on
+        /// the host's `pairId` (UUID-shaped), which never equals this (issue #608).
+        static let localHost = "local"
+
+        /// Host identifier — `localHost` for local sessions, the host `pairId` for
+        /// remote/viewer ones.
         var host: String
         /// Canonical project path this layout belongs to — the identity.
         var folder: String
