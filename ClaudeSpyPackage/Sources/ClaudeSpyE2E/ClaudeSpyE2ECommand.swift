@@ -345,6 +345,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         ScrollbackBandRecaptureScenario.scenario,
         LongTitleTruncationIOSScenario.scenario,
         FolderLayoutPersistenceScenario.scenario,
+        RemoteLayoutPersistenceMacViewerScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

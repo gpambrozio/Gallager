@@ -266,13 +266,54 @@ implementation.
 
 ### 4.7 Scope & limits (v1)
 
-- **Local host only.** This is a local-Mac workbench concept (file tabs open
-  local files; the browser is a local `WKWebView`). Remote/viewer sessions
-  (`remoteSessionTabsStates`) stay transient.
+- **Local + remote/viewer (Scope A).** v1 shipped local-only. Remote/viewer
+  sessions are now persisted too (issue #608) — see §4.8. Cross-viewer /
+  host-authoritative layout sync (Scope B) remains out of scope (§7).
 - **No named layouts** (R5). If "throwaway session clobbers the folder default"
   becomes a real annoyance, named layouts are the future escape hatch (see §7).
 - **Pruning.** Records accumulate as folders come and go. Garbage-collect on
-  launch (drop records older than N days and/or cap total count).
+  launch (drop records older than N days and/or cap total count). For remote
+  records there is a third axis: drop records whose host is no longer in
+  `pairedHosts` (`LayoutStore.pruneHosts`, §4.8).
+
+### 4.8 Remote / viewer persistence (Scope A — issue #608)
+
+A Mac viewing a paired Mac host persists each remote session's workbench the
+same way it persists local ones, so the viewer restores **its own** arrangement
+for a remote session across reconnect / app restart. This is *viewer-local*: the
+arrangement is never synced back to the host or to other viewers (that's Scope
+B, §7).
+
+The store and mapper are host-agnostic, so the same `layouts.json` holds both
+local and remote records — distinguished by the `host` field:
+
+- **Per-record host.** Local records use `host = "local"`; remote records use
+  the host's `pairId` (the stable pairing id, persisted on both ends). A pairId
+  is UUID-shaped, so it never collides with `"local"`.
+- **Remote folder identity.** The remote session's folder comes from the synced
+  pane state (`agentSession.detectedProjectPath ?? currentPath` in
+  `SessionStore`). It is normalized **string-only**
+  (`LayoutFolderKey.canonicalizeRemote`: strip a trailing slash, *no* `~` /
+  symlink resolution) — a remote path lives on the host's disk, so resolving it
+  against the *viewer's* filesystem would be wrong.
+- **Browser-only.** Remote file browsing doesn't exist yet, so remote
+  persistence covers **browser tabs + split arrangement + selection** only. The
+  snapshot's `fileTabs` come out empty (the mapper already tolerates that) and
+  there is no `FileBrowserState` to seed.
+- **Same birth/save invariant (§4.1).** Seeding happens once per remote session
+  while its workbench is empty (`seedRemoteLayoutIfNeeded`); auto-save runs on
+  the same 2 s cadence (`persistChangedRemoteLayouts`). Bookkeeping
+  (`seededRemoteSessions`, `lastPersistedRemoteLayouts`,
+  `pendingRemoteLayoutSaves`) is keyed by `(hostId, sessionName)` and cleared
+  when a host unpairs, in lockstep with `remoteSessionTabsStates`.
+
+> **Note on the relaunch path under E2E.** A true viewer quit/relaunch restore
+> reads the disk record back, but it can't be E2E-tested today: under
+> `--e2e-test` each instance backs `PreferencesService` in-memory, so a
+> relaunched viewer loses its pairing and can't reconnect. The E2E scenario
+> (`RemoteLayoutPersistenceMacViewerScenario`) proves the live save → store →
+> seed pipeline via the same-folder sibling-session clone instead; the disk
+> round trip is covered by `LayoutStoreTests`.
 
 ## 5. Data model & components
 
@@ -332,7 +373,14 @@ Pruning + edge cases.
   key).
 - **Per-session foreground-only writes** or a **"lock folder layout" toggle** —
   cheaper mitigations for clobbering.
-- **Remote/viewer persistence** — would need host-portable file references.
+- **Remote/viewer persistence (Scope A)** — ✅ shipped (issue #608, §4.8):
+  viewer-local persistence of remote sessions' browser tabs + split.
+- **Cross-viewer / host-authoritative layout sync (Scope B)** — *out of scope.*
+  Syncing a viewer's arranged layout back to the relay/host or to other viewers
+  would need a new relay message type (today `CommandType` has no "set layout"
+  verb) plus cross-viewer conflict handling. Tracked separately if ever needed.
+- **Remote file tabs** — blocked on remote file browsing not existing yet; until
+  then remote persistence is browser-tabs-only (§4.8).
 - **Folder re-key on mid-life `cd`** — see §4.6.
 
 ## 8. Open questions

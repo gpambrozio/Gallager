@@ -15,7 +15,7 @@
     /// (`MainView`). The store never throws into the app — persistence failures
     /// degrade to "no saved layout" rather than disrupting the workbench.
     @DependencyClient
-    struct LayoutStore: Sendable {
+    struct LayoutStore {
         /// Saved layout for a folder key, or `nil` if none.
         var record: @Sendable (_ key: SavedFolderRecord.Key) async -> SavedFolderRecord?
         /// Insert or replace the folder's record (most-recent write wins when two
@@ -26,6 +26,11 @@
         /// Garbage-collect stale records: drop anything older than `maxAge`, then
         /// cap to the `maxCount` most-recently-active. Called once on launch.
         var prune: @Sendable (_ maxAge: TimeInterval, _ maxCount: Int) async -> Void
+        /// Drop every record whose `host` is not in `keepHosts`. Called on launch
+        /// to GC layouts for hosts the viewer is no longer paired with (issue
+        /// #608). Local records use the `"local"` host id, which the caller always
+        /// includes, so they're never touched.
+        var pruneHosts: @Sendable (_ keepHosts: Set<String>) async -> Void
     }
 
     extension LayoutStore {
@@ -67,7 +72,8 @@
                 record: { await storage.record(for: $0) },
                 save: { await storage.save($0) },
                 remove: { await storage.remove($0) },
-                prune: { await storage.prune(maxAge: $0, maxCount: $1, now: Date()) }
+                prune: { await storage.prune(maxAge: $0, maxCount: $1, now: Date()) },
+                pruneHosts: { await storage.pruneHosts(keeping: $0) }
             )
         }
     }
@@ -161,6 +167,19 @@
             }
             // Only rewrite the file if pruning actually dropped something —
             // launches with nothing stale shouldn't churn the on-disk array.
+            if records.count != before {
+                persist()
+            }
+        }
+
+        func pruneHosts(keeping keepHosts: Set<String>) {
+            ensureLoaded()
+            let before = records.count
+            for (key, _) in records where !keepHosts.contains(key.host) {
+                records[key] = nil
+            }
+            // Same write-only-if-changed guard as `prune`: a launch where every
+            // record's host is still paired shouldn't churn the on-disk array.
             if records.count != before {
                 persist()
             }

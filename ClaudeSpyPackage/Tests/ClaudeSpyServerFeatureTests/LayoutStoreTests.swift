@@ -6,7 +6,6 @@
     /// Covers the in-memory `LayoutStore`: per-folder save/load, same-folder
     /// overwrite (most-recent write wins), independence across folders, and
     /// prune-by-count. See `docs/folder-layout-persistence-plan.md` §4.2–4.3.
-    @Suite("LayoutStore")
     struct LayoutStoreTests {
         private func record(
             folder: String,
@@ -98,6 +97,48 @@
 
             #expect(await store.record(key("/stale")) == nil)
             #expect(await store.record(key("/fresh")) != nil)
+        }
+
+        // MARK: - pruneHosts (issue #608)
+
+        @Test("pruneHosts drops records whose host is not in the kept set")
+        func pruneHostsDropsUnpaired() async {
+            let store = LayoutStore.inMemory([
+                record(folder: "/local-proj", lastActive: 100, host: "local"),
+                record(folder: "/remote-proj", lastActive: 100, host: "pair-A"),
+                record(folder: "/gone-proj", lastActive: 100, host: "pair-B"),
+            ])
+
+            // Keep local + the still-paired host A; B was unpaired.
+            await store.pruneHosts(["local", "pair-A"])
+
+            #expect(await store.record(key("/local-proj", host: "local")) != nil)
+            #expect(await store.record(key("/remote-proj", host: "pair-A")) != nil)
+            #expect(await store.record(key("/gone-proj", host: "pair-B")) == nil)
+        }
+
+        @Test("pruneHosts keeps local records even when no hosts are paired")
+        func pruneHostsKeepsLocalWithNoPairings() async {
+            let store = LayoutStore.inMemory([
+                record(folder: "/local-proj", lastActive: 100, host: "local"),
+                record(folder: "/remote-proj", lastActive: 100, host: "pair-A"),
+            ])
+
+            // A viewer with every host unpaired still keeps its local layouts.
+            await store.pruneHosts(["local"])
+
+            #expect(await store.record(key("/local-proj", host: "local")) != nil)
+            #expect(await store.record(key("/remote-proj", host: "pair-A")) == nil)
+        }
+
+        @Test("pruneHosts is a no-op when every host is still kept")
+        func pruneHostsNoOpWhenAllKept() async {
+            let original = record(folder: "/remote-proj", lastActive: 100, host: "pair-A")
+            let store = LayoutStore.inMemory([original])
+
+            await store.pruneHosts(["local", "pair-A", "pair-B"])
+
+            #expect(await store.record(key("/remote-proj", host: "pair-A")) == original)
         }
     }
 #endif
