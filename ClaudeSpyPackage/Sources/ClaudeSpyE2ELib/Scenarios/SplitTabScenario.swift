@@ -53,6 +53,13 @@ public enum SplitTabScenario {
         TestStep.wait(seconds: 1)
 
         TestStep.tmuxCreateSession(name: "other", width: 100, height: 30)
+        // Put `other` in a different working directory than `split`. Folder
+        // layout persistence (feat/folder-layout-persistence) seeds an empty
+        // session from its folder's last-known layout, so a sibling session in
+        // the *same* directory would inherit split's tabs — which would defeat
+        // Phase 5's "switch to an independent empty session" check. A distinct
+        // cwd keeps `other` genuinely empty.
+        Shortcut.tmuxRunCommand(target: "other:0", command: "cd /tmp")
         Shortcut.tmuxClearAndSetPrompt(target: "other:0")
         Shortcut.tmuxRunCommand(target: "other:0", command: "echo 'second session for round trip'")
         TestStep.wait(seconds: 1)

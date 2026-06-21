@@ -136,6 +136,13 @@ public enum BrowserTabFromTerminalLinkScenario {
         // Second session — its only role is to host the "switch away and
         // come back" leg in Phase 2.
         TestStep.tmuxCreateSession(name: "other", width: 100, height: 30)
+        // Put `other` in a different working directory than `weblinks`. Folder
+        // layout persistence (feat/folder-layout-persistence) seeds an empty
+        // session from its folder's last-known layout, so a sibling in the *same*
+        // cwd would inherit weblinks's open browser tab — and Phase 2's
+        // "switch away → browser tab disappears" check would never see it leave.
+        // A distinct cwd keeps `other` genuinely empty.
+        Shortcut.tmuxRunCommand(target: "other:0", command: "cd /tmp")
         Shortcut.tmuxClearAndSetPrompt(target: "other:0")
         Shortcut.tmuxRunCommand(target: "other:0", command: "echo 'second session — switch target'")
         TestStep.wait(seconds: 1)

@@ -145,6 +145,13 @@ public enum GitBrowserScenario {
         // earlier phases' screenshots aren't disturbed by an extra sidebar row.
         // The name avoids the substring "git" for the same reason as above.
         TestStep.tmuxCreateSession(name: "otherproj", width: 160, height: 50)
+        // Put `otherproj` in a different working directory than `repobrowse`.
+        // Folder layout persistence (feat/folder-layout-persistence) seeds an
+        // empty session from its folder's last-known layout, so a sibling in the
+        // *same* cwd would inherit repobrowse's open Git tab — making this
+        // "switch to a fresh session" screenshot show the git workbench instead
+        // of a plain terminal. A distinct cwd keeps `otherproj` genuinely empty.
+        Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "cd /tmp")
         Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "echo '=== OTHER PROJECT ==='")
 
         // Select the other session — its terminal replaces the Git view.
