@@ -29,13 +29,10 @@ ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
 DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
 
 # =====================================================
-# Colors for output
+# Shared helpers (colors, logging, version + notes editing)
 # =====================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# shellcheck source=scripts/common.sh
+source "$SCRIPT_DIR/common.sh"
 
 # =====================================================
 # Parse arguments
@@ -85,19 +82,6 @@ done
 # =====================================================
 # Helper functions
 # =====================================================
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }  # exits
-
-get_version() {
-    grep "^MARKETING_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
-
-get_build_number() {
-    grep "^CURRENT_PROJECT_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
-
 increment_version() {
     local version=$1
     local major minor
@@ -708,22 +692,8 @@ main() {
     echo "----------------------------------------"
     echo ""
 
-    read -p "Proceed with release? (y/N) " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_warning "Release cancelled — reverting version bump..."
-        local did_stash=false
-        if ! git -C "$PROJECT_ROOT" diff --quiet 2>/dev/null || ! git -C "$PROJECT_ROOT" diff --cached --quiet 2>/dev/null; then
-            git -C "$PROJECT_ROOT" stash push -m "release-rollback-save" && did_stash=true
-        fi
-        git -C "$PROJECT_ROOT" reset --hard HEAD~1
-        if [ "$did_stash" = true ]; then
-            git -C "$PROJECT_ROOT" stash pop || log_warning "Could not auto-restore local changes — they are saved in git stash"
-        fi
-        REVERT_COMMITS=0
-        log_info "Release cancelled"
-        exit 0
-    fi
+    offer_to_edit_notes "$release_notes" "release notes" "release-notes.md"
+    release_notes="$EDITED_NOTES"
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
 
