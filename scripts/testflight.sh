@@ -31,13 +31,10 @@ BETA_GROUP_NAME="Beta 1"
 ASC_API_BASE="https://api.appstoreconnect.apple.com/v1"
 
 # =====================================================
-# Colors for output
+# Shared helpers (colors, logging, version + notes editing)
 # =====================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# shellcheck source=scripts/common.sh
+source "$SCRIPT_DIR/common.sh"
 
 # =====================================================
 # Parse arguments
@@ -123,22 +120,6 @@ fi
 # Use environment variables as fallback
 API_KEY="${API_KEY:-$APP_STORE_CONNECT_API_KEY_ID}"
 API_ISSUER="${API_ISSUER:-$APP_STORE_CONNECT_ISSUER_ID}"
-
-# =====================================================
-# Helper functions
-# =====================================================
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
-
-get_version() {
-    grep "^MARKETING_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
-
-get_build_number() {
-    grep "^CURRENT_PROJECT_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
 
 # =====================================================
 # App Store Connect API helpers
@@ -541,6 +522,11 @@ build_changelog_and_set() {
     echo "Changelog:"
     echo "$changelog"
     echo ""
+
+    if [ "$AUTO_YES" != true ]; then
+        offer_to_edit_notes "$changelog" "What to Test notes" "what-to-test.txt"
+        changelog="$EDITED_NOTES"
+    fi
 
     local build_number
     build_number=$(get_build_number)
