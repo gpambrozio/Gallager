@@ -15,7 +15,7 @@
     /// (`MainView`). The store never throws into the app — persistence failures
     /// degrade to "no saved layout" rather than disrupting the workbench.
     @DependencyClient
-    struct LayoutStore {
+    struct LayoutStore: Sendable {
         /// Saved layout for a folder key, or `nil` if none.
         var record: @Sendable (_ key: SavedFolderRecord.Key) async -> SavedFolderRecord?
         /// Insert or replace the folder's record (most-recent write wins when two
