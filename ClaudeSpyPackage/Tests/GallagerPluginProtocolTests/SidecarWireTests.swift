@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Foundation
 import Testing
 @testable import GallagerPluginProtocol
@@ -41,5 +42,60 @@ struct StdioFramerTests {
         var dec = FrameDecoder()
         let header = Data("Content-Length: \(33 * 1_024 * 1_024)\r\n\r\n".utf8)
         #expect(throws: FramingError.bodyTooLarge(33 * 1_024 * 1_024)) { _ = try dec.push(header) }
+    }
+}
+
+@Suite("RPCMessage")
+struct RPCMessageTests {
+    @Test("request round-trips through JSON")
+    func requestRoundTrip() throws {
+        let msg = RPCMessage.request(
+            id: "1",
+            method: SidecarRPC.initialize,
+            params: .object(["appVersion": .string("2.0")])
+        )
+        let data = try JSONEncoder().encode(msg)
+        let back = try JSONDecoder().decode(RPCMessage.self, from: data)
+        #expect(back == msg)
+        #expect(back.isRequest)
+        #expect(!back.isNotification)
+    }
+
+    @Test("a notification has no id")
+    func notificationHasNoID() throws {
+        let n = RPCMessage.notification(method: HostRPC.emitEvent, params: .object([:]))
+        #expect(n.id == nil)
+        #expect(n.isNotification)
+        let data = try JSONEncoder().encode(n)
+        #expect(!String(decoding: data, as: UTF8.self).contains("\"id\""))
+    }
+
+    @Test("method-name constants match the spec vocabulary")
+    func methodNames() {
+        #expect(SidecarRPC.translateEvent == "translate_event")
+        #expect(SidecarRPC.commandForLaunch == "command_for_launch")
+        #expect(HostRPC.setProjects == "set_projects")
+        #expect(HostRPC.agentPanes == "agent_panes")
+    }
+}
+
+@Suite("PluginEnvWire")
+struct PluginEnvWireTests {
+    @Test("settings ride as nested JSON, not base64")
+    func settingsNested() throws {
+        let env = PluginEnv(
+            pluginRoot: URL(fileURLWithPath: "/p"), stateDir: URL(fileURLWithPath: "/s"),
+            appVersion: "2.0", settings: Data(#"{"auto_run":true}"#.utf8),
+            marketplaceSource: URL(fileURLWithPath: "/m"),
+            otlpReceiverEndpoint: URL(string: "http://127.0.0.1:4318")
+        )
+        let wire = try PluginEnvWire(env)
+        let json = try JSONEncoder().encode(wire)
+        let text = String(decoding: json, as: UTF8.self)
+        #expect(text.contains(#""auto_run":true"#)) // embedded object, not a quoted blob
+        #expect(!text.contains("eyJ")) // no base64
+        // Round-trips back to the same settings bytes.
+        let decoded = try JSONDecoder().decode(PluginEnvWire.self, from: json)
+        #expect(decoded.settingsData() == env.settings)
     }
 }
