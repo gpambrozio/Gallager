@@ -27,8 +27,16 @@
         public private(set) var manifests: [String: PluginManifest]
 
         /// Plugin root URL per id (where `plugin.json` + assets live), used to read
-        /// the icon for presentations.
-        private let pluginRoots: [String: URL]
+        /// the icon for presentations. `let` for bundled; extended via `registerSidecar`.
+        private var pluginRoots: [String: URL]
+
+        /// Per-plugin install source (bundled/url/folder). Bundled plugins carry an
+        /// implicit `.bundled` not stored here; only sidecar registrations write it.
+        private var sources: [String: PluginRegistryEntry.Source] = [:]
+
+        /// Gallager paths needed to build `PluginRootLayout` for sidecar cores.
+        /// Set once at startup via `attachPaths(_:)` before any sidecar is enabled.
+        private var paths: GallagerPaths?
 
         /// Enabled + successfully-initialized cores, keyed by id.
         public private(set) var active: [String: any PluginCore] = [:]
@@ -76,6 +84,27 @@
             self.pluginRoots = roots
         }
 
+        // MARK: - Sidecar registration
+
+        /// Store the Gallager paths needed to build `PluginRootLayout` for sidecar
+        /// cores. Call once at startup before enabling any sidecar plugin.
+        public func attachPaths(_ paths: GallagerPaths) {
+            self.paths = paths
+        }
+
+        /// Register a runtime-discovered sidecar manifest (url/folder install
+        /// channel). Adds the manifest and root so `makeCore`/`enable`/`listEntries`
+        /// all see it. `source` is surfaced by `listEntries()`.
+        public func registerSidecar(
+            manifest: PluginManifest,
+            root: URL,
+            source: PluginRegistryEntry.Source
+        ) {
+            manifests[manifest.id] = manifest
+            pluginRoots[manifest.id] = root
+            sources[manifest.id] = source
+        }
+
         // MARK: - Manifest accessors (for pane detection, spec §6)
 
         /// Process names for an enabled plugin's pane detection, keyed by id.
@@ -91,21 +120,33 @@
         // MARK: - Core construction
 
         /// Construct (but do not initialize) a core for `id`, switching on the
-        /// manifest `runtime`. v1 conformers are always `.inProcess` → use the
-        /// factory. Returns `nil` for an unknown id or unsupported runtime.
+        /// manifest `runtime`. In-process conformers use the factory table; sidecar
+        /// conformers are built from `PluginRootLayout` + `SidecarSupervisor`.
+        /// Returns `nil` for an unknown id or when required config is missing.
         public func makeCore(_ id: String) -> (any PluginCore)? {
-            guard let factory = factories[id] else { return nil }
             // A missing manifest defaults to in-process (the factory table is the
             // source of truth for compiled-in cores).
             let runtime = manifests[id]?.runtime ?? .inProcess
             switch runtime {
             case .inProcess:
+                guard let factory = factories[id] else { return nil }
                 return factory()
             case .sidecar:
-                // v2: construct a SidecarPluginCore transport adapter here. v1 has
-                // no sidecar loader, so decline.
-                logger.warning("Plugin '\(id)' declares sidecar runtime, unsupported in v1")
-                return nil
+                guard let manifest = manifests[id], let root = pluginRoots[id], let paths else {
+                    logger.warning(
+                        "Cannot construct sidecar '\(id)': missing manifest/root/paths"
+                    )
+                    return nil
+                }
+                let layout = PluginRootLayout(
+                    pluginRoot: root,
+                    stateDir: paths.pluginStateDir(id),
+                    logDir: paths.pluginLogPath(id).deletingLastPathComponent(),
+                    ingressSocketPath: paths.ingressSocketPath.path,
+                    appVersion: VersionCompatibility.currentAppVersion
+                )
+                let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
+                return SidecarPluginCore(manifest: manifest, layout: layout, supervisor: supervisor)
             }
         }
 
@@ -142,8 +183,9 @@
 
         // MARK: - CLI accessors (spec §14)
 
-        /// One row of `gallager plugin list`. `source` is always `"bundled"` in
-        /// v1 (the factory table is the only install channel).
+        /// One row of `gallager plugin list`. `source` reflects the install channel:
+        /// `"bundled"` for factory-table entries, or the `rawValue` of the
+        /// `PluginRegistryEntry.Source` recorded at `registerSidecar` time.
         public struct CLIEntry: Sendable, Equatable {
             public let id: String
             public let version: String
@@ -158,28 +200,35 @@
             }
         }
 
-        /// Every registered plugin (one row per factory-table entry), sorted by
-        /// id for stable output. `version` comes from the manifest when present
-        /// (a factory-only plugin with no manifest, e.g. `echo`, reports `""`).
+        /// Every registered plugin (one row per factory-table entry plus any
+        /// runtime-registered sidecar), sorted by id for stable output. `version`
+        /// comes from the manifest when present (a factory-only plugin with no
+        /// manifest, e.g. `echo`, reports `""`). `source` is `"bundled"` for
+        /// factory-table entries and the `PluginRegistryEntry.Source.rawValue` for
+        /// sidecar entries registered via `registerSidecar`.
         public func listEntries() -> [CLIEntry] {
-            factories.keys.sorted().map { id in
+            // Union of factory ids and sidecar-registered ids, sorted.
+            let allIDs = Set(factories.keys).union(sources.keys).sorted()
+            return allIDs.map { id in
                 CLIEntry(
                     id: id,
                     version: manifests[id]?.version ?? "",
                     enabled: active[id] != nil,
-                    source: "bundled"
+                    source: sources[id]?.rawValue ?? "bundled"
                 )
             }
         }
 
-        /// All registered plugin ids (factory-table keys), sorted.
+        /// All registered plugin ids (factory-table keys plus runtime-registered
+        /// sidecar ids), sorted.
         public var registeredIDs: [String] {
-            factories.keys.sorted()
+            Set(factories.keys).union(sources.keys).sorted()
         }
 
-        /// Whether `id` is a registered plugin (has a factory).
+        /// Whether `id` is a registered plugin — either has a factory (in-process)
+        /// or was registered as a sidecar via `registerSidecar`.
         public func isRegistered(_ id: String) -> Bool {
-            factories[id] != nil
+            factories[id] != nil || manifests[id]?.runtime == .sidecar
         }
 
         /// Whether `id` is currently enabled (constructed + initialized).
