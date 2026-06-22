@@ -114,6 +114,17 @@ public struct MainView: View {
     /// reach the store in order (avoids a stale older snapshot landing last).
     @State private var pendingLayoutSaves: [String: Task<Void, Never>] = [:]
 
+    /// Remote counterparts of the three bookkeeping dictionaries above, keyed by
+    /// `(hostId, sessionName)` so a viewer persists each remote session's
+    /// browser-tab + split layout the same way local sessions persist theirs
+    /// (issue #608 — Scope A, viewer-local). Kept parallel to (not merged with)
+    /// the local dictionaries so a remote session name can't collide with a
+    /// local one, and so the host-keyed lifecycle (cleared on unpair) stays
+    /// independent of the local session-name lifecycle.
+    @State private var seededRemoteSessions: Set<RemoteSessionTabsKey> = []
+    @State private var lastPersistedRemoteLayouts: [RemoteSessionTabsKey: SavedFolderLayout] = [:]
+    @State private var pendingRemoteLayoutSaves: [RemoteSessionTabsKey: Task<Void, Never>] = [:]
+
     public var body: some View {
         @Bindable var coordinator = coordinator
 
@@ -143,7 +154,11 @@ public struct MainView: View {
             // Garbage-collect stale layout records, then seed whatever session is
             // already selected (e.g. on a cold launch re-attaching to tmux).
             await layoutStore.prune(LayoutStore.defaultMaxAge, LayoutStore.defaultMaxCount)
+            // Also drop remote records for hosts we're no longer paired with;
+            // local records (host `layoutHost`) are always kept (issue #608).
+            await layoutStore.pruneHosts(Set(settings.pairedHosts.map(\.id)).union([layoutHost]))
             seedLayoutIfNeeded()
+            seedRemoteLayoutIfNeeded()
         }
         .task {
             // Silently rescan every 60s so new projects appear without restarting.
@@ -169,6 +184,7 @@ public struct MainView: View {
                     return
                 }
                 persistChangedLayouts()
+                persistChangedRemoteLayouts()
             }
         }
         .modifier(AlertsModifier(
@@ -320,6 +336,11 @@ public struct MainView: View {
             if let resolvedId = selectedRemoteWindow?.id, resolvedId != selectedRemoteWindowId {
                 selectedRemoteWindowId = resolvedId
             }
+            // Retry seeding once the remote session's window (and thus its
+            // folder) first resolves after panes sync — the analogue of the
+            // local `onChange(of: tmuxService.panes)` seed retry. No-op once
+            // the session is already seeded (issue #608).
+            seedRemoteLayoutIfNeeded()
         }
         .modifier(RemoteSplitCleanupModifier(
             paneCount: coordinator.remoteSessionStore?.paneStates.count ?? 0,
@@ -328,12 +349,26 @@ public struct MainView: View {
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
-            // forever. Session-level cleanup (sessions deleted on a still-
-            // paired host) is left to host-level cleanup; in practice an
-            // empty session goes away when the user reconnects without it.
+            // forever. Per-session cleanup for sessions killed on a still-
+            // *connected* host is handled by `pruneStaleRemoteSessionBookkeeping`;
+            // this host-level pass covers full unpair.
             let currentHostIdsSet = Set(currentHostIds)
             for key in remoteSessionTabsStates.keys where !currentHostIdsSet.contains(key.hostId) {
                 remoteSessionTabsStates.removeValue(forKey: key)
+            }
+            // Drop the per-session layout bookkeeping for unpaired hosts in
+            // lockstep with `remoteSessionTabsStates` above, so it doesn't leak.
+            // The on-disk records for those hosts are GC'd by `pruneHosts` on the
+            // next launch (issue #608). The save-chain tasks aren't cancelled —
+            // a final write for a just-unpaired host is allowed to land.
+            for key in seededRemoteSessions where !currentHostIdsSet.contains(key.hostId) {
+                seededRemoteSessions.remove(key)
+            }
+            for key in lastPersistedRemoteLayouts.keys where !currentHostIdsSet.contains(key.hostId) {
+                lastPersistedRemoteLayouts.removeValue(forKey: key)
+            }
+            for key in pendingRemoteLayoutSaves.keys where !currentHostIdsSet.contains(key.hostId) {
+                pendingRemoteLayoutSaves.removeValue(forKey: key)
             }
         }
         .modifier(AutoResizeObserversModifier(
@@ -2021,6 +2056,7 @@ public struct MainView: View {
         handleAutoResize()
         markSelectedSessionsHandledIfActive()
         seedLayoutIfNeeded()
+        seedRemoteLayoutIfNeeded()
     }
 
     private func handleAutoResize() {
@@ -3439,12 +3475,72 @@ public struct MainView: View {
         )
     }
 
+    /// Forget seed/persist bookkeeping — and the live tab state — for remote
+    /// sessions killed on a host that is *currently reporting* (connected and
+    /// syncing). The analogue of the local
+    /// `seededSessions.formIntersection(currentSessionNames)` cleanup: without
+    /// it a stale `(hostId, sessionName)` key makes `seedRemoteLayoutIfNeeded`
+    /// short-circuit, so a recreated same-named session never re-seeds from the
+    /// persisted folder layout, and the dead session's `BrowserTabState`
+    /// (`WKWebView`s) leaks (issue #608).
+    ///
+    /// Gated on `hasSessions(for:)`: a host clears its pane state on *disconnect*
+    /// too (`AppCoordinator.onHostDisconnected` → `clearSessions`), which is
+    /// indistinguishable here from a kill — so a host that currently reports
+    /// nothing is treated as disconnected and its bookkeeping is retained for
+    /// reconnect, matching `remoteSessionTabsStates` (only fully cleared on
+    /// unpair). Residual gap: a host whose *only* session is recycled under the
+    /// same name on a *different* folder won't re-seed until reconnect;
+    /// same-folder recycles are unaffected (the retained state already equals
+    /// that folder's record).
+    private func pruneStaleRemoteSessionBookkeeping() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+
+        // Live keys for hosts that currently report sessions. Hosts reporting
+        // nothing (disconnected, or briefly between a kill and a recreate) are
+        // absent, so none of their keys are treated as stale below.
+        var liveKeys: Set<RemoteSessionTabsKey> = []
+        var reportingHosts: Set<String> = []
+        for host in settings.pairedHosts where sessionStore.hasSessions(for: host.id) {
+            reportingHosts.insert(host.id)
+            for session in sessionStore.sessions(for: host.id) {
+                liveKeys.insert(RemoteSessionTabsKey(hostId: host.id, sessionName: session.sessionName))
+            }
+        }
+        guard !reportingHosts.isEmpty else { return }
+
+        func isStale(_ key: RemoteSessionTabsKey) -> Bool {
+            reportingHosts.contains(key.hostId) && !liveKeys.contains(key)
+        }
+
+        for key in seededRemoteSessions where isStale(key) {
+            seededRemoteSessions.remove(key)
+        }
+        for key in lastPersistedRemoteLayouts.keys where isStale(key) {
+            lastPersistedRemoteLayouts.removeValue(forKey: key)
+        }
+        // Save-chain task isn't cancelled — let a final write for the just-killed
+        // session land before forgetting it (matches the unpair path).
+        for key in pendingRemoteLayoutSaves.keys where isStale(key) {
+            pendingRemoteLayoutSaves.removeValue(forKey: key)
+        }
+        // Release the dead session's live tab state (browser `WKWebView`s) so a
+        // recreate starts clean — the analogue of the local
+        // `sessionFileTabsStates` removal.
+        for key in remoteSessionTabsStates.keys where isStale(key) {
+            remoteSessionTabsStates.removeValue(forKey: key)
+        }
+    }
+
     /// Prune any right-side window entries that point at remote terminals
     /// the host has just removed (a window was closed remotely). Without
     /// this, `isSplit` stays true and the right pane shows "No Tab Selected"
     /// forever even though the referenced window is gone.
     private func pruneStaleRemoteRightSideEntries() {
         guard coordinator.remoteSessionStore != nil else { return }
+        // GC bookkeeping + tab state for sessions killed on a still-connected
+        // host before reconciling the survivors' right-side entries (issue #608).
+        pruneStaleRemoteSessionBookkeeping()
         var prunedSelectedSession = false
         for (key, tabs) in remoteSessionTabsStates {
             let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
@@ -4172,12 +4268,15 @@ struct GitStoreEntry {
 /// file so it can read `MainView`'s private session-tab `@State`. See
 /// `docs/folder-layout-persistence-plan.md`.
 private extension MainView {
-    /// Host identifier for locally-managed sessions. v1 persists local only, so
-    /// this is a constant. The store key is `(host, folder)`, so records are
-    /// already host-scoped and a layout captured here can't seed another host's
-    /// session sharing the same path. When remote/viewer sessions are persisted,
-    /// this needs a real per-host id rather than the `"local"` constant.
-    var layoutHost: String { "local" }
+    /// Host identifier for **locally-managed** sessions — a constant, since a
+    /// host only ever owns one set of local sessions. Remote/viewer sessions are
+    /// persisted too (issue #608) but key their records by the host's `pairId`
+    /// (passed directly in the remote seed/persist paths), never this constant,
+    /// so local and remote records on the same path can't collide. The pairId is
+    /// a UUID-shaped string, so it never equals `"local"`.
+    var layoutHost: String {
+        SavedFolderRecord.localHost
+    }
 
     /// Windows belonging to `sessionName`, in tmux order.
     func windows(forSession sessionName: String) -> [LocalTmuxWindow] {
@@ -4287,6 +4386,135 @@ private extension MainView {
             // order they were produced, even though each runs in its own Task.
             let previous = pendingLayoutSaves[sessionName]
             pendingLayoutSaves[sessionName] = Task {
+                await previous?.value
+                await layoutStore.save(record)
+            }
+        }
+    }
+
+    // MARK: - Remote (viewer) sessions — issue #608
+
+    /// Canonical project folder for a remote session, read from the viewer's
+    /// synced `SessionStore`. Mirrors `resolveFolder(forSession:)` but uses
+    /// **string-only** normalization: a remote path lives on the host's disk, so
+    /// it must never be expanded/symlink-resolved against the viewer's. `nil`
+    /// until a pane (and thus a path) for the session has synced.
+    func resolveRemoteFolder(hostId: String, sessionName: String) -> String? {
+        guard let sessionStore = coordinator.remoteSessionStore else { return nil }
+        let sessionWindows = sessionStore.windows(for: hostId)
+            .filter { $0.sessionName == sessionName }
+        return resolveRemoteFolder(in: sessionWindows)
+    }
+
+    /// Same as `resolveRemoteFolder(hostId:sessionName:)` but off a precomputed
+    /// window list, so the persist loop can group a host's windows once.
+    func resolveRemoteFolder(in sessionWindows: [TmuxWindow]) -> String? {
+        guard
+            let active = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first,
+            let pane = active.activePane
+        else { return nil }
+        let raw = pane.agentSession?.detectedProjectPath ?? pane.currentPath
+        return LayoutFolderKey.canonicalizeRemote(raw)
+    }
+
+    /// Remote counterpart of `seedLayoutIfNeeded`: restore the selected remote
+    /// session's workbench from the folder's persisted record — once, and only
+    /// while still empty. Records are keyed by `(pairId, folder)`, so a viewer
+    /// restores its own arrangement for that remote folder and never collides
+    /// with local (`layoutHost`) records.
+    ///
+    /// Remote file browsing doesn't exist yet, so only **browser tabs + split +
+    /// selection** are restored — the snapshot's `fileTabs` come out empty and
+    /// there is no file browser to seed (`fileBrowser: nil`).
+    func seedRemoteLayoutIfNeeded() {
+        guard let remote = selectedRemoteSession else { return }
+        let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        guard !seededRemoteSessions.contains(key) else { return }
+
+        // Don't seed a session the user has already populated.
+        if let existing = remoteSessionTabsStates[key], !isWorkbenchEmpty(existing) {
+            seededRemoteSessions.insert(key)
+            return
+        }
+        guard let folder = resolveRemoteFolder(hostId: remote.hostId, sessionName: remote.sessionName) else {
+            // Folder not synced yet — leave unmarked so a later change retries.
+            return
+        }
+        seededRemoteSessions.insert(key)
+
+        let recordKey = SavedFolderRecord.Key(host: remote.hostId, folder: folder)
+        Task {
+            guard let chosen = await layoutStore.record(recordKey)?.layout, !chosen.isEmpty else { return }
+
+            // The store await may have suspended across a disconnect/unpair that
+            // cleared this host's sessions. Don't resurrect a gone session.
+            guard
+                let sessionStore = coordinator.remoteSessionStore,
+                sessionStore.sessions(for: remote.hostId).contains(where: { $0.sessionName == remote.sessionName })
+            else { return }
+
+            let tabs = remoteSessionTabsStates[key] ?? {
+                let new = SessionFileTabsState()
+                remoteSessionTabsStates[key] = new
+                return new
+            }()
+            guard isWorkbenchEmpty(tabs) else { return }
+
+            let sessionWindows = remoteSessionWindows(hostId: remote.hostId, sessionName: remote.sessionName)
+            LayoutSnapshotMapper.apply(
+                chosen,
+                to: tabs,
+                fileBrowser: nil,
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                makeBrowserState: { BrowserTabState(initialURL: $0.url) }
+            )
+            // Baseline the change-gate from the *applied* state (apply clamps the
+            // split ratio and resolves window refs) so seeding doesn't trigger an
+            // immediate redundant re-save.
+            lastPersistedRemoteLayouts[key] = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: nil,
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+        }
+    }
+
+    /// Remote counterpart of `persistChangedLayouts`: persist every remote
+    /// session whose browser-tab + split layout changed since its last write,
+    /// keyed by `(pairId, folder)`. `fileTabs` come out empty (remote file
+    /// browsing doesn't exist). Sessions whose folder no longer resolves (host
+    /// disconnected, panes cleared) are skipped, so a vanished session never
+    /// writes a stale record.
+    func persistChangedRemoteLayouts() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+        // Fetch each host's windows once (groups all panes) instead of
+        // re-deriving them per session below.
+        let hostIds = Set(remoteSessionTabsStates.keys.map(\.hostId))
+        let windowsByHost = Dictionary(
+            uniqueKeysWithValues: hostIds.map { ($0, sessionStore.windows(for: $0)) }
+        )
+        for (key, tabs) in remoteSessionTabsStates {
+            let sessionWindows = (windowsByHost[key.hostId] ?? [])
+                .filter { $0.sessionName == key.sessionName }
+            guard let folder = resolveRemoteFolder(in: sessionWindows) else { continue }
+            let snapshot = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: nil,
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+            guard !snapshot.isEmpty else { continue }
+            guard lastPersistedRemoteLayouts[key] != snapshot else { continue }
+            lastPersistedRemoteLayouts[key] = snapshot
+
+            let record = SavedFolderRecord(
+                host: key.hostId,
+                folder: folder,
+                lastActive: Date(),
+                layout: snapshot
+            )
+            // Chain on the session's prior save so writes land in order.
+            let previous = pendingRemoteLayoutSaves[key]
+            pendingRemoteLayoutSaves[key] = Task {
                 await previous?.value
                 await layoutStore.save(record)
             }
