@@ -67,7 +67,7 @@ public struct FrameDecoder {
     }
 }
 
-public struct RPCError: Codable, Sendable, Equatable {
+public struct RPCError: Codable, Sendable, Equatable, Error {
     public var code: String
     public var message: String
 

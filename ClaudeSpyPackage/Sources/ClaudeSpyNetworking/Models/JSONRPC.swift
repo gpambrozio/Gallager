@@ -64,6 +64,12 @@ public enum JSONValue: Codable, Sendable, Equatable {
         if case let .int(v) = self { return v }
         return nil
     }
+
+    /// Convenience accessor for object values.
+    public var objectValue: [String: JSONValue]? {
+        if case let .object(v) = self { return v }
+        return nil
+    }
 }
 
 /// A JSON-RPC request sent from the CLI to the socket server.
