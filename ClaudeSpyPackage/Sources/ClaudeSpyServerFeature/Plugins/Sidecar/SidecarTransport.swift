@@ -107,12 +107,23 @@ public actor SidecarTransport {
             // before we are listening.
             let value = try await withCheckedThrowingContinuation {
                 (cont: CheckedContinuation<JSONValue, any Error>) in
+                // M1: Re-check closed synchronously before registering the slot. Because this
+                // body and handlePeerClosed() are both actor-isolated with no await between
+                // entry and the assignment, this closes the race where close() is called
+                // between the entry-level guard and here.
+                if closed { cont.resume(throwing: TransportError.peerClosed)
+                    return
+                }
                 // Actor-isolated assignment — we are inside the actor here because
                 // withCheckedThrowingContinuation's body runs synchronously on the caller.
                 pending[id] = cont
                 // Dispatch the write off-actor so a blocked pipe doesn't deadlock us.
+                // I1: Propagate write/encode errors back to the caller immediately rather
+                // than swallowing them with try?, which would leave the caller blocked
+                // until the 30s timeout fires.
                 Task { [weak self] in
-                    try? await self?.send(.request(id: id, method: method, params: params))
+                    do { try await self?.send(.request(id: id, method: method, params: params)) }
+                    catch { await self?.failPending(id, with: error) }
                 }
             }
             timeoutTask.cancel()

@@ -5,6 +5,9 @@
     import Testing
     @testable import ClaudeSpyServerFeature
 
+    /// Sentinel error thrown by the 2 s deadline task in sendFailureFastFails.
+    private struct TimeoutSentinel: Error { }
+
     /// A delegate that answers a fixed inbound request and records notifications.
     private actor RecordingDelegate: SidecarTransportDelegate {
         var notifications: [(String, JSONValue?)] = []
@@ -62,6 +65,47 @@
             await app.start(reading: byteStream(peerToApp.fileHandleForReading))
             await #expect(throws: TransportError.timeout(SidecarRPC.initialize)) {
                 _ = try await app.request(SidecarRPC.initialize, nil, timeout: .milliseconds(200))
+            }
+        }
+
+        @Test("send failure fast-fails the caller instead of waiting for timeout")
+        func sendFailureFastFails() async throws {
+            // Use a closed write pipe so any handle.write(...) throws immediately.
+            let writePipe = Pipe()
+            try writePipe.fileHandleForWriting.close() // Closed before any write attempt.
+
+            // The read side never produces a response, so without the fix the caller would
+            // hang until the 30 s default timeout.
+            let readPipe = Pipe()
+            let transport = SidecarTransport(
+                writeHandle: writePipe.fileHandleForWriting,
+                delegate: RecordingDelegate()
+            )
+            await transport.start(reading: byteStream(readPipe.fileHandleForReading))
+
+            // Race: request (generous 30 s timeout) vs a 2 s hard deadline.
+            // Fast-fail path: the write error propagates before the sleep wins → throws a
+            // non-TimeoutSentinel error, which the test swallows as the expected outcome.
+            // Regression path: the sleep wins → TimeoutSentinel propagates → test fails.
+            do {
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        // Should throw promptly (closed write handle).
+                        _ = try await transport.request(SidecarRPC.initialize, nil, timeout: .seconds(30))
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: .seconds(2))
+                        throw TimeoutSentinel()
+                    }
+                    // next()! throws whichever task errors first; cancel the remaining task.
+                    do { try await group.next()! } catch { group.cancelAll()
+                        throw error
+                    }
+                }
+            } catch is TimeoutSentinel {
+                Issue.record("request did not fast-fail within 2 s — I1 regression")
+            } catch {
+                // Any non-sentinel error is the expected fast-fail from the closed write handle.
             }
         }
 
