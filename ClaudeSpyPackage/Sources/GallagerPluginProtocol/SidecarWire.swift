@@ -157,6 +157,27 @@ public enum HostRPC {
     public static let promptUser = "prompt_user" // optional capability (notification)
 }
 
+/// Wire shape for `IngressFrame` sent over the sidecar transport (`translate_event` RPC).
+/// `payload` is carried as nested JSON exactly like `PluginEnvWire.settings`: invalid
+/// or empty bytes become `.null` rather than throwing.
+public struct IngressFrameWire: Codable, Sendable, Equatable {
+    public var pluginID: String
+    public var context: [String: String]
+    public var payload: JSONValue
+
+    public init(_ frame: IngressFrame) {
+        self.pluginID = frame.pluginID
+        self.context = frame.context
+        if frame.payload.isEmpty {
+            self.payload = .null
+        } else if let value = try? JSONDecoder().decode(JSONValue.self, from: frame.payload) {
+            self.payload = value
+        } else {
+            self.payload = .null
+        }
+    }
+}
+
 /// `PluginEnv` minus the non-serializable `host`, with `settings` as nested JSON.
 public struct PluginEnvWire: Codable, Sendable, Equatable {
     public var pluginRoot: String
