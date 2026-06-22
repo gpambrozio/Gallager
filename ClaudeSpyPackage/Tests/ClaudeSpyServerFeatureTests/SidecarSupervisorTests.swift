@@ -87,6 +87,33 @@
             #expect(await sup.state() == .stopped)
         }
 
+        // I1: after stop(), the transport is closed (private, so verified via observable
+        // consequence: a second startTransport succeeds and an initialize RPC round-trips,
+        // which would hang/fail if a stale open transport were interfering with the pipes).
+        @Test("stop() cleans up transport; second startTransport round-trips initialize")
+        func stopCleansUpTransport() async throws {
+            let layout = try makeScriptLayout(.echoInitialize)
+            let manifest = PluginManifest.fixtureSidecar(executable: "bin/sidecar")
+            let sup = SidecarSupervisor(manifest: manifest, layout: layout)
+
+            // First launch + RPC.
+            let t1 = try await sup.startTransport(delegate: NoopDelegate())
+            let r1 = try await t1.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(5))
+            #expect(r1 == .object([:]))
+
+            // Clean stop — must close and nil the transport.
+            await sup.stop()
+            #expect(await sup.state() == .stopped)
+
+            // Second launch on the SAME supervisor: must not be blocked by a stale transport.
+            let t2 = try await sup.startTransport(delegate: NoopDelegate())
+            let r2 = try await t2.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(5))
+            #expect(r2 == .object([:]))
+
+            await sup.stop()
+            #expect(await sup.state() == .stopped)
+        }
+
         @Test("4 crashes in the window auto-disables and surfaces stderr")
         func crashLoopDisables() async throws {
             let layout = try makeScriptLayout(.abort) // prints to stderr then exits 1

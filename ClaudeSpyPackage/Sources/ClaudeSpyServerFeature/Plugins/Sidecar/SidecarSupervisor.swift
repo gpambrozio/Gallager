@@ -20,6 +20,7 @@ public actor SidecarSupervisor {
     private var process: Process?
     private var transport: SidecarTransport?
     private var _state: State = .stopped
+    private var stopping = false
 
     // Crash policy: per-plugin crash counter over a 60 s sliding window.
     private var crashTimes: [Date] = []
@@ -47,7 +48,12 @@ public actor SidecarSupervisor {
 
     /// Spawn the child, wire stdio to a transport, and return it ready to drive.
     public func startTransport(delegate: any SidecarTransportDelegate) async throws -> SidecarTransport {
-        let exe = layout.pluginRoot.appendingPathComponent(manifest.sidecar?.executable ?? "bin/sidecar")
+        guard !stopping else { throw SupervisorError.stopping }
+        guard let sidecar = manifest.sidecar else {
+            _state = .failedInit
+            throw SupervisorError.missingSidecarConfig
+        }
+        let exe = layout.pluginRoot.appendingPathComponent(sidecar.executable)
         guard FileManager.default.isExecutableFile(atPath: exe.path) else {
             _state = .failedInit
             throw SupervisorError.notExecutable(exe.path)
@@ -55,7 +61,7 @@ public actor SidecarSupervisor {
 
         let proc = Process()
         proc.executableURL = exe
-        proc.arguments = manifest.sidecar?.args ?? []
+        proc.arguments = sidecar.args
         proc.currentDirectoryURL = layout.pluginRoot
 
         // Inherit parent environment and add plugin-specific vars (spec §3/§5/§6).
@@ -145,6 +151,8 @@ public actor SidecarSupervisor {
 
     /// Graceful shutdown: SIGTERM, then SIGKILL after 5 s. Resume via terminationHandler.
     public func stop() async {
+        stopping = true
+        defer { stopping = false }
         backoffTask?.cancel()
         _state = .stopped
         guard let proc = process else { return }
@@ -170,6 +178,10 @@ public actor SidecarSupervisor {
         }
         killer.cancel()
         process = nil
+        // I1: close and nil the transport on the graceful path so handleTermination's
+        // early-return (for _state == .stopped) doesn't leave it open.
+        await transport?.close()
+        transport = nil
     }
 
     /// Re-enable after auto-disable: clear crash history and re-spawn.
@@ -183,4 +195,6 @@ public actor SidecarSupervisor {
 
 public enum SupervisorError: Error, Equatable {
     case notExecutable(String)
+    case missingSidecarConfig
+    case stopping
 }
