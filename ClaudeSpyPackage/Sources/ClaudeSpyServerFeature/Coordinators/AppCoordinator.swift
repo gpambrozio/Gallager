@@ -1101,6 +1101,14 @@
                 .map { AgentPluginEntry(id: $0, name: registry.manifest($0)?.displayName ?? $0) }
         }
 
+        /// Returns `true` when `id` was registered via the factory table (i.e. ships
+        /// with the app). URL-installed and folder-dropped plugins return `false`.
+        public func isBundledPlugin(id: String) -> Bool {
+            guard let registry = pluginRegistry else { return true }
+            let entry = registry.listEntries().first { $0.id == id }
+            return entry?.source == "bundled"
+        }
+
         /// Raw settings.json bytes for a plugin (empty Data if none yet).
         public func pluginSettingsData(id: String) -> Data {
             guard let paths = gallagerPaths else { return Data() }

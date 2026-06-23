@@ -15,6 +15,9 @@
         @Environment(AppCoordinator.self) private var coordinator
 
         @State private var selectedAgentID = ""
+        @State private var showAddPluginSheet = false
+        @State private var pluginToRemove: String?
+        @State private var showRemoveConfirmation = false
 
         public init() { }
 
@@ -24,14 +27,18 @@
 
                 // Segmented picker at the top
                 if agents.count > 1 {
-                    Picker("Agent", selection: $selectedAgentID) {
-                        ForEach(agents) { agent in
-                            Text(agent.name).tag(agent.id)
+                    HStack {
+                        Picker("Agent", selection: $selectedAgentID) {
+                            ForEach(agents) { agent in
+                                Text(agent.name).tag(agent.id)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .accessibilityIdentifier("agentPicker")
+
+                        removeButton
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityIdentifier("agentPicker")
                     .padding()
                 }
 
@@ -41,8 +48,43 @@
                 } else {
                     PluginAgentForm(pluginID: selectedAgentID)
                 }
+
+                Divider()
+
+                // Toolbar row at the bottom of the tab
+                HStack {
+                    Button {
+                        showAddPluginSheet = true
+                    } label: {
+                        Label("Add Plugin from URL…", symbol: .arrowDownCircle)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("addPluginFromURL")
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
             }
             .frame(minWidth: 500, minHeight: 400)
+            .sheet(isPresented: $showAddPluginSheet) {
+                AddPluginSheet()
+            }
+            .confirmationDialog(
+                "Remove Plugin",
+                isPresented: $showRemoveConfirmation,
+                presenting: pluginToRemove
+            ) { id in
+                Button("Remove \"\(pluginDisplayName(id))\"", role: .destructive) {
+                    Task {
+                        await performRemove(id: id)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pluginToRemove = nil
+                }
+            } message: { id in
+                Text("This will uninstall the \"\(pluginDisplayName(id))\" plugin and delete its files. This cannot be undone.")
+            }
             .task {
                 // Set initial selection once (only when empty to avoid overwriting
                 // a user change that races with the first render).
@@ -52,6 +94,39 @@
                     selectedAgentID = first.id
                 }
             }
+        }
+
+        // MARK: - Remove button (only for non-bundled plugins)
+
+        @ViewBuilder
+        private var removeButton: some View {
+            if !selectedAgentID.isEmpty, !coordinator.isBundledPlugin(id: selectedAgentID) {
+                Button(role: .destructive) {
+                    pluginToRemove = selectedAgentID
+                    showRemoveConfirmation = true
+                } label: {
+                    Label("Remove…", symbol: .minusCircleFill)
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("removePlugin-\(selectedAgentID)")
+            }
+        }
+
+        // MARK: - Helpers
+
+        private func pluginDisplayName(_ id: String) -> String {
+            coordinator.agentPluginList().first { $0.id == id }?.name ?? id
+        }
+
+        @MainActor
+        private func performRemove(id: String) async {
+            _ = await coordinator.removePlugin(id: id, deleteState: true)
+            // If the removed plugin was selected, switch to the first remaining one.
+            if selectedAgentID == id {
+                selectedAgentID = coordinator.agentPluginList().first { $0.id != id }?.id ?? ""
+            }
+            pluginToRemove = nil
         }
     }
 
@@ -74,13 +149,13 @@
         // Codex-only: point Codex's OTLP export at the loopback receiver (#602).
         @State private var exportTelemetry = true
 
-        // Whether the agent binary was not found
+        /// Whether the agent binary was not found
         @State private var agentUnavailable = false
 
-        // Inline write error
+        /// Inline write error
         @State private var writeError: String?
 
-        // Prevent persisting while we're still loading
+        /// Prevent persisting while we're still loading
         @State private var isLoaded = false
 
         var body: some View {

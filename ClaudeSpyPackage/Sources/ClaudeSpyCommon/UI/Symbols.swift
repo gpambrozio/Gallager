@@ -11,6 +11,7 @@ public enum Symbols: String {
     case antenna2Bars = "antenna.radiowaves.left.and.right"
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
+    case arrowDownCircle = "arrow.down.circle"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
     case arrowLeft = "arrow.left"
     case arrowRight = "arrow.right"
