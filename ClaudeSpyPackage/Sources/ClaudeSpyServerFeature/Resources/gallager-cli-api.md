@@ -584,6 +584,105 @@ Variable expansion: every string-valued field is run through a `${VAR}` / `$VAR`
 
 ---
 
+### Plugins
+
+Manage sidecar plugins installed in Gallager. For the full plugin authoring contract (manifest schema, sidecar API, lifecycle hooks) see [`docs/plugins/sidecar-authoring.md`](plugins/sidecar-authoring.md).
+
+#### `plugin list`
+
+List all installed plugins with their ID, display name, version, and enabled/disabled state.
+
+```bash
+gallager plugin list
+gallager plugin list --json
+```
+
+---
+
+#### `plugin info <id>`
+
+Show detailed metadata for an installed plugin (manifest fields, bundle path, enabled state).
+
+```bash
+gallager plugin info com.example.hello
+```
+
+---
+
+#### `plugin install <https-url> [--yes]`
+
+Fetch a plugin manifest from an HTTPS URL, show a trust confirmation prompt, then download and install the bundle. Pass `--yes` to skip the interactive prompt (non-interactive / scripted installs).
+
+```bash
+gallager plugin install https://example.com/plugin.json
+gallager plugin install https://example.com/plugin.json --yes
+```
+
+---
+
+#### `plugin remove <id> [--keep-state|--delete-state]`
+
+Uninstall a plugin by ID. By default the plugin's persistent state directory is preserved so a future reinstall can pick up where it left off. Pass `--delete-state` to also wipe the state directory, or `--keep-state` to make the intent explicit.
+
+```bash
+gallager plugin remove com.example.hello
+gallager plugin remove com.example.hello --delete-state
+```
+
+---
+
+#### `plugin update [<id>] [--apply]`
+
+Check whether installed plugins have newer versions available. Without `<id>`, checks all plugins. Prints a summary of available updates. Pass `--apply` to download and apply the updates immediately.
+
+```bash
+gallager plugin update
+gallager plugin update com.example.hello
+gallager plugin update --apply
+```
+
+---
+
+#### `plugin enable <id>`
+
+Enable a previously disabled plugin. The sidecar process is (re)started immediately.
+
+```bash
+gallager plugin enable com.example.hello
+```
+
+---
+
+#### `plugin disable <id>`
+
+Disable a plugin without uninstalling it. The sidecar process is stopped; state is preserved.
+
+```bash
+gallager plugin disable com.example.hello
+```
+
+---
+
+#### `plugin logs <id>`
+
+Stream or print recent log output from a plugin's sidecar process.
+
+```bash
+gallager plugin logs com.example.hello
+```
+
+---
+
+#### `plugin call <id> <method> [<json-params>]`
+
+Send a one-shot JSON-RPC call to a running plugin sidecar and print the response. Useful for manual testing and debugging.
+
+```bash
+gallager plugin call com.example.hello greet '{"name":"world"}'
+```
+
+---
+
 ### Editor
 
 #### `edit <file>`

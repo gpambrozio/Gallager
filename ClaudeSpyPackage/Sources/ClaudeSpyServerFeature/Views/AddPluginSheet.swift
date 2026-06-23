@@ -22,7 +22,7 @@
 
         // MARK: Phase
 
-        private enum Phase {
+        enum Phase {
             case entry
             case fetching
             case trust(TrustDetails)
@@ -34,6 +34,15 @@
 
         @State private var urlText = ""
         @State private var phase: Phase = .entry
+
+        #if DEBUG
+            init() { }
+
+            /// Preview seam: render the sheet starting in a specific phase.
+            init(phase: Phase) {
+                _phase = State(initialValue: phase)
+            }
+        #endif
 
         // MARK: Body
 
@@ -242,6 +251,39 @@
             return formatter.string(fromByteCount: Int64(bytes))
         }
     }
+
+    // MARK: - Previews
+
+    #if DEBUG
+        @MainActor
+        private func addPluginSheetPreview(_ phase: AddPluginSheet.Phase) -> some View {
+            let settings = AppSettings()
+            return AddPluginSheet(phase: phase)
+                .environment(settings)
+                .environment(AppCoordinator(settings: settings))
+        }
+
+        #Preview("Entry") {
+            addPluginSheetPreview(.entry)
+        }
+
+        #Preview("Trust") {
+            addPluginSheetPreview(.trust(TrustDetails(
+                id: "com.example.hello",
+                displayName: "Hello Sidecar",
+                version: "1.0.0",
+                publisher: "Example Corp",
+                sourceURL: URL(string: "https://example.com/plugin.json")!,
+                bundleURL: URL(string: "https://example.com/hello.zip")!,
+                bundleSHA256: "a3f5c2d1e8b7094623abcdef1234567890abcdef1234567890abcdef12345678",
+                bundleSizeBytes: 512_000
+            )))
+        }
+
+        #Preview("Error") {
+            addPluginSheetPreview(.error("URL must use HTTPS"))
+        }
+    #endif
 
     // MARK: - InstallError UI description
 
