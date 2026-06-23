@@ -455,4 +455,20 @@ public enum TestStep: Sendable {
     )
     /// Log a message
     case log(String)
+
+    // MARK: - Sidecar Fixture Staging
+
+    /// Stage a folder-dropped sidecar plugin fixture into the E2E sandbox before
+    /// the macOS app launches (instance 0). Copies the built `EchoPluginSidecar`
+    /// binary to `<gallagerRoot>/plugins/<id>/bin/sidecar` (chmod 0o755) and
+    /// writes a minimal `plugin.json` there (`runtime:"sidecar"`,
+    /// `sidecar:{executable:"bin/sidecar"}`). The orchestrator locates the binary
+    /// by walking up from `#file` to the `Package.swift` root, then probing
+    /// `.build/debug/EchoPluginSidecar` (the same strategy as
+    /// `EchoSidecarTestSupport.locateEchoSidecarBinary`).
+    ///
+    /// The `<gallagerRoot>` is derived from the instance's `--gallager-state-root`
+    /// (its parent directory), so the staged plugin persists for the entire
+    /// scenario in the per-instance E2E sandbox.
+    case macStageSidecarFixture(id: String, instance: Int = 0)
 }

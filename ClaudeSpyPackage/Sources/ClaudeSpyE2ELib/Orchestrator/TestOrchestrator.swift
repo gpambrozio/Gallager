@@ -1002,6 +1002,10 @@ public actor TestOrchestrator {
                 socketPath: ingressSocketPath(for: instance)
             )
 
+        // Sidecar Fixture Staging
+        case let .macStageSidecarFixture(id, instance):
+            try stageSidecarFixture(id: id, instance: instance)
+
         // Assertions
         case let .assertStoredEqual(key, otherKey):
             guard let value1 = context.get(key) else {
@@ -1125,6 +1129,90 @@ public actor TestOrchestrator {
             logger.info("  LOG: \(context.resolve(message))")
         }
         return nil
+    }
+
+    // MARK: - Sidecar Fixture Staging
+
+    /// Copy the built `EchoPluginSidecar` binary and a minimal `plugin.json`
+    /// into `<gallagerRoot>/plugins/<id>/` so the app discovers and spawns the
+    /// sidecar on startup (folder-drop channel, spec §9).
+    ///
+    /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
+    /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
+    private func stageSidecarFixture(id: String, instance: Int) throws {
+        // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let pluginDir = gallagerRoot
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+        let binDir = pluginDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Locate the EchoPluginSidecar binary (same walk as EchoSidecarTestSupport).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        if fm.fileExists(atPath: destBinary.path) {
+            try fm.removeItem(at: destBinary)
+        }
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes(
+            [.posixPermissions: 0o755 as NSNumber],
+            ofItemAtPath: destBinary.path
+        )
+
+        // Write a minimal plugin.json.
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "Echo Sidecar (E2E)",
+            "short_name": "Echo",
+            "version": "0.0.1",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            "ui": {}
+        }
+        """
+        let manifestURL = pluginDir.appendingPathComponent("plugin.json")
+        try pluginJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
+        logger.info("Staged sidecar fixture '\(id)' → \(pluginDir.path)")
+    }
+
+    /// Locate the `EchoPluginSidecar` binary in the SPM build-products tree.
+    /// Walks upward from this source file to find the `Package.swift` root,
+    /// then probes `.build/debug/EchoPluginSidecar` (debug) and
+    /// `.build/release/EchoPluginSidecar` (release). Mirrors the logic in
+    /// `EchoSidecarTestSupport.locateEchoSidecarBinary`.
+    private func locateEchoSidecarBinary(sourceFile: String = #file) throws -> URL {
+        var dir = URL(fileURLWithPath: sourceFile).deletingLastPathComponent()
+        var packageRoot: URL?
+        let fm = FileManager.default
+        for _ in 0..<15 {
+            if fm.fileExists(atPath: dir.appendingPathComponent("Package.swift").path) {
+                packageRoot = dir
+                break
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent == dir { break }
+            dir = parent
+        }
+
+        var searched: [String] = []
+        if let root = packageRoot {
+            let debug = root.appendingPathComponent(".build/debug/EchoPluginSidecar")
+            searched.append(debug.path)
+            if fm.isExecutableFile(atPath: debug.path) { return debug }
+            let release = root.appendingPathComponent(".build/release/EchoPluginSidecar")
+            searched.append(release.path)
+            if fm.isExecutableFile(atPath: release.path) { return release }
+        }
+        throw OrchestratorError.configurationError(
+            "EchoPluginSidecar binary not found. Searched: \(searched). " +
+                "Run `swift build` in ClaudeSpyPackage first."
+        )
     }
 
     // MARK: - Mac Instance Helpers

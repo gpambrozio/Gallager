@@ -130,6 +130,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macSendHookEvent(_, _, _, _, instance):
             return .macOS(instance: instance)
+        case let .macStageSidecarFixture(_, instance):
+            return .macOS(instance: instance)
         // Server, tmux, assertions, scripts, general — any running platform
         // could be relevant to diagnose the failure.
         case .startServer,
