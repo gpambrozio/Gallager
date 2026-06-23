@@ -77,6 +77,24 @@
             createDirectory(pluginsDir)
         }
 
+        /// `<gallagerRoot>/plugins/<id>` — the installed plugin bundle directory.
+        public func pluginInstallDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id), isDirectory: true)
+        }
+
+        /// `<gallagerRoot>/plugins/<id>.installing` — staging directory used during
+        /// URL-install before the atomic commit step.
+        public func pluginStagingDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id) + ".installing", isDirectory: true)
+        }
+
+        /// `<gallagerRoot>/plugins/<id>.replacing` — temporary hold for the old
+        /// install during an atomic overwrite. Matches the suffix used by
+        /// `PluginInstaller.commitInstall`.
+        public func pluginReplacingDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id) + ".replacing", isDirectory: true)
+        }
+
         // MARK: - Per-plugin paths
 
         /// `<stateRoot>/plugins/<id>/` — writable per-plugin scratch/state. The

@@ -855,6 +855,72 @@
             return registry.isEnabled(id)
         }
 
+        // MARK: - URL install / remove / update-check (Task 14 — thin wrappers)
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.install` and
+        /// supplies the registry, paths, session, and host/env factories from
+        /// coordinator state. Not unit-tested directly — integration / E2E covered.
+        public func installPluginFromURL(
+            _ url: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            return await PluginInstaller.install(
+                manifestURL: url,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                session: URLSession.shared,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.remove`.
+        /// Not unit-tested directly — integration / E2E covered.
+        public func removePlugin(
+            id: String,
+            deleteState: Bool
+        ) async -> Result<Void, InstallError> {
+            guard let registry = pluginRegistry, let paths = gallagerPaths else {
+                return .failure(.notInstalled)
+            }
+            return await PluginInstaller.remove(
+                id: id,
+                deleteState: deleteState,
+                registry: registry,
+                paths: paths
+            )
+        }
+
+        /// Thin wrapper: reads the registry file from disk and delegates to
+        /// `PluginUpdateChecker.check`. Not unit-tested directly.
+        public func checkPluginUpdates() async -> [PluginUpdate] {
+            guard let paths = gallagerPaths else { return [] }
+            let registryFile = PluginRegistryStore.load(paths.registryPath)
+            return await PluginUpdateChecker.check(registryFile.plugins, session: URLSession.shared)
+        }
+
         /// Build the `plugin.info` envelope for `id` (CLI `plugin info`). Returns
         /// `nil` for an unregistered id.
         func pluginInfoViaCLI(_ id: String) async -> [String: JSONValue]? {

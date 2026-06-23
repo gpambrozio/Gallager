@@ -447,6 +447,259 @@
             }
         }
 
+        // MARK: - Install orchestration (Task 14)
+
+        /// The outcome of a successful `install(...)` call.
+        public enum InstallOutcome: Sendable, Equatable {
+            /// Trust confirmation is required before downloading. The caller should
+            /// present `TrustDetails` to the user and call `install` again with
+            /// `trustConfirmed: true`.
+            case needsTrust(TrustDetails)
+            /// The plugin was downloaded, validated, committed, and enabled.
+            case installed(id: String)
+        }
+
+        /// Full URL-install orchestration flow (spec §12–14).
+        ///
+        /// **Steps (when `trustConfirmed == true`):**
+        /// 1. `fetchManifest` — validates HTTPS, schema version, and id.
+        /// 2. Requires `manifest.runtime == .sidecar`, a `bundleURL`, and a
+        ///    `bundleSHA256` — short-circuits with `.failure(.invalidSchema)` when
+        ///    any is absent.
+        /// 3. `downloadBundle` into a temp file inside `paths.pluginsDir`.
+        /// 4. `unpackAndValidate` into `paths.pluginStagingDir(id)`.
+        /// 5. `commitInstall` → `paths.pluginInstallDir(id)`.
+        /// 6. `registry.registerSidecar(manifest:root:source:.url)`.
+        /// 7. Persist `registry.json` to `paths.registryPath` (best-effort).
+        /// 8. `registry.enable(id, host:env:)`.
+        /// 9. If `registry.failedInit[id]` is set → return `.failure(.enableFailed)`,
+        ///    leaving the installed files in place for a future retry.
+        ///
+        /// When `trustConfirmed == false`, only `fetchManifest` is called (no
+        /// download). Returns `.success(.needsTrust(TrustDetails))` so the caller
+        /// can present a confirmation sheet.
+        ///
+        /// Heavy work (download, unpack, commit) runs on whatever executor the
+        /// caller is on — these helpers are non-`@MainActor`. Only the registry
+        /// mutation and `enable` are `@MainActor`.
+        public static func install(
+            manifestURL: URL,
+            trustConfirmed: Bool,
+            registry: PluginRegistry,
+            paths: GallagerPaths,
+            session: any URLSessionProtocol,
+            makeHost: @MainActor (String) -> any PluginHost,
+            makeEnv: @MainActor (String) -> PluginEnv
+        ) async -> Result<InstallOutcome, InstallError> {
+            // Step 1: fetch manifest (validates HTTPS / schema / id).
+            let manifest: PluginManifest
+            let trust: TrustDetails
+            do {
+                (manifest, trust) = try await fetchManifest(manifestURL, session: session)
+            } catch let err as InstallError {
+                return .failure(err)
+            } catch {
+                return .failure(.invalidSchema)
+            }
+
+            // Trust gate: no download until the user confirms.
+            guard trustConfirmed else {
+                return .success(.needsTrust(trust))
+            }
+
+            // Step 2: runtime + bundle URL + hash must be present for a URL install.
+            guard manifest.runtime == .sidecar else {
+                return .failure(.invalidSchema)
+            }
+            guard let bundleURL = manifest.bundleURL else {
+                return .failure(.invalidSchema)
+            }
+            guard let expectedSHA256 = manifest.bundleSHA256 else {
+                return .failure(.invalidSchema)
+            }
+
+            let id = manifest.id
+
+            // Ensure the plugins dir exists before we try to write into it.
+            paths.ensurePluginsDir()
+
+            // Step 3: download the bundle into a temp file.
+            let tempFile = paths.pluginsDir
+                .appendingPathComponent("\(id)-\(UUID().uuidString).zip")
+            do {
+                try await downloadBundle(
+                    bundleURL,
+                    expectedSHA256: expectedSHA256,
+                    session: session,
+                    into: tempFile
+                )
+            } catch let err as InstallError {
+                try? FileManager.default.removeItem(at: tempFile)
+                return .failure(err)
+            } catch {
+                try? FileManager.default.removeItem(at: tempFile)
+                return .failure(.bundleMissing)
+            }
+
+            // Step 4: unpack + validate into the staging directory.
+            let stagingDir = paths.pluginStagingDir(id)
+            // Clean up any leftover staging dir from a previous attempt.
+            try? FileManager.default.removeItem(at: stagingDir)
+            do {
+                try FileManager.default.createDirectory(
+                    at: stagingDir,
+                    withIntermediateDirectories: true
+                )
+                try unpackAndValidate(zip: tempFile, stagingDir: stagingDir, manifest: manifest)
+            } catch let err as InstallError {
+                try? FileManager.default.removeItem(at: tempFile)
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(err)
+            } catch {
+                try? FileManager.default.removeItem(at: tempFile)
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(.treeValidationFailed(String(describing: error)))
+            }
+
+            // Clean up temp zip.
+            try? FileManager.default.removeItem(at: tempFile)
+
+            // Step 5: atomic commit staging → final.
+            let finalDir = paths.pluginInstallDir(id)
+            do {
+                try commitInstall(stagingDir: stagingDir, finalDir: finalDir)
+            } catch {
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(.treeValidationFailed("commit failed: \(error)"))
+            }
+
+            // Steps 6–9: register, persist, and enable (all @MainActor).
+            // Step 6: register the sidecar.
+            await MainActor.run {
+                registry.registerSidecar(manifest: manifest, root: finalDir, source: .url)
+                // Step 7: persist registry.json (best-effort).
+                persistRegistry(registry: registry, paths: paths)
+            }
+
+            // Step 8: enable the plugin (registry.enable is @MainActor async).
+            let host = await makeHost(id)
+            let env = await makeEnv(id)
+            await registry.enable(id, host: host, env: env)
+
+            // Step 9: if init failed, report failure but leave files for retry.
+            if let failure = await MainActor.run(body: { registry.failedInit[id] }) {
+                return .failure(.enableFailed(failure))
+            }
+            return .success(.installed(id: id))
+        }
+
+        /// Remove an installed (non-bundled) plugin.
+        ///
+        /// - Calls `core.uninstall(configRoot: nil)` best-effort (e.g. removes the
+        ///   hook file from `~/.claude/`).
+        /// - `registry.disable(id)` — shuts down the core.
+        /// - Deletes `paths.pluginInstallDir(id)`.
+        /// - If `deleteState`, also deletes `paths.pluginStateDir(id)`.
+        /// - Rewrites `registry.json` without the entry.
+        ///
+        /// Refuses to remove bundled plugins (returns `.failure`).
+        public static func remove(
+            id: String,
+            deleteState: Bool,
+            registry: PluginRegistry,
+            paths: GallagerPaths
+        ) async -> Result<Void, InstallError> {
+            // Check registration and source on the MainActor.
+            let checkResult: Result<Void, InstallError> = await MainActor.run {
+                // Not registered at all → refuse.
+                guard registry.isRegistered(id) else {
+                    return .failure(.notInstalled)
+                }
+                // Bundled plugins (source == "bundled" or in factory table but not sidecar) → refuse.
+                let sourceStr = registry.listEntries().first(where: { $0.id == id })?.source
+                if sourceStr == "bundled" {
+                    return .failure(.notInstalled)
+                }
+                // Not in listEntries at all (unknown id that somehow passed isRegistered) → refuse.
+                if sourceStr == nil {
+                    return .failure(.notInstalled)
+                }
+                return .success(())
+            }
+            if case .failure = checkResult { return checkResult }
+
+            // Best-effort uninstall via the core (removes hook files etc.)
+            if let core = await MainActor.run(body: { registry.core(id) }) {
+                try? await core.uninstall(configRoot: nil)
+            }
+
+            // Disable (shuts down the core).
+            await registry.disable(id)
+
+            // Delete the install directory.
+            let installDir = paths.pluginInstallDir(id)
+            try? FileManager.default.removeItem(at: installDir)
+
+            // Optionally delete the state directory.
+            if deleteState {
+                let stateDir = paths.pluginStateDir(id)
+                try? FileManager.default.removeItem(at: stateDir)
+            }
+
+            // Rewrite registry.json without this entry.
+            await MainActor.run {
+                persistRegistryExcluding(id: id, registry: registry, paths: paths)
+            }
+
+            return .success(())
+        }
+
+        // MARK: - Registry persistence helpers
+
+        /// Persist the current registry state to disk. Best-effort; never traps.
+        @MainActor
+        static func persistRegistry(registry: PluginRegistry, paths: GallagerPaths) {
+            let cliEntries = registry.listEntries()
+            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+                guard let manifest = registry.manifest(cliEntry.id) else { return nil }
+                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                return PluginRegistryEntry(
+                    id: cliEntry.id,
+                    version: cliEntry.version,
+                    source: source,
+                    runtime: manifest.runtime,
+                    enabled: cliEntry.enabled,
+                    manifestURL: manifest.manifestURL,
+                    bundleURL: manifest.bundleURL,
+                    bundleSHA256: manifest.bundleSHA256
+                )
+            }
+            let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
+            try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
+        }
+
+        /// Persist the registry to disk, omitting the entry for `id`. Best-effort.
+        @MainActor
+        static func persistRegistryExcluding(id: String, registry: PluginRegistry, paths: GallagerPaths) {
+            let cliEntries = registry.listEntries().filter { $0.id != id }
+            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+                guard let manifest = registry.manifest(cliEntry.id) else { return nil }
+                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                return PluginRegistryEntry(
+                    id: cliEntry.id,
+                    version: cliEntry.version,
+                    source: source,
+                    runtime: manifest.runtime,
+                    enabled: cliEntry.enabled,
+                    manifestURL: manifest.manifestURL,
+                    bundleURL: manifest.bundleURL,
+                    bundleSHA256: manifest.bundleSHA256
+                )
+            }
+            let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
+            try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
+        }
+
         // MARK: - Private helpers
 
         private static func isLower(_ scalar: Unicode.Scalar) -> Bool {
