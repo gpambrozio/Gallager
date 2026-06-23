@@ -26,6 +26,7 @@ public actor SidecarSupervisor {
     private var crashTimes: [Date] = []
     private var backoffTask: Task<Void, Never>?
     private var onAutoDisabledCallback: (@Sendable ([String]) -> Void)?
+    private var onRestartCallback: (@Sendable (SidecarTransport) -> Void)?
 
     public init(
         manifest: PluginManifest,
@@ -44,6 +45,19 @@ public actor SidecarSupervisor {
 
     public func setOnAutoDisabled(_ cb: @escaping @Sendable ([String]) -> Void) {
         onAutoDisabledCallback = cb
+    }
+
+    /// Register a callback invoked with the fresh transport after a successful
+    /// crash-backoff restart. The owning `SidecarPluginCore` uses it to refresh
+    /// its cached transport so post-restart RPCs reach the new child process
+    /// (without it, the core keeps marshaling over the dead pipe).
+    public func setOnRestart(_ cb: @escaping @Sendable (SidecarTransport) -> Void) {
+        onRestartCallback = cb
+    }
+
+    /// Invoke the restart callback on the actor's isolation domain.
+    private func fireOnRestart(_ transport: SidecarTransport) {
+        onRestartCallback?(transport)
     }
 
     /// Spawn the child, wire stdio to a transport, and return it ready to drive.
@@ -146,7 +160,10 @@ public actor SidecarSupervisor {
         backoffTask = Task { [weak self] in
             try? await Task.sleep(for: backoff)
             guard let self, await self.state() == .crashed else { return } // guard against double-spawn
-            _ = try? await self.startTransport(delegate: delegate)
+            guard let newTransport = try? await self.startTransport(delegate: delegate) else { return }
+            // Hand the fresh transport to the core so post-restart RPCs reach the
+            // new child (the core's cached transport still points at the dead pipe).
+            await self.fireOnRestart(newTransport)
         }
     }
 

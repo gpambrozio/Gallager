@@ -16,6 +16,9 @@
         /// Retained at `initialize`; NEVER marshaled over the wire.
         private var host: (any PluginHost)?
         private var transport: SidecarTransport?
+        /// The env passed at `initialize`, retained so a post-crash restart can
+        /// re-handshake the fresh child with the same environment.
+        private var lastEnv: PluginEnv?
 
         // MARK: - Optional-capability callbacks
 
@@ -45,11 +48,28 @@
 
         public func initialize(_ env: PluginEnv, host: any PluginHost) async throws {
             self.host = host
+            lastEnv = env
+            // Refresh the cached transport whenever the supervisor restarts the
+            // child after a crash — otherwise post-restart RPCs marshal over the
+            // dead pipe and silently fail (translate_event → nil).
+            await supervisor.setOnRestart { [weak self] newTransport in
+                Task { await self?.adoptTransport(newTransport) }
+            }
             if transport == nil {
                 transport = try await supervisor.startTransport(delegate: self)
             }
             let wire = try PluginEnvWire(env)
             _ = try await transport!.request(SidecarRPC.initialize, JSONValue(encoding: wire), timeout: .seconds(10))
+        }
+
+        /// Replace the cached transport after a supervisor restart and re-send
+        /// `initialize` so the fresh child has its env/handshake before any
+        /// subsequent `translate_event` arrives. The retained `host` is reused
+        /// as-is (it never crosses the wire), so only the env handshake replays.
+        private func adoptTransport(_ t: SidecarTransport) async {
+            transport = t
+            guard let env = lastEnv, let wire = try? PluginEnvWire(env) else { return }
+            _ = try? await t.request(SidecarRPC.initialize, try? JSONValue(encoding: wire), timeout: .seconds(10))
         }
 
         public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {

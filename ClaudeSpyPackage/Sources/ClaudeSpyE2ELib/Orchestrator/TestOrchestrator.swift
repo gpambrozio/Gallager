@@ -1182,36 +1182,68 @@ public actor TestOrchestrator {
     }
 
     /// Locate the `EchoPluginSidecar` binary in the SPM build-products tree.
-    /// Walks upward from this source file to find the `Package.swift` root,
-    /// then probes `.build/debug/EchoPluginSidecar` (debug) and
-    /// `.build/release/EchoPluginSidecar` (release). Mirrors the logic in
-    /// `EchoSidecarTestSupport.locateEchoSidecarBinary`.
+    /// The `EchoPluginSidecar` executable is built by `swift build` (not the
+    /// Xcode workspace), so it lives under `ClaudeSpyPackage/.build/{debug,release}/`.
+    /// We assemble candidate `ClaudeSpyPackage` roots from several sources and
+    /// probe each — robust whether the coordinator runs as an SPM test (where the
+    /// `#file` walk works) or as the Xcode-built E2E binary (where `#file` is
+    /// remapped and the working directory / an explicit env override is the only
+    /// reliable anchor).
     private func locateEchoSidecarBinary(sourceFile: String = #file) throws -> URL {
-        var dir = URL(fileURLWithPath: sourceFile).deletingLastPathComponent()
-        var packageRoot: URL?
         let fm = FileManager.default
-        for _ in 0..<15 {
-            if fm.fileExists(atPath: dir.appendingPathComponent("Package.swift").path) {
-                packageRoot = dir
-                break
+
+        /// Walk up from `start` until a directory containing `ClaudeSpyPackage/Package.swift`
+        /// (repo root) OR `Package.swift` directly (the package root itself) is found.
+        /// Returns the `ClaudeSpyPackage` directory in either case.
+        func packageRoot(from start: URL) -> URL? {
+            var dir = start
+            for _ in 0..<20 {
+                let nested = dir.appendingPathComponent("ClaudeSpyPackage/Package.swift")
+                if fm.fileExists(atPath: nested.path) {
+                    return dir.appendingPathComponent("ClaudeSpyPackage")
+                }
+                // `dir` is itself a package root containing the sidecar product.
+                let direct = dir.appendingPathComponent("Package.swift")
+                if
+                    fm.fileExists(atPath: direct.path),
+                    dir.lastPathComponent == "ClaudeSpyPackage" {
+                    return dir
+                }
+                let parent = dir.deletingLastPathComponent()
+                if parent == dir { break }
+                dir = parent
             }
-            let parent = dir.deletingLastPathComponent()
-            if parent == dir { break }
-            dir = parent
+            return nil
+        }
+
+        // Candidate package roots, in priority order.
+        var roots: [URL] = []
+        // 1. Explicit env override (set by tooling if it knows the package path).
+        if let override = ProcessInfo.processInfo.environment["CLAUDESPY_PACKAGE_ROOT"] {
+            roots.append(URL(fileURLWithPath: override))
+        }
+        // 2. The `#file` walk (works for SPM test runs).
+        if let r = packageRoot(from: URL(fileURLWithPath: sourceFile).deletingLastPathComponent()) {
+            roots.append(r)
+        }
+        // 3. The current working directory walk (works for the Xcode-built
+        //    coordinator launched from the repo/worktree root by e2e-test.sh).
+        if let r = packageRoot(from: URL(fileURLWithPath: fm.currentDirectoryPath)) {
+            roots.append(r)
         }
 
         var searched: [String] = []
-        if let root = packageRoot {
-            let debug = root.appendingPathComponent(".build/debug/EchoPluginSidecar")
-            searched.append(debug.path)
-            if fm.isExecutableFile(atPath: debug.path) { return debug }
-            let release = root.appendingPathComponent(".build/release/EchoPluginSidecar")
-            searched.append(release.path)
-            if fm.isExecutableFile(atPath: release.path) { return release }
+        for root in roots {
+            for config in ["debug", "release"] {
+                let candidate = root.appendingPathComponent(".build/\(config)/EchoPluginSidecar")
+                searched.append(candidate.path)
+                if fm.isExecutableFile(atPath: candidate.path) { return candidate }
+            }
         }
         throw OrchestratorError.configurationError(
             "EchoPluginSidecar binary not found. Searched: \(searched). " +
-                "Run `swift build` in ClaudeSpyPackage first."
+                "Run `swift build` in ClaudeSpyPackage first " +
+                "(or set CLAUDESPY_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
         )
     }
 
