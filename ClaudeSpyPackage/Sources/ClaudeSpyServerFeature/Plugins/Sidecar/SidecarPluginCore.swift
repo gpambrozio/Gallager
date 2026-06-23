@@ -17,6 +17,18 @@
         private var host: (any PluginHost)?
         private var transport: SidecarTransport?
 
+        // MARK: - Optional-capability callbacks
+
+        /// Called when the sidecar sends a `prompt_user` notification AND
+        /// `manifest.capabilities.modalPrompts == true`. The coordinator sets this
+        /// to surface an actual Mac modal; `nil`-safe (ignored when unset).
+        public var onPromptUser: (@Sendable (PromptUserRequest) async -> Void)?
+
+        /// Set the `onPromptUser` callback from outside the actor's isolation domain.
+        public func setOnPromptUser(_ handler: (@Sendable (PromptUserRequest) async -> Void)?) {
+            onPromptUser = handler
+        }
+
         public init(manifest: PluginManifest, layout: PluginRootLayout, supervisor: SidecarSupervisor) {
             self.manifest = manifest
             self.layout = layout
@@ -144,6 +156,15 @@
                 if let line = try? params?.decode(LogLine.self) {
                     await host.log(line)
                 }
+            case HostRPC.promptUser:
+                // Optional capability: modal_prompts. Gate on manifest before decoding.
+                guard manifest.capabilities.modalPrompts else {
+                    logger.debug("prompt_user ignored: modal_prompts not declared in manifest")
+                    return
+                }
+                if let req = try? params?.decode(PromptUserRequest.self) {
+                    await onPromptUser?(req)
+                }
             default:
                 logger.debug("unknown inbound notification: \(method)")
             }
@@ -156,6 +177,30 @@
                 return .success(.array(panes.map { .string($0) }))
             default:
                 return .failure(.methodNotFound(method))
+            }
+        }
+
+        // MARK: - Optional capability: rich_pane_detection (spec §Task-17)
+
+        /// Ask the sidecar whether `paneInfo` belongs to its agent.
+        ///
+        /// Returns `nil` when:
+        /// - the manifest does not declare `rich_pane_detection`
+        /// - the sidecar answered with a `MethodNotFound` error (not implemented)
+        /// - any other transport / decode error
+        ///
+        /// Callers that receive `nil` MUST fall back to the standard `process_names`
+        /// detection path — the `PluginCore` protocol and v1 contract are untouched.
+        public func detectPane(_ paneInfo: SidecarPaneInfo) async -> SidecarPaneMatch? {
+            guard manifest.capabilities.richPaneDetection else { return nil }
+            guard let transport else { return nil }
+            do {
+                let params = try JSONValue(encoding: paneInfo)
+                let result = try await transport.request(SidecarRPC.detectPane, params)
+                return try result.decode(SidecarPaneMatch.self)
+            } catch {
+                logger.debug("detect_pane failed (degrading to nil): \(error)")
+                return nil
             }
         }
 

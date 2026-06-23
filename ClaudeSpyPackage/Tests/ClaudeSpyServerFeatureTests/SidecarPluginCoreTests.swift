@@ -128,7 +128,11 @@
         /// Creates the core first, then creates the app-side transport with the core as its
         /// delegate — so inbound peer→app notifications and requests reach the core directly.
         func makeCore(manifestID: String) async throws -> SidecarPluginCore {
-            let manifest = Self.makeManifest(id: manifestID)
+            try await makeCore(manifest: Self.makeManifest(id: manifestID))
+        }
+
+        /// Overload that accepts a fully-specified manifest (used by capability tests).
+        func makeCore(manifest: PluginManifest) async throws -> SidecarPluginCore {
             let layout = Self.makeLayout()
             let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
             let core = SidecarPluginCore(manifest: manifest, layout: layout, supervisor: supervisor)
@@ -147,6 +151,23 @@
 
             await core.injectTransport(appTransport)
             return core
+        }
+
+        /// Convenience overload: build a manifest with custom capabilities (Task-17 tests).
+        func makeCore(manifestID: String, capabilities: PluginManifest.Capabilities) async throws -> SidecarPluginCore {
+            let manifest = PluginManifest(
+                schemaVersion: 1,
+                id: manifestID,
+                displayName: manifestID,
+                shortName: manifestID,
+                version: "1.0.0",
+                processNames: [],
+                ui: PluginManifest.UI(icon: nil, color: nil),
+                runtime: .sidecar,
+                sidecar: PluginManifest.Sidecar(executable: "/nonexistent/sidecar"),
+                capabilities: capabilities
+            )
+            return try await makeCore(manifest: manifest)
         }
 
         /// A stub `PluginEnv` with minimal data.
