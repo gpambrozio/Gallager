@@ -1,6 +1,6 @@
 # Coding-Agent Plugin System — v2 (external sidecar plugins)
 
-Status: Design — additive on top of `2026-05-29-plugin-system-v1-in-process.md`
+Status: Implemented (2026-06-22) — see docs/superpowers/plans/2026-06-22-plugin-system-v2-external-sidecar-plugins.md
 Date: 2026-05-29
 Author: Brainstormed with Claude
 

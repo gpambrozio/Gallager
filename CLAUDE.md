@@ -137,3 +137,4 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 - **Terminal sizing (macOS):** `docs/swiftterm-sizing.md`
 - **Terminal scrolling (iOS):** `docs/swiftterm-ios-scrolling.md`
 - **Terminal rendering bugs:** `docs/terminal-rendering-investigation.md` - Hypotheses, test results, fix priorities
+- **Sidecar plugin authoring:** `docs/plugins/sidecar-authoring.md` - External contract for v2 sidecar plugins: manifest schema, JSON-RPC vocabulary, spawn env, hook ingress, crash policy, distribution, security model. Note: sidecar child stderr goes to `~/.gallager/state/plugins/<id>/logs/stderr.log` (separate from `host.log()`'s `sidecar.log`).
