@@ -88,6 +88,25 @@
                 hookContents.contains(manifest.id),
                 "hook.sh should contain plugin id '\(manifest.id)'"
             )
+
+            // Regression guard: must use 4-byte big-endian length-prefix framing (ingress socket),
+            // never LSP-style Content-Length headers (STDIO transport).
+            #expect(
+                !hookContents.contains("Content-Length"),
+                "hook.sh must NOT use Content-Length framing (that is for STDIO, not ingress socket)"
+            )
+            #expect(
+                hookContents.contains("nc -U"),
+                "hook.sh should write to the Unix domain socket via nc -U"
+            )
+            #expect(
+                hookContents.contains("%03o"),
+                "hook.sh should use printf octal escapes to build the 4-byte big-endian length prefix"
+            )
+            #expect(
+                hookContents.contains("wc -c"),
+                "hook.sh should compute byte length with wc -c for the 4-byte prefix"
+            )
         }
     }
 #endif
