@@ -388,6 +388,59 @@
             )
         }
 
+        // MARK: bundle_url https validation
+
+        @Test("install(trustConfirmed: true) returns .notHTTPS when bundle_url uses http://")
+        @MainActor
+        func bundleURLHttpSchemeRejected() async throws {
+            let (paths, stateRoot) = try makeTempPaths()
+            defer { try? FileManager.default.removeItem(at: stateRoot) }
+
+            let id = "flow-http-bundle-test"
+            let manifestURL = try #require(URL(string: "https://example.com/plugin.json"))
+            // bundle_url uses http:// — should be rejected before any download
+            let bundleURL = try #require(URL(string: "http://cdn.example.com/bundle.zip"))
+            let manifestBody = makeManifestJSON(
+                id: id,
+                version: "1.0.0",
+                bundleURL: bundleURL,
+                sha256: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+            )
+            // If the code erroneously tries to download, it gets an empty body → hashMismatch.
+            // The test asserts .notHTTPS so any other result is a failure.
+            let session = MultiURLStubSession(responses: [manifestURL: manifestBody])
+
+            let registry = PluginRegistry()
+            registry.attachPaths(paths)
+            paths.ensurePluginsDir()
+
+            let result = await PluginInstaller.install(
+                manifestURL: manifestURL,
+                trustConfirmed: true,
+                registry: registry,
+                paths: paths,
+                session: session,
+                makeHost: { _ in FlowMockPluginHost() },
+                makeEnv: { id in
+                    PluginEnv(
+                        pluginRoot: paths.pluginInstallDir(id),
+                        stateDir: paths.pluginStateDir(id),
+                        appVersion: "2.0",
+                        settings: Data(),
+                        marketplaceSource: paths.pluginInstallDir(id)
+                    )
+                }
+            )
+
+            guard case let .failure(err) = result else {
+                Issue.record("Expected .failure(.notHTTPS) but got: \(result)")
+                return
+            }
+            #expect(err == .notHTTPS, "Expected .notHTTPS, got \(err)")
+            // The install directory must not exist — nothing was downloaded.
+            #expect(!FileManager.default.fileExists(atPath: paths.pluginInstallDir(id).path))
+        }
+
         @Test("remove refuses bundled plugin ids")
         @MainActor
         func removeRefusesBundled() async throws {

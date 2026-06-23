@@ -110,6 +110,31 @@
 
         // MARK: - Folder-drop discovery
 
+        /// Resolve the registry entry for a folder-discovered plugin, preserving
+        /// url-source metadata when the loaded registry already has a `.url` entry
+        /// for the same id.
+        ///
+        /// - Parameters:
+        ///   - discoveredID: The id of the folder-discovered plugin.
+        ///   - manifest: The manifest loaded from disk for this plugin.
+        ///   - loaded: The existing persisted registry (loaded before discovery).
+        /// - Returns: A `PluginRegistryEntry.Source` and the urls to carry forward.
+        ///   When the loaded registry has a `.url` entry for `discoveredID`, returns
+        ///   `(.url, manifestURL, bundleURL, bundleSHA256)` from that entry.
+        ///   Otherwise returns `(.folder, nil, nil, nil)`.
+        public static func resolveRegistryEntry(
+            discoveredID: String,
+            manifest: PluginManifest,
+            loaded: PluginRegistryFile
+        ) -> (source: PluginRegistryEntry.Source, manifestURL: URL?, bundleURL: URL?, bundleSHA256: String?) {
+            if
+                let prior = loaded.plugins.first(where: { $0.id == discoveredID }),
+                prior.source == .url {
+                return (.url, prior.manifestURL, prior.bundleURL, prior.bundleSHA256)
+            }
+            return (.folder, nil, nil, nil)
+        }
+
         /// Enumerate the immediate subdirectories of `pluginsDir`, load `plugin.json`
         /// from each, and return the valid sidecar plugins.
         ///
@@ -271,6 +296,9 @@
             into temp: URL,
             sizeCap: Int = PluginInstaller.bundleSizeCapDefault
         ) async throws {
+            guard url.scheme == "https" else {
+                throw InstallError.notHTTPS
+            }
             let request = URLRequest(url: url)
             let (_, bodyStream) = try await session.openStream(request)
 
@@ -513,6 +541,9 @@
             }
             guard let bundleURL = manifest.bundleURL else {
                 return .failure(.invalidSchema)
+            }
+            guard bundleURL.scheme == "https" else {
+                return .failure(.notHTTPS)
             }
             guard let expectedSHA256 = manifest.bundleSHA256 else {
                 return .failure(.invalidSchema)

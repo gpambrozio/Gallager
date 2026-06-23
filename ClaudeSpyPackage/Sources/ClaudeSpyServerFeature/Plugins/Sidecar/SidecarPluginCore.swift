@@ -59,7 +59,7 @@
                 transport = try await supervisor.startTransport(delegate: self)
             }
             let wire = try PluginEnvWire(env)
-            _ = try await transport!.request(SidecarRPC.initialize, JSONValue(encoding: wire), timeout: .seconds(10))
+            _ = try await requireTransport().request(SidecarRPC.initialize, JSONValue(encoding: wire), timeout: .seconds(10))
         }
 
         /// Replace the cached transport after a supervisor restart and re-send

@@ -612,6 +612,10 @@
                 }
             }
 
+            // Load the existing registry BEFORE discovery so url-installed plugins
+            // are not downgraded to folder-source on restart.
+            let loadedRegistry = PluginRegistryStore.load(paths.registryPath)
+
             // Discover folder-dropped sidecar plugins under ~/.gallager/plugins/.
             // Each valid sidecar is registered, its state dir is materialized, and
             // it is enabled. Failures are non-fatal: a bad sidecar is logged and
@@ -619,7 +623,13 @@
             let folderDropped = PluginInstaller.discoverFolderDropped(pluginsDir: paths.pluginsDir)
             for (manifest, root) in folderDropped {
                 let id = manifest.id
-                registry.registerSidecar(manifest: manifest, root: root, source: .folder)
+                // Preserve url-source metadata when a prior URL-install entry exists.
+                let resolved = PluginInstaller.resolveRegistryEntry(
+                    discoveredID: id,
+                    manifest: manifest,
+                    loaded: loadedRegistry
+                )
+                registry.registerSidecar(manifest: manifest, root: root, source: resolved.source)
                 paths.ensurePluginStateDir(id)
                 let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
                 let env = makePluginEnv(id: id, registry: registry, paths: paths)
@@ -629,24 +639,28 @@
                 }
             }
 
-            // Persist registry.json: one entry per known plugin (bundled or folder).
+            // Persist registry.json: one entry per known plugin (bundled or folder/url).
+            // Merge so a .url entry is never downgraded to .folder or stripped of urls.
             // Best-effort — a write failure must never block startup.
-            // `listEntries()` returns the public source string; map it back to the
-            // Source enum. `manifest.runtime` is the top-level GallagerPluginProtocol
-            // Runtime enum, which is the same type PluginRegistryEntry.runtime uses.
             let cliEntries = registry.listEntries()
             let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
                 guard let manifest = registry.manifest(cliEntry.id) else { return nil }
                 let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                let prior = loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
+                let effectiveSource: PluginRegistryEntry.Source =
+                    (prior?.source == .url && source != .bundled) ? .url : source
+                let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
+                let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
+                let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
                 return PluginRegistryEntry(
                     id: cliEntry.id,
                     version: cliEntry.version,
-                    source: source,
+                    source: effectiveSource,
                     runtime: manifest.runtime,
                     enabled: cliEntry.enabled,
-                    manifestURL: nil,
-                    bundleURL: nil,
-                    bundleSHA256: nil
+                    manifestURL: manifestURL,
+                    bundleURL: bundleURL,
+                    bundleSHA256: bundleSHA256
                 )
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)

@@ -394,4 +394,81 @@
             #expect(written == body)
         }
     }
+
+    @Suite("PluginInstaller.resolveRegistryEntry")
+    struct PluginInstallerResolveRegistryEntryTests {
+        @Test("url-entry in loaded registry is preserved over folder discovery")
+        func preservesURLSourceFromLoadedRegistry() throws {
+            // A PluginRegistryFile containing a .url entry for "opencode".
+            let manifestURL = try #require(URL(string: "https://example.com/opencode/plugin.json"))
+            let bundleURL = try #require(URL(string: "https://cdn.example.com/opencode-1.0.0.zip"))
+            let sha = "abc123def456abc123def456abc123def456abc123def456abc123def456abc1"
+
+            let loadedEntry = PluginRegistryEntry(
+                id: "opencode",
+                version: "1.0.0",
+                source: .url,
+                runtime: .sidecar,
+                enabled: true,
+                manifestURL: manifestURL,
+                bundleURL: bundleURL,
+                bundleSHA256: sha
+            )
+            let loaded = PluginRegistryFile(schemaVersion: 1, plugins: [loadedEntry])
+
+            // Simulate a discovered manifest (from disk scan — no url fields).
+            let discoveredManifest = PluginManifest(
+                schemaVersion: 1,
+                id: "opencode",
+                displayName: "OpenCode",
+                shortName: "OC",
+                version: "1.0.0",
+                processNames: [],
+                ui: PluginManifest.UI(icon: nil, color: nil),
+                runtime: .sidecar,
+                sidecar: PluginManifest.Sidecar(executable: "bin/sidecar")
+            )
+
+            let result = PluginInstaller.resolveRegistryEntry(
+                discoveredID: "opencode",
+                manifest: discoveredManifest,
+                loaded: loaded
+            )
+
+            // Must preserve .url source and all url fields.
+            #expect(result.source == .url, "source must be .url, got \(result.source)")
+            #expect(result.manifestURL == manifestURL, "manifestURL must be preserved")
+            #expect(result.bundleURL == bundleURL, "bundleURL must be preserved")
+            #expect(result.bundleSHA256 == sha, "bundleSHA256 must be preserved")
+        }
+
+        @Test("folder discovery without prior url entry returns .folder with nil urls")
+        func folderDiscoveryWithoutPriorURLEntry() {
+            // Empty loaded registry (no prior entry).
+            let loaded = PluginRegistryFile(schemaVersion: 1, plugins: [])
+
+            let manifest = PluginManifest(
+                schemaVersion: 1,
+                id: "myplugin",
+                displayName: "My Plugin",
+                shortName: "MP",
+                version: "0.1.0",
+                processNames: [],
+                ui: PluginManifest.UI(icon: nil, color: nil),
+                runtime: .sidecar,
+                sidecar: PluginManifest.Sidecar(executable: "bin/sidecar")
+            )
+
+            let result = PluginInstaller.resolveRegistryEntry(
+                discoveredID: "myplugin",
+                manifest: manifest,
+                loaded: loaded
+            )
+
+            #expect(result.source == .folder, "source must be .folder, got \(result.source)")
+            #expect(result.manifestURL == nil)
+            #expect(result.bundleURL == nil)
+            #expect(result.bundleSHA256 == nil)
+        }
+    }
 #endif
