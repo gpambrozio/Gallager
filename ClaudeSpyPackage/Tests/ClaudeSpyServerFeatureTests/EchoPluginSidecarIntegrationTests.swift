@@ -111,10 +111,15 @@
             let (manifest, layout) = try makeLayout(binaryURL: binaryURL)
             let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
             let transport = try await supervisor.startTransport(delegate: NoopSidecarDelegate())
-            defer { Task { await supervisor.stop() } }
 
-            let result = try await transport.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(10))
-            #expect(result == .object([:]))
+            do {
+                let result = try await transport.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(10))
+                #expect(result == .object([:]))
+            } catch {
+                await supervisor.stop()
+                throw error
+            }
+            await supervisor.stop()
         }
 
         @Test("translate_event round-trip: EchoDirective → PluginEvent with correct fields")
@@ -123,32 +128,35 @@
             let (manifest, layout) = try makeLayout(binaryURL: binaryURL)
             let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
             let transport = try await supervisor.startTransport(delegate: NoopSidecarDelegate())
-            defer { Task { await supervisor.stop() } }
 
-            // Initialize first.
-            _ = try await transport.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(10))
+            do {
+                // Initialize first.
+                _ = try await transport.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(10))
 
-            // Build an IngressFrameWire with an EchoDirective payload.
-            let directive = EchoDirective(
-                sessionID: "s1",
-                state: .doneWorking(summary: nil)
-            )
-            let wire = IngressFrameWire(
-                IngressFrame(
-                    pluginID: "echo-sidecar",
-                    context: ["TMUX_PANE": "%5"],
-                    payload: (try? JSONEncoder().encode(directive)) ?? Data()
+                // Build an IngressFrameWire with an EchoDirective payload.
+                let directive = EchoDirective(
+                    sessionID: "s1",
+                    state: .doneWorking(summary: nil)
                 )
-            )
-            let params = try JSONValue(encoding: wire)
-            let result = try await transport.request(SidecarRPC.translateEvent, params, timeout: .seconds(10))
+                let wire = IngressFrameWire(
+                    IngressFrame(
+                        pluginID: "echo-sidecar",
+                        context: ["TMUX_PANE": "%5"],
+                        payload: (try? JSONEncoder().encode(directive)) ?? Data()
+                    )
+                )
+                let params = try JSONValue(encoding: wire)
+                let result = try await transport.request(SidecarRPC.translateEvent, params, timeout: .seconds(10))
 
-            let event = try result.decode(PluginEvent.self)
-            #expect(event.pluginID == "echo-sidecar")
-            #expect(event.sessionID == "s1")
-            #expect(event.state?.needsAttention == true)
-            #expect(event.tmuxPane == "%5")
-
+                let event = try result.decode(PluginEvent.self)
+                #expect(event.pluginID == "echo-sidecar")
+                #expect(event.sessionID == "s1")
+                #expect(event.state?.needsAttention == true)
+                #expect(event.tmuxPane == "%5")
+            } catch {
+                await supervisor.stop()
+                throw error
+            }
             await supervisor.stop()
         }
     }
