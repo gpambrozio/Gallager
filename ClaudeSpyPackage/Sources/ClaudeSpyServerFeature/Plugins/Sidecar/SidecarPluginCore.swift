@@ -159,6 +159,16 @@
             }
         }
 
+        // MARK: - Arbitrary sidecar RPC passthrough (spec §10 / Task 16)
+
+        /// Forward an arbitrary `method` string over the sidecar transport.
+        /// Used by `PluginRegistry.callCore`'s `default:` path so operator-defined
+        /// sidecar methods are reachable via `gallager plugin call`.
+        public func callRPC(_ method: String, params: JSONValue?) async throws -> JSONValue {
+            let t = try requireTransport()
+            return try await t.request(method, params)
+        }
+
         // MARK: - Helpers
 
         private func requireTransport() throws -> SidecarTransport {

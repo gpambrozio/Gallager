@@ -2288,6 +2288,59 @@
                         json: json,
                         configRoot: configRoot
                     )
+                },
+                onPluginInstall: { [weak self] urlString, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    guard let url = URL(string: urlString) else {
+                        return .failed("Invalid URL: \(urlString)")
+                    }
+                    let result = await self.installPluginFromURL(url, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.absoluteString),
+                                "bundleURL": trust.bundleURL.map { .string($0.absoluteString) } ?? .null,
+                                "bundleSHA256": trust.bundleSHA256.map { .string($0) } ?? .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
+                onPluginRemove: { [weak self] pluginId, deleteState in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    // Bundled plugins refuse removal.
+                    if await self.isBundledPlugin(id: pluginId) {
+                        return .bundledRefusal
+                    }
+                    let result = await self.removePlugin(id: pluginId, deleteState: deleteState)
+                    switch result {
+                    case .success: return .ok
+                    case let .failure(error): return .failed(String(describing: error))
+                    }
+                },
+                onPluginUpdate: { [weak self] pluginId in
+                    guard let self else { return [] }
+                    let updates = await self.checkPluginUpdates()
+                    let filtered = pluginId.map { id in updates.filter { $0.id == id } } ?? updates
+                    return filtered.map { update in
+                        [
+                            "id": .string(update.id),
+                            "currentVersion": .string(update.currentVersion),
+                            "newVersion": .string(update.newVersion),
+                            "sourceChanged": .bool(update.sourceChanged),
+                        ]
+                    }
                 }
             )
             liveRouter = router

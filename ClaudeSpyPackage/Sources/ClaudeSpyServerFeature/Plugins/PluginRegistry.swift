@@ -291,6 +291,29 @@
                     return .failed(String(describing: error))
                 }
             default:
+                // Spec §10: for sidecar cores, forward arbitrary method strings over
+                // the sidecar transport rather than refusing with .unknownMethod.
+                // In-process cores (not SidecarPluginCore) still return .unknownMethod.
+                if let sidecar = core as? SidecarPluginCore {
+                    do {
+                        let result = try await sidecar.callRPC(method, params: nil)
+                        switch result {
+                        case let .string(s): return .ok(result: s)
+                        case let .int(i): return .ok(result: String(i))
+                        case let .bool(b): return .ok(result: String(b))
+                        default:
+                            // Encode non-primitive result as JSON string.
+                            if
+                                let data = try? JSONEncoder().encode(result),
+                                let str = String(data: data, encoding: .utf8) {
+                                return .ok(result: str)
+                            }
+                            return .ok(result: "ok")
+                        }
+                    } catch {
+                        return .failed(String(describing: error))
+                    }
+                }
                 return .unknownMethod(method)
             }
         }

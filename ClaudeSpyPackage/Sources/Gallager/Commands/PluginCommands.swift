@@ -17,6 +17,9 @@ struct PluginCommand: ParsableCommand {
             PluginDisableCommand.self,
             PluginLogsCommand.self,
             PluginCallCommand.self,
+            PluginInstallCommand.self,
+            PluginRemoveCommand.self,
+            PluginUpdateCommand.self,
         ]
     )
 }
@@ -306,6 +309,224 @@ struct PluginCallCommand: ParsableCommand {
             let ok = result["ok"]?.boolValue == true
             let detail = result["result"]?.stringValue ?? ""
             print("\(method): \(ok ? "ok" : "failed")\(detail.isEmpty ? "" : " (\(detail))")")
+        }
+    }
+}
+
+// MARK: - plugin install
+
+struct PluginInstallCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "install",
+        abstract: "Install a sidecar plugin from an HTTPS manifest URL",
+        discussion: """
+        Downloads and installs a plugin from the given manifest URL. The URL must
+        use https://. The plugin's trust details (display name, publisher, version,
+        source, bundle URL, SHA-256) are printed before installation; you are asked
+        to confirm unless --yes is passed.
+        """
+    )
+
+    @Argument(help: "HTTPS URL of the plugin's plugin.json manifest")
+    var url: String
+
+    @Flag(name: .long, help: "Skip the trust confirmation prompt and install immediately")
+    var yes = false
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        // Enforce HTTPS on the client side (server validates too).
+        guard url.hasPrefix("https://") else {
+            FileHandle.standardError.write(Data("Error: URL must use https:// (got: \(url))\n".utf8))
+            throw ExitCode.failure
+        }
+
+        // First call: trustConfirmed = false → get trust details.
+        let trustResponse = try pluginRequest(
+            method: "plugin.install",
+            params: ["url": .string(url), "trustConfirmed": .bool(false)],
+            options: options
+        )
+
+        if options.json {
+            printResponse(trustResponse, json: true)
+            return
+        }
+
+        guard let result = trustResponse.result else {
+            throw ExitCode.failure
+        }
+
+        let status = result["status"]?.stringValue ?? ""
+
+        if status == "installed" {
+            // Already installed (shouldn't happen on first call, but handle gracefully).
+            print("Installed: \(result["id"]?.stringValue ?? url)")
+            return
+        }
+
+        guard
+            status == "needs_trust",
+            case let .object(trust) = result["trust"] else {
+            FileHandle.standardError.write(Data("Error: Unexpected response from server\n".utf8))
+            throw ExitCode.failure
+        }
+
+        // Print trust details.
+        print("Plugin details:")
+        print("  Display name : \(trust["displayName"]?.stringValue ?? "(unknown)")")
+        if let publisher = trust["publisher"]?.stringValue {
+            print("  Publisher    : \(publisher)")
+        }
+        print("  Version      : \(trust["version"]?.stringValue ?? "(unknown)")")
+        print("  Source URL   : \(trust["sourceURL"]?.stringValue ?? url)")
+        if let bundleURL = trust["bundleURL"]?.stringValue {
+            print("  Bundle URL   : \(bundleURL)")
+        }
+        if let sha256 = trust["bundleSHA256"]?.stringValue {
+            print("  SHA-256      : \(sha256)")
+        }
+        if let sizeBytes = trust["bundleSizeBytes"]?.intValue {
+            let kb = sizeBytes / 1_024
+            print("  Bundle size  : \(kb > 0 ? "\(kb) KB" : "\(sizeBytes) bytes")")
+        }
+        print("")
+        print("WARNING: Only install plugins from sources you trust.")
+
+        if !yes {
+            print("Install this plugin? [y/N] ", terminator: "")
+            let answer = (readLine() ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            guard answer == "y" || answer == "yes" else {
+                print("Aborted.")
+                throw ExitCode.failure
+            }
+        }
+
+        // Second call: trustConfirmed = true → actually install.
+        let installResponse = try pluginRequest(
+            method: "plugin.install",
+            params: ["url": .string(url), "trustConfirmed": .bool(true)],
+            options: options
+        )
+
+        if options.json {
+            printResponse(installResponse, json: true)
+            return
+        }
+
+        guard
+            let installResult = installResponse.result,
+            installResult["status"]?.stringValue == "installed" else {
+            throw ExitCode.failure
+        }
+        print("Installed: \(installResult["id"]?.stringValue ?? url)")
+    }
+}
+
+// MARK: - plugin remove
+
+struct PluginRemoveCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "remove",
+        abstract: "Remove an installed plugin",
+        discussion: """
+        Removes a URL-installed or folder-drop plugin. Bundled plugins (claude-code,
+        codex) cannot be removed. By default the plugin's state directory is kept;
+        pass --delete-state to remove it as well.
+        """
+    )
+
+    @Argument(help: "Plugin id to remove")
+    var id: String
+
+    @Flag(
+        name: .customLong("keep-state"),
+        help: "Keep the plugin's state directory after removal (default)"
+    )
+    var keepState = false
+
+    @Flag(
+        name: .customLong("delete-state"),
+        help: "Also delete the plugin's state directory"
+    )
+    var deleteState = false
+
+    @OptionGroup var options: GlobalOptions
+
+    func validate() throws {
+        if keepState && deleteState {
+            throw ValidationError("--keep-state and --delete-state are mutually exclusive")
+        }
+    }
+
+    func run() throws {
+        // Default: keep state unless --delete-state is explicitly passed.
+        let shouldDeleteState = deleteState && !keepState
+        let response = try pluginRequest(
+            method: "plugin.remove",
+            params: ["id": .string(id), "deleteState": .bool(shouldDeleteState)],
+            options: options
+        )
+        if options.json {
+            printResponse(response, json: true)
+            return
+        }
+        if response.ok {
+            print("Removed \(id)\(shouldDeleteState ? " (state deleted)" : " (state kept)")")
+        }
+        // Non-ok responses are already handled by pluginRequest (prints + throws ExitCode.failure).
+    }
+}
+
+// MARK: - plugin update
+
+struct PluginUpdateCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "update",
+        abstract: "Check for (or apply) plugin updates",
+        discussion: """
+        Without --apply, lists which URL-installed plugins have newer versions
+        available. With --apply, downloads and installs them. Omit <id> to check
+        all URL-installed plugins.
+        """
+    )
+
+    @Argument(help: "Plugin id to check/update (default: all)")
+    var id: String?
+
+    @Flag(name: .long, help: "Download and install available updates")
+    var apply = false
+
+    @OptionGroup var options: GlobalOptions
+
+    func run() throws {
+        var params: [String: JSONValue] = ["apply": .bool(apply)]
+        if let id {
+            params["id"] = .string(id)
+        }
+        let response = try pluginRequest(method: "plugin.update", params: params, options: options)
+        if options.json {
+            printResponse(response, json: true)
+            return
+        }
+        guard let result = response.result else { return }
+        guard case let .array(updates) = result["updates"] else { return }
+        if updates.isEmpty {
+            print(id.map { "Plugin '\($0)' is up to date." } ?? "All plugins are up to date.")
+            return
+        }
+        for update in updates {
+            guard case let .object(obj) = update else { continue }
+            let pluginId = obj["id"]?.stringValue ?? "?"
+            let current = obj["currentVersion"]?.stringValue ?? "?"
+            let newer = obj["newVersion"]?.stringValue ?? "?"
+            let changed = obj["sourceChanged"]?.boolValue == true ? " (source changed)" : ""
+            if apply {
+                print("Updated \(pluginId): \(current) → \(newer)\(changed)")
+            } else {
+                print("Update available: \(pluginId) \(current) → \(newer)\(changed)")
+            }
         }
     }
 }

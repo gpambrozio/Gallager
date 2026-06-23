@@ -66,6 +66,9 @@
         "plugin.disable",
         "plugin.logs",
         "plugin.call",
+        "plugin.install",
+        "plugin.remove",
+        "plugin.update",
     ]
 
     /// Live implementation that routes JSON-RPC methods to service calls.
@@ -202,6 +205,38 @@
         /// install/uninstall/installStatus to a specific agent config dir.
         let onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)?
 
+        // MARK: - Plugin install / remove / update callbacks (spec §12–14 / Task 16)
+
+        /// Outcome of `plugin.install`. Mirrors `PluginInstaller.InstallOutcome` but
+        /// uses JSON-friendly types so the router never imports the installer directly.
+        public enum PluginInstallResult: Sendable {
+            /// Trust confirmation required. Carries the trust-details envelope to
+            /// surface to the caller before a second call with `trustConfirmed: true`.
+            case needsTrust([String: JSONValue])
+            /// The plugin was installed successfully.
+            case installed(id: String)
+            /// The request failed with an error message.
+            case failed(String)
+        }
+
+        /// Outcome of `plugin.remove`.
+        public enum PluginRemoveResult: Sendable {
+            /// Removed (or no-op when already absent).
+            case ok
+            /// The plugin is bundled and cannot be removed.
+            case bundledRefusal
+            /// Generic failure.
+            case failed(String)
+        }
+
+        /// Parameters: (url, trustConfirmed). Returns the install outcome.
+        let onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)?
+        /// Parameters: (id, deleteState). Returns the remove outcome.
+        let onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)?
+        /// Parameters: (id?). Returns an array of update-availability envelopes.
+        /// `nil` id means check all.
+        let onPluginUpdate: (@Sendable (String?) async -> [[String: JSONValue]])?
+
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
             onSessionCreate: (
@@ -247,7 +282,10 @@
             onPluginEnable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
             onPluginDisable: (@Sendable (String) async -> [String: JSONValue]?)? = nil,
             onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)? = nil,
-            onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)? = nil
+            onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)? = nil,
+            onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)? = nil,
+            onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)? = nil,
+            onPluginUpdate: (@Sendable (String?) async -> [[String: JSONValue]])? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -284,6 +322,9 @@
             self.onPluginDisable = onPluginDisable
             self.onPluginLogs = onPluginLogs
             self.onPluginCall = onPluginCall
+            self.onPluginInstall = onPluginInstall
+            self.onPluginRemove = onPluginRemove
+            self.onPluginUpdate = onPluginUpdate
         }
 
         public func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
@@ -782,6 +823,69 @@
                     case let .failed(message):
                         return .internalError(id: id, message)
                     }
+
+                // MARK: - Plugin install / remove / update (Task 16)
+
+                case "plugin.install":
+                    guard let url = params["url"]?.stringValue else {
+                        return .invalidParams(id: id, "url required")
+                    }
+                    let trustConfirmed = params["trustConfirmed"]?.boolValue == true
+                    guard let callback = onPluginInstall else {
+                        return .internalError(id: id, "Plugin install not available")
+                    }
+                    switch await callback(url, trustConfirmed) {
+                    case let .needsTrust(details):
+                        return JSONRPCResponse(id: id, result: [
+                            "status": .string("needs_trust"),
+                            "trust": .object(details),
+                        ])
+                    case let .installed(pluginId):
+                        return JSONRPCResponse(id: id, result: [
+                            "status": .string("installed"),
+                            "id": .string(pluginId),
+                        ])
+                    case let .failed(message):
+                        return .internalError(id: id, message)
+                    }
+
+                case "plugin.remove":
+                    guard let pluginId = params["id"]?.stringValue else {
+                        return .invalidParams(id: id, "id required")
+                    }
+                    let deleteState = params["deleteState"]?.boolValue == true
+                    guard let callback = onPluginRemove else {
+                        return .internalError(id: id, "Plugin remove not available")
+                    }
+                    switch await callback(pluginId, deleteState) {
+                    case .ok:
+                        return JSONRPCResponse(id: id, result: [
+                            "id": .string(pluginId),
+                            "removed": .bool(true),
+                        ])
+                    case .bundledRefusal:
+                        return JSONRPCResponse(
+                            id: id,
+                            error: JSONRPCError(
+                                code: "bundled_plugin",
+                                message: "Bundled plugin '\(pluginId)' cannot be removed"
+                            )
+                        )
+                    case let .failed(message):
+                        return .internalError(id: id, message)
+                    }
+
+                case "plugin.update":
+                    let pluginId = params["id"]?.stringValue
+                    let apply = params["apply"]?.boolValue == true
+                    guard let callback = onPluginUpdate else {
+                        return .internalError(id: id, "Plugin update not available")
+                    }
+                    let updates = await callback(pluginId)
+                    return JSONRPCResponse(id: id, result: [
+                        "apply": .bool(apply),
+                        "updates": .array(updates.map { .object($0) }),
+                    ])
 
                 default:
                     return .methodNotFound(id: id, request.method)
