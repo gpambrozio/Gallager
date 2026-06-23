@@ -26,7 +26,7 @@ public actor SidecarSupervisor {
     private var crashTimes: [Date] = []
     private var backoffTask: Task<Void, Never>?
     private var onAutoDisabledCallback: (@Sendable ([String]) -> Void)?
-    private var onRestartCallback: (@Sendable (SidecarTransport) -> Void)?
+    private var onRestartCallback: (@Sendable (SidecarTransport) async -> Void)?
 
     public init(
         manifest: PluginManifest,
@@ -51,13 +51,17 @@ public actor SidecarSupervisor {
     /// crash-backoff restart. The owning `SidecarPluginCore` uses it to refresh
     /// its cached transport so post-restart RPCs reach the new child process
     /// (without it, the core keeps marshaling over the dead pipe).
-    public func setOnRestart(_ cb: @escaping @Sendable (SidecarTransport) -> Void) {
+    /// The callback is `async` so the supervisor awaits transport adoption before
+    /// considering the restart complete — closing the window where the new transport
+    /// is live but the core's field still points at the dead pipe.
+    public func setOnRestart(_ cb: @escaping @Sendable (SidecarTransport) async -> Void) {
         onRestartCallback = cb
     }
 
-    /// Invoke the restart callback on the actor's isolation domain.
-    private func fireOnRestart(_ transport: SidecarTransport) {
-        onRestartCallback?(transport)
+    /// Invoke the restart callback on the actor's isolation domain, awaiting it
+    /// so transport adoption is complete before the backoff task exits.
+    private func fireOnRestart(_ transport: SidecarTransport) async {
+        await onRestartCallback?(transport)
     }
 
     /// Spawn the child, wire stdio to a transport, and return it ready to drive.
@@ -161,8 +165,9 @@ public actor SidecarSupervisor {
             try? await Task.sleep(for: backoff)
             guard let self, await self.state() == .crashed else { return } // guard against double-spawn
             guard let newTransport = try? await self.startTransport(delegate: delegate) else { return }
-            // Hand the fresh transport to the core so post-restart RPCs reach the
-            // new child (the core's cached transport still points at the dead pipe).
+            // Hand the fresh transport to the core and await adoption so post-restart
+            // RPCs reach the new child (the core's cached transport still points at
+            // the dead pipe until adoptTransport completes).
             await self.fireOnRestart(newTransport)
         }
     }

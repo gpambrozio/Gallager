@@ -53,7 +53,7 @@
             // child after a crash — otherwise post-restart RPCs marshal over the
             // dead pipe and silently fail (translate_event → nil).
             await supervisor.setOnRestart { [weak self] newTransport in
-                Task { await self?.adoptTransport(newTransport) }
+                await self?.adoptTransport(newTransport)
             }
             if transport == nil {
                 transport = try await supervisor.startTransport(delegate: self)
@@ -68,8 +68,18 @@
         /// as-is (it never crosses the wire), so only the env handshake replays.
         private func adoptTransport(_ t: SidecarTransport) async {
             transport = t
-            guard let env = lastEnv, let wire = try? PluginEnvWire(env) else { return }
-            _ = try? await t.request(SidecarRPC.initialize, try? JSONValue(encoding: wire), timeout: .seconds(10))
+            guard
+                let env = lastEnv,
+                let wire = try? PluginEnvWire(env),
+                let payload = try? JSONValue(encoding: wire) else {
+                logger.warning("adoptTransport: could not encode env to re-initialize sidecar '\(manifest.id)'")
+                return
+            }
+            do {
+                _ = try await t.request(SidecarRPC.initialize, payload, timeout: .seconds(10))
+            } catch {
+                logger.warning("adoptTransport: re-initialize RPC failed for '\(manifest.id)': \(error)")
+            }
         }
 
         public func handleIngress(_ frame: IngressFrame) async -> PluginEvent? {
