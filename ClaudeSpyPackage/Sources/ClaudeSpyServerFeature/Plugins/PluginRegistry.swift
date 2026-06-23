@@ -264,7 +264,12 @@
         /// lifecycle verbs `enable`/`disable` are handled by the caller (they
         /// require the app-built host/env). Returns `.notEnabled` when no active
         /// core exists for `id`.
-        public func callCore(_ id: String, method: String, configRoot: String? = nil) async -> CallOutcome {
+        public func callCore(
+            _ id: String,
+            method: String,
+            json: String? = nil,
+            configRoot: String? = nil
+        ) async -> CallOutcome {
             guard let core = active[id] else { return .notEnabled }
             switch method {
             case "refreshProjects":
@@ -296,7 +301,13 @@
                 // In-process cores (not SidecarPluginCore) still return .unknownMethod.
                 if let sidecar = core as? SidecarPluginCore {
                     do {
-                        let result = try await sidecar.callRPC(method, params: nil)
+                        let params: JSONValue?
+                        if let json {
+                            params = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+                        } else {
+                            params = nil
+                        }
+                        let result = try await sidecar.callRPC(method, params: params)
                         switch result {
                         case let .string(s): return .ok(result: s)
                         case let .int(i): return .ok(result: String(i))

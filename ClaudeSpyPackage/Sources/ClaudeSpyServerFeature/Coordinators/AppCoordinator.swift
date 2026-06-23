@@ -983,7 +983,7 @@
         func pluginCallViaCLI(
             _ id: String,
             method: String,
-            json _: String?,
+            json: String?,
             configRoot: String? = nil
         ) async -> LiveAPIRequestRouter.PluginCallResult {
             guard let registry = pluginRegistry, registry.isRegistered(id) else {
@@ -997,7 +997,7 @@
                 _ = await disablePluginViaCLI(id)
                 return .ok(result: "disabled")
             default:
-                switch await registry.callCore(id, method: method, configRoot: configRoot) {
+                switch await registry.callCore(id, method: method, json: json, configRoot: configRoot) {
                 case let .ok(result): return .ok(result: result)
                 case .notEnabled: return .notEnabled
                 case let .unknownMethod(name): return .unknownMethod(name)
@@ -2329,18 +2329,82 @@
                     case let .failure(error): return .failed(String(describing: error))
                     }
                 },
-                onPluginUpdate: { [weak self] pluginId in
+                onPluginUpdate: { [weak self] pluginId, apply in
                     guard let self else { return [] }
                     let updates = await self.checkPluginUpdates()
                     let filtered = pluginId.map { id in updates.filter { $0.id == id } } ?? updates
-                    return filtered.map { update in
-                        [
-                            "id": .string(update.id),
-                            "currentVersion": .string(update.currentVersion),
-                            "newVersion": .string(update.newVersion),
-                            "sourceChanged": .bool(update.sourceChanged),
-                        ]
+
+                    guard apply else {
+                        // List-only path (no changes)
+                        return filtered.map { update in
+                            [
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(update.sourceChanged),
+                            ]
+                        }
                     }
+
+                    // Apply path: for each update, look up its manifestURL from the registry file
+                    // and re-invoke installPluginFromURL.
+                    guard let paths = await self.gallagerPaths else { return [] }
+                    let registryFile = PluginRegistryStore.load(paths.registryPath)
+                    var results: [[String: JSONValue]] = []
+
+                    for update in filtered {
+                        // Source-changed means a new host — we can't auto-trust silently.
+                        // Skip it and report with applied:false + a note.
+                        if update.sourceChanged {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(true),
+                                "applied": .bool(false),
+                                "note": .string("source-changed: needs manual re-install to trust new source"),
+                            ])
+                            continue
+                        }
+
+                        // Look up the manifestURL from the registry file (PluginRegistryEntry).
+                        guard
+                            let entry = registryFile.plugins.first(where: { $0.id == update.id }),
+                            let manifestURL = entry.manifestURL else {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string("no manifestURL in registry"),
+                            ])
+                            continue
+                        }
+
+                        // Re-run install (trustConfirmed: true — same source, previously trusted).
+                        let outcome = await self.installPluginFromURL(manifestURL, trustConfirmed: true)
+                        switch outcome {
+                        case .success:
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(true),
+                            ])
+                        case let .failure(error):
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string(String(describing: error)),
+                            ])
+                        }
+                    }
+                    return results
                 }
             )
             liveRouter = router

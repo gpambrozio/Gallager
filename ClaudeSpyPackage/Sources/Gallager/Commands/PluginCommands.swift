@@ -521,10 +521,18 @@ struct PluginUpdateCommand: ParsableCommand {
             let pluginId = obj["id"]?.stringValue ?? "?"
             let current = obj["currentVersion"]?.stringValue ?? "?"
             let newer = obj["newVersion"]?.stringValue ?? "?"
-            let changed = obj["sourceChanged"]?.boolValue == true ? " (source changed)" : ""
             if apply {
-                print("Updated \(pluginId): \(current) → \(newer)\(changed)")
+                let applied = obj["applied"]?.boolValue == true
+                let note = obj["note"]?.stringValue
+                if applied {
+                    print("Updated \(pluginId): \(current) → \(newer)")
+                } else if let note {
+                    print("Skipped \(pluginId): \(note)")
+                } else {
+                    print("Failed to update \(pluginId)")
+                }
             } else {
+                let changed = obj["sourceChanged"]?.boolValue == true ? " (source changed)" : ""
                 print("Update available: \(pluginId) \(current) → \(newer)\(changed)")
             }
         }

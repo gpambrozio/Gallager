@@ -221,7 +221,7 @@ func pluginRemoveRejectsWhenCallbackMissing() async {
 func pluginUpdateReturnsUpdatesList() async {
     let receivedID = LockedValueV2<String?>("sentinel")
     let router = LiveAPIRequestRouter(
-        onPluginUpdate: { id in
+        onPluginUpdate: { id, _ in
             await receivedID.set(id)
             return [
                 [
@@ -258,7 +258,7 @@ func pluginUpdateReturnsUpdatesList() async {
 func pluginUpdateForwardsIdWhenProvided() async {
     let receivedID = LockedValueV2<String?>(nil)
     let router = LiveAPIRequestRouter(
-        onPluginUpdate: { id in
+        onPluginUpdate: { id, _ in
             await receivedID.set(id)
             return []
         }
@@ -276,7 +276,7 @@ func pluginUpdateForwardsIdWhenProvided() async {
 @Test
 func pluginUpdateEmptyListWhenUpToDate() async {
     let router = LiveAPIRequestRouter(
-        onPluginUpdate: { _ in [] }
+        onPluginUpdate: { _, _ in [] }
     )
     let response = await router.handleRequest(
         JSONRPCRequest(id: "update-empty", method: "plugin.update", params: [:])
@@ -297,6 +297,44 @@ func pluginUpdateRejectsWhenCallbackMissing() async {
     )
     #expect(response.ok == false)
     #expect(response.error?.code == "internal_error")
+}
+
+@Test
+func pluginUpdateApplyTrueReachesCallback() async {
+    let receivedApply = LockedValueV2<Bool?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPluginUpdate: { _, apply in
+            await receivedApply.set(apply)
+            return []
+        }
+    )
+    _ = await router.handleRequest(
+        JSONRPCRequest(
+            id: "update-apply-true",
+            method: "plugin.update",
+            params: ["apply": .bool(true)]
+        )
+    )
+    #expect(await receivedApply.get() == true)
+}
+
+@Test
+func pluginUpdateApplyFalseReachesCallback() async {
+    let receivedApply = LockedValueV2<Bool?>(nil)
+    let router = LiveAPIRequestRouter(
+        onPluginUpdate: { _, apply in
+            await receivedApply.set(apply)
+            return []
+        }
+    )
+    _ = await router.handleRequest(
+        JSONRPCRequest(
+            id: "update-apply-false",
+            method: "plugin.update",
+            params: ["apply": .bool(false)]
+        )
+    )
+    #expect(await receivedApply.get() == false)
 }
 
 // MARK: - Helper

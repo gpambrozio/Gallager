@@ -233,9 +233,9 @@
         let onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)?
         /// Parameters: (id, deleteState). Returns the remove outcome.
         let onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)?
-        /// Parameters: (id?). Returns an array of update-availability envelopes.
-        /// `nil` id means check all.
-        let onPluginUpdate: (@Sendable (String?) async -> [[String: JSONValue]])?
+        /// Parameters: (id?, apply). Returns an array of update-availability envelopes.
+        /// `nil` id means check all. When `apply` is true, each update is re-installed.
+        let onPluginUpdate: (@Sendable (String?, Bool) async -> [[String: JSONValue]])?
 
         public init(
             onSessionList: (@Sendable () async -> [[String: JSONValue]])? = nil,
@@ -285,7 +285,7 @@
             onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)? = nil,
             onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)? = nil,
             onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)? = nil,
-            onPluginUpdate: (@Sendable (String?) async -> [[String: JSONValue]])? = nil
+            onPluginUpdate: (@Sendable (String?, Bool) async -> [[String: JSONValue]])? = nil
         ) {
             self.onSessionList = onSessionList
             self.onSessionCreate = onSessionCreate
@@ -881,7 +881,7 @@
                     guard let callback = onPluginUpdate else {
                         return .internalError(id: id, "Plugin update not available")
                     }
-                    let updates = await callback(pluginId)
+                    let updates = await callback(pluginId, apply)
                     return JSONRPCResponse(id: id, result: [
                         "apply": .bool(apply),
                         "updates": .array(updates.map { .object($0) }),
