@@ -587,6 +587,13 @@
             let registry = PluginRegistry()
             pluginRegistry = registry
 
+            // Provide paths to the registry before enabling any sidecar (needed to
+            // build PluginRootLayout for SidecarPluginCore construction).
+            registry.attachPaths(paths)
+
+            // Ensure the folder-drop plugins directory exists.
+            paths.ensurePluginsDir()
+
             var pluginIDs = ["claude-code", "codex"]
             #if DEBUG
                 if CommandLine.arguments.contains("--e2e-test") {
@@ -604,6 +611,46 @@
                     logger.warning("Plugin '\(id)' left disabled: \(failure)")
                 }
             }
+
+            // Discover folder-dropped sidecar plugins under ~/.gallager/plugins/.
+            // Each valid sidecar is registered, its state dir is materialized, and
+            // it is enabled. Failures are non-fatal: a bad sidecar is logged and
+            // skipped so it never blocks startup.
+            let folderDropped = PluginInstaller.discoverFolderDropped(pluginsDir: paths.pluginsDir)
+            for (manifest, root) in folderDropped {
+                let id = manifest.id
+                registry.registerSidecar(manifest: manifest, root: root, source: .folder)
+                paths.ensurePluginStateDir(id)
+                let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                let env = makePluginEnv(id: id, registry: registry, paths: paths)
+                await registry.enable(id, host: host, env: env)
+                if let failure = registry.failedInit[id] {
+                    logger.warning("Sidecar plugin '\(id)' left disabled: \(failure)")
+                }
+            }
+
+            // Persist registry.json: one entry per known plugin (bundled or folder).
+            // Best-effort — a write failure must never block startup.
+            // `listEntries()` returns the public source string; map it back to the
+            // Source enum. `manifest.runtime` is the top-level GallagerPluginProtocol
+            // Runtime enum, which is the same type PluginRegistryEntry.runtime uses.
+            let cliEntries = registry.listEntries()
+            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+                guard let manifest = registry.manifest(cliEntry.id) else { return nil }
+                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                return PluginRegistryEntry(
+                    id: cliEntry.id,
+                    version: cliEntry.version,
+                    source: source,
+                    runtime: manifest.runtime,
+                    enabled: cliEntry.enabled,
+                    manifestURL: nil,
+                    bundleURL: nil,
+                    bundleSHA256: nil
+                )
+            }
+            let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
+            try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
@@ -722,13 +769,23 @@
         ) -> PluginEnv {
             let pluginRoot = registry.pluginRoot(id) ?? paths.pluginStateDir(id)
             let settingsData = (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
-            // Bundled marketplace dirs live in the app's main bundle Resources:
-            //   plugin/       → Claude marketplace
-            //   plugin/codex/ → Codex marketplace
-            let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
-            let marketplaceSource: URL = switch id {
-            case "codex": resources.appendingPathComponent("plugin/codex")
-            default: resources.appendingPathComponent("plugin")
+            // Marketplace source resolution:
+            //   • Sidecar (folder-drop): check for a `marketplace/` subdir inside the
+            //     plugin root; fall back to the root itself when absent.
+            //   • Bundled in-process: marketplace dirs live in the app's main bundle
+            //     Resources (plugin/ for Claude, plugin/codex/ for Codex).
+            let marketplaceSource: URL
+            if registry.manifests[id]?.runtime == .sidecar {
+                let candidate = pluginRoot.appendingPathComponent("marketplace", isDirectory: true)
+                marketplaceSource = FileManager.default.fileExists(atPath: candidate.path)
+                    ? candidate
+                    : pluginRoot
+            } else {
+                let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
+                marketplaceSource = switch id {
+                case "codex": resources.appendingPathComponent("plugin/codex")
+                default: resources.appendingPathComponent("plugin")
+                }
             }
             return PluginEnv(
                 pluginRoot: pluginRoot,

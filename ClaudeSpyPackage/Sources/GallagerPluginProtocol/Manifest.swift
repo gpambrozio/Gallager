@@ -48,9 +48,22 @@ public struct PluginManifest: Sendable, Codable, Equatable {
     public struct Sidecar: Sendable, Codable, Equatable {
         public let executable: String
         public let args: [String]
+
         public init(executable: String, args: [String] = []) {
             self.executable = executable
             self.args = args
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case executable
+            case args
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.executable = try container.decode(String.self, forKey: .executable)
+            // `args` defaults to empty when absent so manifests can omit it.
+            self.args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
         }
     }
 

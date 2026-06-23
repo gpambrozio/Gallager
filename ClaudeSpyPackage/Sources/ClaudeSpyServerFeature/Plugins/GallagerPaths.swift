@@ -64,6 +64,19 @@
             stateRoot.appendingPathComponent("plugins", isDirectory: true)
         }
 
+        /// `<gallagerRoot>/plugins` — where folder-dropped sidecar bundles live
+        /// (spec §9). Each immediate subdirectory is a self-contained plugin tree
+        /// whose directory name must equal the plugin's sanitized id.
+        public var pluginsDir: URL {
+            gallagerRoot.appendingPathComponent("plugins", isDirectory: true)
+        }
+
+        /// Ensure `<gallagerRoot>/plugins/` exists. Best-effort; never traps.
+        @discardableResult
+        public func ensurePluginsDir() -> Bool {
+            createDirectory(pluginsDir)
+        }
+
         // MARK: - Per-plugin paths
 
         /// `<stateRoot>/plugins/<id>/` — writable per-plugin scratch/state. The
