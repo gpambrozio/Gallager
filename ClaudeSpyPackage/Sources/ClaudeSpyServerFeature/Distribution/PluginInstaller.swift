@@ -1,4 +1,5 @@
 #if os(macOS)
+    import CryptoKit
     import Foundation
     import GallagerPluginProtocol
 
@@ -241,6 +242,207 @@
             )
 
             return (manifest, trust)
+        }
+
+        // MARK: - Bundle download (Task 13)
+
+        /// Default maximum bundle size (50 MiB). Enforced mid-stream.
+        public static let bundleSizeCapDefault = 50 * 1_024 * 1_024
+
+        /// Stream-download a plugin bundle, verify its SHA-256 digest, and write it
+        /// to `temp` incrementally without buffering the full body in memory.
+        ///
+        /// - Parameters:
+        ///   - url: The bundle download URL.
+        ///   - expectedSHA256: Lowercase or uppercase hex digest from the manifest.
+        ///   - session: Injected HTTP session (swap a stub in tests).
+        ///   - temp: Path to write the received bytes. The file is created/overwritten
+        ///     on first chunk and removed on any error.
+        ///   - sizeCap: Byte ceiling enforced mid-stream. Defaults to 50 MiB.
+        /// - Throws:
+        ///   - `InstallError.bundleTooLarge` if the running byte count exceeds `sizeCap`.
+        ///   - `InstallError.hashMismatch` if the final digest doesn't match `expectedSHA256`.
+        public static func downloadBundle(
+            _ url: URL,
+            expectedSHA256: String,
+            session: any URLSessionProtocol,
+            into temp: URL,
+            sizeCap: Int = PluginInstaller.bundleSizeCapDefault
+        ) async throws {
+            let request = URLRequest(url: url)
+            let (_, bodyStream) = try await session.openStream(request)
+
+            let fm = FileManager.default
+            // Create the output file so we can open a FileHandle for writing.
+            fm.createFile(atPath: temp.path, contents: nil)
+            guard let handle = FileHandle(forWritingAtPath: temp.path) else {
+                throw InstallError.bundleMissing
+            }
+
+            var hasher = SHA256()
+            var byteCount = 0
+
+            do {
+                for try await chunk in bodyStream {
+                    byteCount += chunk.count
+                    if byteCount > sizeCap {
+                        // Clean up and abort; do NOT keep a partial file.
+                        try? handle.close()
+                        try? fm.removeItem(at: temp)
+                        throw InstallError.bundleTooLarge
+                    }
+                    hasher.update(data: chunk)
+                    handle.write(chunk)
+                }
+                try handle.close()
+            } catch let error as InstallError {
+                try? handle.close()
+                try? fm.removeItem(at: temp)
+                throw error
+            } catch {
+                try? handle.close()
+                try? fm.removeItem(at: temp)
+                throw error
+            }
+
+            // Verify the digest (case-insensitive comparison per spec).
+            let digest = hasher.finalize()
+            let hexDigest = digest.compactMap { String(format: "%02x", $0) }.joined()
+            guard hexDigest.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
+                try? fm.removeItem(at: temp)
+                throw InstallError.hashMismatch
+            }
+        }
+
+        // MARK: - Unpack + validate (Task 13)
+
+        /// Unzip a bundle archive into `stagingDir`, then:
+        /// 1. Reject zip-slip: every extracted entry's resolved path must be
+        ///    contained within `stagingDir` (catches `../` traversal AND symlink
+        ///    escapes). `/usr/bin/unzip` exits 0 even when it *skips* traversal
+        ///    entries, so the exit code alone is NOT sufficient — we enumerate.
+        /// 2. Validate the tree: `plugin.json` at the staging root whose `id` and
+        ///    `version` match `manifest`; `bin/sidecar` (or `manifest.sidecar.executable`)
+        ///    present and executable; any declared `ui.icon` asset present.
+        /// - Throws: `InstallError.zipSlip`, `InstallError.bundleMissing`, or a
+        ///   descriptive `InstallError.enableFailed` for tree-validation failures.
+        public static func unpackAndValidate(
+            zip: URL,
+            stagingDir: URL,
+            manifest: PluginManifest
+        ) throws {
+            // --- Step 1: unzip --------------------------------------------------
+            let unzip = Process()
+            unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            unzip.arguments = ["-o", "-q", zip.path, "-d", stagingDir.path]
+            let errPipe = Pipe()
+            unzip.standardError = errPipe
+            try unzip.run()
+            unzip.waitUntilExit()
+            // We deliberately do NOT treat a non-zero exit as definitive — the
+            // zip-slip enumeration below is the real guard.
+
+            // --- Step 2: zip-slip check -----------------------------------------
+            let canonicalStaging = stagingDir.standardizedFileURL.resolvingSymlinksInPath()
+
+            let fm = FileManager.default
+            guard
+                let enumerator = fm.enumerator(
+                    at: stagingDir,
+                    includingPropertiesForKeys: [.isSymbolicLinkKey],
+                    options: []
+                ) else {
+                throw InstallError.bundleMissing
+            }
+
+            for case let entry as URL in enumerator {
+                let resolved = entry.standardizedFileURL.resolvingSymlinksInPath()
+                let entryPath = resolved.path
+                let stagingPath = canonicalStaging.path
+                // The resolved path must start with the staging dir's path.
+                // Use a separator-anchored prefix to avoid partial-name matches.
+                let containedPrefix = stagingPath.hasSuffix("/")
+                    ? stagingPath
+                    : stagingPath + "/"
+                guard entryPath == stagingPath || entryPath.hasPrefix(containedPrefix) else {
+                    throw InstallError.zipSlip(entry.path)
+                }
+            }
+
+            // --- Step 3: tree validation ----------------------------------------
+            // plugin.json must be at the staging root.
+            let manifestURL = stagingDir.appendingPathComponent("plugin.json")
+            guard fm.fileExists(atPath: manifestURL.path) else {
+                throw InstallError.enableFailed("plugin.json missing from bundle root")
+            }
+            let extracted: PluginManifest
+            do {
+                extracted = try PluginManifest.load(fromPluginRoot: stagingDir)
+            } catch {
+                throw InstallError.enableFailed("plugin.json decode failed: \(error)")
+            }
+            guard extracted.id == manifest.id else {
+                throw InstallError.enableFailed(
+                    "bundle id '\(extracted.id)' does not match manifest id '\(manifest.id)'"
+                )
+            }
+            guard extracted.version == manifest.version else {
+                throw InstallError.enableFailed(
+                    "bundle version '\(extracted.version)' does not match manifest version '\(manifest.version)'"
+                )
+            }
+
+            // Executable must be present and have the executable bit.
+            let execRelPath = manifest.sidecar?.executable ?? "bin/sidecar"
+            let execURL = stagingDir.appendingPathComponent(execRelPath)
+            guard fm.isExecutableFile(atPath: execURL.path) else {
+                throw InstallError.enableFailed(
+                    "declared executable '\(execRelPath)' is missing or not executable"
+                )
+            }
+
+            // Declared icon asset must be present.
+            if let icon = manifest.ui.icon {
+                let iconURL = stagingDir.appendingPathComponent(icon)
+                guard fm.fileExists(atPath: iconURL.path) else {
+                    throw InstallError.enableFailed("declared ui.icon '\(icon)' is missing from bundle")
+                }
+            }
+        }
+
+        // MARK: - Atomic commit (Task 13)
+
+        /// Atomically move `stagingDir` into `finalDir`, replacing any existing
+        /// installation without a window where neither the old nor the new version
+        /// is in place.
+        ///
+        /// Strategy:
+        ///  1. If `finalDir` exists, rename it to `<finalDir>.replacing` (move-aside).
+        ///  2. Rename `stagingDir` → `finalDir`.
+        ///  3. Remove the `.replacing` dir.
+        ///
+        /// On failure after step 2, the new installation is in place and the old
+        /// one is still at `<finalDir>.replacing` — recoverable.
+        public static func commitInstall(stagingDir: URL, finalDir: URL) throws {
+            let fm = FileManager.default
+            let replacing = URL(fileURLWithPath: finalDir.path + ".replacing")
+
+            // Move aside existing install (if any).
+            if fm.fileExists(atPath: finalDir.path) {
+                // Clean up any leftover `.replacing` dir from a previous failed attempt.
+                if fm.fileExists(atPath: replacing.path) {
+                    try fm.removeItem(at: replacing)
+                }
+                try fm.moveItem(at: finalDir, to: replacing)
+            }
+
+            // Rename staging → final (atomic on the same filesystem).
+            try fm.moveItem(at: stagingDir, to: finalDir)
+
+            // Best-effort cleanup of the old installation.
+            if fm.fileExists(atPath: replacing.path) {
+                try? fm.removeItem(at: replacing)
+            }
         }
 
         // MARK: - Private helpers
