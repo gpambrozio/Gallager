@@ -249,6 +249,10 @@ let products: [Product] = [
         name: "GallagerCLI",
         targets: ["GallagerCLI"]
     ),
+    .executable(
+        name: "EchoPluginSidecar",
+        targets: ["EchoPluginSidecar"]
+    ),
 ]
 
 let packageDependencies: [Package.Dependency] = [
@@ -412,6 +416,17 @@ let targets: [Target] = [
         name: "GallagerCLI",
         dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
         path: "Sources/Gallager"
+    ),
+    // Real out-of-process echo sidecar for integration tests (spec §17.3).
+    // Reads Content-Length-framed JSON-RPC on stdin; answers each method and
+    // emits notifications to stdout. Not gated by #if DEBUG so it ships in
+    // Release builds (the executable is a separate product, not linked into
+    // the app). Used by EchoPluginSidecarIntegrationTests to prove the full
+    // spawn → transport → RPC pipeline through SidecarSupervisor.
+    .executableTarget(
+        name: "EchoPluginSidecar",
+        dependencies: [.gallagerPluginProtocol, .claudeSpyNetworking, .logging],
+        path: "Sources/EchoPluginSidecar"
     ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
