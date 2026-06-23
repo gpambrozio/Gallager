@@ -5,67 +5,6 @@
     import Testing
     @testable import ClaudeSpyServerFeature
 
-    // MARK: - Helpers
-
-    private actor NoopSidecarDelegate: SidecarTransportDelegate {
-        func handleNotification(_: String, _: JSONValue?) async { }
-        func handleInboundRequest(_ m: String, _: JSONValue?) async -> Result<JSONValue, RPCError> {
-            .failure(.methodNotFound(m))
-        }
-    }
-
-    /// Locate the `EchoPluginSidecar` binary within the SPM build-products tree.
-    ///
-    /// SPM creates a stable symlink `.build/debug` → `.build/<arch>/debug/` so we
-    /// don't have to hard-code the architecture string. The package root is found
-    /// by walking upward from `#file` until we find a directory that contains
-    /// `Package.swift` — this is resilient to SPM's `-file-prefix-map` rewriting
-    /// that can omit the package subdirectory from `#file` paths.
-    private func locateEchoSidecarBinary(sourceFile: String = #file) throws -> URL {
-        // Walk upward from the source file's directory until Package.swift is found.
-        var dir = URL(fileURLWithPath: sourceFile).deletingLastPathComponent()
-        var packageRoot: URL?
-        let fm = FileManager.default
-        for _ in 0..<10 {
-            if fm.fileExists(atPath: dir.appendingPathComponent("Package.swift").path) {
-                packageRoot = dir
-                break
-            }
-            let parent = dir.deletingLastPathComponent()
-            if parent == dir { break } // hit filesystem root
-            dir = parent
-        }
-
-        var searched: [String] = []
-
-        if let root = packageRoot {
-            // Primary: .build/debug (SPM's arch-neutral symlink, always present locally).
-            let primary = root.appendingPathComponent(".build/debug/EchoPluginSidecar")
-            searched.append(primary.path)
-            if fm.isExecutableFile(atPath: primary.path) {
-                return primary
-            }
-            // Fallback: .build/release.
-            let release = root.appendingPathComponent(".build/release/EchoPluginSidecar")
-            searched.append(release.path)
-            if fm.isExecutableFile(atPath: release.path) {
-                return release
-            }
-        }
-
-        throw BinaryNotFoundError(searched: searched, sourceFile: sourceFile)
-    }
-
-    private struct BinaryNotFoundError: Error, CustomStringConvertible {
-        let searched: [String]
-        let sourceFile: String
-        var description: String {
-            "EchoPluginSidecar binary not found. Searched: \(searched). " +
-                "sourceFile=\(sourceFile). " +
-                "Run `swift build` in ClaudeSpyPackage before running this test."
-        }
-    }
-
     // MARK: - Integration test suite
 
     @Suite("EchoPluginSidecarIntegration")
@@ -110,7 +49,7 @@
             let binaryURL = try locateEchoSidecarBinary()
             let (manifest, layout) = try makeLayout(binaryURL: binaryURL)
             let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
-            let transport = try await supervisor.startTransport(delegate: NoopSidecarDelegate())
+            let transport = try await supervisor.startTransport(delegate: SharedNoopSidecarDelegate())
 
             do {
                 let result = try await transport.request(SidecarRPC.initialize, .object([:]), timeout: .seconds(10))
@@ -127,7 +66,7 @@
             let binaryURL = try locateEchoSidecarBinary()
             let (manifest, layout) = try makeLayout(binaryURL: binaryURL)
             let supervisor = SidecarSupervisor(manifest: manifest, layout: layout)
-            let transport = try await supervisor.startTransport(delegate: NoopSidecarDelegate())
+            let transport = try await supervisor.startTransport(delegate: SharedNoopSidecarDelegate())
 
             do {
                 // Initialize first.

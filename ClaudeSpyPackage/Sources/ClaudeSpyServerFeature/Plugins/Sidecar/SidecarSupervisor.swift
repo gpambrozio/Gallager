@@ -70,6 +70,7 @@ public actor SidecarSupervisor {
         env["GALLAGER_STATE_DIR"] = layout.stateDir.path
         env["GALLAGER_APP_VERSION"] = layout.appVersion
         env["GALLAGER_INGRESS_SOCK"] = layout.ingressSocketPath
+        env["GALLAGER_PLUGIN_ID"] = manifest.id
         proc.environment = env
 
         let stdin = Pipe()
