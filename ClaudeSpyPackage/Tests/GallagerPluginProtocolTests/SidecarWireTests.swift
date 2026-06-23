@@ -8,7 +8,7 @@ struct StdioFramerTests {
     @Test("encode prepends a Content-Length header + blank line")
     func encodeShape() {
         let framed = StdioFramer.encode(Data("{}".utf8))
-        #expect(String(decoding: framed, as: UTF8.self) == "Content-Length: 2\r\n\r\n{}")
+        #expect(String(bytes: framed, encoding: .utf8) == "Content-Length: 2\r\n\r\n{}")
     }
 
     @Test("decoder reassembles a frame split across chunks")
@@ -18,7 +18,7 @@ struct StdioFramerTests {
         #expect(try dec.push(framed.prefix(5)).isEmpty) // header start only
         let bodies = try dec.push(framed.suffix(from: framed.index(framed.startIndex, offsetBy: 5)))
         #expect(bodies.count == 1)
-        #expect(String(decoding: bodies[0], as: UTF8.self) == #"{"a":1}"#)
+        #expect(String(bytes: bodies[0], encoding: .utf8) == #"{"a":1}"#)
     }
 
     @Test("decoder yields two frames from one chunk, in order")
@@ -27,7 +27,7 @@ struct StdioFramerTests {
         var buf = StdioFramer.encode(Data(#"{"n":1}"#.utf8))
         buf.append(StdioFramer.encode(Data(#"{"n":2}"#.utf8)))
         let bodies = try dec.push(buf)
-        #expect(bodies.map { String(decoding: $0, as: UTF8.self) } == [#"{"n":1}"#, #"{"n":2}"#])
+        #expect(bodies.map { String(bytes: $0, encoding: .utf8) } == [#"{"n":1}"#, #"{"n":2}"#])
     }
 
     @Test("header past 16 KiB without terminator throws malformedHeader")
@@ -67,7 +67,7 @@ struct RPCMessageTests {
         #expect(n.id == nil)
         #expect(n.isNotification)
         let data = try JSONEncoder().encode(n)
-        #expect(!String(decoding: data, as: UTF8.self).contains("\"id\""))
+        #expect(!(String(bytes: data, encoding: .utf8) ?? "").contains("\"id\""))
     }
 
     @Test("method-name constants match the spec vocabulary")
@@ -91,7 +91,7 @@ struct PluginEnvWireTests {
         )
         let wire = try PluginEnvWire(env)
         let json = try JSONEncoder().encode(wire)
-        let text = String(decoding: json, as: UTF8.self)
+        let text = String(bytes: json, encoding: .utf8) ?? ""
         #expect(text.contains(#""auto_run":true"#)) // embedded object, not a quoted blob
         #expect(!text.contains("eyJ")) // no base64
         // Round-trips back to the same settings bytes.

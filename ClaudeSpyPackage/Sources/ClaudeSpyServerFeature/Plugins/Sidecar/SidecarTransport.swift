@@ -122,8 +122,7 @@ public actor SidecarTransport {
                 // than swallowing them with try?, which would leave the caller blocked
                 // until the 30s timeout fires.
                 Task { [weak self] in
-                    do { try await self?.send(.request(id: id, method: method, params: params)) }
-                    catch { await self?.failPending(id, with: error) }
+                    do { try await self?.send(.request(id: id, method: method, params: params)) } catch { await self?.failPending(id, with: error) }
                 }
             }
             timeoutTask.cancel()

@@ -19,7 +19,7 @@
                 if method == SidecarRPC.initialize { return .success(.object([:])) }
                 await capturedMethod.set(method)
                 let match = SidecarPaneMatch(matches: true, projectPath: "/my/project", sessionID: "s1")
-                return .success(try! JSONValue(encoding: match))
+                return .success((try? JSONValue(encoding: match)) ?? .object([:]))
             }
 
             let core = try await mock.makeCore(

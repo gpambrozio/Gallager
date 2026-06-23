@@ -229,7 +229,7 @@
                     state: .doneWorking(summary: nil),
                     tmuxPane: "%4"
                 )
-                return .success(try! JSONValue(encoding: event))
+                return .success((try? JSONValue(encoding: event)) ?? .object([:]))
             }
             let core = try await mock.makeCore(manifestID: "opencode")
             let host = MockPluginHost()

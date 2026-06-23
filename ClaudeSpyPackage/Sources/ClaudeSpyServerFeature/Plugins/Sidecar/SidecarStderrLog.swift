@@ -27,7 +27,7 @@ public actor SidecarStderrLog {
         } else {
             try? data.write(to: fileURL)
         }
-        for line in String(decoding: data, as: UTF8.self)
+        for line in (String(bytes: data, encoding: .utf8) ?? "")
             .split(separator: "\n", omittingEmptySubsequences: false) {
             tail.append(String(line))
             if tail.count > tailCapacity { tail.removeFirst(tail.count - tailCapacity) }
