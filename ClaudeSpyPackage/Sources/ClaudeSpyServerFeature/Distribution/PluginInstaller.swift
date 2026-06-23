@@ -25,6 +25,8 @@
         case bundleMissing
         /// The plugin is not installed in the plugins directory.
         case notInstalled
+        /// The extracted bundle tree failed validation (missing manifest, id/version mismatch, etc.).
+        case treeValidationFailed(String)
         /// Enabling the plugin failed with the given reason.
         case enableFailed(String)
     }
@@ -325,7 +327,7 @@
         ///    `version` match `manifest`; `bin/sidecar` (or `manifest.sidecar.executable`)
         ///    present and executable; any declared `ui.icon` asset present.
         /// - Throws: `InstallError.zipSlip`, `InstallError.bundleMissing`, or a
-        ///   descriptive `InstallError.enableFailed` for tree-validation failures.
+        ///   descriptive `InstallError.treeValidationFailed` for tree-validation failures.
         public static func unpackAndValidate(
             zip: URL,
             stagingDir: URL,
@@ -349,7 +351,7 @@
             guard
                 let enumerator = fm.enumerator(
                     at: stagingDir,
-                    includingPropertiesForKeys: [.isSymbolicLinkKey],
+                    includingPropertiesForKeys: [],
                     options: []
                 ) else {
                 throw InstallError.bundleMissing
@@ -373,21 +375,21 @@
             // plugin.json must be at the staging root.
             let manifestURL = stagingDir.appendingPathComponent("plugin.json")
             guard fm.fileExists(atPath: manifestURL.path) else {
-                throw InstallError.enableFailed("plugin.json missing from bundle root")
+                throw InstallError.treeValidationFailed("plugin.json missing from bundle root")
             }
             let extracted: PluginManifest
             do {
                 extracted = try PluginManifest.load(fromPluginRoot: stagingDir)
             } catch {
-                throw InstallError.enableFailed("plugin.json decode failed: \(error)")
+                throw InstallError.treeValidationFailed("plugin.json decode failed: \(error)")
             }
             guard extracted.id == manifest.id else {
-                throw InstallError.enableFailed(
+                throw InstallError.treeValidationFailed(
                     "bundle id '\(extracted.id)' does not match manifest id '\(manifest.id)'"
                 )
             }
             guard extracted.version == manifest.version else {
-                throw InstallError.enableFailed(
+                throw InstallError.treeValidationFailed(
                     "bundle version '\(extracted.version)' does not match manifest version '\(manifest.version)'"
                 )
             }
@@ -396,7 +398,7 @@
             let execRelPath = manifest.sidecar?.executable ?? "bin/sidecar"
             let execURL = stagingDir.appendingPathComponent(execRelPath)
             guard fm.isExecutableFile(atPath: execURL.path) else {
-                throw InstallError.enableFailed(
+                throw InstallError.treeValidationFailed(
                     "declared executable '\(execRelPath)' is missing or not executable"
                 )
             }
@@ -405,7 +407,7 @@
             if let icon = manifest.ui.icon {
                 let iconURL = stagingDir.appendingPathComponent(icon)
                 guard fm.fileExists(atPath: iconURL.path) else {
-                    throw InstallError.enableFailed("declared ui.icon '\(icon)' is missing from bundle")
+                    throw InstallError.treeValidationFailed("declared ui.icon '\(icon)' is missing from bundle")
                 }
             }
         }

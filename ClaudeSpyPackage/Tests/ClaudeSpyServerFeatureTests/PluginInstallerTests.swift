@@ -14,6 +14,42 @@
         return dir
     }
 
+    /// Build a zip archive containing a SYMLINK entry whose target is outside the
+    /// extraction root. macOS `unzip` materializes symlinks (unlike `../` path
+    /// entries, which it silently strips), so this drives the enumerator's
+    /// `resolvingSymlinksInPath()` containment branch end-to-end.
+    ///
+    /// The resulting zip contains a single entry named `evil` with
+    /// `external_attr = S_IFLNK | 0o777` and contents `/tmp` (the link target).
+    private func makeSymlinkEscapeZip() throws -> URL {
+        let dest = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("symlink-evil-\(UUID().uuidString).zip")
+        let script = """
+        import sys, zipfile
+        zi = zipfile.ZipInfo('evil')
+        zi.external_attr = (0o120777 << 16)
+        z = zipfile.ZipFile('\(dest.path)', 'w')
+        z.writestr(zi, '/tmp')
+        z.close()
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", script]
+        let errPipe = Pipe()
+        process.standardError = errPipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let errMsg = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(
+                domain: "PluginInstallerTests",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "python3 symlink-zip creation failed: \(errMsg)"]
+            )
+        }
+        return dest
+    }
+
     /// Build a zip archive at a temp location containing one entry at the given
     /// in-archive path with the supplied contents. Uses python3 so that `../`
     /// traversal entries are not silently sanitised (which `/usr/bin/zip` does).
@@ -215,13 +251,10 @@
 
             let manifest = PluginManifest.fixtureSidecar(executable: "bin/sidecar")
 
-            // We expect a zipSlip error. Accept any InstallError because the exact
-            // variant depends on whether unzip actually extracted the entry or not;
-            // if it was silently skipped by unzip then we'd get a bundleMissing/
-            // enableFailed instead — which still means the install was rejected.
-            //
-            // The CRITICAL guarantee: the call must throw. A clean return would
-            // mean we accepted a potentially-traversing archive.
+            // Belt-and-suspenders: the call must always throw — either because our
+            // enumerator caught an escaping entry (.zipSlip) or because unzip silently
+            // stripped the `../` and the now-empty tree fails validation.
+            // The CRITICAL guarantee: unpackAndValidate must NEVER return cleanly.
             var threw = false
             do {
                 try PluginInstaller.unpackAndValidate(
@@ -239,6 +272,60 @@
                 threw = true
             }
             #expect(threw, "unpackAndValidate must throw for a zip containing ../escape.txt")
+        }
+
+        // MARK: - unpackAndValidate: symlink-escape throws .zipSlip specifically
+
+        /// This test drives the enumerator's `resolvingSymlinksInPath()` containment
+        /// branch end-to-end. macOS `unzip` materializes symlinks (unlike `../` path
+        /// entries, which it silently strips), so `<staging>/evil -> /tmp` is created
+        /// on disk, the enumerator resolves it to `/private/tmp`, containment fails,
+        /// and `InstallError.zipSlip` must be thrown.
+        @Test("zipSlip: symlink entry pointing outside staging throws .zipSlip specifically")
+        func zipSlipSymlinkEscape() throws {
+            let staging = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: staging) }
+
+            let evilZip = try makeSymlinkEscapeZip()
+            defer { try? FileManager.default.removeItem(at: evilZip) }
+
+            let manifest = PluginManifest.fixtureSidecar(executable: "bin/sidecar")
+
+            // Verify unzip actually materialized the symlink before we invoke the
+            // containment check. This proves the enumerator branch will be exercised.
+            // (We call unzip here explicitly to inspect the staging dir before the
+            // full unpackAndValidate run.)
+            let verifyStaging = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: verifyStaging) }
+            let verifyUnzip = Process()
+            verifyUnzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            verifyUnzip.arguments = ["-o", "-q", evilZip.path, "-d", verifyStaging.path]
+            try verifyUnzip.run()
+            verifyUnzip.waitUntilExit()
+            let symlinkURL = verifyStaging.appendingPathComponent("evil")
+            #expect(
+                (try? symlinkURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true,
+                "pre-condition: unzip must have materialized 'evil' as a symlink in staging"
+            )
+
+            // Now assert that unpackAndValidate throws .zipSlip specifically.
+            // A catch-all or a different error case would not count.
+            var caughtZipSlip = false
+            do {
+                try PluginInstaller.unpackAndValidate(
+                    zip: evilZip,
+                    stagingDir: staging,
+                    manifest: manifest
+                )
+                Issue.record("unpackAndValidate must throw for a symlink-escape zip; returned cleanly instead")
+            } catch let InstallError.zipSlip(path) {
+                caughtZipSlip = true
+                // The reported path should name the offending 'evil' entry.
+                #expect(path.contains("evil"), "zipSlip payload should name the offending entry; got: \(path)")
+            } catch {
+                Issue.record("Expected InstallError.zipSlip but got: \(error)")
+            }
+            #expect(caughtZipSlip, "unpackAndValidate must throw .zipSlip for a symlink-escape zip")
         }
 
         // MARK: - Happy path: valid bundle installs atomically and is executable
