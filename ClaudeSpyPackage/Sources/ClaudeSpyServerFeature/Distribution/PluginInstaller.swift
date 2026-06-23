@@ -2,11 +2,84 @@
     import Foundation
     import GallagerPluginProtocol
 
-    /// Namespace for plugin distribution helpers: id sanitization and folder-drop discovery.
+    // MARK: - InstallError
+
+    /// Errors that can be thrown throughout the plugin install flow (Tasks 12–14).
+    public enum InstallError: Error, Equatable {
+        /// The manifest URL uses a non-`https` scheme.
+        case notHTTPS
+        /// The manifest body exceeded the 1 MiB streaming cap.
+        case manifestTooLarge
+        /// The manifest's `schema_version` is not 1.
+        case invalidSchema
+        /// The manifest's `id` failed `PluginInstaller.sanitize(id:)`.
+        case invalidID
+        /// The downloaded bundle exceeded the size cap.
+        case bundleTooLarge
+        /// The SHA-256 digest of the downloaded bundle does not match the manifest.
+        case hashMismatch
+        /// A path inside the bundle archive escapes the extraction root (zip-slip).
+        case zipSlip(String)
+        /// The bundle archive is missing the expected plugin bundle directory.
+        case bundleMissing
+        /// The plugin is not installed in the plugins directory.
+        case notInstalled
+        /// Enabling the plugin failed with the given reason.
+        case enableFailed(String)
+    }
+
+    // MARK: - URLSessionProtocol
+
+    /// A thin, stubbable seam over URLSession that returns a streaming body so
+    /// callers can enforce a byte-count cap mid-stream without buffering the full
+    /// response first.
     ///
-    /// URL download lands in a later task (Task 12/13). This file covers only the
-    /// folder-drop path: enumerate `~/.gallager/plugins/`, validate each subdir,
-    /// and return the manifests + roots that are safe to enable.
+    /// Conformers must be `Sendable` so the protocol can be used across actor
+    /// boundaries in Swift 6 strict-concurrency mode.
+    ///
+    /// Task 13 reuses this protocol for bundle downloads.
+    public protocol URLSessionProtocol: Sendable {
+        /// Open an HTTP(S) request and return the response head plus a chunked body
+        /// stream. Callers accumulate chunks and may abort early (by cancelling the
+        /// enclosing `Task`) when a size limit is reached.
+        func openStream(_ request: URLRequest) async throws -> (HTTPURLResponse?, AsyncThrowingStream<Data, any Error>)
+    }
+
+    // MARK: - Live URLSession conformance
+
+    extension URLSession: URLSessionProtocol {
+        public func openStream(_ request: URLRequest) async throws -> (HTTPURLResponse?, AsyncThrowingStream<Data, any Error>) {
+            // `URLSession.bytes(for:)` is available on macOS 12+; this project targets macOS 15+.
+            let (byteStream, response) = try await bytes(for: request)
+            let httpResponse = response as? HTTPURLResponse
+            let stream = AsyncThrowingStream<Data, any Error> { continuation in
+                let task = Task {
+                    var buffer = Data()
+                    buffer.reserveCapacity(4_096)
+                    for try await byte in byteStream {
+                        buffer.append(byte)
+                        // Flush in ~4 KiB chunks for low latency on the cap check.
+                        if buffer.count >= 4_096 {
+                            continuation.yield(buffer)
+                            buffer = Data()
+                            buffer.reserveCapacity(4_096)
+                        }
+                    }
+                    if !buffer.isEmpty {
+                        continuation.yield(buffer)
+                    }
+                    continuation.finish()
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
+            return (httpResponse, stream)
+        }
+    }
+
+    // MARK: - PluginInstaller
+
+    /// Namespace for plugin distribution helpers: id sanitization, folder-drop
+    /// discovery, and (from Task 12 onward) HTTPS manifest fetching.
     public enum PluginInstaller {
         // MARK: - ID sanitization
 
@@ -93,6 +166,81 @@
             }
 
             return results
+        }
+
+        // MARK: - Manifest fetch
+
+        /// Maximum allowed manifest body size (1 MiB). Enforced mid-stream so the
+        /// process never buffers more than this even against a slow or adversarial
+        /// server.
+        static let manifestSizeCap = 1 * 1_024 * 1_024
+
+        /// Fetch a remote plugin manifest over HTTPS.
+        ///
+        /// - Parameters:
+        ///   - url: The manifest URL. Must use the `https` scheme.
+        ///   - session: The HTTP session to use. Defaults to `URLSession.shared`
+        ///     in production; supply a stub in tests.
+        /// - Returns: The decoded manifest and a `TrustDetails` value populated
+        ///   from the manifest fields and the source URL.
+        /// - Throws:
+        ///   - `InstallError.notHTTPS` if `url.scheme != "https"` (checked before
+        ///     any network activity).
+        ///   - `InstallError.manifestTooLarge` if the streamed body exceeds 1 MiB.
+        ///   - `InstallError.invalidSchema` if `manifest.schemaVersion != 1`.
+        ///   - `InstallError.invalidID` if `sanitize(id: manifest.id)` returns `nil`.
+        public static func fetchManifest(
+            _ url: URL,
+            session: any URLSessionProtocol
+        ) async throws -> (PluginManifest, TrustDetails) {
+            // HTTPS check happens before any network I/O.
+            guard url.scheme == "https" else {
+                throw InstallError.notHTTPS
+            }
+
+            let request = URLRequest(url: url)
+            let (_, bodyStream) = try await session.openStream(request)
+
+            // Stream the body with a running byte count; abort if the cap is exceeded.
+            var accumulated = Data()
+            accumulated.reserveCapacity(min(manifestSizeCap, 65_536))
+            for try await chunk in bodyStream {
+                accumulated.append(chunk)
+                if accumulated.count > manifestSizeCap {
+                    throw InstallError.manifestTooLarge
+                }
+            }
+
+            // Decode the manifest.
+            let manifest: PluginManifest
+            do {
+                manifest = try JSONDecoder().decode(PluginManifest.self, from: accumulated)
+            } catch {
+                throw InstallError.invalidSchema
+            }
+
+            // Validate schema version.
+            guard manifest.schemaVersion == 1 else {
+                throw InstallError.invalidSchema
+            }
+
+            // Validate the id using the existing sanitizer (no reimplementation).
+            guard sanitize(id: manifest.id) != nil else {
+                throw InstallError.invalidID
+            }
+
+            let trust = TrustDetails(
+                id: manifest.id,
+                displayName: manifest.displayName,
+                version: manifest.version,
+                publisher: manifest.publisher,
+                sourceURL: url,
+                bundleURL: manifest.bundleURL,
+                bundleSHA256: manifest.bundleSHA256,
+                bundleSizeBytes: nil // known only after Task-13 bundle download
+            )
+
+            return (manifest, trust)
         }
 
         // MARK: - Private helpers
