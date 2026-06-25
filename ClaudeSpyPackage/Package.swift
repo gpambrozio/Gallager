@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -12,7 +12,10 @@ import PackageDescription
 /// on the relay build.
 ///
 /// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
-/// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
+/// jammy Docker image then shipped Swift 6.1, blocking `swift package resolve`.
+/// The relay now pins swift:6.3-jammy — bumped so swift-dependencies' package
+/// traits (declared only in its Swift 6.3 manifest) resolve on Linux too — but
+/// the same rule holds: keep Apple-only deps off the Linux graph.)
 func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
@@ -261,7 +264,13 @@ let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
+    // Only the `Clocks` trait is enabled — the app's sole built-in dependency
+    // value is `\.continuousClock` (Clocks gates that). Dropping the default
+    // `CombineSchedulers`/`Foundation`/`FoundationNetworking` traits removes the
+    // combine-schedulers package from the graph. Requires a Swift 6.3+ toolchain
+    // (the only swift-dependencies manifest that declares traits is its 6.3 one);
+    // the relay Dockerfile is pinned to swift:6.3 to match.
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.14.1", traits: ["Clocks"]),
     .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
     .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
 ] + macOnlyDependencies()

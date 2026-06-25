@@ -219,6 +219,11 @@ For automated deployments, use `deploy.sh`:
 export DEPLOY_HOST=your-server-ip-or-hostname
 export DEPLOY_USER=root  # or your SSH user
 
+# Dry-run first: build + boot + health-check in isolation on the server
+# (separate dir/port/container — does NOT touch the running deployment).
+# Recommended before a Swift toolchain or dependency bump.
+./deploy.sh test
+
 # Deploy
 ./deploy.sh deploy
 
@@ -230,6 +235,12 @@ export DEPLOY_USER=root  # or your SSH user
 ./deploy.sh restart       # Restart the server
 ```
 
+`test` builds the image and boots the relay on `TEST_PORT` (default `8099`) under
+`TEST_REMOTE_DIR` (default `/opt/claudespy-test`), curls `/health`, then tears the
+container and image down. If a dependency bump deadlocks against a stale build
+cache (`declares no traits`), it prunes the BuildKit cache and retries once
+automatically. The production container keeps running throughout.
+
 ### Environment Variables for deploy.sh
 
 | Variable | Default | Description |
@@ -238,6 +249,8 @@ export DEPLOY_USER=root  # or your SSH user
 | `DEPLOY_USER` | `root` | SSH username |
 | `REMOTE_DIR` | `/opt/claudespy` | Installation directory on server |
 | `HEALTH_CHECK_URL` | `http://localhost:8080/health` | URL to check after deployment |
+| `TEST_REMOTE_DIR` | `/opt/claudespy-test` | Isolated directory used by `test` |
+| `TEST_PORT` | `8099` | Host port the `test` container binds to |
 
 ## API Reference
 
@@ -384,7 +397,7 @@ Note: iOS requires HTTPS for WebSocket, so this is Mac-only without extra setup.
 If you prefer to build without Docker:
 
 ```bash
-# Requires Swift 6.1+
+# Requires Swift 6.3+ (swift-dependencies declares its package traits only in its Swift 6.3 manifest)
 cd ClaudeSpyPackage
 swift build -c release --product ClaudeSpyExternalServer
 
