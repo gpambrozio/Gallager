@@ -5,7 +5,7 @@ Distributed system for monitoring coding-agent sessions (Anthropic Claude Code a
 2. **External Server** - Vapor relay (Docker/Linux), device pairing, WebSocket routing
 3. **iOS App** - Remote monitoring, command dispatch
 
-**Stack:** Swift 6.1+, SwiftUI (MV pattern), Swift Concurrency, SwiftTerm, Vapor, CryptoKit (E2EE)
+**Stack:** Swift 6.3+, SwiftUI (MV pattern), Swift Concurrency, SwiftTerm, Vapor, CryptoKit (E2EE)
 
 **Targets:** macOS 15.0+, iOS 17.0+
 

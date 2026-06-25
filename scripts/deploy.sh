@@ -14,6 +14,14 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/claudespy}"
 CADDY_CONF_D="${CADDY_CONF_D:-/etc/caddy/conf.d}"
 HCLOUD_SERVER_NAME="${HCLOUD_SERVER_NAME:-cleancast}"
 
+# Isolated-test configuration (used by the `test` command). These intentionally
+# differ from the prod dir/port/container so a test run never touches the running
+# server.
+TEST_REMOTE_DIR="${TEST_REMOTE_DIR:-/opt/claudespy-test}"
+TEST_PORT="${TEST_PORT:-8099}"
+TEST_IMAGE="${TEST_IMAGE:-claudespy-relay:test}"
+TEST_CONTAINER="${TEST_CONTAINER:-claudespy-relay-test}"
+
 # Print colored output
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -230,6 +238,118 @@ REMOTE_SCRIPT
     fi
 }
 
+# Isolated dry-run: rsync to a throwaway dir, build the image, boot the relay on a
+# spare port with throwaway data, hit /health, then tear everything down — all
+# WITHOUT touching the running production container, port, or data. Use this to
+# validate a build (e.g. a Swift toolchain or dependency bump) before `deploy`.
+test_deploy() {
+    info "Starting isolated relay test (no impact on the running server)..."
+
+    SERVER_HOST=$(get_server_host)
+    if [ -z "$SERVER_HOST" ]; then
+        error "Could not determine server host"
+        exit 1
+    fi
+    info "Testing on server: $SERVER_HOST (dir: $TEST_REMOTE_DIR, port: $TEST_PORT)"
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+
+    # Sync the package to an ISOLATED dir so prod ($REMOTE_DIR) is untouched.
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PACKAGE_DIR="$(cd "$SCRIPT_DIR/../ClaudeSpyPackage" && pwd)"
+
+    info "Syncing files to $TEST_REMOTE_DIR..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $TEST_REMOTE_DIR"
+    rsync -az --delete \
+        --exclude='.build' \
+        --exclude='.git' \
+        --exclude='*.xcodeproj' \
+        --exclude='*.xcworkspace' \
+        --exclude='Tests' \
+        --exclude='data' \
+        -e ssh \
+        "$PACKAGE_DIR/" \
+        "$REMOTE_HOST:$TEST_REMOTE_DIR/"
+
+    info "Building and smoke-testing on the server..."
+    TEST_OUTPUT=$(ssh -T -o LogLevel=ERROR "$REMOTE_HOST" << REMOTE_SCRIPT 2>&1
+        cd $TEST_REMOTE_DIR
+        set -eo pipefail
+
+        # Clean up anything left over from a previous test run.
+        docker rm -f $TEST_CONTAINER >/dev/null 2>&1 || true
+
+        build_image() { DOCKER_BUILDKIT=1 docker build -t $TEST_IMAGE . 2>&1; }
+
+        echo "Building test image..."
+        BUILD_LOG=\$(mktemp)
+        if ! build_image | tee "\$BUILD_LOG"; then
+            # A Swift dependency/toolchain bump can deadlock against a stale
+            # checkout cached in the BuildKit cache mount ("declares no traits").
+            # Detect that, clear the build cache, and retry once from scratch.
+            if grep -qiE 'declares no traits|enables traits' "\$BUILD_LOG"; then
+                echo "TEST_CACHE_PRUNED"
+                echo "Stale build cache detected — pruning and rebuilding clean..."
+                docker builder prune -af >/dev/null 2>&1 || true
+                if ! build_image | tee "\$BUILD_LOG"; then
+                    echo "TEST_BUILD_FAILED"
+                    grep -E '(error:|ERROR|failed)' "\$BUILD_LOG" | head -20
+                    rm -f "\$BUILD_LOG"; exit 1
+                fi
+            else
+                echo "TEST_BUILD_FAILED"
+                grep -E '(error:|ERROR|failed)' "\$BUILD_LOG" | head -20
+                rm -f "\$BUILD_LOG"; exit 1
+            fi
+        fi
+        rm -f "\$BUILD_LOG"
+        echo "Build OK."
+
+        # Boot the relay on an isolated port with throwaway data (no secrets —
+        # this validates build + boot + /health, not APNs push delivery).
+        docker run -d --name $TEST_CONTAINER \
+            -p 127.0.0.1:$TEST_PORT:8080 \
+            -e DATA_DIRECTORY=/data \
+            $TEST_IMAGE >/dev/null
+
+        echo "Waiting for /health on port $TEST_PORT..."
+        HEALTHY=""
+        for _ in \$(seq 1 15); do
+            if curl -fs "http://localhost:$TEST_PORT/health" 2>/dev/null | grep -q '"status":"ok"'; then
+                HEALTHY=1; break
+            fi
+            sleep 2
+        done
+
+        echo ""
+        echo "Container logs (tail):"
+        docker logs --tail=20 $TEST_CONTAINER 2>&1 || true
+
+        # Tear down the container + image (the synced dir is kept for fast re-runs).
+        docker rm -f $TEST_CONTAINER >/dev/null 2>&1 || true
+        docker rmi $TEST_IMAGE >/dev/null 2>&1 || true
+
+        if [ -n "\$HEALTHY" ]; then echo "TEST_HEALTHY"; else echo "TEST_UNHEALTHY"; exit 1; fi
+REMOTE_SCRIPT
+    ) || true
+    # `|| true` above: a non-zero remote exit must not trip `set -e` before we
+    # print the captured diagnostics; pass/fail is decided from the sentinels.
+
+    # Filter out Ubuntu MOTD noise and display output.
+    echo "$TEST_OUTPUT" | grep -v -E '(^Welcome to|Documentation:|Management:|Support:|System (information|load)|Usage of|Memory usage|Swap usage|Processes:|Users logged|IPv[46] address|Expanded Security|update.*applied|additional updates|additional security|Learn more about|ubuntu\.com|help\.ubuntu)' | grep -v '^[[:space:]]*$'
+
+    echo ""
+    if echo "$TEST_OUTPUT" | grep -q "TEST_HEALTHY"; then
+        info "Test passed: the image builds and the relay reports healthy on $SERVER_HOST."
+        if echo "$TEST_OUTPUT" | grep -q "TEST_CACHE_PRUNED"; then
+            warn "A stale build cache was pruned during this run; the next 'deploy' build repopulates it (slower once, then cached)."
+        fi
+        info "The running production server was NOT touched. Run '$0 deploy' to roll it out."
+    else
+        error "Test failed — do NOT deploy yet. Review the build/container logs above."
+        exit 1
+    fi
+}
+
 # Show logs (warnings and errors only by default)
 logs() {
     SERVER_HOST=$(get_server_host)
@@ -291,6 +411,7 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  deploy        Deploy or update the server (default)"
+    echo "  test          Build + boot + health-check in isolation on the server (no prod impact)"
     echo "  logs          Show warnings and errors only (follow mode)"
     echo "  logs all      Show all logs including info level"
     echo "  logs debug    Restart with debug logging (use 'restart' to restore)"
@@ -304,6 +425,8 @@ usage() {
     echo "  DEPLOY_USER       SSH user (default: root)"
     echo "  REMOTE_DIR        Installation directory (default: /opt/claudespy)"
     echo "  HEALTH_CHECK_URL  URL for health check (default: http://\$DEPLOY_HOST:8080/health)"
+    echo "  TEST_REMOTE_DIR   Isolated dir for 'test' (default: /opt/claudespy-test)"
+    echo "  TEST_PORT         Host port for the 'test' container (default: 8099)"
     echo ""
     echo "  # Legacy Hetzner Cloud support:"
     echo "  HCLOUD_SERVER_NAME  Hetzner server name (alternative to DEPLOY_HOST)"
@@ -319,6 +442,9 @@ check_prerequisites
 case "${1:-deploy}" in
     deploy)
         deploy
+        ;;
+    test)
+        test_deploy
         ;;
     logs)
         logs "$2"

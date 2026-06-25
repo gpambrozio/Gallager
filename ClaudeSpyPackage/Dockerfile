@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1.4
 
 # Build stage
-FROM swift:6.1-jammy AS builder
+# Swift 6.3+ is required so SPM resolves swift-dependencies' main Package.swift
+# (which declares package traits); older toolchains fall back to its
+# Package@swift-6.0.swift, which has no traits and would reject `traits:`.
+FROM swift:6.3-jammy AS builder
 
 WORKDIR /build
 
@@ -20,10 +23,16 @@ RUN swift package resolve
 # Step 4: Copy the actual source code (changes here only invalidate build, not dependency fetch)
 COPY Sources ./Sources
 
-# Step 5: Create empty test directories to satisfy package structure
-# (tests are not needed for the release build)
-RUN mkdir -p Tests/ClaudeSpyNetworkingTests Tests/ClaudeSpyCommonTests Tests/ClaudeSpyFeatureTests Tests/ClaudeSpyServerFeatureTests Tests/ClaudeSpyExternalServerTests Tests/ClaudeSpyEncryptionTests Tests/ClaudeSpyE2ETests && \
-    touch Tests/ClaudeSpyNetworkingTests/.gitkeep Tests/ClaudeSpyCommonTests/.gitkeep Tests/ClaudeSpyFeatureTests/.gitkeep Tests/ClaudeSpyServerFeatureTests/.gitkeep Tests/ClaudeSpyExternalServerTests/.gitkeep Tests/ClaudeSpyEncryptionTests/.gitkeep Tests/ClaudeSpyE2ETests/.gitkeep
+# Step 5: Create an empty directory for every test target the manifest declares,
+# so `swift package resolve`/`swift build` can load the package graph (the real
+# Tests/ are rsync-excluded from the relay build — their sources aren't needed).
+# Derived from Package.swift rather than hardcoded, so adding a test target can't
+# silently break this build. Every test target name ends in "Tests" by convention
+# (product refs like "VaporTesting"/"DependenciesTestSupport" don't, so they're
+# correctly excluded).
+RUN grep -oE 'name: "[A-Za-z0-9_]+Tests"' Package.swift | grep -oE '[A-Za-z0-9_]+Tests' | sort -u | while read -r t; do \
+        mkdir -p "Tests/$t" && touch "Tests/$t/.gitkeep"; \
+    done
 
 # Step 6: Build release binary with BuildKit cache mount for incremental builds
 # The cache mount persists .build across builds but isn't included in the layer,
@@ -34,7 +43,7 @@ RUN --mount=type=cache,target=/build/.build \
     cp .build/release/ClaudeSpyExternalServer /tmp/
 
 # Runtime stage - use slim image
-FROM swift:6.1-jammy-slim
+FROM swift:6.3-jammy-slim
 
 WORKDIR /app
 
