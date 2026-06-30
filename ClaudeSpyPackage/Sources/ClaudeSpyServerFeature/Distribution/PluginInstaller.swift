@@ -513,7 +513,7 @@
             }
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             proc.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
+            return String(bytes: data, encoding: .utf8) ?? ""
         }
 
         // MARK: - Atomic commit (Task 13)
