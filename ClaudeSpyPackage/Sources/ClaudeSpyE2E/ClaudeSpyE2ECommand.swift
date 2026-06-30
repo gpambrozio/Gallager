@@ -349,6 +349,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         LongTitleTruncationIOSScenario.scenario,
         FolderLayoutPersistenceScenario.scenario,
         RemoteLayoutPersistenceMacViewerScenario.scenario,
+        PluginSidecarQuestionRoundTripScenario.scenario,
+        PluginSidecarPlanApprovalScenario.scenario,
+        PluginSidecarPermissionAllowScenario.scenario,
+        PluginSidecarSessionEndedScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
