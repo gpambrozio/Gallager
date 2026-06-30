@@ -390,7 +390,22 @@ struct PluginInstallCommand: ParsableCommand {
         )
 
         if options.json {
-            printResponse(trustResponse, json: true)
+            // JSON mode can't run the interactive trust prompt. With --yes, go
+            // straight to the confirmed install and emit that envelope; without
+            // --yes there's nothing to confirm, so emit the dry-run (needs_trust)
+            // envelope and stop instead of silently exiting 0 without installing.
+            guard yes else {
+                printResponse(trustResponse, json: true)
+                return
+            }
+            var confirmParams = baseParams
+            confirmParams["trustConfirmed"] = .bool(true)
+            let installResponse = try pluginRequest(
+                method: "plugin.install",
+                params: confirmParams,
+                options: options
+            )
+            printResponse(installResponse, json: true)
             return
         }
 

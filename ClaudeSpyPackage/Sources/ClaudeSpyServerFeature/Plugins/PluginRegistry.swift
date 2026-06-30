@@ -100,6 +100,17 @@
             root: URL,
             source: PluginRegistryEntry.Source
         ) {
+            // A folder-dropped / URL-installed sidecar must never shadow a
+            // compiled-in plugin: a sanitized id that collides with a bundled id
+            // (e.g. a folder named `claude-code` carrying `runtime: sidecar`) could
+            // otherwise spoof the bundled plugin's display metadata and be persisted
+            // as a removable `.folder`/`.url` source. Refuse the registration.
+            guard factories[manifest.id] == nil else {
+                logger.warning(
+                    "Refusing to register sidecar '\(manifest.id)': id collides with a bundled plugin"
+                )
+                return
+            }
             manifests[manifest.id] = manifest
             pluginRoots[manifest.id] = root
             sources[manifest.id] = source
@@ -319,7 +330,12 @@
                     do {
                         let params: JSONValue?
                         if let json {
-                            params = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+                            // Don't let bad JSON masquerade as "no params"; surface it.
+                            do {
+                                params = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+                            } catch {
+                                return .failed("invalid JSON params: \(error)")
+                            }
                         } else {
                             params = nil
                         }

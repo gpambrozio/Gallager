@@ -54,6 +54,10 @@ public actor SidecarTransport {
     /// Serialises writes; a full stdin buffer must not stall the actor.
     private let writeQueue = DispatchQueue(label: "com.claudespy.sidecar.write", qos: .userInitiated)
 
+    /// Deadline for a single offloaded write. A write that outlives this means the
+    /// peer stopped draining stdin; we treat it as peer-closed and tear down.
+    private let writeDeadline: Duration = .seconds(15)
+
     public init(writeHandle: FileHandle, delegate: any SidecarTransportDelegate) {
         self.writeHandle = writeHandle
         self.delegate = delegate
@@ -195,16 +199,37 @@ public actor SidecarTransport {
         }
         let frame = StdioFramer.encode(body)
         let handle = writeHandle
-        // Offload to the serial queue so a full pipe never blocks the actor.
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, any Error>) in
+
+        // Offload the (blocking) pipe write to the serial queue so a full pipe
+        // never stalls the actor. Race it against a deadline: if the child stops
+        // draining stdin the write blocks forever and — because writeQueue is
+        // serial — every later send would wedge behind it. On deadline we surface
+        // a timeout and tear the transport down below (peer-closed), so callers
+        // stop queuing new writes behind the stuck one. We can't interrupt the
+        // blocked dispatch write itself; it unblocks (with an error) once the
+        // child's read end closes, e.g. when the supervisor kills it.
+        let result: Result<Void, any Error> = await withCheckedContinuation { cont in
+            let completion = WriteCompletion(cont)
             writeQueue.async {
                 do {
                     try handle.write(contentsOf: frame)
-                    cont.resume()
+                    completion.complete(.success(()))
                 } catch {
-                    cont.resume(throwing: error)
+                    completion.complete(.failure(error))
                 }
             }
+            completion.setDeadline(Task { [writeDeadline] in
+                try? await Task.sleep(for: writeDeadline)
+                completion.complete(.failure(TransportError.timeout("write")))
+            })
+        }
+
+        if case let .failure(error) = result {
+            // A failed or timed-out write means the peer is effectively gone:
+            // tear the transport down so later RPCs fail fast (peerClosed) instead
+            // of wedging behind the (possibly still-stuck) serial write queue.
+            await handlePeerClosed()
+            throw error
         }
     }
 
@@ -226,5 +251,46 @@ public actor SidecarTransport {
             cont.resume(throwing: TransportError.peerClosed)
         }
         loop?.cancel()
+    }
+}
+
+// MARK: - WriteCompletion
+
+/// Thread-safe one-shot bridge for a single offloaded write: whichever of the
+/// off-actor write or its deadline finishes first resumes the continuation, and
+/// the loser is a no-op. Also cancels the deadline timer once the write resolves.
+final private class WriteCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<Void, any Error>, Never>?
+    private var deadline: Task<Void, Never>?
+
+    init(_ continuation: CheckedContinuation<Result<Void, any Error>, Never>) {
+        self.continuation = continuation
+    }
+
+    /// Wire the deadline timer. If the write already completed, cancel it now.
+    func setDeadline(_ task: Task<Void, Never>) {
+        lock.lock()
+        if continuation == nil {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        deadline = task
+        lock.unlock()
+    }
+
+    /// Resume the continuation exactly once and cancel the (now-moot) deadline.
+    func complete(_ result: Result<Void, any Error>) {
+        lock.lock()
+        guard let cont = continuation else { lock.unlock()
+            return
+        }
+        continuation = nil
+        let toCancel = deadline
+        deadline = nil
+        lock.unlock()
+        toCancel?.cancel()
+        cont.resume(returning: result)
     }
 }

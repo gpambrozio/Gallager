@@ -101,10 +101,16 @@
                 let requestID: String
                 let response: AgentResponse
             }
-            _ = try? await transport?.request(
-                SidecarRPC.deliverResponse,
-                try? JSONValue(encoding: Params(sessionID: sessionID, requestID: requestID, response: response))
-            )
+            let params: JSONValue
+            do {
+                params = try JSONValue(encoding: Params(sessionID: sessionID, requestID: requestID, response: response))
+            } catch {
+                // Don't ship a malformed `deliver_response` with nil params and
+                // silently drop the user's reply — surface the encode failure.
+                logger.error("deliverResponse: failed to encode params for session \(sessionID): \(error) — dropping response")
+                return
+            }
+            _ = try? await transport?.request(SidecarRPC.deliverResponse, params)
         }
 
         public func refreshProjects() async {

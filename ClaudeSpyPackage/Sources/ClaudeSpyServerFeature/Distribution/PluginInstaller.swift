@@ -306,6 +306,8 @@
             // Create the output file so we can open a FileHandle for writing.
             fm.createFile(atPath: temp.path, contents: nil)
             guard let handle = FileHandle(forWritingAtPath: temp.path) else {
+                // Don't leave the just-created empty file orphaned in pluginsDir.
+                try? fm.removeItem(at: temp)
                 throw InstallError.bundleMissing
             }
 
@@ -322,7 +324,10 @@
                         throw InstallError.bundleTooLarge
                     }
                     hasher.update(data: chunk)
-                    handle.write(chunk)
+                    // Throwing variant: a write failure (e.g. disk-full) routes
+                    // through the catch cleanup below instead of trapping the way
+                    // the deprecated `FileHandle.write(_:)` does.
+                    try handle.write(contentsOf: chunk)
                 }
                 try handle.close()
             } catch let error as InstallError {
@@ -361,12 +366,22 @@
             stagingDir: URL,
             manifest: PluginManifest
         ) throws {
+            // --- Step 0: pre-extraction preflight -------------------------------
+            // Enumerate the archive's central directory BEFORE extracting and
+            // reject any traversal/symlink member. This closes the detect-after-
+            // damage window: without it, `unzip` could create a symlink and then
+            // write a later entry *through* it to a path outside `stagingDir`
+            // before the post-extraction enumeration (Step 2) ever runs.
+            try preflightArchive(zip: zip)
+
             // --- Step 1: unzip --------------------------------------------------
             let unzip = Process()
             unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             unzip.arguments = ["-o", "-q", zip.path, "-d", stagingDir.path]
-            let errPipe = Pipe()
-            unzip.standardError = errPipe
+            // stderr is unused (the preflight + enumeration are the real guards);
+            // route it to /dev/null so a chatty archive can't fill an unread pipe
+            // buffer and deadlock `waitUntilExit()`.
+            unzip.standardError = FileHandle.nullDevice
             try unzip.run()
             unzip.waitUntilExit()
             // We deliberately do NOT treat a non-zero exit as definitive — the
@@ -438,6 +453,67 @@
                     throw InstallError.treeValidationFailed("declared ui.icon '\(icon)' is missing from bundle")
                 }
             }
+        }
+
+        /// Inspect a zip archive's listing without extracting it and reject any
+        /// member that could escape the extraction root: an absolute path, a `..`
+        /// path component, or a symlink. A plugin bundle must not contain symlinks
+        /// (rejecting them up front prevents `unzip` from writing a later entry
+        /// through an extracted symlink).
+        static func preflightArchive(zip: URL) throws {
+            // Pass 1: names only (`unzip -Z -1` → one member name per line).
+            let names = try runUnzipList(zip: zip, args: ["-Z", "-1", zip.path])
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map(String.init)
+            for name in names {
+                guard !name.hasPrefix("/") else {
+                    throw InstallError.zipSlip(name)
+                }
+                // Reject any `..` component (covers `../x`, `a/../../x`, etc.).
+                if name.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
+                    throw InstallError.zipSlip(name)
+                }
+            }
+
+            // Pass 2: long listing (`unzip -Z`) so we can spot symlink members by
+            // their unix mode. zipinfo entry lines begin with a 10-char permission
+            // string (e.g. "lrwxr-xr-x"); a leading `l` marks a symlink. The
+            // "Archive:" header and the "N files," trailer don't match that shape.
+            // The long listing enumerates entries in the same archive order as the
+            // `-Z -1` names above, so we pair them by index to name the offender.
+            let entryLines = try runUnzipList(zip: zip, args: ["-Z", zip.path])
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .filter { line in
+                    guard
+                        let perms = line.split(separator: " ", omittingEmptySubsequences: true).first,
+                        perms.count == 10,
+                        let kind = perms.first else { return false }
+                    return kind == "-" || kind == "d" || kind == "l"
+                }
+            for (index, line) in entryLines.enumerated() where line.hasPrefix("l") {
+                let offender = index < names.count ? names[index] : "symlink member in bundle"
+                throw InstallError.zipSlip(offender)
+            }
+        }
+
+        /// Run `/usr/bin/unzip` with the given listing args and return its stdout.
+        /// stderr is routed to `/dev/null` (it's unused and would otherwise risk a
+        /// full-pipe deadlock on a chatty archive).
+        private static func runUnzipList(zip: URL, args: [String]) throws -> String {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            proc.arguments = args
+            let outPipe = Pipe()
+            proc.standardOutput = outPipe
+            proc.standardError = FileHandle.nullDevice
+            do {
+                try proc.run()
+            } catch {
+                throw InstallError.treeValidationFailed("could not list zip: \(error)")
+            }
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            proc.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
         }
 
         // MARK: - Atomic commit (Task 13)
@@ -646,22 +722,38 @@
             unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             unzip.arguments = ["-p", zip.path, "plugin.json"]
             let outPipe = Pipe()
-            let errPipe = Pipe()
             unzip.standardOutput = outPipe
-            unzip.standardError = errPipe
+            // stderr is unused; route it to /dev/null so a chatty archive can't
+            // fill an unread pipe buffer and deadlock `waitUntilExit()`.
+            unzip.standardError = FileHandle.nullDevice
 
             do {
                 try unzip.run()
             } catch {
                 throw InstallError.treeValidationFailed("could not read zip: \(error)")
             }
-            // Read the manifest bytes, enforcing the same 1 MiB cap as remote fetch.
-            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            // Read the manifest in bounded 64 KiB chunks, enforcing the same 1 MiB
+            // cap as the remote fetch *mid-stream* so a crafted archive can't balloon
+            // memory before the cap check (matches the streaming guarantee).
+            let readHandle = outPipe.fileHandleForReading
+            var data = Data()
+            do {
+                while let chunk = try readHandle.read(upToCount: 65_536), !chunk.isEmpty {
+                    data.append(chunk)
+                    if data.count > manifestSizeCap {
+                        unzip.terminate()
+                        unzip.waitUntilExit()
+                        throw InstallError.manifestTooLarge
+                    }
+                }
+            } catch let error as InstallError {
+                throw error
+            } catch {
+                unzip.waitUntilExit()
+                throw InstallError.treeValidationFailed("could not read plugin.json: \(error)")
+            }
             unzip.waitUntilExit()
 
-            guard data.count <= manifestSizeCap else {
-                throw InstallError.manifestTooLarge
-            }
             guard !data.isEmpty else {
                 throw InstallError.treeValidationFailed("plugin.json missing from bundle root")
             }

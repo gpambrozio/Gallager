@@ -16,8 +16,10 @@
         @Environment(AppCoordinator.self) private var coordinator
 
         @State private var selectedAgentID = ""
-        @State private var showAddPluginSheet = false
-        @State private var zipInstall: ZipInstallRequest?
+        /// Single source-of-truth driving the Add-Plugin sheet (URL or zip). Two
+        /// sibling `.sheet` modifiers can be flaky on macOS (one may fail to
+        /// present), so both flows funnel through one `.sheet(item:)`.
+        @State private var addPlugin: AddPluginPresentation?
         @State private var pluginToRemove: String?
         @State private var showRemoveConfirmation = false
 
@@ -56,7 +58,7 @@
                 // Toolbar row at the bottom of the tab
                 HStack {
                     Button {
-                        showAddPluginSheet = true
+                        addPlugin = .url
                     } label: {
                         Label("Add Plugin from URL…", symbol: .arrowDownCircle)
                     }
@@ -77,11 +79,13 @@
                 .padding(.vertical, 8)
             }
             .frame(minWidth: 500, minHeight: 400)
-            .sheet(isPresented: $showAddPluginSheet) {
-                AddPluginSheet()
-            }
-            .sheet(item: $zipInstall) { request in
-                AddPluginSheet(source: .zip(request.url))
+            .sheet(item: $addPlugin) { presentation in
+                switch presentation {
+                case .url:
+                    AddPluginSheet()
+                case let .zip(url):
+                    AddPluginSheet(source: .zip(url))
+                }
             }
             .confirmationDialog(
                 "Remove Plugin",
@@ -133,7 +137,7 @@
             panel.prompt = "Choose"
 
             if panel.runModal() == .OK, let url = panel.url {
-                zipInstall = ZipInstallRequest(url: url)
+                addPlugin = .zip(url)
             }
         }
 
@@ -148,12 +152,20 @@
         }
     }
 
-    // MARK: - ZipInstallRequest
+    // MARK: - AddPluginPresentation
 
-    /// Identifiable wrapper so a chosen zip URL can drive a `.sheet(item:)`.
-    private struct ZipInstallRequest: Identifiable {
-        let id = UUID()
-        let url: URL
+    /// Single source-of-truth for the Add-Plugin `.sheet(item:)`: either the
+    /// URL-entry flow or a chosen local `.zip`.
+    private enum AddPluginPresentation: Identifiable {
+        case url
+        case zip(URL)
+
+        var id: String {
+            switch self {
+            case .url: "url"
+            case let .zip(url): "zip:\(url.path)"
+            }
+        }
     }
 
     // MARK: - PluginAgentForm

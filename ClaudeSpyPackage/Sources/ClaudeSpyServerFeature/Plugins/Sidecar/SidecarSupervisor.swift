@@ -72,6 +72,16 @@ public actor SidecarSupervisor {
             throw SupervisorError.missingSidecarConfig
         }
         let exe = layout.pluginRoot.appendingPathComponent(sidecar.executable)
+        // The manifest-supplied executable path must not escape the plugin root
+        // (e.g. `../../bin/x` or a symlink pointing outside). Standardize/resolve
+        // both and require containment before we ever run the binary.
+        let canonicalRoot = layout.pluginRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalExe = exe.standardizedFileURL.resolvingSymlinksInPath()
+        let rootPrefix = canonicalRoot.path.hasSuffix("/") ? canonicalRoot.path : canonicalRoot.path + "/"
+        guard canonicalExe.path.hasPrefix(rootPrefix) else {
+            _state = .failedInit
+            throw SupervisorError.notExecutable(exe.path)
+        }
         guard FileManager.default.isExecutableFile(atPath: exe.path) else {
             _state = .failedInit
             throw SupervisorError.notExecutable(exe.path)
@@ -101,7 +111,15 @@ public actor SidecarSupervisor {
         // Mirror stderr to the rotated log (off-actor handler → actor append).
         stderr.fileHandleForReading.readabilityHandler = { [stderrLog] h in
             let d = h.availableData
-            if !d.isEmpty { Task { await stderrLog.append(d) } }
+            if d.isEmpty {
+                // EOF (child exited): clear the handler and close the fd. Otherwise
+                // `availableData` keeps returning empty and the handler spins in a
+                // tight loop, leaking the read fd per crashed/restarted child.
+                h.readabilityHandler = nil
+                try? h.close()
+            } else {
+                Task { await stderrLog.append(d) }
+            }
         }
 
         let delegateBox = delegate
