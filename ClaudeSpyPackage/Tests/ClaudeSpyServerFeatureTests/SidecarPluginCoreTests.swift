@@ -245,6 +245,39 @@
             #expect(event?.tmuxPane == "%4")
         }
 
+        @Test("handleIngress decodes a hand-built PluginEvent JSON only when appActions is present")
+        func translateEventRawJSONRequiresAppActions() async throws {
+            // A non-Swift sidecar (e.g. the opencode Python sidecar) hand-builds
+            // the PluginEvent JSON rather than encoding a Swift struct. PluginEvent
+            // .appActions is NON-optional, so the host's synthesized decode requires
+            // the key — omitting it makes the whole event silently drop (the bug
+            // that left opencode panes showing a terminal icon while working).
+            func handle(_ rawJSON: String) async throws -> PluginEvent? {
+                let mock = MockSidecarProcess()
+                await mock.onRequest { method, _ in
+                    if method == SidecarRPC.initialize { return .success(.object([:])) }
+                    let value = (try? JSONDecoder().decode(JSONValue.self, from: Data(rawJSON.utf8))) ?? .null
+                    return .success(value)
+                }
+                let core = try await mock.makeCore(manifestID: "opencode")
+                try await core.initialize(mock.env, host: MockPluginHost())
+                let frame = IngressFrame(pluginID: "opencode", context: ["TMUX_PANE": "%4"], payload: Data("{}".utf8))
+                return await core.handleIngress(frame)
+            }
+
+            let withAppActions = try await handle(
+                #"{"pluginID":"opencode","sessionID":"s1","state":{"working":{}},"notification":null,"appActions":[],"tmuxPane":"%4","projectPath":"/p"}"#
+            )
+            #expect(withAppActions?.state == .working)
+            #expect(withAppActions?.tmuxPane == "%4")
+
+            // Same payload minus appActions → decode fails → event dropped.
+            let withoutAppActions = try await handle(
+                #"{"pluginID":"opencode","sessionID":"s1","state":{"working":{}},"tmuxPane":"%4","projectPath":"/p"}"#
+            )
+            #expect(withoutAppActions == nil)
+        }
+
         @Test("an inbound set_projects notification reaches host.setProjects")
         func inboundSetProjects() async throws {
             let mock = MockSidecarProcess()
