@@ -1123,6 +1123,13 @@
             return entry?.source == "bundled"
         }
 
+        /// The default config-root a sidecar plugin declares in its manifest
+        /// (`sidecar.default_config_root`), shown as the non-removable root row in
+        /// the Agents settings tab. `nil` for plugins that don't declare one.
+        public func pluginDefaultConfigRoot(id: String) -> String? {
+            pluginRegistry?.manifest(id)?.sidecar?.defaultConfigRoot
+        }
+
         /// Raw settings.json bytes for a plugin (empty Data if none yet).
         public func pluginSettingsData(id: String) -> Data {
             guard let paths = gallagerPaths else { return Data() }

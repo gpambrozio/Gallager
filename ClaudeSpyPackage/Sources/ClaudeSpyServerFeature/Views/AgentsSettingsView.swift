@@ -278,7 +278,9 @@
             switch pluginID {
             case "claude-code": return "~/.claude"
             case "codex": return "~/.codex"
-            default: return "~"
+            // A sidecar declares its own default root in the manifest
+            // (`sidecar.default_config_root`); fall back to `~` when absent.
+            default: return coordinator.pluginDefaultConfigRoot(id: pluginID) ?? "~"
             }
         }
 
@@ -308,12 +310,14 @@
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = s.exportTelemetry
             default:
-                // Unknown plugin — use empty defaults; can't decode typed settings
-                commandPath = ""
-                autoRun = true
-                logLevel = .info
-                closePaneOnSessionEnd = false
-                additionalConfigFolders = []
+                // Any non-bundled sidecar: generic settings that persist + reach
+                // the sidecar via apply_settings.
+                let s = SidecarPluginSettings.decode(from: data)
+                commandPath = s.commandPath
+                autoRun = s.autoRun
+                logLevel = s.logLevel
+                closePaneOnSessionEnd = s.closePaneOnSessionEnd
+                additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = true
             }
 
@@ -361,7 +365,14 @@
                 )
                 return (try? encoder.encode(s)) ?? Data()
             default:
-                return Data()
+                let s = SidecarPluginSettings(
+                    commandPath: commandPath,
+                    autoRun: autoRun,
+                    logLevel: logLevel,
+                    additionalConfigFolders: additionalConfigFolders,
+                    closePaneOnSessionEnd: closePaneOnSessionEnd
+                )
+                return (try? encoder.encode(s)) ?? Data()
             }
         }
 

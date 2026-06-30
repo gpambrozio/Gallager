@@ -48,15 +48,22 @@ public struct PluginManifest: Sendable, Codable, Equatable {
     public struct Sidecar: Sendable, Codable, Equatable {
         public let executable: String
         public let args: [String]
+        /// The agent's default config location, shown as the non-removable root
+        /// row in the Agents settings tab (e.g. `~/.config/opencode`). When absent
+        /// the UI falls back to `~`. Purely presentational — install still passes
+        /// `configRoot: nil` for the default row.
+        public let defaultConfigRoot: String?
 
-        public init(executable: String, args: [String] = []) {
+        public init(executable: String, args: [String] = [], defaultConfigRoot: String? = nil) {
             self.executable = executable
             self.args = args
+            self.defaultConfigRoot = defaultConfigRoot
         }
 
         private enum CodingKeys: String, CodingKey {
             case executable
             case args
+            case defaultConfigRoot = "default_config_root"
         }
 
         public init(from decoder: Decoder) throws {
@@ -64,6 +71,7 @@ public struct PluginManifest: Sendable, Codable, Equatable {
             self.executable = try container.decode(String.self, forKey: .executable)
             // `args` defaults to empty when absent so manifests can omit it.
             self.args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
+            self.defaultConfigRoot = try container.decodeIfPresent(String.self, forKey: .defaultConfigRoot)
         }
     }
 

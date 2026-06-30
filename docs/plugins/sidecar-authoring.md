@@ -37,6 +37,7 @@ A sidecar plugin is a directory under `~/.gallager/plugins/<id>/` containing a
 | `runtime` | string | yes for sidecar | Must be `"sidecar"` |
 | `sidecar.executable` | string | yes for sidecar | Relative path to the binary under the plugin root |
 | `sidecar.args` | array of string | no (defaults to `[]`) | Extra arguments passed to the executable |
+| `sidecar.default_config_root` | string | no | The agent's default config location (e.g. `"~/.config/opencode"`). Shown as the non-removable root row in the Agents settings tab; falls back to `~` when absent. Presentational only — the default row still calls `install` with `configRoot: null`. |
 | `ui.icon` | string | no | Relative path to an icon asset (e.g. `"assets/icon.png"`) |
 | `ui.color` | string | no | Accent color hex (e.g. `"#4A90E2"`); defaults to `"#888888"` |
 | `publisher` | string | no | Human-readable publisher name |
