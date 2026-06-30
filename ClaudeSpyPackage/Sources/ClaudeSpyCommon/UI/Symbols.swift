@@ -40,6 +40,7 @@ public enum Symbols: String {
     case docOnClipboard = "doc.on.clipboard"
     case docPlaintextFill = "doc.plaintext.fill"
     case docTextFill = "doc.text.fill"
+    case docZipper = "doc.zipper"
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"

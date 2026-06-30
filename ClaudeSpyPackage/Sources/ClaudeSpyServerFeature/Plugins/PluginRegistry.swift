@@ -105,6 +105,22 @@
             sources[manifest.id] = source
         }
 
+        /// Fully unregister a runtime-registered sidecar — the inverse of
+        /// `registerSidecar`. Drops its manifest, root, source, and any failed-init
+        /// record so it disappears from `registeredIDs`/`listEntries` live, not just
+        /// on the next launch. `disable(id)` only stops the live core; this removes
+        /// the registration itself.
+        ///
+        /// No-op for a plugin with no recorded source (i.e. a bundled factory
+        /// entry), so a compiled-in plugin can never be wiped by this path.
+        public func unregisterSidecar(_ id: String) {
+            guard sources[id] != nil else { return }
+            manifests.removeValue(forKey: id)
+            pluginRoots.removeValue(forKey: id)
+            sources.removeValue(forKey: id)
+            failedInit.removeValue(forKey: id)
+        }
+
         // MARK: - Manifest accessors (for pane detection, spec §6)
 
         /// Process names for an enabled plugin's pane detection, keyed by id.

@@ -624,6 +624,164 @@
             return .success(.installed(id: id))
         }
 
+        // MARK: - Local zip install
+
+        /// Read just the `plugin.json` member at the archive root of a local zip
+        /// bundle (without extracting it), decode it, and build `TrustDetails`.
+        ///
+        /// Used by the "Install from Zip…" flow to populate the trust prompt before
+        /// anything is written to disk. The manifest must live at the archive root
+        /// (same convention as a URL-distributed bundle).
+        ///
+        /// - Throws:
+        ///   - `InstallError.treeValidationFailed` if `plugin.json` is missing from
+        ///     the archive root or the archive can't be read.
+        ///   - `InstallError.manifestTooLarge` if the manifest exceeds 1 MiB.
+        ///   - `InstallError.invalidSchema` if it can't be decoded or
+        ///     `schema_version != 1`.
+        ///   - `InstallError.invalidID` if `sanitize(id:)` rejects the id.
+        public static func peekZipManifest(zip: URL) throws -> (PluginManifest, TrustDetails) {
+            // Stream `plugin.json` to stdout without extracting the whole archive.
+            let unzip = Process()
+            unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            unzip.arguments = ["-p", zip.path, "plugin.json"]
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            unzip.standardOutput = outPipe
+            unzip.standardError = errPipe
+
+            do {
+                try unzip.run()
+            } catch {
+                throw InstallError.treeValidationFailed("could not read zip: \(error)")
+            }
+            // Read the manifest bytes, enforcing the same 1 MiB cap as remote fetch.
+            let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+            unzip.waitUntilExit()
+
+            guard data.count <= manifestSizeCap else {
+                throw InstallError.manifestTooLarge
+            }
+            guard !data.isEmpty else {
+                throw InstallError.treeValidationFailed("plugin.json missing from bundle root")
+            }
+
+            let manifest: PluginManifest
+            do {
+                manifest = try JSONDecoder().decode(PluginManifest.self, from: data)
+            } catch {
+                throw InstallError.invalidSchema
+            }
+            guard manifest.schemaVersion == 1 else {
+                throw InstallError.invalidSchema
+            }
+            guard sanitize(id: manifest.id) != nil else {
+                throw InstallError.invalidID
+            }
+
+            // For a local file there's no remote source/integrity pin: surface the
+            // file URL as both the source and "bundle", the on-disk size, and no
+            // SHA-256 (integrity pinning is moot for a local file the user chose).
+            let sizeBytes = (try? FileManager.default
+                .attributesOfItem(atPath: zip.path)[.size] as? Int) ?? nil
+            let trust = TrustDetails(
+                id: manifest.id,
+                displayName: manifest.displayName,
+                version: manifest.version,
+                publisher: manifest.publisher,
+                sourceURL: zip,
+                bundleURL: zip,
+                bundleSHA256: nil,
+                bundleSizeBytes: sizeBytes
+            )
+            return (manifest, trust)
+        }
+
+        /// Install a plugin from a local `.zip` bundle the user selected.
+        ///
+        /// This is the URL flow (§12–14) minus the network steps: there is no HTTPS
+        /// fetch and no SHA-256 download verification — the archive is already on
+        /// disk. The zip is unpacked (zip-slip-hardened), tree-validated, atomically
+        /// committed, registered (as `.folder`, matching what folder-drop discovery
+        /// would assign on the next launch), and enabled.
+        ///
+        /// When `trustConfirmed == false`, only the manifest is peeked and
+        /// `.success(.needsTrust)` is returned so the caller can present the trust
+        /// prompt — nothing is written to disk.
+        public static func installFromZip(
+            zip: URL,
+            trustConfirmed: Bool,
+            registry: PluginRegistry,
+            paths: GallagerPaths,
+            makeHost: @MainActor (String) -> any PluginHost,
+            makeEnv: @MainActor (String) -> PluginEnv
+        ) async -> Result<InstallOutcome, InstallError> {
+            // Step 1: peek the manifest (validates schema / id) for the trust gate.
+            let manifest: PluginManifest
+            let trust: TrustDetails
+            do {
+                (manifest, trust) = try peekZipManifest(zip: zip)
+            } catch let err as InstallError {
+                return .failure(err)
+            } catch {
+                return .failure(.invalidSchema)
+            }
+
+            // Trust gate: nothing is written to disk until the user confirms.
+            guard trustConfirmed else {
+                return .success(.needsTrust(trust))
+            }
+
+            // Only sidecar plugins can be installed from a zip.
+            guard manifest.runtime == .sidecar else {
+                return .failure(.invalidSchema)
+            }
+
+            let id = manifest.id
+            paths.ensurePluginsDir()
+
+            // Step 2: unpack + validate into the staging directory.
+            let stagingDir = paths.pluginStagingDir(id)
+            try? FileManager.default.removeItem(at: stagingDir)
+            do {
+                try FileManager.default.createDirectory(
+                    at: stagingDir,
+                    withIntermediateDirectories: true
+                )
+                try unpackAndValidate(zip: zip, stagingDir: stagingDir, manifest: manifest)
+            } catch let err as InstallError {
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(err)
+            } catch {
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(.treeValidationFailed(String(describing: error)))
+            }
+
+            // Step 3: atomic commit staging → final.
+            let finalDir = paths.pluginInstallDir(id)
+            do {
+                try commitInstall(stagingDir: stagingDir, finalDir: finalDir)
+            } catch {
+                try? FileManager.default.removeItem(at: stagingDir)
+                return .failure(.treeValidationFailed("commit failed: \(error)"))
+            }
+
+            // Steps 4–6: register (as .folder), persist, enable (all @MainActor).
+            await MainActor.run {
+                registry.registerSidecar(manifest: manifest, root: finalDir, source: .folder)
+                persistRegistry(registry: registry, paths: paths)
+            }
+
+            let host = await makeHost(id)
+            let env = await makeEnv(id)
+            await registry.enable(id, host: host, env: env)
+
+            if let failure = await MainActor.run(body: { registry.failedInit[id] }) {
+                return .failure(.enableFailed(failure))
+            }
+            return .success(.installed(id: id))
+        }
+
         /// Remove an installed (non-bundled) plugin.
         ///
         /// - Calls `core.uninstall(configRoot: nil)` best-effort (e.g. removes the
@@ -666,6 +824,11 @@
 
             // Disable (shuts down the core).
             await registry.disable(id)
+
+            // Fully unregister so it disappears from registeredIDs (the Agents
+            // picker) immediately — disable() only stops the core, it leaves the
+            // manifest/source registration in place until the next launch.
+            await registry.unregisterSidecar(id)
 
             // Delete the install directory.
             let installDir = paths.pluginInstallDir(id)

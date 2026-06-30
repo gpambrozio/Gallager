@@ -5,6 +5,7 @@
     import CodexPluginCore
     import GallagerPluginProtocol
     import SwiftUI
+    import UniformTypeIdentifiers
 
     // MARK: - AgentsSettingsView
 
@@ -16,6 +17,7 @@
 
         @State private var selectedAgentID = ""
         @State private var showAddPluginSheet = false
+        @State private var zipInstall: ZipInstallRequest?
         @State private var pluginToRemove: String?
         @State private var showRemoveConfirmation = false
 
@@ -60,6 +62,15 @@
                     }
                     .buttonStyle(.borderless)
                     .accessibilityIdentifier("addPluginFromURL")
+
+                    Button {
+                        chooseZip()
+                    } label: {
+                        Label("Install from Zip…", symbol: .docZipper)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("installPluginFromZip")
+
                     Spacer()
                 }
                 .padding(.horizontal)
@@ -68,6 +79,9 @@
             .frame(minWidth: 500, minHeight: 400)
             .sheet(isPresented: $showAddPluginSheet) {
                 AddPluginSheet()
+            }
+            .sheet(item: $zipInstall) { request in
+                AddPluginSheet(source: .zip(request.url))
             }
             .confirmationDialog(
                 "Remove Plugin",
@@ -94,12 +108,33 @@
                     selectedAgentID = first.id
                 }
             }
+            // Auto-select a freshly installed plugin in the picker.
+            .onChange(of: coordinator.lastInstalledPluginID) { _, newID in
+                if let newID { selectedAgentID = newID }
+            }
         }
 
         // MARK: - Helpers
 
         private func pluginDisplayName(_ id: String) -> String {
             coordinator.agentPluginList().first { $0.id == id }?.name ?? id
+        }
+
+        /// Present an open panel for a local `.zip` bundle; on selection, trigger
+        /// the trust + install sheet for that zip.
+        @MainActor
+        private func chooseZip() {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.zip]
+            panel.message = "Select a plugin .zip bundle"
+            panel.prompt = "Choose"
+
+            if panel.runModal() == .OK, let url = panel.url {
+                zipInstall = ZipInstallRequest(url: url)
+            }
         }
 
         @MainActor
@@ -111,6 +146,14 @@
             }
             pluginToRemove = nil
         }
+    }
+
+    // MARK: - ZipInstallRequest
+
+    /// Identifiable wrapper so a chosen zip URL can drive a `.sheet(item:)`.
+    private struct ZipInstallRequest: Identifiable {
+        let id = UUID()
+        let url: URL
     }
 
     // MARK: - PluginAgentForm

@@ -395,6 +395,29 @@ Install flow (enforced by Gallager):
    manifest, declared executable exists and has the executable bit.
 8. Atomic commit (rename staging → final).
 
+### Local zip install
+
+Ship the plugin as a self-contained `.zip` whose **root** contains `plugin.json` and
+the executable (the same archive layout as the remote `bundle_url`). No `manifest_url`,
+`bundle_url`, or `bundle_sha256` is needed — the manifest lives inside the zip.
+
+Users install via:
+- **Settings UI:** Agents tab → "Install from Zip…" — pick the `.zip` in the open panel.
+
+Install flow (enforced by Gallager):
+1. Peek `plugin.json` at the archive root (no extraction yet) and validate
+   `schema_version == 1` + id sanitization.
+2. Present the same trust confirmation dialog (showing publisher, id, version, the
+   local file path, and the on-disk size — no SHA-256, since integrity pinning is moot
+   for a file the user picked).
+3. On confirm: unpack into a staging directory with the same zip-slip hardening and
+   tree validation as the remote flow, then atomic-commit (rename staging → final).
+
+The plugin is registered with **source `folder`** — it lives in `~/.gallager/plugins/<id>/`
+exactly like a folder-dropped plugin, so the next launch re-discovers it the same way.
+There is no update channel for a zip-installed plugin (no `manifest_url`); reinstall a
+newer zip to upgrade.
+
 ### Folder-drop install
 
 Copy the plugin directory directly into `~/.gallager/plugins/<id>/`. Gallager discovers

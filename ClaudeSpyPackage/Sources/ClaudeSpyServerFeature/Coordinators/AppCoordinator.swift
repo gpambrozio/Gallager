@@ -109,6 +109,19 @@
         @ObservationIgnored
         var pluginRegistry: PluginRegistry?
 
+        /// Bumped whenever the *set* of registered plugins changes (install /
+        /// remove). `PluginRegistry` is `@ObservationIgnored` and not itself
+        /// `@Observable`, so mutating it can't invalidate SwiftUI. Views that show
+        /// the registered-plugin set (the Agents picker) read this via
+        /// `agentPluginList()` so they refresh when it changes.
+        public private(set) var pluginCatalogRevision = 0
+
+        /// The id of the most recently installed plugin, so the Agents picker can
+        /// auto-select it. Set on a successful install; cleared to `nil` on remove
+        /// (so reinstalling the same id after a removal still re-triggers the
+        /// `onChange` selection). Observed.
+        public private(set) var lastInstalledPluginID: String?
+
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
         @ObservationIgnored
@@ -883,7 +896,7 @@
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
-            return await PluginInstaller.install(
+            let result = await PluginInstaller.install(
                 manifestURL: url,
                 trustConfirmed: trustConfirmed,
                 registry: registry,
@@ -908,6 +921,54 @@
                     return self.makePluginEnv(id: id, registry: registry, paths: paths)
                 }
             )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+            }
+            return result
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.installFromZip`.
+        /// Mirrors `installPluginFromURL` but installs from a local `.zip` bundle the
+        /// user chose (no network fetch, no SHA-256 pin). Not unit-tested directly.
+        public func installPluginFromZip(
+            _ zip: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            let result = await PluginInstaller.installFromZip(
+                zip: zip,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+            }
+            return result
         }
 
         /// Thin wrapper: delegates all logic to `PluginInstaller.remove`.
@@ -919,12 +980,18 @@
             guard let registry = pluginRegistry, let paths = gallagerPaths else {
                 return .failure(.notInstalled)
             }
-            return await PluginInstaller.remove(
+            let result = await PluginInstaller.remove(
                 id: id,
                 deleteState: deleteState,
                 registry: registry,
                 paths: paths
             )
+            if case .success = result {
+                pluginCatalogRevision += 1
+                // Clear so a later reinstall of the same id re-fires onChange.
+                lastInstalledPluginID = nil
+            }
+            return result
         }
 
         /// Thin wrapper: reads the registry file from disk and delegates to
@@ -1109,6 +1176,10 @@
         /// Display rows for the segmented agent picker, sorted by id. Excludes
         /// `echo`, the test-only reference plugin (DEBUG/E2E builds only).
         public func agentPluginList() -> [AgentPluginEntry] {
+            // Register an observation dependency so a view body that calls this
+            // re-renders when a plugin is installed/removed (the registry the list
+            // is derived from is @ObservationIgnored — see pluginCatalogRevision).
+            _ = pluginCatalogRevision
             guard let registry = pluginRegistry else { return [] }
             return registry.registeredIDs
                 .filter { $0 != Self.echoPluginID }

@@ -4,14 +4,19 @@
 
     // MARK: - AddPluginSheet
 
-    /// Two-stage sheet for installing a plugin from a URL (spec §12).
+    /// Two-stage sheet for installing a plugin from a URL or a local `.zip`
+    /// bundle (spec §12).
     ///
-    /// **Stage 1 (entry):** URL text field. On submit, calls
+    /// **URL source — Stage 1 (entry):** URL text field. On submit, calls
     /// `coordinator.installPluginFromURL(url, trustConfirmed: false)`.
     ///
-    /// **Stage 2 (trust):** Shows `TrustDetails` (name, publisher, version, source
-    /// URL, bundle size + SHA-256, and the verbatim security warning). Confirm calls
-    /// `coordinator.installPluginFromURL(url, trustConfirmed: true)`.
+    /// **Zip source:** skips the entry field; on appear it peeks the manifest inside
+    /// the chosen zip via `coordinator.installPluginFromZip(zip, trustConfirmed: false)`
+    /// and goes straight to the trust stage.
+    ///
+    /// **Stage 2 (trust):** Shows `TrustDetails` (name, publisher, version, source,
+    /// bundle size + SHA-256, and the verbatim security warning). Confirm calls the
+    /// matching install method with `trustConfirmed: true`.
     ///
     /// Follows the structural pattern of `AddHostSheet` in `RemoteHostsSettingsView`:
     /// `VStack(spacing: 20)`, `.padding(24)`, `.keyboardShortcut(.cancelAction)`/
@@ -19,6 +24,16 @@
     struct AddPluginSheet: View {
         @Environment(\.dismiss) private var dismiss
         @Environment(AppCoordinator.self) private var coordinator
+
+        // MARK: Source
+
+        /// Where the plugin is being installed from.
+        enum InstallSource: Equatable {
+            /// User types an HTTPS manifest URL.
+            case url
+            /// User chose a local `.zip` bundle.
+            case zip(URL)
+        }
 
         // MARK: Phase
 
@@ -32,14 +47,21 @@
 
         // MARK: State
 
+        let source: InstallSource
+
         @State private var urlText = ""
-        @State private var phase: Phase = .entry
+        @State private var phase: Phase
+
+        init(source: InstallSource = .url) {
+            self.source = source
+            // A zip source has no entry field — start by peeking the manifest.
+            _phase = State(initialValue: source == .url ? .entry : .fetching)
+        }
 
         #if DEBUG
-            init() { }
-
             /// Preview seam: render the sheet starting in a specific phase.
             init(phase: Phase) {
+                self.source = .url
                 _phase = State(initialValue: phase)
             }
         #endif
@@ -52,7 +74,10 @@
                 case .entry,
                      .fetching,
                      .error:
-                    entryView
+                    switch source {
+                    case .url: entryView
+                    case .zip: zipPreparingView
+                    }
                 case let .trust(details):
                     trustView(details: details)
                 case .installing:
@@ -61,6 +86,35 @@
             }
             .padding(24)
             .frame(width: 440)
+            .task {
+                // Zip source: peek the manifest once, on first appear.
+                if case .zip = source, case .fetching = phase {
+                    await peekZip()
+                }
+            }
+        }
+
+        // MARK: - Zip preparing / error view
+
+        @ViewBuilder
+        private var zipPreparingView: some View {
+            Text("Install Plugin from Zip")
+                .font(.headline)
+
+            if case let .error(message) = phase {
+                Text(message)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+            } else {
+                ProgressView("Reading plugin…")
+                    .controlSize(.small)
+            }
+
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
         }
 
         // MARK: - Entry / fetching / error view
@@ -138,7 +192,12 @@
                         trustRow(label: "Publisher", value: publisher)
                     }
                     trustRow(label: "Version", value: details.version)
-                    trustRow(label: "Source", value: details.sourceURL.absoluteString)
+                    trustRow(
+                        label: "Source",
+                        value: details.sourceURL.isFileURL
+                            ? details.sourceURL.path
+                            : details.sourceURL.absoluteString
+                    )
                     if let sizeBytes = details.bundleSizeBytes {
                         trustRow(label: "Bundle size", value: formatBytes(sizeBytes))
                     }
@@ -185,7 +244,8 @@
             Text("Installing Plugin")
                 .font(.headline)
 
-            ProgressView("Downloading and installing…")
+            // A URL install downloads first; a local zip is already on disk.
+            ProgressView(source == .url ? "Downloading and installing…" : "Installing…")
                 .controlSize(.small)
 
             Button("Cancel") {
@@ -222,16 +282,39 @@
             }
         }
 
+        /// Zip source: peek the manifest inside the chosen zip (no disk writes) so
+        /// the trust prompt can be populated before install.
+        @MainActor
+        private func peekZip() async {
+            guard case let .zip(zipURL) = source else { return }
+            let result = await coordinator.installPluginFromZip(zipURL, trustConfirmed: false)
+            switch result {
+            case let .success(.needsTrust(details)):
+                phase = .trust(details)
+            case .success(.installed):
+                // Shouldn't happen before trust, but handle gracefully.
+                dismiss()
+            case let .failure(error):
+                phase = .error(error.uiDescription)
+            }
+        }
+
         @MainActor
         private func install(details: TrustDetails) async {
-            let raw = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: raw) else {
-                phase = .error("Invalid URL")
-                return
+            phase = .installing
+            let result: Result<PluginInstaller.InstallOutcome, InstallError>
+            switch source {
+            case .url:
+                let raw = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let url = URL(string: raw) else {
+                    phase = .error("Invalid URL")
+                    return
+                }
+                result = await coordinator.installPluginFromURL(url, trustConfirmed: true)
+            case let .zip(zipURL):
+                result = await coordinator.installPluginFromZip(zipURL, trustConfirmed: true)
             }
 
-            phase = .installing
-            let result = await coordinator.installPluginFromURL(url, trustConfirmed: true)
             switch result {
             case .success(.installed):
                 dismiss()

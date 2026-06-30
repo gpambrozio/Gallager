@@ -386,6 +386,15 @@
                 registryFile.plugins.first(where: { $0.id == id }) == nil,
                 "registry.json must not contain '\(id)' after remove"
             )
+
+            // The live registry must also forget it — disable() alone left the
+            // registration in place, so the Agents picker kept showing it until
+            // the next launch. unregisterSidecar() fixes that.
+            #expect(!registry.isRegistered(id), "remove must unregister '\(id)' from the live registry")
+            #expect(
+                !registry.registeredIDs.contains(id),
+                "removed '\(id)' must not appear in registeredIDs (the picker source)"
+            )
         }
 
         // MARK: bundle_url https validation
