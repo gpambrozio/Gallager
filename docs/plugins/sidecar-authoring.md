@@ -403,6 +403,7 @@ the executable (the same archive layout as the remote `bundle_url`). No `manifes
 
 Users install via:
 - **Settings UI:** Agents tab → "Install from Zip…" — pick the `.zip` in the open panel.
+- **CLI:** `gallager plugin install --zip <path>` (add `--yes` to skip the trust prompt).
 
 Install flow (enforced by Gallager):
 1. Peek `plugin.json` at the archive root (no extraction yet) and validate

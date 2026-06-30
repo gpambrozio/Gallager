@@ -231,6 +231,8 @@
 
         /// Parameters: (url, trustConfirmed). Returns the install outcome.
         let onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)?
+        /// Parameters: (local zip path, trustConfirmed). Returns the install outcome.
+        let onPluginInstallZip: (@Sendable (String, Bool) async -> PluginInstallResult)?
         /// Parameters: (id, deleteState). Returns the remove outcome.
         let onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)?
         /// Parameters: (id?, apply). Returns an array of update-availability envelopes.
@@ -284,6 +286,7 @@
             onPluginLogs: (@Sendable (String, Int?) async -> [String: JSONValue]?)? = nil,
             onPluginCall: (@Sendable (String, String, String?, String?) async -> PluginCallResult)? = nil,
             onPluginInstall: (@Sendable (String, Bool) async -> PluginInstallResult)? = nil,
+            onPluginInstallZip: (@Sendable (String, Bool) async -> PluginInstallResult)? = nil,
             onPluginRemove: (@Sendable (String, Bool) async -> PluginRemoveResult)? = nil,
             onPluginUpdate: (@Sendable (String?, Bool) async -> [[String: JSONValue]])? = nil
         ) {
@@ -323,6 +326,7 @@
             self.onPluginLogs = onPluginLogs
             self.onPluginCall = onPluginCall
             self.onPluginInstall = onPluginInstall
+            self.onPluginInstallZip = onPluginInstallZip
             self.onPluginRemove = onPluginRemove
             self.onPluginUpdate = onPluginUpdate
         }
@@ -827,14 +831,23 @@
                 // MARK: - Plugin install / remove / update (Task 16)
 
                 case "plugin.install":
-                    guard let url = params["url"]?.stringValue else {
-                        return .invalidParams(id: id, "url required")
-                    }
                     let trustConfirmed = params["trustConfirmed"]?.boolValue == true
-                    guard let callback = onPluginInstall else {
-                        return .internalError(id: id, "Plugin install not available")
+                    // A local zip install passes `path`; a remote install passes `url`.
+                    let installResult: PluginInstallResult
+                    if let path = params["path"]?.stringValue {
+                        guard let callback = onPluginInstallZip else {
+                            return .internalError(id: id, "Plugin zip install not available")
+                        }
+                        installResult = await callback(path, trustConfirmed)
+                    } else if let url = params["url"]?.stringValue {
+                        guard let callback = onPluginInstall else {
+                            return .internalError(id: id, "Plugin install not available")
+                        }
+                        installResult = await callback(url, trustConfirmed)
+                    } else {
+                        return .invalidParams(id: id, "url or path required")
                     }
-                    switch await callback(url, trustConfirmed) {
+                    switch installResult {
                     case let .needsTrust(details):
                         return JSONRPCResponse(id: id, result: [
                             "status": .string("needs_trust"),

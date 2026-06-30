@@ -130,6 +130,81 @@ func pluginInstallRejectsWhenCallbackMissing() async {
     #expect(response.error?.code == "internal_error")
 }
 
+// MARK: - plugin.install (local zip via `path`)
+
+@Test
+func pluginInstallZipRoutesPathToZipCallback() async {
+    let receivedPath = LockedValueV2<String?>(nil)
+    let receivedConfirm = LockedValueV2<Bool?>(nil)
+    let router = LiveAPIRequestRouter(
+        // A `url` callback that would fail the test if the path were misrouted.
+        onPluginInstall: { _, _ in .failed("should not be called for a zip path") },
+        onPluginInstallZip: { path, trustConfirmed in
+            await receivedPath.set(path)
+            await receivedConfirm.set(trustConfirmed)
+            return .needsTrust([
+                "id": .string("zip-plugin"),
+                "displayName": .string("Zip Plugin"),
+                "version": .string("1.0.0"),
+                "sourceURL": .string("/tmp/zip-plugin.zip"),
+                "bundleURL": .null,
+                "bundleSHA256": .null,
+                "bundleSizeBytes": .int(2_048),
+            ])
+        }
+    )
+    let response = await router.handleRequest(
+        JSONRPCRequest(
+            id: "install-zip-trust",
+            method: "plugin.install",
+            params: ["path": .string("/tmp/zip-plugin.zip"), "trustConfirmed": .bool(false)]
+        )
+    )
+    #expect(response.ok == true)
+    #expect(response.result?["status"]?.stringValue == "needs_trust")
+    guard case let .object(trust) = response.result?["trust"] else {
+        Issue.record("Expected trust object")
+        return
+    }
+    #expect(trust["id"]?.stringValue == "zip-plugin")
+    #expect(await receivedPath.get() == "/tmp/zip-plugin.zip")
+    #expect(await receivedConfirm.get() == false)
+}
+
+@Test
+func pluginInstallZipReturnsInstalledOnConfirmedCall() async {
+    let router = LiveAPIRequestRouter(
+        onPluginInstallZip: { _, _ in .installed(id: "zip-plugin") }
+    )
+    let response = await router.handleRequest(
+        JSONRPCRequest(
+            id: "install-zip-confirm",
+            method: "plugin.install",
+            params: ["path": .string("/tmp/zip-plugin.zip"), "trustConfirmed": .bool(true)]
+        )
+    )
+    #expect(response.ok == true)
+    #expect(response.result?["status"]?.stringValue == "installed")
+    #expect(response.result?["id"]?.stringValue == "zip-plugin")
+}
+
+@Test
+func pluginInstallZipRejectsWhenCallbackMissing() async {
+    // Only the URL callback is wired; a `path` request must report unavailable.
+    let router = LiveAPIRequestRouter(
+        onPluginInstall: { _, _ in .installed(id: "x") }
+    )
+    let response = await router.handleRequest(
+        JSONRPCRequest(
+            id: "install-zip-nocb",
+            method: "plugin.install",
+            params: ["path": .string("/tmp/zip-plugin.zip")]
+        )
+    )
+    #expect(response.ok == false)
+    #expect(response.error?.code == "internal_error")
+}
+
 // MARK: - plugin.remove
 
 @Test

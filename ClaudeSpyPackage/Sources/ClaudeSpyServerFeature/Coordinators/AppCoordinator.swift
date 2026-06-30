@@ -2409,6 +2409,33 @@
                         return .failed(String(describing: error))
                     }
                 },
+                onPluginInstallZip: { [weak self] path, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    let zip = URL(fileURLWithPath: path)
+                    let result = await self.installPluginFromZip(zip, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            // Local file: surface the path (no remote URL / SHA-256).
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.path),
+                                "bundleURL": .null,
+                                "bundleSHA256": .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
                 onPluginRemove: { [weak self] pluginId, deleteState in
                     guard let self else { return .failed("Coordinator deallocated") }
                     // Bundled plugins refuse removal.

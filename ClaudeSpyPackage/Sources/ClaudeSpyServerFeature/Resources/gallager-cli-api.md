@@ -609,13 +609,15 @@ gallager plugin info com.example.hello
 
 ---
 
-#### `plugin install <https-url> [--yes]`
+#### `plugin install <https-url> [--yes]` / `plugin install --zip <path> [--yes]`
 
-Fetch a plugin manifest from an HTTPS URL, show a trust confirmation prompt, then download and install the bundle. Pass `--yes` to skip the interactive prompt (non-interactive / scripted installs).
+Install a sidecar plugin from either a remote HTTPS manifest URL **or** a local `.zip` bundle (`--zip`, whose archive root holds `plugin.json` + the executable). Either way a trust confirmation prompt is shown first; pass `--yes` to skip it (non-interactive / scripted installs). Exactly one of `<url>` or `--zip` must be given. A `--zip` path is resolved relative to your current directory (and `~` is expanded). A zip install carries no remote URL or SHA-256 — integrity pinning is moot for a local file you chose.
 
 ```bash
 gallager plugin install https://example.com/plugin.json
 gallager plugin install https://example.com/plugin.json --yes
+gallager plugin install --zip ./my-agent.zip
+gallager plugin install --zip ~/Downloads/my-agent.zip --yes
 ```
 
 ---

@@ -318,34 +318,74 @@ struct PluginCallCommand: ParsableCommand {
 struct PluginInstallCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "install",
-        abstract: "Install a sidecar plugin from an HTTPS manifest URL",
+        abstract: "Install a sidecar plugin from an HTTPS manifest URL or a local .zip",
         discussion: """
-        Downloads and installs a plugin from the given manifest URL. The URL must
-        use https://. The plugin's trust details (display name, publisher, version,
-        source, bundle URL, SHA-256) are printed before installation; you are asked
-        to confirm unless --yes is passed.
+        Installs a plugin either from a remote manifest URL (must use https://) or
+        from a local .zip bundle via --zip (plugin.json + executable at the archive
+        root). The plugin's trust details (display name, publisher, version, source,
+        and — for URL installs — bundle URL + SHA-256) are printed before
+        installation; you are asked to confirm unless --yes is passed.
+
+        Examples:
+          gallager plugin install https://example.com/plugin.json
+          gallager plugin install --zip ./my-agent.zip
         """
     )
 
     @Argument(help: "HTTPS URL of the plugin's plugin.json manifest")
-    var url: String
+    var url: String?
+
+    @Option(name: .long, help: "Path to a local .zip bundle to install instead of a URL")
+    var zip: String?
 
     @Flag(name: .long, help: "Skip the trust confirmation prompt and install immediately")
     var yes = false
 
     @OptionGroup var options: GlobalOptions
 
+    func validate() throws {
+        guard (url != nil) != (zip != nil) else {
+            throw ValidationError("Provide exactly one of <url> or --zip <path>")
+        }
+    }
+
     func run() throws {
-        // Enforce HTTPS on the client side (server validates too).
-        guard url.hasPrefix("https://") else {
-            FileHandle.standardError.write(Data("Error: URL must use https:// (got: \(url))\n".utf8))
+        // Resolve the install source into the JSON-RPC params + a label for output.
+        let baseParams: [String: JSONValue]
+        let sourceLabel: String
+        if let zip {
+            // Resolve to an absolute path: the app process has a different working
+            // directory, so a relative path would not resolve on its side.
+            let expanded = (zip as NSString).expandingTildeInPath
+            let absolute = (expanded as NSString).isAbsolutePath
+                ? expanded
+                : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent(expanded).standardizedFileURL.path
+            guard FileManager.default.fileExists(atPath: absolute) else {
+                FileHandle.standardError.write(Data("Error: No such file: \(absolute)\n".utf8))
+                throw ExitCode.failure
+            }
+            baseParams = ["path": .string(absolute)]
+            sourceLabel = absolute
+        } else if let url {
+            // Enforce HTTPS on the client side (server validates too).
+            guard url.hasPrefix("https://") else {
+                FileHandle.standardError.write(Data("Error: URL must use https:// (got: \(url))\n".utf8))
+                throw ExitCode.failure
+            }
+            baseParams = ["url": .string(url)]
+            sourceLabel = url
+        } else {
+            // validate() guarantees exactly one source; defensive.
             throw ExitCode.failure
         }
 
         // First call: trustConfirmed = false → get trust details.
+        var trustParams = baseParams
+        trustParams["trustConfirmed"] = .bool(false)
         let trustResponse = try pluginRequest(
             method: "plugin.install",
-            params: ["url": .string(url), "trustConfirmed": .bool(false)],
+            params: trustParams,
             options: options
         )
 
@@ -362,7 +402,7 @@ struct PluginInstallCommand: ParsableCommand {
 
         if status == "installed" {
             // Already installed (shouldn't happen on first call, but handle gracefully).
-            print("Installed: \(result["id"]?.stringValue ?? url)")
+            print("Installed: \(result["id"]?.stringValue ?? sourceLabel)")
             return
         }
 
@@ -380,7 +420,7 @@ struct PluginInstallCommand: ParsableCommand {
             print("  Publisher    : \(publisher)")
         }
         print("  Version      : \(trust["version"]?.stringValue ?? "(unknown)")")
-        print("  Source URL   : \(trust["sourceURL"]?.stringValue ?? url)")
+        print("  Source       : \(trust["sourceURL"]?.stringValue ?? sourceLabel)")
         if let bundleURL = trust["bundleURL"]?.stringValue {
             print("  Bundle URL   : \(bundleURL)")
         }
@@ -404,9 +444,11 @@ struct PluginInstallCommand: ParsableCommand {
         }
 
         // Second call: trustConfirmed = true → actually install.
+        var confirmParams = baseParams
+        confirmParams["trustConfirmed"] = .bool(true)
         let installResponse = try pluginRequest(
             method: "plugin.install",
-            params: ["url": .string(url), "trustConfirmed": .bool(true)],
+            params: confirmParams,
             options: options
         )
 
@@ -420,7 +462,7 @@ struct PluginInstallCommand: ParsableCommand {
             installResult["status"]?.stringValue == "installed" else {
             throw ExitCode.failure
         }
-        print("Installed: \(installResult["id"]?.stringValue ?? url)")
+        print("Installed: \(installResult["id"]?.stringValue ?? sourceLabel)")
     }
 }
 
