@@ -4,6 +4,12 @@ This is the durable external contract for building a v2 sidecar plugin for Galla
 (ClaudeSpy Mac app). A sidecar plugin is a standalone executable that Gallager spawns
 as a child process and communicates with over stdio using JSON-RPC.
 
+> **Authoring shortcut:** the `gallager` Claude Code plugin bundles a
+> `create-agent-plugin` skill (`plugin/gallager/skills/create-agent-plugin/`) that
+> scaffolds a working sidecar from a runnable Python template and a self-contained
+> copy of this contract. This document remains the source of truth; the skill is the
+> guided path.
+
 **Key source files** (read these if you need more detail):
 - `ClaudeSpyPackage/Sources/GallagerPluginProtocol/Manifest.swift` — manifest schema
 - `ClaudeSpyPackage/Sources/GallagerPluginProtocol/SidecarWire.swift` — RPC vocabulary + framing
@@ -82,6 +88,15 @@ any folder where `sanitize(id)` does not match the directory name.
 Gallager communicates with the sidecar over the process's `stdin`/`stdout` using
 LSP-style Content-Length framing.
 
+> **Key casing — read this first.** The stdio transport serializes its Swift wire
+> structs with a plain encoder (no key-strategy), so **every JSON key on this
+> channel is camelCase** (`pluginID`, `sessionID`, `tmuxPane`, `pluginRoot`,
+> `paneID`, …). This is the opposite of the two snake_case channels: the
+> `plugin.json` manifest (Section 1) and the hook **ingress socket** frame
+> (Section 4, where the key is `plugin_id`). A snake_case key in a `translate_event`
+> reply (e.g. `plugin_id` or `session_id`) is silently dropped. When in doubt: the
+> JSON your sidecar reads from / writes to stdio is camelCase.
+
 ### Frame format
 
 Each message (in either direction) is preceded by a header:
@@ -135,7 +150,7 @@ These are all **requests** (Gallager expects a response for each):
 | Method | Description |
 |--------|-------------|
 | `initialize` | Sent once at startup. `params` is a serialized `PluginEnvWire` object (see below). The sidecar must respond before Gallager considers it ready. |
-| `translate_event` | Deliver a hook event. `params` is an `IngressFrameWire` object: `{plugin_id, context, payload}`. |
+| `translate_event` | Deliver a hook event. `params` is an `IngressFrameWire` object: `{pluginID, context, payload}` (camelCase `pluginID` — note this differs from the snake_case `plugin_id` your hook writes to the ingress socket in Section 4). |
 | `deliver_response` | Deliver the result of a `prompt_user` request (when `capabilities.modal_prompts` is true). |
 | `refresh_projects` | Ask the sidecar to rescan and re-emit its project list. |
 | `command_for_launch` | Ask for the launch command to start the agent in a new pane. Returns a `{command, args, env}` object. |
@@ -144,23 +159,24 @@ These are all **requests** (Gallager expects a response for each):
 | `install_status` | Ask whether the agent's plugin is installed. |
 | `apply_settings` | Deliver updated settings JSON. `params` contains the new settings value. |
 | `shutdown` | Graceful shutdown signal. The sidecar should flush state and exit. Gallager follows with SIGTERM after 5 seconds, then SIGKILL. |
-| `detect_pane` | Only sent when `capabilities.rich_pane_detection` is true. `params` is a `SidecarPaneInfo` object: `{pane_id, process_names, command, cwd}`. Returns a `SidecarPaneMatch`: `{matches, project_path, session_id}`. |
+| `detect_pane` | Only sent when `capabilities.rich_pane_detection` is true. `params` is a `SidecarPaneInfo` object: `{paneID, processNames, command, cwd}`. Returns a `SidecarPaneMatch`: `{matches, projectPath, sessionID}`. |
 
 #### `PluginEnvWire` (params for `initialize`)
 
 ```json
 {
-  "plugin_root": "/path/to/plugin/dir",
-  "state_dir": "/path/to/state/dir",
-  "app_version": "2.4.0",
+  "pluginRoot": "/path/to/plugin/dir",
+  "stateDir": "/path/to/state/dir",
+  "appVersion": "2.4.0",
   "settings": {},
-  "marketplace_source": "/path/to/marketplace/assets",
-  "otlp_receiver_endpoint": "http://127.0.0.1:4318"
+  "marketplaceSource": "/path/to/marketplace/assets",
+  "otlpReceiverEndpoint": "http://127.0.0.1:4318"
 }
 ```
 
-`otlp_receiver_endpoint` is `null` when no OTLP receiver is running. `settings` is the
-current settings object (or `{}` when empty).
+`otlpReceiverEndpoint` is `null` when no OTLP receiver is running. `settings` is the
+current settings object (or `{}` when empty). (camelCase keys — this is the stdio
+transport; see the casing note at the top of this section.)
 
 ### Sidecar → App messages
 
@@ -336,7 +352,7 @@ separate from structured log lines written via the `log` notification, which go 
 ## 6. Telemetry (Optional)
 
 If your agent supports OpenTelemetry, you can point its OTLP exporter at the
-`otlp_receiver_endpoint` value received in the `initialize` params. Gallager runs a
+`otlpReceiverEndpoint` value received in the `initialize` params. Gallager runs a
 local OTLP/JSON receiver on `http://127.0.0.1:4318` when active.
 
 **Caveat:** The built-in OTLP accumulator currently only parses event namespaces

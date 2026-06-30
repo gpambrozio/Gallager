@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "my-agent",
+  "display_name": "My Agent",
+  "short_name": "myagent",
+  "version": "1.0.0",
+  "process_names": ["my-agent-cli"],
+  "runtime": "sidecar",
+  "sidecar": {
+    "executable": "bin/sidecar"
+  },
+  "ui": {
+    "color": "#4A90E2"
+  },
+  "publisher": "Your Name"
+}
