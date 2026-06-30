@@ -27,18 +27,15 @@
 
                 // Segmented picker at the top
                 if agents.count > 1 {
-                    HStack {
-                        Picker("Agent", selection: $selectedAgentID) {
-                            ForEach(agents) { agent in
-                                Text(agent.name).tag(agent.id)
-                            }
+                    Picker("Agent", selection: $selectedAgentID) {
+                        ForEach(agents) { agent in
+                            Text(agent.name).tag(agent.id)
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .accessibilityIdentifier("agentPicker")
-
-                        removeButton
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .accessibilityIdentifier("agentPicker")
                     .padding()
                 }
 
@@ -46,7 +43,10 @@
                     // Not yet loaded — show nothing (task below will set it)
                     Spacer()
                 } else {
-                    PluginAgentForm(pluginID: selectedAgentID)
+                    PluginAgentForm(pluginID: selectedAgentID) {
+                        pluginToRemove = selectedAgentID
+                        showRemoveConfirmation = true
+                    }
                 }
 
                 Divider()
@@ -96,23 +96,6 @@
             }
         }
 
-        // MARK: - Remove button (only for non-bundled plugins)
-
-        @ViewBuilder
-        private var removeButton: some View {
-            if !selectedAgentID.isEmpty, !coordinator.isBundledPlugin(id: selectedAgentID) {
-                Button(role: .destructive) {
-                    pluginToRemove = selectedAgentID
-                    showRemoveConfirmation = true
-                } label: {
-                    Label("Remove…", symbol: .minusCircleFill)
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("removePlugin-\(selectedAgentID)")
-            }
-        }
-
         // MARK: - Helpers
 
         private func pluginDisplayName(_ id: String) -> String {
@@ -137,6 +120,10 @@
     /// change. Config-folder rows appear below with Install/Uninstall actions.
     private struct PluginAgentForm: View {
         let pluginID: String
+        /// Invoked when the user taps "Remove Plugin…". The parent owns the
+        /// confirmation dialog and selection reset, since removal mutates the
+        /// outer `selectedAgentID`.
+        let onRemove: () -> Void
 
         @Environment(AppCoordinator.self) private var coordinator
 
@@ -259,6 +246,23 @@
                     Text("Additional folders where the \(agentDisplayName) plugin should be installed.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                // Remove plugin (only for non-bundled, folder-dropped/URL plugins)
+                if !coordinator.isBundledPlugin(id: pluginID) {
+                    Section {
+                        Button(role: .destructive) {
+                            onRemove()
+                        } label: {
+                            Label("Remove Plugin…", symbol: .minusCircleFill)
+                                .foregroundStyle(.red)
+                        }
+                        .accessibilityIdentifier("removePlugin-\(pluginID)")
+                    } footer: {
+                        Text("Uninstall the \(agentDisplayName) plugin and delete its files. This cannot be undone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .formStyle(.grouped)
