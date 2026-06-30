@@ -229,6 +229,36 @@ class TranslateEventTests(unittest.TestCase):
         r = self.evt("message.part.updated", {"sessionID": "s1"})
         self.assertIsNone(r)
 
+    def test_lifecycle_started_is_idle(self):
+        # The bridge's synthetic "opencode loaded me" frame (no sessionID) →
+        # session appears idle immediately, keyed by the pane (mirrors Claude's
+        # SessionStart → .idle), with no notification.
+        r = self.evt("gallager.lifecycle.started", {})
+        self.assertEqual(r["state"], {"idle": {}})
+        self.assertIsNone(r["notification"])
+        self.assertEqual(r["appActions"], [])
+        self.assertEqual(r["tmuxPane"], PANE)
+
+    def test_lifecycle_stopped_ends_session(self):
+        # The bridge's synthetic dispose frame → AppAction.sessionEnded keyed by
+        # the PANE (the host's endAgentSession key), no state opinion, no
+        # notification, pane left open by default.
+        r = self.evt("gallager.lifecycle.stopped", {})
+        self.assertIsNone(r["state"])
+        self.assertIsNone(r["notification"])
+        self.assertEqual(r["appActions"],
+                         [{"sessionEnded": {"sessionID": PANE, "closePaneEligible": False}}])
+
+    def test_lifecycle_stopped_honors_close_pane_setting(self):
+        self.sc.request("apply_settings", {"settings": {"close_pane_on_session_end": True}})
+        r = self.evt("gallager.lifecycle.stopped", {})
+        self.assertEqual(r["appActions"],
+                         [{"sessionEnded": {"sessionID": PANE, "closePaneEligible": True}}])
+
+    def test_lifecycle_stopped_without_pane_is_noop(self):
+        r = self.evt("gallager.lifecycle.stopped", {}, ctx={"OPENCODE_PROJECT_DIR": "/x"})
+        self.assertIsNone(r)  # no pane → nothing the host can key on
+
     def test_idle_with_no_pane_still_maps(self):
         r = self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}},
                      ctx={"TMUX_PANE": "%9"})

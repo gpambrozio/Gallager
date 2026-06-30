@@ -278,6 +278,28 @@
             #expect(withoutAppActions == nil)
         }
 
+        @Test("a hand-built sessionEnded appAction decodes from translate_event JSON")
+        func translateEventSessionEndedAppAction() async throws {
+            // The opencode sidecar signals an opencode quit by returning a
+            // state-less PluginEvent whose appActions carries a sessionEnded keyed
+            // by the PANE id (the host's endAgentSession key). Lock the exact wire
+            // shape so the exit path can't silently regress.
+            let mock = MockSidecarProcess()
+            let rawJSON =
+                #"{"pluginID":"opencode","sessionID":"%4","state":null,"notification":null,"appActions":[{"sessionEnded":{"sessionID":"%4","closePaneEligible":false}}],"tmuxPane":"%4","projectPath":null}"#
+            await mock.onRequest { method, _ in
+                if method == SidecarRPC.initialize { return .success(.object([:])) }
+                let value = (try? JSONDecoder().decode(JSONValue.self, from: Data(rawJSON.utf8))) ?? .null
+                return .success(value)
+            }
+            let core = try await mock.makeCore(manifestID: "opencode")
+            try await core.initialize(mock.env, host: MockPluginHost())
+            let frame = IngressFrame(pluginID: "opencode", context: ["TMUX_PANE": "%4"], payload: Data("{}".utf8))
+            let event = await core.handleIngress(frame)
+            #expect(event?.state == nil)
+            #expect(event?.appActions == [.sessionEnded(sessionID: "%4", closePaneEligible: false)])
+        }
+
         @Test("an inbound set_projects notification reaches host.setProjects")
         func inboundSetProjects() async throws {
             let mock = MockSidecarProcess()

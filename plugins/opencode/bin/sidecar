@@ -7,7 +7,11 @@ stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sideca
 turns opencode's event-bus events (forwarded by the companion `gallager.js`
 opencode plugin → Gallager's ingress socket → here as `translate_event` calls)
 into the agent-blind `PluginEvent` shape Gallager understands, and answers
-opencode's permission prompts back via opencode's HTTP API (keystroke fallback).
+opencode's permission/question forms back by injecting keystrokes into the pane
+(opencode's TUI exposes no reachable HTTP endpoint). The bridge also emits two
+synthetic lifecycle frames — `gallager.lifecycle.started` (on plugin load ≈ TUI
+start) and `gallager.lifecycle.stopped` (from its `dispose` hook ≈ TUI quit) —
+which map to an idle session appearing / the session being removed.
 
 Casing reminder (the #1 footgun):
   - plugin.json manifest .......... snake_case
@@ -292,6 +296,7 @@ def handle_translate_event(req_id, params):
 
     state = None
     notification = None
+    app_actions = []
 
     if etype == "session.status":
         stype = (props.get("status") or {}).get("type")
@@ -348,7 +353,36 @@ def handle_translate_event(req_id, params):
         _clear_session_pending(session_id)
         state = state_working()
 
-    if state is None and notification is None:
+    elif etype == "gallager.lifecycle.started":
+        # Synthetic event the bridge emits once when opencode loads it (≈ TUI
+        # start). opencode fires nothing on a fresh idle launch, and the host's
+        # process scan only re-runs on pane add/remove — not when a process starts
+        # inside a live pane — so without this the session never appears until the
+        # first turn. Surface it as idle immediately (mirrors Claude Code's
+        # SessionStart → .idle, no notification).
+        SEEN.add(session_id)
+        state = state_idle()
+
+    elif etype == "gallager.lifecycle.stopped":
+        # Synthetic event the bridge emits from its opencode `dispose` hook on a
+        # graceful quit. Nothing else signals exit (the bridge dies with the
+        # process; the host never reconciles a vanished process), so end the
+        # session the way Claude Code's SessionEnd does: AppAction.sessionEnded
+        # drops the sidebar row (the moon icon reverts to a plain terminal) and
+        # resets the pane's session-scoped state. The action's sessionID is the
+        # PANE id — the host keys endAgentSession by pane — and closePaneEligible
+        # honors the `close_pane_on_session_end` setting (default off → leave the
+        # user's terminal open).
+        WORKING.discard(session_id)
+        SEEN.discard(session_id)
+        _clear_session_pending(session_id)
+        if tmux_pane:
+            close_eligible = bool(SETTINGS.get("close_pane_on_session_end", False))
+            app_actions.append({
+                "sessionEnded": {"sessionID": tmux_pane, "closePaneEligible": close_eligible},
+            })
+
+    if state is None and notification is None and not app_actions:
         respond(req_id, None)
         return
 
@@ -361,7 +395,7 @@ def handle_translate_event(req_id, params):
         "sessionID": session_id,
         "state": state,
         "notification": notification,
-        "appActions": [],
+        "appActions": app_actions,
         "tmuxPane": tmux_pane,
         "projectPath": project_path,
     })

@@ -18,10 +18,10 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
  │ (event bridge) ──┼───4-byte-LP───▶│   → SidecarPluginCore          │
  │   subscribes to  │  JSON frame    │     → translate_event RPC      │
  │   the event bus  │                │        ┌─────────────────────┐ │
- └──────────────────┘                │        │ bin/sidecar (Python)│ │
-        ▲                            │        │  event→PluginEvent  │ │
-        │ HTTP reply                 │        │  state machine      │ │
-        │ POST /permission/{id}/reply│        └─────────────────────┘ │
+ │   + lifecycle    │                │        │ bin/sidecar (Python)│ │
+ └──────────────────┘                │        │  event→PluginEvent  │ │
+        ▲                            │        │  state machine      │ │
+        │ send_keys (answer forms)   │        └─────────────────────┘ │
         └────────────────────────────┼──── deliver_response ──────────┘
                                      └────────────────────────────────┘
 ```
@@ -30,15 +30,20 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
    `~/.config/opencode/plugin/`). Its `event` hook forwards the lifecycle events
    Gallager cares about to Gallager's Unix-domain *ingress socket*. It bakes in
    the socket path + plugin id at install time and passes through `TMUX_PANE`
-   (routing), `serverUrl` (for answering permissions), and the project dir.
+   (routing), `serverUrl`, and the project dir. It also emits two *synthetic*
+   frames opencode itself never fires: `gallager.lifecycle.started` when opencode
+   loads it (≈ TUI start) and `gallager.lifecycle.stopped` from its `dispose` hook
+   (≈ TUI quit) — see **Session lifecycle** below.
 2. **`bin/sidecar`** — the long-lived Python process Gallager spawns. It maps
-   opencode events to Gallager's `AgentState` and answers permission prompts via
-   opencode's HTTP reply route (keystroke fallback when no server URL).
+   opencode events to Gallager's `AgentState` and answers permission/question
+   forms by injecting keystrokes into the pane (opencode's TUI has no reachable
+   HTTP endpoint).
 
 ## Event mapping
 
 | opencode event | → Gallager state |
 |---|---|
+| `gallager.lifecycle.started` (synthetic, on bridge load) | `idle` (session appears) |
 | `session.status` `busy` / `retry` | `working` |
 | `session.status` `idle` (after a turn) | `doneWorking` + notification |
 | `session.status` `idle` (fresh session) | `idle` |
@@ -46,10 +51,36 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
 | `session.error` | `doneWorking(summary)` + notification |
 | `permission.asked` / `permission.updated` | `awaitingPermission` (form) + notification |
 | `permission.replied` | `working` (form cleared) |
+| `question.asked` | `awaitingReplies` (form) + notification |
+| `gallager.lifecycle.stopped` (synthetic, on `dispose`) | `sessionEnded` (session removed) |
 
 The sidecar keeps a per-session `working`/`seen` flag so a turn-ending `idle`
 becomes `doneWorking` (raising attention) while a brand-new session's first
 `idle` stays `idle`, and a stray second `idle` never clears the attention badge.
+
+## Session lifecycle (start / exit)
+
+opencode fires **no event** when it launches into a fresh idle prompt, and none
+when it quits — and Gallager's process scan only re-detects agents when a tmux
+pane is *added or removed*, not when a process starts or dies inside a live pane.
+So neither launching nor quitting opencode would update the sidebar on its own.
+The bridge closes that gap with two synthetic frames (matching Claude Code's
+`SessionStart` → idle / `SessionEnd` → session removed; no notifications):
+
+- **Start** — the bridge's plugin factory runs once when opencode loads it
+  (≈ TUI start), and forwards `gallager.lifecycle.started`. The sidecar maps it to
+  `idle`, so the session shows up immediately (idle moon glyph + project name)
+  before the first turn.
+- **Exit** — the bridge registers opencode's `dispose` hook, which opencode runs
+  as a shutdown finalizer on a graceful quit (the quit command, `/exit`, Ctrl-C).
+  It forwards `gallager.lifecycle.stopped` (awaited so the frame flushes before the
+  process dies). The sidecar emits `AppAction.sessionEnded` keyed by the **pane
+  id**, so the host removes the session (the icon reverts to a plain terminal).
+  `closePaneEligible` honors the `close_pane_on_session_end` setting (default off →
+  the pane stays open). Verified against opencode v1.17.11 for both `/exit` and
+  Ctrl-C. The one uncovered case is a **hard kill** (`SIGKILL`/crash): opencode
+  skips finalizers, so no `stopped` frame is sent and the stale session lingers
+  until Gallager next reconciles.
 
 ## Answering forms (permissions & questions)
 
@@ -126,7 +157,7 @@ works out of the box:
 ## Test
 
 ```bash
-python3 tests/test_sidecar.py     # 16 tests: mapping, forms, HTTP reply, install
+python3 tests/test_sidecar.py     # 33 tests: mapping, lifecycle, forms, install, projects
 node --check opencode-bridge/gallager.js
 ```
 
@@ -152,8 +183,12 @@ plugins/opencode/
 
 ## Known limitations / follow-ups
 
-- opencode has no plan-approval or multi-question form, so `awaitingPlanApproval`
-  / `awaitingReplies` are unused; only permission prompts are interactive.
+- opencode has no plan-approval form, so `awaitingPlanApproval` is unused;
+  permission prompts (`awaitingPermission`) and questions (`awaitingReplies`) are
+  both interactive.
+- A **hard kill** of opencode (`SIGKILL`/crash) skips its `dispose` finalizer, so
+  no `gallager.lifecycle.stopped` frame is sent and the session lingers in the
+  sidebar until Gallager next reconciles (graceful `/exit` and Ctrl-C are covered).
 - opencode's OTLP namespace is `opencode.*`, which Gallager's telemetry
   accumulator doesn't parse yet (only `claude_code.*` / `codex.*`), so token/cost
   metering is out of scope.
