@@ -29,6 +29,19 @@ AGENT_LAUNCH_COMMAND = None  # e.g. {"command": "my-agent", "args": [], "env": {
 # ---------------------------------------------------------------------------
 # Framing — read/write one Content-Length-framed JSON message.
 # ---------------------------------------------------------------------------
+def _read_exactly(n):
+    """Read exactly n bytes from stdin, or None on EOF. A single buffer.read(n)
+    can return fewer bytes than asked (a pipe delivers data in chunks) — looping
+    here is what keeps a large body from being truncated mid-frame."""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sys.stdin.buffer.read(n - len(buf))
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
 def read_message():
     """Block until one full message arrives. Returns the decoded dict, or None on EOF."""
     header = b""
@@ -41,7 +54,9 @@ def read_message():
     for line in header.split(b"\r\n"):
         if line.lower().startswith(b"content-length:"):
             length = int(line.split(b":", 1)[1].strip())
-    body = sys.stdin.buffer.read(length)
+    body = _read_exactly(length) if length else b""
+    if body is None:
+        return None  # EOF mid-body
     return json.loads(body)
 
 
@@ -92,6 +107,40 @@ def state_idle():
     return {"idle": {}}
 
 
+# Blocked-on-input states (optional — only if your agent has interactive prompts).
+# These open a form in the app/iOS viewer; the answer comes back via
+# deliver_response (see handle_deliver_response). They need NO capability.
+# Encoding note: the first (unlabeled) associated value becomes "_0", the labeled
+# `requestID:` stays as-is. See references/protocol-reference.md §6 + §4a for the
+# PermissionRequest / AskUserQuestionRequest shapes.
+def state_awaiting_permission(request, request_id):
+    return {"awaitingPermission": {"_0": request, "requestID": request_id}}
+
+
+def state_awaiting_replies(request, request_id):
+    return {"awaitingReplies": {"_0": request, "requestID": request_id}}
+
+
+# ---------------------------------------------------------------------------
+# TmuxKey builders for send_keys (optional — if you answer forms by typing into
+# the pane). CRITICAL: a `.text` key is `{"text": {"_0": "abc"}}`, NOT
+# `{"text": "abc"}`. Every key is a "_0"-wrapped tagged object; a bare string
+# fails to decode and the host silently drops the ENTIRE keys array. Special keys
+# (no payload) are `{"enter": {}}`, `{"escape": {}}`, `{"right": {}}`, … (§5a).
+# ---------------------------------------------------------------------------
+def key_text(s):
+    return {"text": {"_0": s}}
+
+
+def key(name):
+    """A no-payload key, e.g. key("enter"), key("escape"), key("right")."""
+    return {name: {}}
+
+
+def send_keys(session_id, keys):
+    notify("send_keys", {"sessionID": session_id, "keys": keys})
+
+
 # ---------------------------------------------------------------------------
 # RPC handlers
 # ---------------------------------------------------------------------------
@@ -109,9 +158,13 @@ def handle_translate_event(req_id, params):
     Return a PluginEvent (respond with the object), or respond with `None` to
     say "ignore this event".
 
-    PluginEvent fields (camelCase, all optional except pluginID/sessionID):
-        pluginID, sessionID, state, notification {title, body},
-        tmuxPane, projectPath, permissionMode
+    PluginEvent fields (camelCase): pluginID, sessionID (both required),
+        appActions (required — ALWAYS include, see below), state,
+        notification {title, body}, tmuxPane, projectPath, permissionMode.
+
+    ⚠️ `appActions` is non-Optional in the host and decoded with NO default. If you
+    omit the key, the host fails to decode the event and SILENTLY DROPS it — the
+    session never updates. Always send "appActions": [] (or a populated list).
     """
     context = params.get("context") or {}
     payload = params.get("payload") or {}
@@ -141,10 +194,23 @@ def handle_translate_event(req_id, params):
         "pluginID": params.get("pluginID"),
         "sessionID": session_id,
         "state": state,
+        "appActions": [],  # REQUIRED — see the warning above; never omit this key.
         "tmuxPane": tmux_pane,
         "projectPath": project_path,
     }
     respond(req_id, event)
+
+
+# Current plugin settings — the generic sidecar settings the Agents panel sends.
+# snake_case keys: command_path, auto_run, log_level, additional_config_folders,
+# close_pane_on_session_end. Delivered by initialize AND apply_settings.
+SETTINGS = {}
+
+
+def _store_settings(value):
+    global SETTINGS
+    if isinstance(value, dict):
+        SETTINGS = value
 
 
 def handle_initialize(req_id, params):
@@ -152,12 +218,21 @@ def handle_initialize(req_id, params):
     PluginEnvWire: {pluginRoot, stateDir, appVersion, settings, marketplaceSource,
     otlpReceiverEndpoint}. Treat every initialize as a clean-slate boot."""
     # Stash anything you need from params (e.g. stateDir for scratch files).
+    _store_settings((params or {}).get("settings"))
     log("info", "sidecar initialized (app %s)" % (params or {}).get("appVersion", "?"))
     respond(req_id, {})
 
 
 def handle_command_for_launch(req_id, params):
-    """Return {command, args, env} to auto-start your agent in a new pane, or None."""
+    """Return {command, args, env} to auto-start your agent in a new pane, or None.
+    Honor the generic settings: auto_run off → don't launch; command_path overrides."""
+    if not SETTINGS.get("auto_run", True):
+        respond(req_id, None)
+        return
+    cmd = (SETTINGS.get("command_path") or "").strip()
+    if cmd:
+        respond(req_id, {"command": cmd, "args": [], "env": {}})
+        return
     respond(req_id, AGENT_LAUNCH_COMMAND)
 
 
@@ -184,7 +259,27 @@ def handle_uninstall(req_id, params):
 def handle_apply_settings(req_id, params):
     """`params` is {"settings": <json>}. Persist if you like. Return SettingsResult:
     {"applied": {}} | {"error": {"field": null, "message": "..."}}."""
+    _store_settings((params or {}).get("settings"))
     respond(req_id, {"applied": {}})
+
+
+def handle_deliver_response(req_id, params):
+    """Answer an open form (only if you emit awaitingPermission/awaitingReplies).
+    `params` is {sessionID, requestID, response}; `response` is a single-key
+    AgentResponse — see references/protocol-reference.md §4a. Act on it via your
+    agent's API, or by typing into the pane with send_keys(...). Respond {} promptly.
+
+    EDIT HERE if your agent has interactive forms; safe to leave as-is otherwise.
+    """
+    # Example (uncomment + adapt):
+    # response = (params or {}).get("response") or {}
+    # session_id = (params or {}).get("sessionID")
+    # if "permission" in response:
+    #     decision = response["permission"].get("decision") or {}
+    #     send_keys(session_id, [key("enter")] if "allow" in decision else [key("escape")])
+    # elif "prompt" in response:
+    #     send_keys(session_id, [key_text(response["prompt"].get("text") or ""), key("enter")])
+    respond(req_id, {})
 
 
 # App → sidecar requests. Each MUST be answered (echo the id). Unknown → error.
@@ -196,6 +291,7 @@ REQUEST_HANDLERS = {
     "install": handle_install,
     "uninstall": handle_uninstall,
     "apply_settings": handle_apply_settings,
+    "deliver_response": handle_deliver_response,
     "refresh_projects": lambda req_id, params: respond(req_id, {}),
 }
 

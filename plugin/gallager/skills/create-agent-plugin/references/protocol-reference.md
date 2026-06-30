@@ -11,14 +11,18 @@ to build a plugin against it.
 2. [Plugin layout & manifest schema](#2-plugin-layout--manifest-schema)
 3. [Stdio JSON-RPC transport](#3-stdio-json-rpc-transport)
 4. [App → Sidecar requests](#4-app--sidecar-requests)
+4a. [Answering forms — request & response shapes](#4a-answering-forms--request--response-shapes)
 5. [Sidecar → App messages](#5-sidecar--app-messages)
+5a. [TmuxKey encoding (for send_keys)](#5a-tmuxkey-encoding-for-send_keys)
 6. [PluginEvent & AgentState (the heart)](#6-pluginevent--agentstate-the-heart)
+6a. [AppAction (the appActions array)](#6a-appaction-the-appactions-array)
 7. [Spawn environment](#7-spawn-environment)
 8. [Hook ingress channel](#8-hook-ingress-channel)
 9. [Lifecycle & crash policy](#9-lifecycle--crash-policy)
 10. [Distribution](#10-distribution)
 11. [Security model](#11-security-model)
 12. [Known limitations](#12-known-limitations)
+13. [Settings (generic sidecar settings)](#13-settings-generic-sidecar-settings)
 
 ---
 
@@ -68,6 +72,7 @@ A plugin is a directory containing a `plugin.json` and an executable:
 | `runtime` | string | **yes** | Must be `"sidecar"` |
 | `sidecar.executable` | string | **yes** | Path to binary under the plugin root (e.g. `"bin/sidecar"`) |
 | `sidecar.args` | [string] | no (default `[]`) | Extra argv passed to the executable |
+| `sidecar.default_config_root` | string | no | The agent's default config location, shown as the non-removable root row in Settings → Agents (e.g. `"~/.config/my-agent"`). Purely presentational — when absent the UI falls back to `~`. `install` still receives `configRoot: null` for this default row (see §13). |
 | `ui.icon` | string | no | Relative path to an icon asset |
 | `ui.color` | string | no | Accent hex, e.g. `"#4A90E2"` (default `"#888888"`) |
 | `publisher` | string | no | Human-readable publisher name |
@@ -166,6 +171,76 @@ as a clean-slate boot — it is re-sent after a crash-restart.
 
 ---
 
+## 4a. Answering forms — request & response shapes
+
+When you put the session into an `awaitingPermission` / `awaitingReplies` /
+`awaitingPlanApproval` state (§6), you embed a **request** describing the form. When
+the user answers, the app calls `deliver_response` with `{sessionID, requestID,
+response}` — `requestID` is the exact value you sent in the state, and `response` is
+an `AgentResponse` (a single-key tagged object). **No capability required.**
+
+You then act on the answer however your agent allows — call your agent's API, or (if
+the agent's only surface is its TUI) inject keystrokes with `send_keys` (§5).
+Respond `{}` to the `deliver_response` request promptly; do the side-effect first or
+fire-and-forget.
+
+### The request you embed
+
+**PermissionRequest** (the `_0` of `awaitingPermission`):
+```json
+{
+  "title": "Run shell command",
+  "description": "rm -rf build/",
+  "isAutoApprovable": false,
+  "suggestions": [ { "id": "always", "label": "Allow always for this session", "detail": null } ],
+  "allowsCustomInstructions": true
+}
+```
+`title`/`description`/`isAutoApprovable`/`suggestions`/`allowsCustomInstructions` are
+all required (`suggestions[].detail` is the only optional). `isAutoApprovable: true`
+lets the app auto-approve in yolo mode without showing a form.
+
+**AskUserQuestionRequest** (the `_0` of `awaitingReplies`):
+```json
+{
+  "questions": [
+    {
+      "id": "q0",
+      "question": "Which approach?",
+      "header": "Approach",
+      "options": [
+        { "id": "q0-o0", "label": "Rewrite", "description": "…", "preview": null }
+      ],
+      "multiSelect": false,
+      "allowsFreeText": true
+    }
+  ]
+}
+```
+`preview` is optional; everything else required. Use stable option ids like
+`"q<i>-o<j>"` so you can map the answer back.
+
+(`ApprovePlanRequest` is analogous; if your agent has no plan-approval step, leave
+it unused — start with permission/questions.)
+
+### The `response` you receive
+
+`AgentResponse` cases (single-key tagged object):
+
+| Case | JSON | Notes |
+|------|------|-------|
+| `permission` | `{"permission": {"decision": <PermissionDecision>, "appliedSuggestionID": "always"\|null}}` | `appliedSuggestionID` is the `suggestions[].id` the user tapped, if any |
+| `askUserQuestion` | `{"askUserQuestion": {"answers": [{"questionID": "q0", "selectedOptionIDs": ["q0-o1"], "freeText": null}]}}` | one entry per question; `freeText` set when the user typed "Other" |
+| `prompt` | `{"prompt": {"text": "…"}}` | free-text prompt submission |
+| `replyAfterStop` | `{"replyAfterStop": {"text": "…"}}` | empty text = "interrupt, send nothing" |
+| `approvePlan` | `{"approvePlan": {"decision": <PlanDecision>, "editedPlan": "…"\|null}}` | |
+
+**PermissionDecision** is itself tagged: `"allow"`, `"deny"`, or
+`{"denyWithFeedback": "use tabs instead"}` (deny + free-text feedback). A plain
+`"allow"`/`"deny"` are no-payload cases → bare strings.
+
+---
+
 ## 5. Sidecar → App messages
 
 ### Notifications (you send, no response expected)
@@ -175,12 +250,16 @@ as a clean-slate boot — it is re-sent after a crash-restart.
 | `emit_event` | a `PluginEvent` (§6) | Push a state change outside of a `translate_event` reply |
 | `set_projects` | `{projects: [AgentProject]}` | Replace your plugin's project list in the sidebar |
 | `send_text` | `{sessionID, text}` | Type text into the session's focused pane |
-| `send_keys` | `{sessionID, keys: [TmuxKey]}` | Send key presses into the pane |
+| `send_keys` | `{sessionID, keys: [TmuxKey]}` | Send key presses into the pane (see §5a for the `TmuxKey` shapes — `.text` is **not** a bare string) |
 | `log` | `{level, message}` | Structured log (`level` ∈ `debug`/`info`/`warn`/`error`); shows in Settings → View Logs |
 | `prompt_user` | `{title, message?}` | Ask the app to show a modal (only with `modal_prompts`; answer arrives via `deliver_response`) |
 
-`AgentProject` = `{name, path, pluginID, configDir?, lastUsed?}`. Omit `lastUsed`
-unless you encode it as the app expects — leaving it out is safe.
+`AgentProject` = `{name, path, pluginID, configDir?, lastUsed?}` (`id` is computed
+host-side, not encoded). `lastUsed` is a `Date` decoded by a default `JSONDecoder`
+(`.deferredToDate`), so it must be **seconds since the 2001 reference date**, i.e.
+`unix_seconds - 978307200`. A wrong format (e.g. raw unix millis) throws and the
+host drops the *entire* project list. When in doubt, omit it (recency sort just
+falls back) — leaving it out is safe.
 
 ### Requests (you send, app responds)
 
@@ -190,6 +269,32 @@ unless you encode it as the app expects — leaving it out is safe.
 
 When you send a request, generate a unique `id`, then watch the inbound stream for
 a message whose `id` matches and read its `result`.
+
+---
+
+## 5a. TmuxKey encoding (for `send_keys`)
+
+`keys` is an array of `TmuxKey`, each a single-key tagged object (same auto-derived
+`Codable` rules as §6 — **a `_0`-wrapped associated value, NOT a bare string**). The
+whole array is decoded with `try?`: if even one element is malformed, **every**
+keystroke is silently dropped and nothing is sent.
+
+| Key | JSON |
+|-----|------|
+| Literal text | `{"text": {"_0": "hello"}}` — ⚠️ NOT `{"text": "hello"}` (that fails to decode) |
+| Enter / Shift-Enter | `{"enter": {}}` / `{"shiftEnter": {}}` |
+| Escape / Tab / Backtab | `{"escape": {}}` / `{"tab": {}}` / `{"backtab": {}}` |
+| Space / Backspace / Delete | `{"space": {}}` / `{"backspace": {}}` / `{"delete": {}}` |
+| Arrows | `{"up": {}}` / `{"down": {}}` / `{"left": {}}` / `{"right": {}}` |
+| Home / End / PageUp / PageDown | `{"home": {}}` / `{"end": {}}` / `{"pageUp": {}}` / `{"pageDown": {}}` |
+| Ctrl / Alt / Ctrl+Alt + char | `{"ctrl": {"_0": "c"}}` / `{"alt": {"_0": "b"}}` / `{"ctrlAlt": {"_0": "x"}}` |
+| Delay (ms, not a real key) | `{"delay": {"_0": 100}}` |
+
+Example `send_keys` to type "yes" and submit:
+```json
+{ "method": "send_keys",
+  "params": { "sessionID": "%4", "keys": [ {"text": {"_0": "yes"}}, {"enter": {}} ] } }
+```
 
 ---
 
@@ -204,6 +309,7 @@ carrier for everything your plugin wants to change about a session. camelCase ke
   "sessionID": "abc-123",
   "state": { "doneWorking": { "summary": "Fixed the bug." } },
   "notification": { "title": "my-agent", "body": "Done." },
+  "appActions": [],
   "tmuxPane": "%4",
   "projectPath": "/Users/you/code/proj",
   "permissionMode": "default"
@@ -214,11 +320,40 @@ carrier for everything your plugin wants to change about a session. camelCase ke
 |-------|----------|---------|
 | `pluginID` | yes | Your plugin id (echo `params.pluginID`) |
 | `sessionID` | yes | Stable id for this agent session. Derive from the payload; fall back to `tmuxPane` |
+| `appActions` | **yes (always send it)** | Array of `AppAction` (§6a). Empty `[]` for almost every event. **See the warning below — omitting this key silently drops the whole event.** |
 | `state` | no | New `AgentState` (below). `null`/omitted = "no opinion, leave unchanged" |
 | `notification` | no | `{title, body}` — fires a Mac notification + iOS push |
 | `tmuxPane` | no | Bootstraps the session↔pane mapping. Comes from `context.TMUX_PANE` |
 | `projectPath` | no | Lets the sidebar show the project name immediately |
 | `permissionMode` | no | `default`/`plan`/`acceptEdits`/`bypassPermissions`, if your agent reports it |
+
+> ⚠️ **`appActions` is non-Optional and has NO decode default.** In the host's
+> `PluginEvent` it is `[AppAction]` (not `[AppAction]?`), decoded with `decode`
+> (not `decodeIfPresent`). A `translate_event` reply or `emit_event` payload that
+> omits the `appActions` key **fails to decode and the host silently drops the
+> entire event** — the session state never changes and there is no error anywhere
+> visible to you. This is the #2 cause (after casing) of "the plugin loads but
+> nothing happens." Always include `"appActions": []` (or a populated list). The
+> memberwise `= []` default you may see in the Swift source applies only to direct
+> Swift construction, **not** to JSON decoding.
+
+### Tagged-enum encoding rule (applies to `state`, `appActions`, and responses)
+
+Every Swift enum below serializes the same way (auto-synthesized `Codable`, no key
+strategy):
+
+- **No associated values** → a single-key object with an empty object value:
+  `.working` → `{"working": {}}`, `.idle` → `{"idle": {}}`. (NOT the bare string
+  `"working"` — that fails to decode.)
+- **Labeled associated values** → keys are the labels:
+  `.doneWorking(summary:)` → `{"doneWorking": {"summary": "…"}}`.
+- **One *unlabeled* associated value** → it becomes the key `"_0"`:
+  `.awaitingPermission(req, requestID:)` → `{"awaitingPermission": {"_0": <req>, "requestID": "…"}}`.
+- **Mixed** → unlabeled positions are `"_0"`, `"_1"`, …; labeled ones use their label.
+
+Internalize this — it governs `AgentState`, `AppAction`, `AgentResponse`,
+`PermissionDecision`, **and `TmuxKey`** (§5a). Getting the `"_0"` wrapping wrong is
+the single most common wire bug after the casing trap.
 
 ### AgentState encodings (single-key tagged object)
 
@@ -228,12 +363,49 @@ carrier for everything your plugin wants to change about a session. camelCase ke
 | Idle / handled | `{"idle": {}}` | no |
 | Finished a turn | `{"doneWorking": {"summary": "…" \| null}}` | **yes** |
 
-Richer agents can also produce blocked-on-input states —
-`{"awaitingPermission": {…}}`, `{"awaitingPlanApproval": {…}}`,
-`{"awaitingReplies": {…}}` — which open a response form in the viewer and route the
-answer back through `deliver_response`. These require structured request payloads;
-start with `working`/`idle`/`doneWorking` and add the awaiting cases only once the
-basic round-trip works.
+Richer agents can also produce **blocked-on-input** states. These open a response
+form in the Mac app / iOS viewer and route the answer back through
+`deliver_response` (§4a). **They do NOT require any capability** — `modal_prompts`
+gates only the host-originated `prompt_user` modal, not these agent-originated
+forms; you can use `awaitingPermission`/`awaitingReplies` with no capabilities
+declared. Each wraps a structured request (its first, unlabeled associated value →
+`"_0"`) plus a `requestID` you echo back when the answer arrives:
+
+| State | JSON | Request type (`_0`) |
+|-------|------|----------------------|
+| Blocked on a tool permission | `{"awaitingPermission": {"_0": <PermissionRequest>, "requestID": "…"}}` | `PermissionRequest` |
+| Blocked on questions | `{"awaitingReplies": {"_0": <AskUserQuestionRequest>, "requestID": "…"}}` | `AskUserQuestionRequest` |
+| Blocked on plan approval | `{"awaitingPlanApproval": {"_0": <ApprovePlanRequest>, "requestID": "…"}}` | `ApprovePlanRequest` |
+
+Pick a `requestID` that is **stable per prompt** (e.g. `"<sessionID>:permission:<agent-prompt-id>"`)
+so a re-sent event collapses to one form, and so a later `deliver_response` can map
+it back to the right agent prompt. Start with `working`/`idle`/`doneWorking`; add
+the awaiting cases once the basic round-trip works. The request/response shapes are
+in §4a.
+
+---
+
+## 6a. AppAction (the `appActions` array)
+
+`appActions` carries side-effects the host should perform that are *not* a session
+state change. Each element is a single-key tagged object. **Almost every event
+sends `[]`** — the one you will likely use is `sessionEnded`.
+
+| Action | JSON | Effect |
+|--------|------|--------|
+| End the session | `{"sessionEnded": {"sessionID": "%4", "closePaneEligible": false}}` | Removes the sidebar row, resets the pane's session-scoped state. **`sessionID` here is the tmux PANE id** (the host keys session-end by pane), NOT your agent's session id — use `context.TMUX_PANE`. `closePaneEligible: true` closes the pane too; gate it on your `close_pane_on_session_end` setting (§13). |
+| Suggest opening a file | `{"openFileSuggestion": {"sessionID": "…", "path": "/…", "displayName": "plan.md", "isPlan": false, "projectDir": "/…"\|null}}` | Surfaces an "open this file?" prompt. Niche — most plugins never emit it. |
+| Clear file suggestions | `{"dismissFileSuggestions": {"sessionID": "…"}}` | Dismisses outstanding suggestions. |
+
+**Session lifecycle pattern.** If your agent fires no event on launch or quit (and
+the host's process scan only re-detects on pane add/remove, not when a process
+starts/dies inside a live pane), emit two synthetic events of your own — one when
+your bridge starts (→ `state: {"idle": {}}`, no appActions, so the session appears)
+and one on graceful exit (→ `state: null`, `appActions: [{"sessionEnded": …}]`).
+This mirrors Claude Code's `SessionStart`/`SessionEnd`. (A graceful-exit signal — a
+shutdown finalizer in the agent's plugin, awaited so the frame flushes before the
+process dies — covers `/exit` and Ctrl-C; a hard kill skips it and the session
+lingers until the host next reconciles.)
 
 ---
 
@@ -254,8 +426,20 @@ Its working directory is set to `GALLAGER_PLUGIN_ROOT`.
 
 ## 8. Hook ingress channel
 
-If your agent fires hook scripts, they forward events to Gallager through the
-ingress socket — a **different** channel from the stdio transport.
+Something running in your agent's process must forward events to Gallager through
+the ingress socket — a **different** channel from the stdio transport. What that
+"something" is depends on the agent:
+
+- **Shell hooks** (Claude Code, Codex): the agent runs a script per event. Use the
+  bundled `assets/template/hook.py` as the bridge; your `install` registers it.
+- **Agent-native plugin / event bus** (for agents that have *removed* shell hooks):
+  the agent loads a small plugin, written in its own plugin format, that subscribes
+  to its event bus and forwards frames. The bridge bakes in the socket path + plugin
+  id at install time (the agent process does not inherit Gallager's env).
+- **No event surface at all:** the agent is only process-detected (`process_names`)
+  and you may need little beyond `initialize`.
+
+Either way the frame format is identical:
 
 ### Frame format: 4-byte big-endian length prefix (NOT Content-Length)
 
@@ -309,6 +493,11 @@ Copy the plugin directory to `~/.gallager/plugins/<id>/`. Gallager discovers it 
 next launch. Requires: dir name == sanitized `id`; `plugin.json` decodes with
 `runtime == "sidecar"`; the declared executable exists and is `chmod +x`.
 
+> ⚠️ Discovery checks `isDirectory`, which is **false for a symlink-to-directory**
+> (Foundation reports the link itself). A dev install script must **copy** the
+> plugin into `~/.gallager/plugins/<id>/`, not symlink it — and re-copy after edits,
+> then relaunch.
+
 ### Remote install (for shipping to others)
 
 Host `plugin.json` at an HTTPS URL with `bundle_url`, `bundle_sha256`,
@@ -343,8 +532,40 @@ vetting. Do not run plugins from untrusted sources.
 - `rich_pane_detection`: the `detect_pane` types exist and the capability flag is
   read, but the pane-detection call-site wiring is a follow-on. Declare it now;
   fall back to `process_names`. A `method_not_found` reply degrades gracefully.
-- `modal_prompts`: `prompt_user`/`deliver_response` types exist behind the flag,
-  but the modal UI is a follow-on.
+- `modal_prompts`: gates only the **host-originated** `prompt_user` modal, whose UI
+  is a follow-on. It does **not** gate the agent-originated form path —
+  `awaitingPermission`/`awaitingReplies`/`awaitingPlanApproval` states +
+  `deliver_response` work today with no capability declared (§4a, §6).
 - Crash-loop banner UI is a follow-on (the auto-disable still happens).
 - OTLP: only `claude_code.*` and `codex.*` event namespaces are parsed today;
   a third-party namespace is silently dropped.
+
+---
+
+## 13. Settings (generic sidecar settings)
+
+Every folder-dropped sidecar gets the same generic Settings → Agents panel for free
+— no per-plugin UI. The settings object reaches you as `initialize.settings` and via
+`apply_settings` (`{"settings": {...}}`), and is **snake_case** (it's hand-coded, like
+the manifest). The standard keys (all optional, with these defaults):
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `command_path` | string | `""` | Launch-command override. Empty → use your own `command_for_launch` default. |
+| `auto_run` | bool | `true` | When `false`, return `null` from `command_for_launch` (don't auto-start). |
+| `log_level` | string | `"info"` | `debug`/`info`/`warn`/`error`. |
+| `additional_config_folders` | [string] | `[]` | Extra per-project config roots (see `configRoot` below). |
+| `close_pane_on_session_end` | bool | `false` | Fold into `sessionEnded`'s `closePaneEligible` (§6a). |
+
+A typical sidecar honors these in `command_for_launch` (gate on `auto_run`, prefer
+`command_path`) and in `install`/`install_status`/`uninstall`.
+
+### `configRoot` (install scoping)
+
+`install`/`uninstall`/`install_status` receive `{configRoot: string | null}`:
+
+- `null` → the **default** row. Install your bridge into the agent's global config
+  (the `sidecar.default_config_root` from the manifest is the label shown for it).
+- a path → a **per-project** row the user added (one of `additional_config_folders`).
+  Install the bridge into that project's local config so the agent loads it only
+  there (e.g. `<root>/.my-agent/plugin/`).

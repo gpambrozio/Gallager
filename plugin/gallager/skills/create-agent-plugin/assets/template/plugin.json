@@ -7,7 +7,8 @@
   "process_names": ["my-agent-cli"],
   "runtime": "sidecar",
   "sidecar": {
-    "executable": "bin/sidecar"
+    "executable": "bin/sidecar",
+    "default_config_root": "~/.config/my-agent"
   },
   "ui": {
     "color": "#4A90E2"
