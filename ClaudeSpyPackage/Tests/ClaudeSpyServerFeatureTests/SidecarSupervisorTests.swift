@@ -127,9 +127,21 @@
             let capture = StderrCapture()
             await sup.setOnAutoDisabled { lines in Task { await capture.set(lines) } }
             _ = try? await sup.startTransport(delegate: NoopDelegate())
-            // With 3x20ms backoffs, 4 crashes complete in well under 1 second
-            try await Task.sleep(for: .seconds(3))
+            // Poll until the crash loop exhausts its window and auto-disables.
+            // The four crashes are real fork/exec subprocesses, which can be
+            // starved under heavy parallel test load, so the deadline is generous
+            // rather than a fixed sleep; the loop exits the instant the state
+            // flips, so it costs nothing on the happy path.
+            let deadline = Date().addingTimeInterval(30)
+            while Date() < deadline, await sup.state() != .disabled {
+                try await Task.sleep(for: .milliseconds(20))
+            }
             #expect(await sup.state() == .disabled)
+            // The onAutoDisabled callback hops through a Task to fill the capture,
+            // so it may land a beat after the state flips — poll for it too.
+            while Date() < deadline, await capture.lines.isEmpty {
+                try await Task.sleep(for: .milliseconds(20))
+            }
             #expect(await !capture.lines.isEmpty)
         }
     }

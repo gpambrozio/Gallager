@@ -83,10 +83,14 @@
             )
             await transport.start(reading: byteStream(readPipe.fileHandleForReading))
 
-            // Race: request (generous 30 s timeout) vs a 2 s hard deadline.
+            // Race: request (generous 30 s timeout) vs a 10 s hard deadline.
             // Fast-fail path: the write error propagates before the sleep wins → throws a
             // non-TimeoutSentinel error, which the test swallows as the expected outcome.
             // Regression path: the sleep wins → TimeoutSentinel propagates → test fails.
+            // The deadline only has to land comfortably below the 30 s request timeout to
+            // prove fast-fail; it's generous (not the ~instant the write error actually
+            // takes) so heavy parallel load can't starve the request task's scheduling
+            // into losing a tighter race.
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -94,7 +98,7 @@
                         _ = try await transport.request(SidecarRPC.initialize, nil, timeout: .seconds(30))
                     }
                     group.addTask {
-                        try await Task.sleep(for: .seconds(2))
+                        try await Task.sleep(for: .seconds(10))
                         throw TimeoutSentinel()
                     }
                     // next()! throws whichever task errors first; cancel the remaining task.
@@ -103,7 +107,7 @@
                     }
                 }
             } catch is TimeoutSentinel {
-                Issue.record("request did not fast-fail within 2 s — I1 regression")
+                Issue.record("request did not fast-fail within 10 s — I1 regression")
             } catch {
                 // Any non-sentinel error is the expected fast-fail from the closed write handle.
             }

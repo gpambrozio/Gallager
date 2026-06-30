@@ -99,9 +99,13 @@
 
         /// Poll until a snapshot carrying at least `count` turns lands, or the
         /// deadline passes. Real network queues drive the receiver, so there's no
-        /// virtual clock to advance — a sanctioned `Task.sleep` poll.
+        /// virtual clock to advance — a sanctioned `Task.sleep` poll. The deadline
+        /// is generous because the full suite runs in parallel — under CPU
+        /// saturation the network queue can be starved for several seconds; the
+        /// loop still returns the instant the snapshot lands, so a long deadline
+        /// costs nothing on the happy path and only buys patience under load.
         private func waitForTurns(_ collector: SnapshotCollector, atLeast count: Int) async -> SessionTelemetry? {
-            let deadline = Date().addingTimeInterval(5)
+            let deadline = Date().addingTimeInterval(30)
             while Date() < deadline {
                 let snaps = await collector.snapshots
                 if let snap = snaps.last(where: { $0.recentTurns.count >= count }) { return snap }

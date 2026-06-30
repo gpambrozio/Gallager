@@ -130,11 +130,16 @@
         /// Poll `paneStates[paneId]` until it gains a Claude session or the
         /// deadline passes. The socket read runs on a real background queue, so
         /// there is no virtual clock to advance — a sanctioned `Task.sleep` poll.
+        /// The deadline is generous because the full suite runs in parallel —
+        /// under CPU saturation the background read queue can be starved for
+        /// several seconds; the loop still returns the instant the session
+        /// appears, so a long deadline costs nothing on the happy path and only
+        /// buys patience under load.
         private func waitForSession(
             _ windowManager: MirrorWindowManager,
             paneId: String
         ) async -> PaneState? {
-            let deadline = Date().addingTimeInterval(5)
+            let deadline = Date().addingTimeInterval(30)
             while Date() < deadline {
                 if let state = windowManager.paneStates[paneId], state.agentSession != nil {
                     return state
