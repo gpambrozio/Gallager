@@ -354,6 +354,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PluginSidecarPermissionAllowScenario.scenario,
         PluginSidecarSessionEndedScenario.scenario,
         AgentsRemovePluginLiveScenario.scenario,
+        AgentsInstallZipAutoSelectScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

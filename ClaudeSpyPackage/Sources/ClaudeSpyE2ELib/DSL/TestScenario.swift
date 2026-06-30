@@ -471,4 +471,12 @@ public enum TestStep: Sendable {
     /// (its parent directory), so the staged plugin persists for the entire
     /// scenario in the per-instance E2E sandbox.
     case macStageSidecarFixture(id: String, instance: Int = 0)
+
+    /// Build a self-contained sidecar `.zip` bundle (the `EchoPluginSidecar`
+    /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the
+    /// archive root) and store its absolute path in the execution context under
+    /// `storeAs`. Used to exercise the local-zip install flow end-to-end (e.g. via
+    /// `gallager plugin install --zip ${path}`). The zip lives in the per-instance
+    /// E2E sandbox, so it is cleaned up with the rest of the scenario state.
+    case macStageSidecarZip(id: String, displayName: String, storeAs: String, instance: Int = 0)
 }

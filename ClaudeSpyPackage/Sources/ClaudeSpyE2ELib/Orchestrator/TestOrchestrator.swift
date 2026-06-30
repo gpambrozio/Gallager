@@ -1006,6 +1006,10 @@ public actor TestOrchestrator {
         case let .macStageSidecarFixture(id, instance):
             try stageSidecarFixture(id: id, instance: instance)
 
+        case let .macStageSidecarZip(id, displayName, storeAs, instance):
+            let zipPath = try stageSidecarZip(id: id, displayName: displayName, instance: instance)
+            context.set(storeAs, value: zipPath)
+
         // Assertions
         case let .assertStoredEqual(key, otherKey):
             guard let value1 = context.get(key) else {
@@ -1179,6 +1183,63 @@ public actor TestOrchestrator {
         let manifestURL = pluginDir.appendingPathComponent("plugin.json")
         try pluginJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
         logger.info("Staged sidecar fixture '\(id)' → \(pluginDir.path)")
+    }
+
+    /// Build a self-contained sidecar `.zip` (EchoPluginSidecar binary at
+    /// `bin/sidecar` + a `plugin.json` at the archive root) and return its absolute
+    /// path. Used by `macStageSidecarZip` to exercise the local-zip install flow.
+    /// Both the staging tree and the final zip live under the instance's gallager
+    /// root so they are cleaned up with the rest of the scenario state.
+    private func stageSidecarZip(id: String, displayName: String, instance: Int) throws -> String {
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let fixturesDir = gallagerRoot.appendingPathComponent("zip-fixtures", isDirectory: true)
+        let stagingDir = fixturesDir.appendingPathComponent("\(id)-src", isDirectory: true)
+        let binDir = stagingDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try? fm.removeItem(at: stagingDir)
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Copy the real EchoPluginSidecar so the installed plugin actually answers
+        // `initialize` and enables (→ a successful install, not enableFailed).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: destBinary.path)
+
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "\(displayName)",
+            "short_name": "\(id)",
+            "version": "1.0.0",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            "ui": {}
+        }
+        """
+        try pluginJSON.write(
+            to: stagingDir.appendingPathComponent("plugin.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        // Zip the *contents* of the staging dir so plugin.json sits at the root.
+        let zipURL = fixturesDir.appendingPathComponent("\(id).zip")
+        try? fm.removeItem(at: zipURL)
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-r", "-q", zipURL.path, "."]
+        zip.currentDirectoryURL = stagingDir
+        try zip.run()
+        zip.waitUntilExit()
+        guard zip.terminationStatus == 0 else {
+            throw OrchestratorError.configurationError("Failed to build sidecar zip for '\(id)'")
+        }
+        logger.info("Staged sidecar zip '\(id)' → \(zipURL.path)")
+        return zipURL.path
     }
 
     /// Locate the `EchoPluginSidecar` binary in the SPM build-products tree.
