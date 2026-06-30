@@ -83,6 +83,16 @@ def log(level, message):
     notify("log", {"level": level, "message": message})
 
 
+def _key_text(s):
+    """A TmuxKey `.text` for send_keys. The host decodes keys with the same
+    auto-synthesized tagged-enum rule as AgentState: the single unlabeled
+    associated value becomes "_0", so literal text is {"text": {"_0": s}} — NOT
+    {"text": s}. A bare-string form fails to decode and the host drops the ENTIRE
+    keys array (no keystrokes sent). No-payload keys ({"enter": {}}, {"escape": {}},
+    {"right": {}}) are already correct as-is."""
+    return {"text": {"_0": s}}
+
+
 # ---------------------------------------------------------------------------
 # AgentState builders (the `state` field of a PluginEvent). Encoding is the
 # Swift auto-synthesized tagged-enum form: a single-key object; labeled
@@ -497,18 +507,18 @@ def _answer_question(answers_obj, mapping, session_id):
             except (ValueError, IndexError):
                 pass
 
-        custom_key = {"text": str(len(options) + 1)}  # the "Type your own" row
+        custom_key = _key_text(str(len(options) + 1))  # the "Type your own" row
         if multi:
             for oj in chosen:
-                keys.append({"text": str(oj + 1)})  # toggle each selected option on
+                keys.append(_key_text(str(oj + 1)))  # toggle each selected option on
             if free:
-                keys += [custom_key, {"text": free}, {"enter": {}}]  # add a custom answer
+                keys += [custom_key, _key_text(free), {"enter": {}}]  # add a custom answer
             keys.append({"right": {}})  # multi-select never auto-advances
         else:
             if free:
-                keys += [custom_key, {"text": free}, {"enter": {}}]  # pick custom (auto-advances)
+                keys += [custom_key, _key_text(free), {"enter": {}}]  # pick custom (auto-advances)
             elif chosen:
-                keys.append({"text": str(chosen[0] + 1)})  # pick option (auto-advances)
+                keys.append(_key_text(str(chosen[0] + 1)))  # pick option (auto-advances)
 
     if not single:
         keys.append({"enter": {}})  # we end on the Confirm tab → submit the set
@@ -518,7 +528,7 @@ def _answer_question(answers_obj, mapping, session_id):
 def _send_prompt(session_id, text):
     if not text:
         return
-    notify("send_keys", {"sessionID": session_id, "keys": [{"text": text}, {"enter": {}}]})
+    notify("send_keys", {"sessionID": session_id, "keys": [_key_text(text), {"enter": {}}]})
 
 
 # ---------------------------------------------------------------------------

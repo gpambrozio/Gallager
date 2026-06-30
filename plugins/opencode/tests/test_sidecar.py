@@ -298,7 +298,7 @@ class DeliverResponseTests(unittest.TestCase):
 
     def test_prompt_is_typed_then_submitted(self):
         keys = self.sc.deliver_capture_keys("rid", {"prompt": {"text": "hello"}})
-        self.assertEqual(keys, [[{"text": "hello"}, {"enter": {}}]])
+        self.assertEqual(keys, [[{"text": {"_0": "hello"}}, {"enter": {}}]])
 
 
 class QuestionDeliveryTests(unittest.TestCase):
@@ -329,20 +329,20 @@ class QuestionDeliveryTests(unittest.TestCase):
     def test_single_select_picks_number_and_submits(self):
         rid = self._ask([{"question": "Pick", "header": "P", "options": self._opts("Hike", "Beach"), "multiple": False}])
         keys = self._deliver(rid, [{"questionID": "q0", "selectedOptionIDs": ["q0-o1"], "freeText": None}])
-        self.assertEqual(keys, [[{"text": "2"}]])  # option 2 → pick → auto-submit
+        self.assertEqual(keys, [[{"text": {"_0": "2"}}]])  # option 2 → pick → auto-submit
 
     def test_single_select_free_text(self):
         rid = self._ask([{"question": "Pick", "header": "P", "options": self._opts("Hike", "Beach"), "multiple": False}])
         keys = self._deliver(rid, [{"questionID": "q0", "selectedOptionIDs": [], "freeText": "Road trip"}])
         # "Type your own" = number 3 (2 options + 1); type; Enter commits + submits.
-        self.assertEqual(keys, [[{"text": "3"}, {"text": "Road trip"}, {"enter": {}}]])
+        self.assertEqual(keys, [[{"text": {"_0": "3"}}, {"text": {"_0": "Road trip"}}, {"enter": {}}]])
 
     # --- single multi-select: toggles, then Right to Confirm, Enter submits -----
     def test_multiselect_toggles_then_confirm(self):
         rid = self._ask([{"question": "Toppings", "header": "T",
                           "options": self._opts("Cheese", "Mushroom", "Onion"), "multiple": True}])
         keys = self._deliver(rid, [{"questionID": "q0", "selectedOptionIDs": ["q0-o0", "q0-o2"], "freeText": None}])
-        self.assertEqual(keys, [[{"text": "1"}, {"text": "3"}, {"right": {}}, {"enter": {}}]])
+        self.assertEqual(keys, [[{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"enter": {}}]])
 
     # --- two questions: multi (toggle+Right) then single (pick auto-advances) ---
     def test_two_questions_multi_then_single(self):
@@ -355,7 +355,7 @@ class QuestionDeliveryTests(unittest.TestCase):
             {"questionID": "q1", "selectedOptionIDs": ["q1-o1"], "freeText": None},
         ])
         # Q0 toggle 1,3 then Right → Size; Q1 pick 2 (auto-advance to Confirm); Enter submit.
-        self.assertEqual(keys, [[{"text": "1"}, {"text": "3"}, {"right": {}}, {"text": "2"}, {"enter": {}}]])
+        self.assertEqual(keys, [[{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"text": {"_0": "2"}}, {"enter": {}}]])
 
 
 class SettingsTests(unittest.TestCase):
