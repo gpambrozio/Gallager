@@ -11,11 +11,13 @@ Run:  python3 tests/test_sidecar.py        (from the plugin root)
 """
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SIDECAR = os.path.join(ROOT, "bin", "sidecar")
@@ -36,6 +38,19 @@ def _paced(keys):
             out.append(PACE)
         out.append(key)
     return out
+
+
+def _immutable_sees_project(db):
+    """True if an `immutable=1` reader (the sidecar's old WAL-blind view) can see
+    any `project` row. Tolerates the table itself being WAL-only ("no such table")."""
+    uri = "file:%s?mode=ro&immutable=1" % urllib.request.pathname2url(db)
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        return conn.execute("SELECT count(*) FROM project").fetchone()[0] > 0
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
 
 
 # --- Sidecar RPC client -------------------------------------------------------
@@ -500,6 +515,87 @@ class ProjectDiscoveryTests(unittest.TestCase):
                 self.assertIsInstance(p["lastUsed"], (int, float))        # 2001-reference seconds
             finally:
                 sc.close()
+
+    @unittest.skipUnless(shutil.which("git"), "git required")
+    def test_all_repo_worktrees_surface(self):
+        # opencode keys projects by repo and stores only ONE worktree. The scan
+        # expands it to EVERY worktree so each is launchable — the main checkout
+        # AND any linked `git worktree`, regardless of which one opencode recorded.
+        with tempfile.TemporaryDirectory() as data_home, tempfile.TemporaryDirectory() as base:
+            main = os.path.join(base, "main")
+            linked = os.path.join(base, "linked")  # created by `git worktree add`
+            env = dict(
+                os.environ,
+                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t",
+            )
+
+            def git(*args, cwd):
+                subprocess.run(["git", *args], cwd=cwd, env=env, check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            os.makedirs(main)
+            git("init", "-q", cwd=main)
+            open(os.path.join(main, "f"), "w").close()
+            git("add", "f", cwd=main)
+            git("commit", "-qm", "init", cwd=main)
+            git("worktree", "add", "-q", linked, cwd=main)
+
+            dbdir = os.path.join(data_home, "opencode")
+            os.makedirs(dbdir)
+            conn = sqlite3.connect(os.path.join(dbdir, "opencode.db"))
+            conn.execute(
+                "CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, name TEXT, time_updated INTEGER NOT NULL)"
+            )
+            # opencode recorded only the LINKED worktree.
+            conn.execute("INSERT INTO project VALUES (?,?,?,?)", ("p1", linked, "", 1782781263179))
+            conn.commit()
+            conn.close()
+
+            sc = Sidecar({"XDG_DATA_HOME": data_home})
+            try:
+                sc.request("initialize", {})
+                projects = self._refresh_and_capture(sc)
+                paths = [os.path.realpath(p["path"]) for p in projects]
+                self.assertIn(os.path.realpath(main), paths)     # main checkout surfaces
+                self.assertIn(os.path.realpath(linked), paths)   # linked one too
+                self.assertEqual(len(paths), 2)                  # no duplicates
+            finally:
+                sc.close()
+
+    def test_wal_only_project_is_visible(self):
+        # A brand-new opencode project lives in the DB's -wal until opencode
+        # checkpoints it into the main .db file. The scan must see it immediately
+        # (mode=ro reads the WAL), not stay blind until a checkpoint (immutable=1).
+        with tempfile.TemporaryDirectory() as data_home, tempfile.TemporaryDirectory() as real_proj:
+            dbdir = os.path.join(data_home, "opencode")
+            os.makedirs(dbdir)
+            db = os.path.join(dbdir, "opencode.db")
+
+            # Writer stays OPEN for the whole test so the row (and even the table)
+            # stays in the -wal, exactly as with a live opencode holding the DB.
+            writer = sqlite3.connect(db)
+            try:
+                writer.execute("PRAGMA journal_mode=WAL")
+                writer.execute(
+                    "CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, name TEXT, time_updated INTEGER NOT NULL)"
+                )
+                writer.execute("INSERT INTO project VALUES (?,?,?,?)", ("p1", real_proj, "", 1782781263179))
+                writer.commit()
+
+                # Precondition: an immutable reader (old behavior) is blind to the
+                # WAL — proves this test actually guards the fix, not a checkpoint.
+                self.assertFalse(_immutable_sees_project(db))
+
+                sc = Sidecar({"XDG_DATA_HOME": data_home})
+                try:
+                    sc.request("initialize", {})
+                    projects = self._refresh_and_capture(sc)
+                    self.assertIn(real_proj, [p["path"] for p in projects])
+                finally:
+                    sc.close()
+            finally:
+                writer.close()
 
     def test_no_db_emits_empty(self):
         with tempfile.TemporaryDirectory() as data_home:

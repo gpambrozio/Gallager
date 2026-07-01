@@ -26,6 +26,7 @@ Run requirements: Python 3.9+. No third-party packages.
 import json
 import os
 import sqlite3
+import subprocess  # only for `git worktree list` (project scan → primary worktree)
 import sys
 import urllib.request  # only for pathname2url (SQLite file URI in project scan)
 
@@ -643,17 +644,66 @@ def _opencode_data_dir():
     return os.path.join(base, "opencode")
 
 
+def _repo_worktrees(path):
+    """All worktrees of the git repo containing `path` — main checkout + every
+    linked `git worktree`.
+
+    opencode keys projects by git repo and stores only ONE worktree — the first
+    directory it happened to see for that repo. But you may work in several
+    worktrees of the same repo and want each launchable from the sidebar, so
+    expand a stored project into all of them (`git worktree list --porcelain`).
+
+    Best-effort: for non-git dirs, a missing `git`, or any error, return `[path]`
+    so a bare/VCS-less project still surfaces exactly as its stored path.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", path, "worktree", "list", "--porcelain"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except Exception:
+        return [path]
+    if out.returncode != 0:
+        return [path]
+    worktrees = []
+    for line in out.stdout.decode("utf-8", "replace").splitlines():
+        if line.startswith("worktree "):
+            wt = line[len("worktree "):].strip()
+            if wt:
+                worktrees.append(wt)
+    return worktrees or [path]
+
+
+def _connect_ro(db):
+    """Open opencode's DB read-only, WAL-aware.
+
+    `mode=ro` reads committed WAL frames, so a *just-created* opencode project —
+    which lives in the -wal until opencode checkpoints it into the main .db file —
+    shows up immediately instead of staying invisible for minutes. WAL readers
+    take only a short-lived shared read mark and never block the single writer, so
+    this is safe against a live opencode.
+
+    Fall back to `immutable=1` (main file only, ignores the WAL) for the one
+    read-only case plain `mode=ro` can't satisfy: a stale -wal with no -shm and no
+    write access to the directory (i.e. opencode isn't running). That view is
+    slightly stale but never fails.
+    """
+    u = urllib.request.pathname2url(db)
+    try:
+        return sqlite3.connect("file:%s?mode=ro" % u, uri=True, timeout=2)
+    except sqlite3.Error:
+        return sqlite3.connect("file:%s?mode=ro&immutable=1" % u, uri=True, timeout=2)
+
+
 def _scan_projects():
     """Read opencode's project list from its SQLite store. Best-effort and
     schema-tolerant — any failure yields an empty list (never raises)."""
     db = os.path.join(_opencode_data_dir(), "opencode.db")
     if not os.path.exists(db):
         return []
-    # Open immutable+read-only: no locks, no WAL files, never perturbs a running
-    # opencode.
-    uri = "file:%s?mode=ro&immutable=1" % urllib.request.pathname2url(db)
     try:
-        conn = sqlite3.connect(uri, uri=True, timeout=2)
+        conn = _connect_ro(db)
         try:
             rows = conn.execute("SELECT worktree, name, time_updated FROM project").fetchall()
         finally:
@@ -665,14 +715,23 @@ def _scan_projects():
     projects = []
     seen = set()
     for worktree, name, time_updated in rows:
-        if not worktree or worktree in seen or not os.path.isdir(worktree):
+        if not worktree:
             continue
-        seen.add(worktree)
-        display = (name or "").strip() or os.path.basename(worktree.rstrip("/")) or worktree
-        proj = {"name": display, "path": worktree, "pluginID": "opencode"}
-        if isinstance(time_updated, (int, float)) and time_updated > 0:
-            proj["lastUsed"] = time_updated / 1000.0 - _EPOCH_2001
-        projects.append(proj)
+        # Expand a stored project into every worktree of its repo (see
+        # _repo_worktrees), so linked `git worktree`s are each launchable — not
+        # just the one opencode happened to record. The stored worktree keeps
+        # opencode's own name (if any); the rest fall back to their basename so
+        # they're distinguishable. `seen` dedupes across rows of the same repo.
+        for wt in _repo_worktrees(worktree):
+            if wt in seen or not os.path.isdir(wt):
+                continue
+            seen.add(wt)
+            label = (name or "").strip() if wt == worktree else ""
+            display = label or os.path.basename(wt.rstrip("/")) or wt
+            proj = {"name": display, "path": wt, "pluginID": "opencode"}
+            if isinstance(time_updated, (int, float)) and time_updated > 0:
+                proj["lastUsed"] = time_updated / 1000.0 - _EPOCH_2001
+            projects.append(proj)
     return projects
 
 

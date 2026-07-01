@@ -133,10 +133,26 @@ in the sidebar and flips to "needs attention" when the turn finishes.
 opencode projects appear in Gallager's sidebar "+" (new session) menu, the same
 as Claude Code / Codex. opencode stores its projects in a SQLite DB
 (`~/.local/share/opencode/opencode.db`, respecting `XDG_DATA_HOME`); the sidecar
-reads it read-only (`immutable=1`, never perturbs a running opencode) on
-`refresh_projects` (fired at startup and every ~60s) and on `initialize`, and
-emits `set_projects`. Projects whose directory no longer exists are filtered out;
-`lastUsed` (from `project.time_updated`) drives recency sorting.
+reads it read-only (`mode=ro`, WAL-aware — WAL readers never block the writer, so
+it never perturbs a running opencode) on `refresh_projects` (fired at startup and
+every ~60s) and on `initialize`, and emits `set_projects`. Projects whose
+directory no longer exists are filtered out; `lastUsed` (from
+`project.time_updated`) drives recency sorting.
+
+opencode keys a project by its git **repo**, not folder, and records only the
+first worktree it saw. A repo with multiple `git worktree`s would therefore show
+just one — whichever opencode happened to record. The scan expands each stored
+`worktree` into **every** worktree of its repo (`git worktree list --porcelain`),
+so the main checkout and each linked worktree are individually launchable
+(deduped across rows). The recorded worktree keeps opencode's own name; the
+others are labeled by folder basename. Non-git dirs and a missing `git` fall back
+to the stored path unchanged.
+
+> Note: a *just-created* opencode project lives in the DB's WAL until opencode
+> checkpoints it into the main `.db` file. `mode=ro` reads committed WAL frames so
+> it surfaces right away; the scan only falls back to `immutable=1` (WAL-blind)
+> when plain `mode=ro` can't open — a stale `-wal` with no `-shm` and no directory
+> write access, i.e. opencode isn't running.
 
 ## Settings (Agents tab)
 
@@ -157,7 +173,7 @@ works out of the box:
 ## Test
 
 ```bash
-python3 tests/test_sidecar.py     # 33 tests: mapping, lifecycle, forms, install, projects
+python3 tests/test_sidecar.py     # 35 tests: mapping, lifecycle, forms, install, projects
 node --check opencode-bridge/gallager.js
 ```
 
