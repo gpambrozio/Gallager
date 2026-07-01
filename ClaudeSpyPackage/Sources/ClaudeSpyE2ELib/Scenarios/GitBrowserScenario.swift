@@ -158,6 +158,20 @@ public enum GitBrowserScenario {
         // A freshly-created tmux session only surfaces in the sidebar on the
         // next periodic refresh (~5s), so allow two cycles to avoid racing it.
         TestStep.macWaitForElement(titled: "otherproj", timeout: 12)
+        // Wait until the app has actually observed otherproj's `cd /tmp` before
+        // selecting it. `otherproj` is born in `$HOME` (tmux `new-session -c
+        // $HOME`) — the same folder as `repobrowse` — and only moves to `/tmp`
+        // once the typed `cd /tmp` executes and a pane refresh picks it up.
+        // Seed-on-birth (`MainView.seedLayoutIfNeeded`) reads the pane's cwd
+        // exactly ONCE, when the session is first selected, and never re-seeds.
+        // If we click while the cached cwd is still `$HOME`, this "fresh"
+        // session gets seeded from `repobrowse`'s persisted git-split layout
+        // instead of `/private/tmp`'s empty one, and the Git tab leaks into the
+        // screenshot below. The sidebar renders each session's `currentPath`
+        // (shown verbatim since `/private/tmp` isn't under `$HOME`), so gating on
+        // it appearing guarantees the seed reads the settled cwd, not the stale
+        // birth dir.
+        TestStep.macWaitForElementQuery(.anyTextMatches("/private/tmp"), timeout: 15)
         TestStep.macClickButton(titled: "otherproj")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-git-other-session")

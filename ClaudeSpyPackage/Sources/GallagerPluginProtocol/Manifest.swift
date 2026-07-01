@@ -25,6 +25,13 @@ public struct PluginManifest: Sendable, Codable, Equatable {
     /// Always `.inProcess` in v1; read (not merely reserved) so v2 needs no
     /// decode change (spec §10).
     public let runtime: Runtime
+    public let publisher: String?
+    public let manifestURL: URL?
+    public let bundleURL: URL?
+    public let bundleSHA256: String?
+    public let signature: String?
+    public let sidecar: Sidecar?
+    public let capabilities: Capabilities
 
     public struct UI: Sendable, Codable, Equatable {
         /// Relative path to the icon asset under the plugin root (e.g. "assets/icon.png").
@@ -38,6 +45,56 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         }
     }
 
+    public struct Sidecar: Sendable, Codable, Equatable {
+        public let executable: String
+        public let args: [String]
+        /// The agent's default config location, shown as the non-removable root
+        /// row in the Agents settings tab (e.g. `~/.config/opencode`). When absent
+        /// the UI falls back to `~`. Purely presentational — install still passes
+        /// `configRoot: nil` for the default row.
+        public let defaultConfigRoot: String?
+
+        public init(executable: String, args: [String] = [], defaultConfigRoot: String? = nil) {
+            self.executable = executable
+            self.args = args
+            self.defaultConfigRoot = defaultConfigRoot
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case executable
+            case args
+            case defaultConfigRoot = "default_config_root"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.executable = try container.decode(String.self, forKey: .executable)
+            // `args` defaults to empty when absent so manifests can omit it.
+            self.args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
+            self.defaultConfigRoot = try container.decodeIfPresent(String.self, forKey: .defaultConfigRoot)
+        }
+    }
+
+    public struct Capabilities: Sendable, Codable, Equatable {
+        public let richPaneDetection: Bool
+        public let modalPrompts: Bool
+        public init(richPaneDetection: Bool = false, modalPrompts: Bool = false) {
+            self.richPaneDetection = richPaneDetection
+            self.modalPrompts = modalPrompts
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case richPaneDetection = "rich_pane_detection"
+            case modalPrompts = "modal_prompts"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            self.richPaneDetection = try c.decodeIfPresent(Bool.self, forKey: .richPaneDetection) ?? false
+            self.modalPrompts = try c.decodeIfPresent(Bool.self, forKey: .modalPrompts) ?? false
+        }
+    }
+
     public init(
         schemaVersion: Int,
         id: String,
@@ -46,7 +103,14 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         version: String,
         processNames: [String],
         ui: UI,
-        runtime: Runtime = .inProcess
+        runtime: Runtime = .inProcess,
+        publisher: String? = nil,
+        manifestURL: URL? = nil,
+        bundleURL: URL? = nil,
+        bundleSHA256: String? = nil,
+        signature: String? = nil,
+        sidecar: Sidecar? = nil,
+        capabilities: Capabilities = Capabilities()
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -56,6 +120,13 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         self.processNames = processNames
         self.ui = ui
         self.runtime = runtime
+        self.publisher = publisher
+        self.manifestURL = manifestURL
+        self.bundleURL = bundleURL
+        self.bundleSHA256 = bundleSHA256
+        self.signature = signature
+        self.sidecar = sidecar
+        self.capabilities = capabilities
     }
 
     /// Default accent color when `ui.color` is absent (spec §10).
@@ -66,9 +137,7 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         ui.color ?? Self.fallbackColor
     }
 
-    /// Snake_case JSON keys per the manifest schema (spec §10). Reserved v2 keys
-    /// (`sidecar`, `manifest_url`, `bundle_url`, `bundle_sha256`, `publisher`,
-    /// `capabilities`, `signature`) are intentionally not decoded.
+    /// Snake_case JSON keys per the manifest schema (spec §10).
     private enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case id
@@ -78,6 +147,13 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         case processNames = "process_names"
         case ui
         case runtime
+        case publisher
+        case manifestURL = "manifest_url"
+        case bundleURL = "bundle_url"
+        case bundleSHA256 = "bundle_sha256"
+        case signature
+        case sidecar
+        case capabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -91,6 +167,14 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         self.ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? UI(icon: nil, color: nil)
         // Absent or null runtime → inProcess (spec §10).
         self.runtime = try container.decodeIfPresent(Runtime.self, forKey: .runtime) ?? .inProcess
+        self.publisher = try container.decodeIfPresent(String.self, forKey: .publisher)
+        self.manifestURL = try container.decodeIfPresent(URL.self, forKey: .manifestURL)
+        self.bundleURL = try container.decodeIfPresent(URL.self, forKey: .bundleURL)
+        self.bundleSHA256 = try container.decodeIfPresent(String.self, forKey: .bundleSHA256)
+        self.signature = try container.decodeIfPresent(String.self, forKey: .signature)
+        self.sidecar = try container.decodeIfPresent(Sidecar.self, forKey: .sidecar)
+        self.capabilities = try container.decodeIfPresent(Capabilities.self, forKey: .capabilities)
+            ?? Capabilities()
     }
 
     /// Load and decode a manifest from `<pluginRoot>/plugin.json`.

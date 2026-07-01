@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "opencode",
+  "display_name": "opencode",
+  "short_name": "opencode",
+  "version": "0.1.0",
+  "process_names": ["opencode"],
+  "runtime": "sidecar",
+  "sidecar": {
+    "executable": "bin/sidecar",
+    "default_config_root": "~/.config/opencode"
+  },
+  "ui": {
+    "color": "#10B981"
+  },
+  "publisher": "Gustavo Ambrozio"
+}

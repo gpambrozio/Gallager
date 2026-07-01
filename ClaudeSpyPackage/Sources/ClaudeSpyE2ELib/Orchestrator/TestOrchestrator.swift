@@ -1002,6 +1002,14 @@ public actor TestOrchestrator {
                 socketPath: ingressSocketPath(for: instance)
             )
 
+        // Sidecar Fixture Staging
+        case let .macStageSidecarFixture(id, instance):
+            try stageSidecarFixture(id: id, instance: instance)
+
+        case let .macStageSidecarZip(id, displayName, storeAs, instance):
+            let zipPath = try stageSidecarZip(id: id, displayName: displayName, instance: instance)
+            context.set(storeAs, value: zipPath)
+
         // Assertions
         case let .assertStoredEqual(key, otherKey):
             guard let value1 = context.get(key) else {
@@ -1125,6 +1133,179 @@ public actor TestOrchestrator {
             logger.info("  LOG: \(context.resolve(message))")
         }
         return nil
+    }
+
+    // MARK: - Sidecar Fixture Staging
+
+    /// Copy the built `EchoPluginSidecar` binary and a minimal `plugin.json`
+    /// into `<gallagerRoot>/plugins/<id>/` so the app discovers and spawns the
+    /// sidecar on startup (folder-drop channel, spec §9).
+    ///
+    /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
+    /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
+    private func stageSidecarFixture(id: String, instance: Int) throws {
+        // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let pluginDir = gallagerRoot
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+        let binDir = pluginDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Locate the EchoPluginSidecar binary (same walk as EchoSidecarTestSupport).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        if fm.fileExists(atPath: destBinary.path) {
+            try fm.removeItem(at: destBinary)
+        }
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes(
+            [.posixPermissions: 0o755 as NSNumber],
+            ofItemAtPath: destBinary.path
+        )
+
+        // Write a minimal plugin.json.
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "Echo Sidecar (E2E)",
+            "short_name": "Echo",
+            "version": "0.0.1",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            "ui": {}
+        }
+        """
+        let manifestURL = pluginDir.appendingPathComponent("plugin.json")
+        try pluginJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
+        logger.info("Staged sidecar fixture '\(id)' → \(pluginDir.path)")
+    }
+
+    /// Build a self-contained sidecar `.zip` (EchoPluginSidecar binary at
+    /// `bin/sidecar` + a `plugin.json` at the archive root) and return its absolute
+    /// path. Used by `macStageSidecarZip` to exercise the local-zip install flow.
+    /// Both the staging tree and the final zip live under the instance's gallager
+    /// root so they are cleaned up with the rest of the scenario state.
+    private func stageSidecarZip(id: String, displayName: String, instance: Int) throws -> String {
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let fixturesDir = gallagerRoot.appendingPathComponent("zip-fixtures", isDirectory: true)
+        let stagingDir = fixturesDir.appendingPathComponent("\(id)-src", isDirectory: true)
+        let binDir = stagingDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try? fm.removeItem(at: stagingDir)
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Copy the real EchoPluginSidecar so the installed plugin actually answers
+        // `initialize` and enables (→ a successful install, not enableFailed).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: destBinary.path)
+
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "\(displayName)",
+            "short_name": "\(id)",
+            "version": "1.0.0",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            "ui": {}
+        }
+        """
+        try pluginJSON.write(
+            to: stagingDir.appendingPathComponent("plugin.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        // Zip the *contents* of the staging dir so plugin.json sits at the root.
+        let zipURL = fixturesDir.appendingPathComponent("\(id).zip")
+        try? fm.removeItem(at: zipURL)
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-r", "-q", zipURL.path, "."]
+        zip.currentDirectoryURL = stagingDir
+        try zip.run()
+        zip.waitUntilExit()
+        guard zip.terminationStatus == 0 else {
+            throw OrchestratorError.configurationError("Failed to build sidecar zip for '\(id)'")
+        }
+        logger.info("Staged sidecar zip '\(id)' → \(zipURL.path)")
+        return zipURL.path
+    }
+
+    /// Locate the `EchoPluginSidecar` binary in the SPM build-products tree.
+    /// The `EchoPluginSidecar` executable is built by `swift build` (not the
+    /// Xcode workspace), so it lives under `ClaudeSpyPackage/.build/{debug,release}/`.
+    /// We assemble candidate `ClaudeSpyPackage` roots from several sources and
+    /// probe each — robust whether the coordinator runs as an SPM test (where the
+    /// `#file` walk works) or as the Xcode-built E2E binary (where `#file` is
+    /// remapped and the working directory / an explicit env override is the only
+    /// reliable anchor).
+    private func locateEchoSidecarBinary(sourceFile: String = #file) throws -> URL {
+        let fm = FileManager.default
+
+        /// Walk up from `start` until a directory containing `ClaudeSpyPackage/Package.swift`
+        /// (repo root) OR `Package.swift` directly (the package root itself) is found.
+        /// Returns the `ClaudeSpyPackage` directory in either case.
+        func packageRoot(from start: URL) -> URL? {
+            var dir = start
+            for _ in 0..<20 {
+                let nested = dir.appendingPathComponent("ClaudeSpyPackage/Package.swift")
+                if fm.fileExists(atPath: nested.path) {
+                    return dir.appendingPathComponent("ClaudeSpyPackage")
+                }
+                // `dir` is itself a package root containing the sidecar product.
+                let direct = dir.appendingPathComponent("Package.swift")
+                if
+                    fm.fileExists(atPath: direct.path),
+                    dir.lastPathComponent == "ClaudeSpyPackage" {
+                    return dir
+                }
+                let parent = dir.deletingLastPathComponent()
+                if parent == dir { break }
+                dir = parent
+            }
+            return nil
+        }
+
+        // Candidate package roots, in priority order.
+        var roots: [URL] = []
+        // 1. Explicit env override (set by tooling if it knows the package path).
+        if let override = ProcessInfo.processInfo.environment["CLAUDESPY_PACKAGE_ROOT"] {
+            roots.append(URL(fileURLWithPath: override))
+        }
+        // 2. The `#file` walk (works for SPM test runs).
+        if let r = packageRoot(from: URL(fileURLWithPath: sourceFile).deletingLastPathComponent()) {
+            roots.append(r)
+        }
+        // 3. The current working directory walk (works for the Xcode-built
+        //    coordinator launched from the repo/worktree root by e2e-test.sh).
+        if let r = packageRoot(from: URL(fileURLWithPath: fm.currentDirectoryPath)) {
+            roots.append(r)
+        }
+
+        var searched: [String] = []
+        for root in roots {
+            for config in ["debug", "release"] {
+                let candidate = root.appendingPathComponent(".build/\(config)/EchoPluginSidecar")
+                searched.append(candidate.path)
+                if fm.isExecutableFile(atPath: candidate.path) { return candidate }
+            }
+        }
+        throw OrchestratorError.configurationError(
+            "EchoPluginSidecar binary not found. Searched: \(searched). " +
+                "Run `swift build` in ClaudeSpyPackage first " +
+                "(or set CLAUDESPY_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
+        )
     }
 
     // MARK: - Mac Instance Helpers
