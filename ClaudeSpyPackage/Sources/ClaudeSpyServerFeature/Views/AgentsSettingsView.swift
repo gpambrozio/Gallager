@@ -296,11 +296,19 @@
                     }
                     .accessibilityIdentifier("agentAddFolder-\(pluginID)")
                 } header: {
-                    Text("Config Folders")
-                } footer: {
-                    Text("Additional folders where the \(agentDisplayName) plugin should be installed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // The explanation lives beside the title rather than in a
+                    // section footer: the Agents window's bottom toolbar
+                    // (Add Plugin from URL / Install from Zip) can occlude the
+                    // last section's footer, so a footer here would be unseen.
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Config Folders")
+                        Spacer(minLength: 12)
+                        Text("Additional folders where the \(agentDisplayName) plugin should be installed.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
 
                 // Remove plugin (only for non-bundled, folder-dropped/URL plugins)
