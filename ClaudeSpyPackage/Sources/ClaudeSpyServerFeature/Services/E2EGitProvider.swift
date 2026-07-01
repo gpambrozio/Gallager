@@ -136,4 +136,30 @@ struct E2EGitProvider: GitWorkbenchProvider {
     func dropStash(_ stash: Stash) async throws {
         try await base.dropStash(stash)
     }
+
+    // MARK: History context-menu actions (right-click a commit; delegated to the mock)
+
+    func checkout(_ commit: Commit) async throws {
+        try await base.checkout(commit)
+    }
+
+    func resetHEAD(to commit: Commit, mode: ResetMode) async throws {
+        try await base.resetHEAD(to: commit, mode: mode)
+    }
+
+    func revert(_ commit: Commit) async throws {
+        try await base.revert(commit)
+    }
+
+    func cherryPick(_ commit: Commit) async throws {
+        try await base.cherryPick(commit)
+    }
+
+    func createBranch(named name: String, at commit: Commit) async throws {
+        try await base.createBranch(named: name, at: commit)
+    }
+
+    func createTag(named name: String, at commit: Commit) async throws {
+        try await base.createTag(named: name, at: commit)
+    }
 }
