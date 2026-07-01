@@ -231,7 +231,13 @@
                 throw InstallError.notHTTPS
             }
 
-            let request = URLRequest(url: url)
+            // Always fetch the currently-published manifest. A manifest host may
+            // omit `Cache-Control`/`ETag` (sending only `Last-Modified`), in which
+            // case URLSession applies *heuristic* freshness and would serve a stale
+            // cached body after the author re-publishes — so an install could keep
+            // seeing an old manifest (e.g. one still missing `bundle_url`). Bypass
+            // the local cache so the fetch reflects the server, not a prior install.
+            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
             let (_, bodyStream) = try await session.openStream(request)
 
             // Stream the body with a running byte count; abort if the cap is exceeded.
@@ -304,7 +310,11 @@
             guard url.scheme == "https" else {
                 throw InstallError.notHTTPS
             }
-            let request = URLRequest(url: url)
+            // Bypass the local cache (same reasoning as the manifest fetch): a
+            // re-published bundle at a stable URL must not be shadowed by a
+            // heuristically-cached copy. The SHA-256 pin would catch a stale body,
+            // but fetching fresh avoids a spurious hash-mismatch failure.
+            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
             let (_, bodyStream) = try await session.openStream(request)
 
             let fm = FileManager.default
