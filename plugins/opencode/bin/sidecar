@@ -83,6 +83,37 @@ def log(level, message):
     notify("log", {"level": level, "message": message})
 
 
+# Pace between injected keys, in milliseconds. opencode's TUI (Bubbletea) needs a
+# beat to transition prompt states — e.g. the allow-always confirm sub-prompt must
+# render before the confirming Enter, otherwise the sequence lands on the wrong row
+# and reads as a denial. We do NOT sleep in the sidecar (that would block its single
+# reader loop); instead we interleave TmuxKey.delay keys and let the host executor
+# pace them (TmuxService.sendKeystrokes honors `.delay` by flushing + sleeping).
+KEYSTROKE_PACE_MS = 300
+
+
+def _key_delay(ms):
+    # TmuxKey.delay(Int) — same auto-synth tagged-enum rule as .text: the single
+    # unlabeled associated value becomes "_0".
+    return {"delay": {"_0": ms}}
+
+
+def _emit_keys(session_id, keys):
+    """Inject `keys` into the session's pane in ONE send_keys call, interleaving
+    `.delay` pacing between real keys so the host spaces them out. A single key
+    needs no pacing."""
+    if not keys:
+        return
+    if len(keys) > 1:
+        paced = []
+        for i, key in enumerate(keys):
+            if i > 0:
+                paced.append(_key_delay(KEYSTROKE_PACE_MS))
+            paced.append(key)
+        keys = paced
+    notify("send_keys", {"sessionID": session_id, "keys": keys})
+
+
 def _key_text(s):
     """A TmuxKey `.text` for send_keys. The host decodes keys with the same
     auto-synthesized tagged-enum rule as AgentState: the single unlabeled
@@ -471,7 +502,7 @@ def _keystroke_reply(session_id, reply):
         keys = [{"right": {}}, {"enter": {}}, {"enter": {}}]
     else:  # reject
         keys = [{"escape": {}}]
-    notify("send_keys", {"sessionID": session_id, "keys": keys})
+    _emit_keys(session_id, keys)
 
 
 def _answer_question(answers_obj, mapping, session_id):
@@ -522,13 +553,13 @@ def _answer_question(answers_obj, mapping, session_id):
 
     if not single:
         keys.append({"enter": {}})  # we end on the Confirm tab → submit the set
-    notify("send_keys", {"sessionID": session_id, "keys": keys})
+    _emit_keys(session_id, keys)
 
 
 def _send_prompt(session_id, text):
     if not text:
         return
-    notify("send_keys", {"sessionID": session_id, "keys": [_key_text(text), {"enter": {}}]})
+    _emit_keys(session_id, [_key_text(text), {"enter": {}}])
 
 
 # ---------------------------------------------------------------------------

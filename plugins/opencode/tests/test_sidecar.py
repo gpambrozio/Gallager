@@ -20,6 +20,23 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SIDECAR = os.path.join(ROOT, "bin", "sidecar")
 
+# Mirror the sidecar's inter-key pacing: multi-key sequences are emitted with a
+# TmuxKey.delay interleaved between real keys (the host executor honors it), so
+# expectations wrap their key list in _paced(). Single keys are sent unpaced.
+PACE_MS = 300
+PACE = {"delay": {"_0": PACE_MS}}
+
+
+def _paced(keys):
+    if len(keys) <= 1:
+        return keys
+    out = []
+    for i, key in enumerate(keys):
+        if i > 0:
+            out.append(PACE)
+        out.append(key)
+    return out
+
 
 # --- Sidecar RPC client -------------------------------------------------------
 class Sidecar:
@@ -286,8 +303,10 @@ class DeliverResponseTests(unittest.TestCase):
         self.assertEqual(self.answer({"allow": {}}), [[{"enter": {}}]])
 
     def test_allow_always_is_right_enter_enter(self):
+        # Paced: opencode's TUI needs a beat to render the allow-always confirm
+        # sub-prompt before the confirming Enter, else the sequence reads as deny.
         self.assertEqual(self.answer({"allow": {}}, applied="always"),
-                         [[{"right": {}}, {"enter": {}}, {"enter": {}}]])
+                         [_paced([{"right": {}}, {"enter": {}}, {"enter": {}}])])
 
     def test_deny_is_escape(self):
         self.assertEqual(self.answer({"deny": {}}), [[{"escape": {}}]])
@@ -298,7 +317,7 @@ class DeliverResponseTests(unittest.TestCase):
 
     def test_prompt_is_typed_then_submitted(self):
         keys = self.sc.deliver_capture_keys("rid", {"prompt": {"text": "hello"}})
-        self.assertEqual(keys, [[{"text": {"_0": "hello"}}, {"enter": {}}]])
+        self.assertEqual(keys, [_paced([{"text": {"_0": "hello"}}, {"enter": {}}])])
 
 
 class QuestionDeliveryTests(unittest.TestCase):
@@ -335,14 +354,14 @@ class QuestionDeliveryTests(unittest.TestCase):
         rid = self._ask([{"question": "Pick", "header": "P", "options": self._opts("Hike", "Beach"), "multiple": False}])
         keys = self._deliver(rid, [{"questionID": "q0", "selectedOptionIDs": [], "freeText": "Road trip"}])
         # "Type your own" = number 3 (2 options + 1); type; Enter commits + submits.
-        self.assertEqual(keys, [[{"text": {"_0": "3"}}, {"text": {"_0": "Road trip"}}, {"enter": {}}]])
+        self.assertEqual(keys, [_paced([{"text": {"_0": "3"}}, {"text": {"_0": "Road trip"}}, {"enter": {}}])])
 
     # --- single multi-select: toggles, then Right to Confirm, Enter submits -----
     def test_multiselect_toggles_then_confirm(self):
         rid = self._ask([{"question": "Toppings", "header": "T",
                           "options": self._opts("Cheese", "Mushroom", "Onion"), "multiple": True}])
         keys = self._deliver(rid, [{"questionID": "q0", "selectedOptionIDs": ["q0-o0", "q0-o2"], "freeText": None}])
-        self.assertEqual(keys, [[{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"enter": {}}]])
+        self.assertEqual(keys, [_paced([{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"enter": {}}])])
 
     # --- two questions: multi (toggle+Right) then single (pick auto-advances) ---
     def test_two_questions_multi_then_single(self):
@@ -355,7 +374,7 @@ class QuestionDeliveryTests(unittest.TestCase):
             {"questionID": "q1", "selectedOptionIDs": ["q1-o1"], "freeText": None},
         ])
         # Q0 toggle 1,3 then Right → Size; Q1 pick 2 (auto-advance to Confirm); Enter submit.
-        self.assertEqual(keys, [[{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"text": {"_0": "2"}}, {"enter": {}}]])
+        self.assertEqual(keys, [_paced([{"text": {"_0": "1"}}, {"text": {"_0": "3"}}, {"right": {}}, {"text": {"_0": "2"}}, {"enter": {}}])])
 
 
 class SettingsTests(unittest.TestCase):
