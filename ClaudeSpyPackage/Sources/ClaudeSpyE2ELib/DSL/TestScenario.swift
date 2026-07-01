@@ -455,4 +455,28 @@ public enum TestStep: Sendable {
     )
     /// Log a message
     case log(String)
+
+    // MARK: - Sidecar Fixture Staging
+
+    /// Stage a folder-dropped sidecar plugin fixture into the E2E sandbox before
+    /// the macOS app launches (instance 0). Copies the built `EchoPluginSidecar`
+    /// binary to `<gallagerRoot>/plugins/<id>/bin/sidecar` (chmod 0o755) and
+    /// writes a minimal `plugin.json` there (`runtime:"sidecar"`,
+    /// `sidecar:{executable:"bin/sidecar"}`). The orchestrator locates the binary
+    /// by walking up from `#file` to the `Package.swift` root, then probing
+    /// `.build/debug/EchoPluginSidecar` (the same strategy as
+    /// `EchoSidecarTestSupport.locateEchoSidecarBinary`).
+    ///
+    /// The `<gallagerRoot>` is derived from the instance's `--gallager-state-root`
+    /// (its parent directory), so the staged plugin persists for the entire
+    /// scenario in the per-instance E2E sandbox.
+    case macStageSidecarFixture(id: String, instance: Int = 0)
+
+    /// Build a self-contained sidecar `.zip` bundle (the `EchoPluginSidecar`
+    /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the
+    /// archive root) and store its absolute path in the execution context under
+    /// `storeAs`. Used to exercise the local-zip install flow end-to-end (e.g. via
+    /// `gallager plugin install --zip ${path}`). The zip lives in the per-instance
+    /// E2E sandbox, so it is cleaned up with the rest of the scenario state.
+    case macStageSidecarZip(id: String, displayName: String, storeAs: String, instance: Int = 0)
 }

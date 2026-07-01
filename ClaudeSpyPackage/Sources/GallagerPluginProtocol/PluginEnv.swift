@@ -50,7 +50,7 @@ public struct PluginEnv: Sendable {
 }
 
 /// What a core returns from `commandForLaunch` to auto-start its agent in a pane.
-public struct LaunchCommand: Sendable {
+public struct LaunchCommand: Sendable, Codable {
     public let command: String
     public let args: [String]
     public let env: [String: String]
@@ -63,14 +63,14 @@ public struct LaunchCommand: Sendable {
 }
 
 /// Result of `install()`.
-public enum InstallResult: Sendable {
+public enum InstallResult: Sendable, Codable {
     case installed(message: String)
     case alreadyInstalled
 }
 
 /// Snapshot of whether the agent's plugin is installed for a given config root.
 /// Transient `installing` / `failed` states are view state, not core state.
-public enum PluginInstallStatus: Sendable, Equatable {
+public enum PluginInstallStatus: Sendable, Codable, Equatable {
     case installed(version: String?)
     case notInstalled
     /// The agent's CLI binary could not be located / run.
@@ -78,14 +78,14 @@ public enum PluginInstallStatus: Sendable, Equatable {
 }
 
 /// Result of `applySettings(_:)`. `.error` surfaces inline in the settings form.
-public enum SettingsResult: Sendable {
+public enum SettingsResult: Sendable, Codable {
     case applied
     case error(field: String?, message: String)
 }
 
 /// A structured log line appended to the plugin's log file and surfaced in
 /// Settings → View Logs (spec §15).
-public struct LogLine: Sendable {
+public struct LogLine: Sendable, Codable {
     public let level: LogLevel
     public let message: String
 

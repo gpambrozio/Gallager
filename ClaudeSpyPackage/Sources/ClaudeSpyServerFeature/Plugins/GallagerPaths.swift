@@ -64,6 +64,37 @@
             stateRoot.appendingPathComponent("plugins", isDirectory: true)
         }
 
+        /// `<gallagerRoot>/plugins` — where folder-dropped sidecar bundles live
+        /// (spec §9). Each immediate subdirectory is a self-contained plugin tree
+        /// whose directory name must equal the plugin's sanitized id.
+        public var pluginsDir: URL {
+            gallagerRoot.appendingPathComponent("plugins", isDirectory: true)
+        }
+
+        /// Ensure `<gallagerRoot>/plugins/` exists. Best-effort; never traps.
+        @discardableResult
+        public func ensurePluginsDir() -> Bool {
+            createDirectory(pluginsDir)
+        }
+
+        /// `<gallagerRoot>/plugins/<id>` — the installed plugin bundle directory.
+        public func pluginInstallDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id), isDirectory: true)
+        }
+
+        /// `<gallagerRoot>/plugins/<id>.installing` — staging directory used during
+        /// URL-install before the atomic commit step.
+        public func pluginStagingDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id) + ".installing", isDirectory: true)
+        }
+
+        /// `<gallagerRoot>/plugins/<id>.replacing` — temporary hold for the old
+        /// install during an atomic overwrite. Matches the suffix used by
+        /// `PluginInstaller.commitInstall`.
+        public func pluginReplacingDir(_ id: String) -> URL {
+            pluginsDir.appendingPathComponent(Self.safeComponent(id) + ".replacing", isDirectory: true)
+        }
+
         // MARK: - Per-plugin paths
 
         /// `<stateRoot>/plugins/<id>/` — writable per-plugin scratch/state. The

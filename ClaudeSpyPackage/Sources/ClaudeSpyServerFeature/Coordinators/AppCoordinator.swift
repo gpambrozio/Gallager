@@ -109,6 +109,19 @@
         @ObservationIgnored
         var pluginRegistry: PluginRegistry?
 
+        /// Bumped whenever the *set* of registered plugins changes (install /
+        /// remove). `PluginRegistry` is `@ObservationIgnored` and not itself
+        /// `@Observable`, so mutating it can't invalidate SwiftUI. Views that show
+        /// the registered-plugin set (the Agents picker) read this via
+        /// `agentPluginList()` so they refresh when it changes.
+        public private(set) var pluginCatalogRevision = 0
+
+        /// The id of the most recently installed plugin, so the Agents picker can
+        /// auto-select it. Set on a successful install; cleared to `nil` on remove
+        /// (so reinstalling the same id after a removal still re-triggers the
+        /// `onChange` selection). Observed.
+        public private(set) var lastInstalledPluginID: String?
+
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
         @ObservationIgnored
@@ -587,6 +600,13 @@
             let registry = PluginRegistry()
             pluginRegistry = registry
 
+            // Provide paths to the registry before enabling any sidecar (needed to
+            // build PluginRootLayout for SidecarPluginCore construction).
+            registry.attachPaths(paths)
+
+            // Ensure the folder-drop plugins directory exists.
+            paths.ensurePluginsDir()
+
             var pluginIDs = ["claude-code", "codex"]
             #if DEBUG
                 if CommandLine.arguments.contains("--e2e-test") {
@@ -604,6 +624,60 @@
                     logger.warning("Plugin '\(id)' left disabled: \(failure)")
                 }
             }
+
+            // Load the existing registry BEFORE discovery so url-installed plugins
+            // are not downgraded to folder-source on restart.
+            let loadedRegistry = PluginRegistryStore.load(paths.registryPath)
+
+            // Discover folder-dropped sidecar plugins under ~/.gallager/plugins/.
+            // Each valid sidecar is registered, its state dir is materialized, and
+            // it is enabled. Failures are non-fatal: a bad sidecar is logged and
+            // skipped so it never blocks startup.
+            let folderDropped = PluginInstaller.discoverFolderDropped(pluginsDir: paths.pluginsDir)
+            for (manifest, root) in folderDropped {
+                let id = manifest.id
+                // Preserve url-source metadata when a prior URL-install entry exists.
+                let resolved = PluginInstaller.resolveRegistryEntry(
+                    discoveredID: id,
+                    manifest: manifest,
+                    loaded: loadedRegistry
+                )
+                registry.registerSidecar(manifest: manifest, root: root, source: resolved.source)
+                paths.ensurePluginStateDir(id)
+                let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                let env = makePluginEnv(id: id, registry: registry, paths: paths)
+                await registry.enable(id, host: host, env: env)
+                if let failure = registry.failedInit[id] {
+                    logger.warning("Sidecar plugin '\(id)' left disabled: \(failure)")
+                }
+            }
+
+            // Persist registry.json: one entry per known plugin (bundled or folder/url).
+            // Merge so a .url entry is never downgraded to .folder or stripped of urls.
+            // Best-effort — a write failure must never block startup.
+            let cliEntries = registry.listEntries()
+            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+                guard let manifest = registry.manifest(cliEntry.id) else { return nil }
+                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                let prior = loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
+                let effectiveSource: PluginRegistryEntry.Source =
+                    (prior?.source == .url && source != .bundled) ? .url : source
+                let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
+                let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
+                let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
+                return PluginRegistryEntry(
+                    id: cliEntry.id,
+                    version: cliEntry.version,
+                    source: effectiveSource,
+                    runtime: manifest.runtime,
+                    enabled: cliEntry.enabled,
+                    manifestURL: manifestURL,
+                    bundleURL: bundleURL,
+                    bundleSHA256: bundleSHA256
+                )
+            }
+            let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
+            try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
@@ -722,13 +796,23 @@
         ) -> PluginEnv {
             let pluginRoot = registry.pluginRoot(id) ?? paths.pluginStateDir(id)
             let settingsData = (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
-            // Bundled marketplace dirs live in the app's main bundle Resources:
-            //   plugin/       → Claude marketplace
-            //   plugin/codex/ → Codex marketplace
-            let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
-            let marketplaceSource: URL = switch id {
-            case "codex": resources.appendingPathComponent("plugin/codex")
-            default: resources.appendingPathComponent("plugin")
+            // Marketplace source resolution:
+            //   • Sidecar (folder-drop): check for a `marketplace/` subdir inside the
+            //     plugin root; fall back to the root itself when absent.
+            //   • Bundled in-process: marketplace dirs live in the app's main bundle
+            //     Resources (plugin/ for Claude, plugin/codex/ for Codex).
+            let marketplaceSource: URL
+            if registry.manifests[id]?.runtime == .sidecar {
+                let candidate = pluginRoot.appendingPathComponent("marketplace", isDirectory: true)
+                marketplaceSource = FileManager.default.fileExists(atPath: candidate.path)
+                    ? candidate
+                    : pluginRoot
+            } else {
+                let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
+                marketplaceSource = switch id {
+                case "codex": resources.appendingPathComponent("plugin/codex")
+                default: resources.appendingPathComponent("plugin")
+                }
             }
             return PluginEnv(
                 pluginRoot: pluginRoot,
@@ -798,6 +882,126 @@
             return registry.isEnabled(id)
         }
 
+        // MARK: - URL install / remove / update-check (Task 14 — thin wrappers)
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.install` and
+        /// supplies the registry, paths, session, and host/env factories from
+        /// coordinator state. Not unit-tested directly — integration / E2E covered.
+        public func installPluginFromURL(
+            _ url: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            let result = await PluginInstaller.install(
+                manifestURL: url,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                session: URLSession.shared,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+            }
+            return result
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.installFromZip`.
+        /// Mirrors `installPluginFromURL` but installs from a local `.zip` bundle the
+        /// user chose (no network fetch, no SHA-256 pin). Not unit-tested directly.
+        public func installPluginFromZip(
+            _ zip: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            let result = await PluginInstaller.installFromZip(
+                zip: zip,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+            }
+            return result
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.remove`.
+        /// Not unit-tested directly — integration / E2E covered.
+        public func removePlugin(
+            id: String,
+            deleteState: Bool
+        ) async -> Result<Void, InstallError> {
+            guard let registry = pluginRegistry, let paths = gallagerPaths else {
+                return .failure(.notInstalled)
+            }
+            let result = await PluginInstaller.remove(
+                id: id,
+                deleteState: deleteState,
+                registry: registry,
+                paths: paths
+            )
+            if case .success = result {
+                pluginCatalogRevision += 1
+                // Clear so a later reinstall of the same id re-fires onChange.
+                lastInstalledPluginID = nil
+            }
+            return result
+        }
+
+        /// Thin wrapper: reads the registry file from disk and delegates to
+        /// `PluginUpdateChecker.check`. Not unit-tested directly.
+        public func checkPluginUpdates() async -> [PluginUpdate] {
+            guard let paths = gallagerPaths else { return [] }
+            let registryFile = PluginRegistryStore.load(paths.registryPath)
+            return await PluginUpdateChecker.check(registryFile.plugins, session: URLSession.shared)
+        }
+
         /// Build the `plugin.info` envelope for `id` (CLI `plugin info`). Returns
         /// `nil` for an unregistered id.
         func pluginInfoViaCLI(_ id: String) async -> [String: JSONValue]? {
@@ -860,7 +1064,7 @@
         func pluginCallViaCLI(
             _ id: String,
             method: String,
-            json _: String?,
+            json: String?,
             configRoot: String? = nil
         ) async -> LiveAPIRequestRouter.PluginCallResult {
             guard let registry = pluginRegistry, registry.isRegistered(id) else {
@@ -874,7 +1078,7 @@
                 _ = await disablePluginViaCLI(id)
                 return .ok(result: "disabled")
             default:
-                switch await registry.callCore(id, method: method, configRoot: configRoot) {
+                switch await registry.callCore(id, method: method, json: json, configRoot: configRoot) {
                 case let .ok(result): return .ok(result: result)
                 case .notEnabled: return .notEnabled
                 case let .unknownMethod(name): return .unknownMethod(name)
@@ -972,10 +1176,29 @@
         /// Display rows for the segmented agent picker, sorted by id. Excludes
         /// `echo`, the test-only reference plugin (DEBUG/E2E builds only).
         public func agentPluginList() -> [AgentPluginEntry] {
+            // Register an observation dependency so a view body that calls this
+            // re-renders when a plugin is installed/removed (the registry the list
+            // is derived from is @ObservationIgnored — see pluginCatalogRevision).
+            _ = pluginCatalogRevision
             guard let registry = pluginRegistry else { return [] }
             return registry.registeredIDs
                 .filter { $0 != Self.echoPluginID }
                 .map { AgentPluginEntry(id: $0, name: registry.manifest($0)?.displayName ?? $0) }
+        }
+
+        /// Returns `true` when `id` was registered via the factory table (i.e. ships
+        /// with the app). URL-installed and folder-dropped plugins return `false`.
+        public func isBundledPlugin(id: String) -> Bool {
+            guard let registry = pluginRegistry else { return true }
+            let entry = registry.listEntries().first { $0.id == id }
+            return entry?.source == "bundled"
+        }
+
+        /// The default config-root a sidecar plugin declares in its manifest
+        /// (`sidecar.default_config_root`), shown as the non-removable root row in
+        /// the Agents settings tab. `nil` for plugins that don't declare one.
+        public func pluginDefaultConfigRoot(id: String) -> String? {
+            pluginRegistry?.manifest(id)?.sidecar?.defaultConfigRoot
         }
 
         /// Raw settings.json bytes for a plugin (empty Data if none yet).
@@ -2157,6 +2380,150 @@
                         json: json,
                         configRoot: configRoot
                     )
+                },
+                onPluginInstall: { [weak self] urlString, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    guard let url = URL(string: urlString) else {
+                        return .failed("Invalid URL: \(urlString)")
+                    }
+                    let result = await self.installPluginFromURL(url, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.absoluteString),
+                                "bundleURL": trust.bundleURL.map { .string($0.absoluteString) } ?? .null,
+                                "bundleSHA256": trust.bundleSHA256.map { .string($0) } ?? .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
+                onPluginInstallZip: { [weak self] path, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    let zip = URL(fileURLWithPath: path)
+                    let result = await self.installPluginFromZip(zip, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            // Local file: surface the path (no remote URL / SHA-256).
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.path),
+                                "bundleURL": .null,
+                                "bundleSHA256": .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
+                onPluginRemove: { [weak self] pluginId, deleteState in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    // Bundled plugins refuse removal.
+                    if await self.isBundledPlugin(id: pluginId) {
+                        return .bundledRefusal
+                    }
+                    let result = await self.removePlugin(id: pluginId, deleteState: deleteState)
+                    switch result {
+                    case .success: return .ok
+                    case let .failure(error): return .failed(String(describing: error))
+                    }
+                },
+                onPluginUpdate: { [weak self] pluginId, apply in
+                    guard let self else { return [] }
+                    let updates = await self.checkPluginUpdates()
+                    let filtered = pluginId.map { id in updates.filter { $0.id == id } } ?? updates
+
+                    guard apply else {
+                        // List-only path (no changes)
+                        return filtered.map { update in
+                            [
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(update.sourceChanged),
+                            ]
+                        }
+                    }
+
+                    // Apply path: for each update, look up its manifestURL from the registry file
+                    // and re-invoke installPluginFromURL.
+                    guard let paths = await self.gallagerPaths else { return [] }
+                    let registryFile = PluginRegistryStore.load(paths.registryPath)
+                    var results: [[String: JSONValue]] = []
+
+                    for update in filtered {
+                        // Source-changed means a new host — we can't auto-trust silently.
+                        // Skip it and report with applied:false + a note.
+                        if update.sourceChanged {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(true),
+                                "applied": .bool(false),
+                                "note": .string("source-changed: needs manual re-install to trust new source"),
+                            ])
+                            continue
+                        }
+
+                        // Look up the manifestURL from the registry file (PluginRegistryEntry).
+                        guard
+                            let entry = registryFile.plugins.first(where: { $0.id == update.id }),
+                            let manifestURL = entry.manifestURL else {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string("no manifestURL in registry"),
+                            ])
+                            continue
+                        }
+
+                        // Re-run install (trustConfirmed: true — same source, previously trusted).
+                        let outcome = await self.installPluginFromURL(manifestURL, trustConfirmed: true)
+                        switch outcome {
+                        case .success:
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(true),
+                            ])
+                        case let .failure(error):
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string(String(describing: error)),
+                            ])
+                        }
+                    }
+                    return results
                 }
             )
             liveRouter = router

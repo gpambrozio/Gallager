@@ -1,0 +1,825 @@
+#!/usr/bin/env python3
+"""
+Gallager sidecar plugin for opencode (https://opencode.ai).
+
+A sidecar is a long-lived child process Gallager spawns once and talks to over
+stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
+turns opencode's event-bus events (forwarded by the companion `gallager.js`
+opencode plugin → Gallager's ingress socket → here as `translate_event` calls)
+into the agent-blind `PluginEvent` shape Gallager understands, and answers
+opencode's permission/question forms back by injecting keystrokes into the pane
+(opencode's TUI exposes no reachable HTTP endpoint). The bridge also emits two
+synthetic lifecycle frames — `gallager.lifecycle.started` (on plugin load ≈ TUI
+start) and `gallager.lifecycle.stopped` (from its `dispose` hook ≈ TUI quit) —
+which map to an idle session appearing / the session being removed.
+
+Casing reminder (the #1 footgun):
+  - plugin.json manifest .......... snake_case
+  - ingress *socket* frame ........ snake_case (plugin_id, context, payload)
+  - stdio *transport* (this file) . camelCase (pluginID, sessionID, tmuxPane, ...)
+
+IMPORTANT: stdout is the RPC channel. Never `print()` to stdout — it corrupts the
+frame stream. Use `log(...)` (Settings → View Logs) or write to stderr.
+
+Run requirements: Python 3.9+. No third-party packages.
+"""
+import json
+import os
+import sqlite3
+import subprocess  # only for `git worktree list` (project scan → primary worktree)
+import sys
+import urllib.request  # only for pathname2url (SQLite file URI in project scan)
+
+# ---------------------------------------------------------------------------
+# Framing — read/write one Content-Length-framed JSON message.
+# ---------------------------------------------------------------------------
+def _read_exactly(n):
+    """Read exactly n bytes from stdin, or return None on EOF."""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sys.stdin.buffer.read(n - len(buf))
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def read_message():
+    """Block until one full message arrives. Returns the decoded dict, or None on EOF."""
+    header = b""
+    while b"\r\n\r\n" not in header:
+        ch = sys.stdin.buffer.read(1)
+        if not ch:
+            return None  # stdin closed → Gallager is gone
+        header += ch
+    length = 0
+    for line in header.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1].strip())
+    body = _read_exactly(length) if length else b""
+    if body is None:
+        return None
+    return json.loads(body)
+
+
+def write_message(msg):
+    body = json.dumps(msg).encode("utf-8")
+    sys.stdout.buffer.write(b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+    sys.stdout.buffer.flush()
+
+
+def respond(req_id, result):
+    write_message({"id": req_id, "result": result})
+
+
+def fail(req_id, code, message):
+    write_message({"id": req_id, "error": {"code": code, "message": message}})
+
+
+def notify(method, params):
+    write_message({"method": method, "params": params})
+
+
+def log(level, message):
+    notify("log", {"level": level, "message": message})
+
+
+# Pace between injected keys, in milliseconds. opencode's TUI (Bubbletea) needs a
+# beat to transition prompt states — e.g. the allow-always confirm sub-prompt must
+# render before the confirming Enter, otherwise the sequence lands on the wrong row
+# and reads as a denial. We do NOT sleep in the sidecar (that would block its single
+# reader loop); instead we interleave TmuxKey.delay keys and let the host executor
+# pace them (TmuxService.sendKeystrokes honors `.delay` by flushing + sleeping).
+KEYSTROKE_PACE_MS = 300
+
+
+def _key_delay(ms):
+    # TmuxKey.delay(Int) — same auto-synth tagged-enum rule as .text: the single
+    # unlabeled associated value becomes "_0".
+    return {"delay": {"_0": ms}}
+
+
+def _emit_keys(session_id, keys):
+    """Inject `keys` into the session's pane in ONE send_keys call, interleaving
+    `.delay` pacing between real keys so the host spaces them out. A single key
+    needs no pacing."""
+    if not keys:
+        return
+    if len(keys) > 1:
+        paced = []
+        for i, key in enumerate(keys):
+            if i > 0:
+                paced.append(_key_delay(KEYSTROKE_PACE_MS))
+            paced.append(key)
+        keys = paced
+    notify("send_keys", {"sessionID": session_id, "keys": keys})
+
+
+def _key_text(s):
+    """A TmuxKey `.text` for send_keys. The host decodes keys with the same
+    auto-synthesized tagged-enum rule as AgentState: the single unlabeled
+    associated value becomes "_0", so literal text is {"text": {"_0": s}} — NOT
+    {"text": s}. A bare-string form fails to decode and the host drops the ENTIRE
+    keys array (no keystrokes sent). No-payload keys ({"enter": {}}, {"escape": {}},
+    {"right": {}}) are already correct as-is."""
+    return {"text": {"_0": s}}
+
+
+# ---------------------------------------------------------------------------
+# AgentState builders (the `state` field of a PluginEvent). Encoding is the
+# Swift auto-synthesized tagged-enum form: a single-key object; labeled
+# associated values become named keys, unlabeled ones become "_0".
+# ---------------------------------------------------------------------------
+def state_working():
+    return {"working": {}}
+
+
+def state_done(summary=None):
+    return {"doneWorking": {"summary": summary}}
+
+
+def state_idle():
+    return {"idle": {}}
+
+
+def state_awaiting_permission(request, request_id):
+    return {"awaitingPermission": {"_0": request, "requestID": request_id}}
+
+
+def state_awaiting_replies(request, request_id):
+    return {"awaitingReplies": {"_0": request, "requestID": request_id}}
+
+
+# ---------------------------------------------------------------------------
+# Per-session lifecycle state (the sidecar is long-lived — perfect for this).
+# WORKING: sessions mid-turn (saw `busy`, not yet `idle`).
+# SEEN:    sessions we've ever emitted a state for (to tell a fresh session's
+#          first idle from a turn-ending idle, so we never clear attention).
+# PENDING: gallager-requestID → {server_url, permission_id, session_id} so a
+#          later deliver_response can answer the right opencode permission.
+# ---------------------------------------------------------------------------
+WORKING = set()
+SEEN = set()
+PENDING = {}
+SESSION_PENDING = {}  # session_id → set(request_id)
+
+# Current plugin settings (snake_case, as delivered by initialize + apply_settings):
+# command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
+SETTINGS = {}
+
+
+def _record_pending(request_id, server_url, opencode_id, session_id, questions=None):
+    # `opencode_id` is the id the HTTP reply route needs (permission or question
+    # request id). `questions` is kept for question forms so deliver_response can
+    # map selected option ids back to opencode's expected answer labels.
+    PENDING[request_id] = {
+        "server_url": server_url,
+        "opencode_id": opencode_id,
+        "session_id": session_id,
+        "questions": questions,
+    }
+    SESSION_PENDING.setdefault(session_id, set()).add(request_id)
+
+
+def _drop_pending(request_id):
+    mapping = PENDING.pop(request_id, None)
+    if mapping:
+        SESSION_PENDING.get(mapping["session_id"], set()).discard(request_id)
+    return mapping
+
+
+def _clear_session_pending(session_id):
+    for rid in list(SESSION_PENDING.get(session_id, set())):
+        PENDING.pop(rid, None)
+    SESSION_PENDING.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# opencode event → PluginEvent mapping.
+# ---------------------------------------------------------------------------
+def _project_name(project_path):
+    if not project_path:
+        return None
+    return os.path.basename(project_path.rstrip("/")) or project_path
+
+
+def _error_summary(err):
+    if not isinstance(err, dict):
+        return "Session error"
+    data = err.get("data") if isinstance(err.get("data"), dict) else {}
+    return data.get("message") or err.get("message") or err.get("name") or "Session error"
+
+
+# Human-friendly copy per opencode permission kind. opencode's permission
+# `permission` (or legacy `type`) field is an open set; cover the common kinds
+# and fall back gracefully.
+def _permission_copy(kind, patterns, metadata, legacy_title):
+    detail = ""
+    if patterns:
+        detail = patterns[0] if isinstance(patterns, list) else str(patterns)
+    titles = {
+        "bash": ("Run shell command", detail),
+        "edit": ("Edit file", metadata.get("filepath") or detail),
+        "read": ("Read file", metadata.get("filepath") or detail),
+        "webfetch": ("Fetch URL", detail),
+        "websearch": ("Web search", detail),
+        "task": ("Run subtask", detail),
+        "external_directory": ("Access external directory", metadata.get("parentDir") or detail),
+    }
+    if kind in titles:
+        return titles[kind][0], (titles[kind][1] or "")
+    if legacy_title:
+        return legacy_title, detail
+    return ("Permission: %s" % kind, detail)
+
+
+def _build_permission(props, session_id, server_url):
+    """Map an opencode permission event into an awaitingPermission state.
+
+    Handles both the current server shape (`permission.asked`: id, permission,
+    patterns, always, metadata, tool) and the shape still declared in the
+    published SDK types (`permission.updated`: id, type, title, callID).
+    """
+    perm_id = props.get("id")
+    if not perm_id:
+        return None, None
+
+    kind = props.get("permission") or props.get("type") or "tool"
+    legacy_title = props.get("title")
+    patterns = props.get("patterns")
+    if patterns is None:
+        pattern = props.get("pattern")
+        patterns = [pattern] if isinstance(pattern, str) else (pattern or [])
+    metadata = props.get("metadata") or {}
+    always = props.get("always") or []
+
+    title, description = _permission_copy(kind, patterns, metadata, legacy_title)
+
+    suggestions = [{
+        "id": "always",
+        "label": "Allow always for this session",
+        "detail": (", ".join(always) if always else None),
+    }]
+
+    # opencode permission ids are unique + stable per prompt, so use the id as
+    # the occurrence component → re-sends of the same prompt collapse to one form.
+    request_id = "%s:permission:%s" % (session_id, perm_id)
+    _record_pending(request_id, server_url, perm_id, session_id)
+
+    request = {
+        "title": title,
+        "description": description or "",
+        "isAutoApprovable": False,
+        "suggestions": suggestions,
+        "allowsCustomInstructions": True,
+    }
+    state = state_awaiting_permission(request, request_id)
+    notification = {"title": "opencode", "body": "Permission required: %s" % title}
+    return state, notification
+
+
+def _build_question(props, session_id, server_url):
+    """Map an opencode `question.asked` into an awaitingReplies form.
+
+    opencode's QuestionInfo (`{question, header, options:[{label,description}],
+    multiple?, custom?}`) maps directly onto Gallager's AskUserQuestionRequest.
+    """
+    req_id = props.get("id")
+    questions = props.get("questions")
+    if not req_id or not isinstance(questions, list) or not questions:
+        return None, None
+
+    out_questions = []
+    for qi, q in enumerate(questions):
+        options = []
+        for oj, opt in enumerate(q.get("options") or []):
+            options.append({
+                "id": "q%d-o%d" % (qi, oj),
+                "label": opt.get("label") or "",
+                "description": opt.get("description") or "",
+                "preview": None,
+            })
+        custom = q.get("custom")
+        out_questions.append({
+            "id": "q%d" % qi,
+            "question": q.get("question") or "",
+            "header": q.get("header") or "",
+            "options": options,
+            "multiSelect": bool(q.get("multiple")),
+            # opencode offers a "type your own answer" choice unless custom is off.
+            "allowsFreeText": True if custom is None else bool(custom),
+        })
+
+    request_id = "%s:question:%s" % (session_id, req_id)
+    _record_pending(request_id, server_url, req_id, session_id, questions=questions)
+
+    state = state_awaiting_replies({"questions": out_questions}, request_id)
+    title = out_questions[0]["header"] or out_questions[0]["question"] or "opencode has a question"
+    notification = {"title": "opencode", "body": "Question: %s" % title}
+    return state, notification
+
+
+def handle_translate_event(req_id, params):
+    context = params.get("context") or {}
+    payload = params.get("payload") or {}
+
+    tmux_pane = context.get("TMUX_PANE")
+    server_url = context.get("OPENCODE_SERVER_URL")
+    project_path = context.get("OPENCODE_PROJECT_DIR")
+    plugin_id = params.get("pluginID")
+
+    etype = payload.get("type")
+    props = payload.get("properties") or {}
+
+    info = props.get("info") if isinstance(props.get("info"), dict) else {}
+    session_id = props.get("sessionID") or info.get("id") or tmux_pane or "unknown"
+    if not project_path:
+        project_path = info.get("directory")
+
+    state = None
+    notification = None
+    app_actions = []
+
+    if etype == "session.status":
+        stype = (props.get("status") or {}).get("type")
+        if stype in ("busy", "retry"):
+            WORKING.add(session_id)
+            SEEN.add(session_id)
+            state = state_working()
+        elif stype == "idle":
+            if session_id in WORKING:
+                WORKING.discard(session_id)
+                state = state_done()
+                notification = {"title": "opencode", "body": _done_body(project_path)}
+            elif session_id not in SEEN:
+                SEEN.add(session_id)
+                state = state_idle()
+            # else: already idle/done — leave state unchanged (don't clear attention)
+
+    elif etype == "session.idle":
+        # Deprecated alias for status:idle. Same turn-end semantics.
+        if session_id in WORKING:
+            WORKING.discard(session_id)
+            state = state_done()
+            notification = {"title": "opencode", "body": _done_body(project_path)}
+
+    elif etype == "session.error":
+        WORKING.discard(session_id)
+        SEEN.add(session_id)
+        summary = _error_summary(props.get("error"))
+        state = state_done(summary)
+        notification = {"title": "opencode", "body": summary}
+
+    elif etype in ("permission.asked", "permission.updated", "permission.v2.asked"):
+        # A permission means the agent is mid-turn (blocked). Mark it working so
+        # the turn-ending idle still resolves to doneWorking, even if this is the
+        # first event we've seen for the session.
+        WORKING.add(session_id)
+        SEEN.add(session_id)
+        state, notification = _build_permission(props, session_id, server_url)
+
+    elif etype in ("permission.replied", "permission.v2.replied"):
+        # Answered (locally in the TUI or by us). Clear the form; the turn
+        # resumes. WORKING was set by the preceding `busy`, so the eventual
+        # idle still fires doneWorking.
+        _clear_session_pending(session_id)
+        state = state_working()
+
+    elif etype in ("question.asked", "question.v2.asked"):
+        WORKING.add(session_id)
+        SEEN.add(session_id)
+        state, notification = _build_question(props, session_id, server_url)
+
+    elif etype in ("question.replied", "question.rejected",
+                   "question.v2.replied", "question.v2.rejected"):
+        _clear_session_pending(session_id)
+        state = state_working()
+
+    elif etype == "gallager.lifecycle.started":
+        # Synthetic event the bridge emits once when opencode loads it (≈ TUI
+        # start). opencode fires nothing on a fresh idle launch, and the host's
+        # process scan only re-runs on pane add/remove — not when a process starts
+        # inside a live pane — so without this the session never appears until the
+        # first turn. Surface it as idle immediately (mirrors Claude Code's
+        # SessionStart → .idle, no notification).
+        SEEN.add(session_id)
+        state = state_idle()
+
+    elif etype == "gallager.lifecycle.stopped":
+        # Synthetic event the bridge emits from its opencode `dispose` hook on a
+        # graceful quit. Nothing else signals exit (the bridge dies with the
+        # process; the host never reconciles a vanished process), so end the
+        # session the way Claude Code's SessionEnd does: AppAction.sessionEnded
+        # drops the sidebar row (the moon icon reverts to a plain terminal) and
+        # resets the pane's session-scoped state. The action's sessionID is the
+        # PANE id — the host keys endAgentSession by pane — and closePaneEligible
+        # honors the `close_pane_on_session_end` setting (default off → leave the
+        # user's terminal open).
+        WORKING.discard(session_id)
+        SEEN.discard(session_id)
+        _clear_session_pending(session_id)
+        if tmux_pane:
+            close_eligible = bool(SETTINGS.get("close_pane_on_session_end", False))
+            app_actions.append({
+                "sessionEnded": {"sessionID": tmux_pane, "closePaneEligible": close_eligible},
+            })
+
+    if state is None and notification is None and not app_actions:
+        respond(req_id, None)
+        return
+
+    # `appActions` is NON-optional in Swift's PluginEvent — its synthesized
+    # Decodable requires the key (the memberwise default is not used at decode).
+    # Omitting it makes the host's `decode(PluginEvent.self)` throw and silently
+    # drop the whole event, so the session state never updates. Always send it.
+    respond(req_id, {
+        "pluginID": plugin_id,
+        "sessionID": session_id,
+        "state": state,
+        "notification": notification,
+        "appActions": app_actions,
+        "tmuxPane": tmux_pane,
+        "projectPath": project_path,
+    })
+
+
+def _done_body(project_path):
+    name = _project_name(project_path)
+    return ("Finished — %s" % name) if name else "Finished working"
+
+
+# ---------------------------------------------------------------------------
+# deliver_response — answer an open form. opencode's only interactive surface is
+# permission prompts; answer them via opencode's HTTP reply route, falling back
+# to keystrokes when the server URL is unavailable.
+# ---------------------------------------------------------------------------
+def handle_deliver_response(req_id, params):
+    try:
+        session_id = (params or {}).get("sessionID")
+        request_id = (params or {}).get("requestID")
+        response = (params or {}).get("response") or {}
+        mapping = _drop_pending(request_id)
+
+        if "permission" in response:
+            _answer_permission(response["permission"], mapping, session_id)
+        elif "askUserQuestion" in response:
+            _answer_question(response["askUserQuestion"], mapping, session_id)
+        elif "prompt" in response:
+            _send_prompt(session_id, response["prompt"].get("text") or "")
+        elif "replyAfterStop" in response:
+            _send_prompt(session_id, response["replyAfterStop"].get("text") or "")
+        # opencode has no plan-approval form → approvePlan is ignored.
+    except Exception as exc:  # never let a response crash the loop
+        sys.stderr.write("deliver_response error: %s\n" % exc)
+    finally:
+        respond(req_id, {})
+
+
+# opencode's TUI has no reachable HTTP server (the server↔TUI link is a unix
+# socket; the plugin's reported serverUrl is not a live TCP endpoint), so forms
+# are answered by injecting keystrokes into the pane — the same mechanism
+# Gallager's built-in agents use. Verified against opencode v1.17.11's TUI.
+def _answer_permission(perm, mapping, session_id):
+    decision = perm.get("decision") or {}
+    applied = perm.get("appliedSuggestionID")
+    if "allow" in decision:
+        reply = "always" if applied else "once"
+    elif "deny" in decision or "denyWithFeedback" in decision:
+        # opencode's reject is immediate (no inline feedback box for a top-level
+        # session), so a denyWithFeedback message can't ride the keystroke path.
+        reply = "reject"
+    else:
+        return
+    _keystroke_reply(session_id, reply)
+
+
+def _keystroke_reply(session_id, reply):
+    # Permission prompt = a left/right list: "Allow once" (pre-selected), "Allow
+    # always", "Reject"; Escape rejects. Allow-always opens a confirm sub-prompt
+    # (a second Enter confirms).
+    if reply == "once":
+        keys = [{"enter": {}}]
+    elif reply == "always":
+        keys = [{"right": {}}, {"enter": {}}, {"enter": {}}]
+    else:  # reject
+        keys = [{"escape": {}}]
+    _emit_keys(session_id, keys)
+
+
+def _answer_question(answers_obj, mapping, session_id):
+    """Drive opencode's question prompt by keystrokes (verified vs v1.17.11 TUI).
+
+    The prompt's number keys `1`..`9` jump to a row AND activate it — on a
+    multi-select that TOGGLES the checkbox, on a single-select that PICKS (which
+    auto-advances to the next question tab, or submits outright when there is only
+    one non-multi question). The "Type your own answer" row is number
+    `len(options)+1`. With more than one question OR any multi-select question the
+    prompt is tabbed (one tab per question + a final Confirm tab); navigate tabs
+    with Right and submit with Enter on the Confirm tab. A lone single-select
+    question has no tabs and submits on the option key itself.
+    """
+    questions = (mapping or {}).get("questions") or []
+    if not questions:
+        log("warn", "cannot answer question: no pending question mapping")
+        return
+    by_qid = {a.get("questionID"): a for a in (answers_obj.get("answers") or [])}
+    # `single` (one non-multi question) is the only no-tabs / submit-on-pick case.
+    single = len(questions) == 1 and not questions[0].get("multiple")
+
+    keys = []
+    for qi, q in enumerate(questions):
+        answer = by_qid.get("q%d" % qi) or {}
+        options = q.get("options") or []
+        multi = bool(q.get("multiple"))
+        free = answer.get("freeText")
+        chosen = []
+        for oid in (answer.get("selectedOptionIDs") or []):
+            try:  # "q{qi}-o{oj}" → the option's 0-based row index
+                chosen.append(int(oid.rsplit("-o", 1)[1]))
+            except (ValueError, IndexError):
+                pass
+
+        custom_key = _key_text(str(len(options) + 1))  # the "Type your own" row
+        if multi:
+            for oj in chosen:
+                keys.append(_key_text(str(oj + 1)))  # toggle each selected option on
+            if free:
+                keys += [custom_key, _key_text(free), {"enter": {}}]  # add a custom answer
+            keys.append({"right": {}})  # multi-select never auto-advances
+        else:
+            if free:
+                keys += [custom_key, _key_text(free), {"enter": {}}]  # pick custom (auto-advances)
+            elif chosen:
+                keys.append(_key_text(str(chosen[0] + 1)))  # pick option (auto-advances)
+
+    if not single:
+        keys.append({"enter": {}})  # we end on the Confirm tab → submit the set
+    _emit_keys(session_id, keys)
+
+
+def _send_prompt(session_id, text):
+    if not text:
+        return
+    _emit_keys(session_id, [_key_text(text), {"enter": {}}])
+
+
+# ---------------------------------------------------------------------------
+# Install / uninstall the opencode bridge plugin.
+# ---------------------------------------------------------------------------
+def _global_plugin_dir():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "opencode", "plugin")
+
+
+def _bridge_dest(config_root=None):
+    """Resolve where the bridge installs for a given config root.
+
+    The default settings row passes configRoot=None → the global opencode plugin
+    dir. An additional-folder row passes a project root → that project's
+    `.opencode/plugin/` so opencode loads it for that project only.
+    """
+    if config_root:
+        return os.path.join(os.path.expanduser(config_root), ".opencode", "plugin", "gallager.js")
+    return os.path.join(_global_plugin_dir(), "gallager.js")
+
+
+def handle_install(req_id, params):
+    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "opencode")
+    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "opencode-bridge", "gallager.js")
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(template, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = content.replace("__GALLAGER_INGRESS_SOCK__", sock)
+        content = content.replace("__GALLAGER_PLUGIN_ID__", plugin_id)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, dest)
+        respond(req_id, {"installed": {"message": "opencode bridge installed at %s" % dest}})
+    except Exception as exc:
+        fail(req_id, "install_error", str(exc))
+
+
+def handle_uninstall(req_id, params):
+    try:
+        os.remove(_bridge_dest((params or {}).get("configRoot")))
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        sys.stderr.write("uninstall error: %s\n" % exc)
+    respond(req_id, {})
+
+
+def handle_install_status(req_id, params):
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(dest, "r", encoding="utf-8") as f:
+            installed = "GallagerMonitor" in f.read()
+    except OSError:
+        installed = False
+    if installed:
+        respond(req_id, {"installed": {"version": PLUGIN_VERSION}})
+    else:
+        respond(req_id, {"notInstalled": {}})
+
+
+# ---------------------------------------------------------------------------
+# Project discovery — surface opencode's projects in Gallager's "+" sidebar
+# menu, the same way Claude Code / Codex do. opencode stores projects in a
+# SQLite DB (~/.local/share/opencode/opencode.db, `project` table); we read it
+# read-only and emit `set_projects`. Works offline (no running opencode needed).
+# ---------------------------------------------------------------------------
+# Seconds between 1970-01-01 and 2001-01-01 — JSONValue.decode uses a default
+# JSONDecoder (`.deferredToDate`), so AgentProject.lastUsed is seconds since the
+# 2001 reference date. opencode's time_updated is milliseconds since 1970.
+_EPOCH_2001 = 978307200.0
+
+
+def _opencode_data_dir():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "opencode")
+
+
+def _repo_worktrees(path):
+    """All worktrees of the git repo containing `path` — main checkout + every
+    linked `git worktree`.
+
+    opencode keys projects by git repo and stores only ONE worktree — the first
+    directory it happened to see for that repo. But you may work in several
+    worktrees of the same repo and want each launchable from the sidebar, so
+    expand a stored project into all of them (`git worktree list --porcelain`).
+
+    Best-effort: for non-git dirs, a missing `git`, or any error, return `[path]`
+    so a bare/VCS-less project still surfaces exactly as its stored path.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", path, "worktree", "list", "--porcelain"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except Exception:
+        return [path]
+    if out.returncode != 0:
+        return [path]
+    worktrees = []
+    for line in out.stdout.decode("utf-8", "replace").splitlines():
+        if line.startswith("worktree "):
+            wt = line[len("worktree "):].strip()
+            if wt:
+                worktrees.append(wt)
+    return worktrees or [path]
+
+
+def _connect_ro(db):
+    """Open opencode's DB read-only, WAL-aware.
+
+    `mode=ro` reads committed WAL frames, so a *just-created* opencode project —
+    which lives in the -wal until opencode checkpoints it into the main .db file —
+    shows up immediately instead of staying invisible for minutes. WAL readers
+    take only a short-lived shared read mark and never block the single writer, so
+    this is safe against a live opencode.
+
+    Fall back to `immutable=1` (main file only, ignores the WAL) for the one
+    read-only case plain `mode=ro` can't satisfy: a stale -wal with no -shm and no
+    write access to the directory (i.e. opencode isn't running). That view is
+    slightly stale but never fails.
+    """
+    u = urllib.request.pathname2url(db)
+    try:
+        return sqlite3.connect("file:%s?mode=ro" % u, uri=True, timeout=2)
+    except sqlite3.Error:
+        return sqlite3.connect("file:%s?mode=ro&immutable=1" % u, uri=True, timeout=2)
+
+
+def _scan_projects():
+    """Read opencode's project list from its SQLite store. Best-effort and
+    schema-tolerant — any failure yields an empty list (never raises)."""
+    db = os.path.join(_opencode_data_dir(), "opencode.db")
+    if not os.path.exists(db):
+        return []
+    try:
+        conn = _connect_ro(db)
+        try:
+            rows = conn.execute("SELECT worktree, name, time_updated FROM project").fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        sys.stderr.write("project scan failed: %s\n" % exc)
+        return []
+
+    projects = []
+    seen = set()
+    for worktree, name, time_updated in rows:
+        if not worktree:
+            continue
+        # Expand a stored project into every worktree of its repo (see
+        # _repo_worktrees), so linked `git worktree`s are each launchable — not
+        # just the one opencode happened to record. The stored worktree keeps
+        # opencode's own name (if any); the rest fall back to their basename so
+        # they're distinguishable. `seen` dedupes across rows of the same repo.
+        for wt in _repo_worktrees(worktree):
+            if wt in seen or not os.path.isdir(wt):
+                continue
+            seen.add(wt)
+            label = (name or "").strip() if wt == worktree else ""
+            display = label or os.path.basename(wt.rstrip("/")) or wt
+            proj = {"name": display, "path": wt, "pluginID": "opencode"}
+            if isinstance(time_updated, (int, float)) and time_updated > 0:
+                proj["lastUsed"] = time_updated / 1000.0 - _EPOCH_2001
+            projects.append(proj)
+    return projects
+
+
+def _emit_projects():
+    notify("set_projects", {"projects": _scan_projects()})
+
+
+def handle_refresh_projects(req_id, params):
+    _emit_projects()
+    respond(req_id, {})
+
+
+# ---------------------------------------------------------------------------
+# Remaining RPC handlers.
+# ---------------------------------------------------------------------------
+PLUGIN_VERSION = "0.1.0"
+
+
+def _store_settings(value):
+    global SETTINGS
+    if isinstance(value, dict):
+        SETTINGS = value
+
+
+def handle_initialize(req_id, params):
+    _store_settings((params or {}).get("settings"))
+    log("info", "opencode sidecar initialized (app %s)" % (params or {}).get("appVersion", "?"))
+    respond(req_id, {})
+    _emit_projects()  # seed the sidebar before the first refresh tick
+
+
+def handle_command_for_launch(req_id, params):
+    # Honor the user's Agents-settings toggles (delivered via apply_settings).
+    if not SETTINGS.get("auto_run", True):
+        respond(req_id, None)  # auto-run off → don't launch
+        return
+    command = (SETTINGS.get("command_path") or "").strip() or "opencode"
+    respond(req_id, {"command": command, "args": [], "env": {}})
+
+
+def handle_apply_settings(req_id, params):
+    _store_settings((params or {}).get("settings"))
+    respond(req_id, {"applied": {}})
+
+
+REQUEST_HANDLERS = {
+    "initialize": handle_initialize,
+    "translate_event": handle_translate_event,
+    "deliver_response": handle_deliver_response,
+    "command_for_launch": handle_command_for_launch,
+    "install": handle_install,
+    "uninstall": handle_uninstall,
+    "install_status": handle_install_status,
+    "apply_settings": handle_apply_settings,
+    "refresh_projects": handle_refresh_projects,
+}
+
+
+def main():
+    while True:
+        try:
+            msg = read_message()
+        except Exception as exc:
+            sys.stderr.write("read error: %s\n" % exc)
+            continue
+        if msg is None:
+            break  # EOF
+
+        method = msg.get("method")
+        req_id = msg.get("id")
+        if method is None:
+            continue  # a stray response/notification — ignore
+
+        if method == "shutdown":
+            respond(req_id, {})
+            break
+
+        handler = REQUEST_HANDLERS.get(method)
+        if handler is not None:
+            try:
+                handler(req_id, msg.get("params"))
+            except Exception as exc:
+                sys.stderr.write("handler error in %s: %s\n" % (method, exc))
+                if req_id is not None:
+                    fail(req_id, "internal_error", str(exc))
+        elif req_id is not None:
+            fail(req_id, "method_not_found", "Unknown method: %s" % method)
+
+
+if __name__ == "__main__":
+    main()
