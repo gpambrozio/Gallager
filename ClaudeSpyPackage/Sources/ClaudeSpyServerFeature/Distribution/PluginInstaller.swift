@@ -226,28 +226,14 @@
             _ url: URL,
             session: any URLSessionProtocol
         ) async throws -> (PluginManifest, TrustDetails) {
-            // HTTPS check happens before any network I/O.
-            guard url.scheme == "https" else {
-                throw InstallError.notHTTPS
-            }
+            // HTTPS-only, cache-bypassing fetch (see `openHTTPSBodyStream`).
+            let bodyStream = try await openHTTPSBodyStream(url, session: session)
 
-            // Always fetch the currently-published manifest. A manifest host may
-            // omit `Cache-Control`/`ETag` (sending only `Last-Modified`), in which
-            // case URLSession applies *heuristic* freshness and would serve a stale
-            // cached body after the author re-publishes — so an install could keep
-            // seeing an old manifest (e.g. one still missing `bundle_url`). Bypass
-            // the local cache so the fetch reflects the server, not a prior install.
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-            let (_, bodyStream) = try await session.openStream(request)
-
-            // Stream the body with a running byte count; abort if the cap is exceeded.
+            // Accumulate the body, aborting mid-stream once it passes the 1 MiB cap.
             var accumulated = Data()
             accumulated.reserveCapacity(min(manifestSizeCap, 65_536))
-            for try await chunk in bodyStream {
-                accumulated.append(chunk)
-                if accumulated.count > manifestSizeCap {
-                    throw InstallError.manifestTooLarge
-                }
+            try await consumeCapped(bodyStream, cap: manifestSizeCap, tooLarge: .manifestTooLarge) {
+                accumulated.append($0)
             }
 
             // Decode the manifest.
@@ -307,15 +293,8 @@
             into temp: URL,
             sizeCap: Int = PluginInstaller.bundleSizeCapDefault
         ) async throws {
-            guard url.scheme == "https" else {
-                throw InstallError.notHTTPS
-            }
-            // Bypass the local cache (same reasoning as the manifest fetch): a
-            // re-published bundle at a stable URL must not be shadowed by a
-            // heuristically-cached copy. The SHA-256 pin would catch a stale body,
-            // but fetching fresh avoids a spurious hash-mismatch failure.
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-            let (_, bodyStream) = try await session.openStream(request)
+            // HTTPS-only, cache-bypassing fetch (see `openHTTPSBodyStream`).
+            let bodyStream = try await openHTTPSBodyStream(url, session: session)
 
             let fm = FileManager.default
             // Create the output file so we can open a FileHandle for writing.
@@ -327,17 +306,8 @@
             }
 
             var hasher = SHA256()
-            var byteCount = 0
-
             do {
-                for try await chunk in bodyStream {
-                    byteCount += chunk.count
-                    if byteCount > sizeCap {
-                        // Clean up and abort; do NOT keep a partial file.
-                        try? handle.close()
-                        try? fm.removeItem(at: temp)
-                        throw InstallError.bundleTooLarge
-                    }
+                try await consumeCapped(bodyStream, cap: sizeCap, tooLarge: .bundleTooLarge) { chunk in
                     hasher.update(data: chunk)
                     // Throwing variant: a write failure (e.g. disk-full) routes
                     // through the catch cleanup below instead of trapping the way
@@ -345,11 +315,9 @@
                     try handle.write(contentsOf: chunk)
                 }
                 try handle.close()
-            } catch let error as InstallError {
-                try? handle.close()
-                try? fm.removeItem(at: temp)
-                throw error
             } catch {
+                // Any failure — too-large, write error, cancellation — must not
+                // leave a partial file behind.
                 try? handle.close()
                 try? fm.removeItem(at: temp)
                 throw error
@@ -361,6 +329,49 @@
             guard hexDigest.caseInsensitiveCompare(expectedSHA256) == .orderedSame else {
                 try? fm.removeItem(at: temp)
                 throw InstallError.hashMismatch
+            }
+        }
+
+        // MARK: - Shared HTTP download helpers
+
+        /// Open an HTTPS response body as a chunked stream, with the local cache
+        /// bypassed. Shared by `fetchManifest` and `downloadBundle`.
+        ///
+        /// - Validates the `https` scheme before any network I/O (throws
+        ///   `.notHTTPS` otherwise).
+        /// - Sets `.reloadIgnoringLocalCacheData` so a re-published manifest/bundle
+        ///   at a stable URL is never shadowed by a heuristically-cached copy: a
+        ///   host may send only `Last-Modified` (no `Cache-Control`/`ETag`), which
+        ///   would otherwise let URLSession serve a stale body from a prior install.
+        private static func openHTTPSBodyStream(
+            _ url: URL,
+            session: any URLSessionProtocol
+        ) async throws -> AsyncThrowingStream<Data, any Error> {
+            guard url.scheme == "https" else {
+                throw InstallError.notHTTPS
+            }
+            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+            let (_, bodyStream) = try await session.openStream(request)
+            return bodyStream
+        }
+
+        /// Iterate a body stream, enforcing a mid-stream byte ceiling and handing
+        /// each chunk to `sink`. Throws `tooLarge` as soon as the running total
+        /// passes `cap`, so no more than `cap` (plus the crossing chunk's size) is
+        /// ever counted and the crossing chunk is never handed to `sink`.
+        private static func consumeCapped(
+            _ stream: AsyncThrowingStream<Data, any Error>,
+            cap: Int,
+            tooLarge: InstallError,
+            sink: (Data) throws -> Void
+        ) async throws {
+            var total = 0
+            for try await chunk in stream {
+                total += chunk.count
+                if total > cap {
+                    throw tooLarge
+                }
+                try sink(chunk)
             }
         }
 
