@@ -380,6 +380,10 @@
                 return "Plugin manifest is too large (limit: 1 MiB)"
             case .invalidSchema:
                 return "Invalid plugin manifest format"
+            case .missingBundleReference:
+                return "This manifest can't be installed from a URL — it's missing "
+                    + "bundle_url / bundle_sha256. (A bundle-internal plugin.json can "
+                    + "only be installed with \"Install from Zip…\".)"
             case .invalidID:
                 return "Plugin manifest contains an invalid ID"
             case .bundleTooLarge:

@@ -365,6 +365,17 @@ namespaces is a v2.x follow-on.
 
 ## 7. Distribution
 
+### Packaging (both modes)
+
+`scripts/package-plugin.sh <plugin-dir>` builds the bundle for you — it validates
+the tree the same way Gallager will (manifest at the root, declared executable
+present *and* executable, declared `ui.icon` present), zips the plugin tree at the
+archive root, and prints the SHA-256. Add `--base-url <https-url>` (where both files
+will be hosted, no filename) and it also emits a ready-to-host distribution
+`plugin.json` with `bundle_url` / `bundle_sha256` / `manifest_url` filled in. Output
+lands in `build/plugins/<id>/` (gitignored); trim dev-only files with
+`--exclude '<glob>'`. Run `scripts/package-plugin.sh --help` for details.
+
 ### Remote install (recommended)
 
 Host a `plugin.json` manifest at an HTTPS URL with these additional fields:

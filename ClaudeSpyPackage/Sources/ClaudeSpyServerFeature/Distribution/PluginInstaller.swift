@@ -13,6 +13,11 @@
         case manifestTooLarge
         /// The manifest's `schema_version` is not 1.
         case invalidSchema
+        /// The manifest parsed but declares no downloadable bundle — it lacks
+        /// `bundle_url` and/or `bundle_sha256`, so it can't be installed from a
+        /// URL. Typically a bundle-internal `plugin.json` served directly instead
+        /// of a distribution manifest.
+        case missingBundleReference
         /// The manifest's `id` failed `PluginInstaller.sanitize(id:)`.
         case invalidID
         /// The downloaded bundle exceeded the size cap.
@@ -568,8 +573,10 @@
         /// **Steps (when `trustConfirmed == true`):**
         /// 1. `fetchManifest` — validates HTTPS, schema version, and id.
         /// 2. Requires `manifest.runtime == .sidecar`, a `bundleURL`, and a
-        ///    `bundleSHA256` — short-circuits with `.failure(.invalidSchema)` when
-        ///    any is absent.
+        ///    `bundleSHA256`. This runs *before* the trust gate, so a bundle-less
+        ///    manifest short-circuits with `.failure(.missingBundleReference)`
+        ///    (or `.invalidSchema` for a non-sidecar runtime) at the fetch stage —
+        ///    the caller never reaches a trust prompt it can't complete.
         /// 3. `downloadBundle` into a temp file inside `paths.pluginsDir`.
         /// 4. `unpackAndValidate` into `paths.pluginStagingDir(id)`.
         /// 5. `commitInstall` → `paths.pluginInstallDir(id)`.
@@ -579,9 +586,11 @@
         /// 9. If `registry.failedInit[id]` is set → return `.failure(.enableFailed)`,
         ///    leaving the installed files in place for a future retry.
         ///
-        /// When `trustConfirmed == false`, only `fetchManifest` is called (no
-        /// download). Returns `.success(.needsTrust(TrustDetails))` so the caller
-        /// can present a confirmation sheet.
+        /// When `trustConfirmed == false`, `fetchManifest` and the step-2 bundle
+        /// validation run (no download). Returns `.success(.needsTrust(TrustDetails))`
+        /// for an installable manifest so the caller can present a confirmation
+        /// sheet, or `.failure(.missingBundleReference)` up front when the manifest
+        /// has no bundle to install.
         ///
         /// Heavy work (download, unpack, commit) runs on whatever executor the
         /// caller is on — these helpers are non-`@MainActor`. Only the registry
@@ -606,23 +615,23 @@
                 return .failure(.invalidSchema)
             }
 
-            // Trust gate: no download until the user confirms.
-            guard trustConfirmed else {
-                return .success(.needsTrust(trust))
-            }
-
-            // Step 2: runtime + bundle URL + hash must be present for a URL install.
+            // Step 2: a URL install requires a downloadable, integrity-pinned
+            // bundle. Validate this BEFORE the trust gate so a bundle-less manifest
+            // (e.g. a bundle-internal `plugin.json` served directly) fails on the
+            // entry screen instead of after the user clicks "Trust and Install".
             guard manifest.runtime == .sidecar else {
                 return .failure(.invalidSchema)
             }
-            guard let bundleURL = manifest.bundleURL else {
-                return .failure(.invalidSchema)
+            guard let bundleURL = manifest.bundleURL, let expectedSHA256 = manifest.bundleSHA256 else {
+                return .failure(.missingBundleReference)
             }
             guard bundleURL.scheme == "https" else {
                 return .failure(.notHTTPS)
             }
-            guard let expectedSHA256 = manifest.bundleSHA256 else {
-                return .failure(.invalidSchema)
+
+            // Trust gate: no download until the user confirms.
+            guard trustConfirmed else {
+                return .success(.needsTrust(trust))
             }
 
             let id = manifest.id

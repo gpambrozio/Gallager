@@ -450,6 +450,66 @@
             #expect(!FileManager.default.fileExists(atPath: paths.pluginInstallDir(id).path))
         }
 
+        // MARK: bundle reference required for URL install
+
+        @Test("install(trustConfirmed: false) fails with .missingBundleReference before the trust gate when the manifest has no bundle_url/bundle_sha256")
+        @MainActor
+        func bundlelessManifestFailsAtPreview() async throws {
+            let (paths, stateRoot) = try makeTempPaths()
+            defer { try? FileManager.default.removeItem(at: stateRoot) }
+
+            let id = "flow-bundleless-test"
+            let manifestURL = try #require(URL(string: "https://example.com/plugin.json"))
+            // A bundle-internal plugin.json served directly: valid schema + id, but
+            // no bundle_url / bundle_sha256 (exactly the opencode publish mistake).
+            let manifestBody = Data("""
+            {
+              "schema_version": 1,
+              "id": "\(id)",
+              "display_name": "Bundleless Plugin",
+              "short_name": "BLP",
+              "version": "1.0.0",
+              "runtime": "sidecar",
+              "sidecar": {"executable": "bin/sidecar"},
+              "process_names": [],
+              "ui": {}
+            }
+            """.utf8)
+            let session = MultiURLStubSession(responses: [manifestURL: manifestBody])
+
+            let registry = PluginRegistry()
+            registry.attachPaths(paths)
+            paths.ensurePluginsDir()
+
+            // trustConfirmed: false — the preview path. Must NOT return .needsTrust:
+            // the caller should see the error on the entry screen, never a trust
+            // prompt it can't complete.
+            let result = await PluginInstaller.install(
+                manifestURL: manifestURL,
+                trustConfirmed: false,
+                registry: registry,
+                paths: paths,
+                session: session,
+                makeHost: { _ in FlowMockPluginHost() },
+                makeEnv: { id in
+                    PluginEnv(
+                        pluginRoot: paths.pluginInstallDir(id),
+                        stateDir: paths.pluginStateDir(id),
+                        appVersion: "2.0",
+                        settings: Data(),
+                        marketplaceSource: paths.pluginInstallDir(id)
+                    )
+                }
+            )
+
+            guard case let .failure(err) = result else {
+                Issue.record("Expected .failure(.missingBundleReference) but got: \(result)")
+                return
+            }
+            #expect(err == .missingBundleReference, "Expected .missingBundleReference, got \(err)")
+            #expect(!registry.isRegistered(id))
+        }
+
         @Test("remove refuses bundled plugin ids")
         @MainActor
         func removeRefusesBundled() async throws {
