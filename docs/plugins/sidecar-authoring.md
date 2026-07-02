@@ -178,9 +178,9 @@ These are all **requests** (Gallager expects a response for each):
 `otlpReceiverEndpoint` is `null` when no OTLP receiver is running. The port is
 whatever the receiver actually bound this launch (it probes fallback candidates
 when its preferred port is taken) — use the value verbatim, never assume a
-fixed port. `settings` is the
-current settings object (or `{}` when empty). (camelCase keys — this is the stdio
-transport; see the casing note at the top of this section.)
+fixed port. `settings` is the current settings object (or `{}` when empty).
+(camelCase keys — this is the stdio transport; see the casing note at the top
+of this section.)
 
 ### Sidecar → App messages
 

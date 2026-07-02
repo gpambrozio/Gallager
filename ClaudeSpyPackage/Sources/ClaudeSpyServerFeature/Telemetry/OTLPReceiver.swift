@@ -171,14 +171,20 @@ actor OTLPReceiver {
     }
 
     /// Starts `listener` and waits for the bind to settle: `nil` on `.ready`,
-    /// the error on `.failed`/`.cancelled`. States after the first terminal
-    /// one are ignored (the caller installs the long-lived handler).
+    /// the error on `.failed`/`.cancelled` — and on `.waiting`, which some
+    /// macOS versions use to surface a port-in-use bind instead of `.failed`.
+    /// A loopback-only listener has no transient network condition to wait
+    /// out, so any `.waiting` IS a bind failure; treating it as terminal also
+    /// keeps `start()` (which gates `setupPluginRuntime()`) from hanging app
+    /// startup. States after the first terminal one are ignored (the caller
+    /// installs the long-lived handler).
     private static func bindOutcome(_ listener: NWListener) async -> NWError? {
         let states = AsyncStream<NWListener.State> { continuation in
             listener.stateUpdateHandler = { state in
                 continuation.yield(state)
                 switch state {
                 case .ready,
+                     .waiting,
                      .failed,
                      .cancelled:
                     continuation.finish()
@@ -192,7 +198,8 @@ actor OTLPReceiver {
             switch state {
             case .ready:
                 return nil
-            case let .failed(error):
+            case let .waiting(error),
+                 let .failed(error):
                 return error
             case .cancelled:
                 return NWError.posix(.ECANCELED)
