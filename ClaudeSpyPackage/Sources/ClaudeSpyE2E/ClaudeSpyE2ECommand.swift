@@ -84,8 +84,8 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             return
         }
 
-        guard ["speedup", "remove"].contains(recordMode) else {
-            print("ERROR: --record-mode must be 'speedup' or 'remove'")
+        if record, !["speedup", "remove"].contains(recordMode) {
+            fputs("ERROR: --record-mode must be 'speedup' or 'remove'\n", stderr)
             throw ExitCode.failure
         }
 

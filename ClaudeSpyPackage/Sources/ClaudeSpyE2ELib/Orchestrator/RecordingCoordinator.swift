@@ -45,8 +45,13 @@ public actor RecordingCoordinator: TestProgressReporter {
     public func scenarioStarted(_ name: String, totalSteps: Int) async {
         let dir = "\(screenshotsDir)/\(TestOrchestrator.scenarioDirName(for: name))"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // Clear ALL recording outputs from a prior run into the same dir, not
+        // just the raw take — otherwise a re-run whose recording or encode
+        // fails would leave a stale video.mp4 for the report to pick up.
+        for stale in ["recording-raw.mov", "video.mp4", "video.json", "timeline.json"] {
+            try? FileManager.default.removeItem(atPath: "\(dir)/\(stale)")
+        }
         let rawURL = URL(fileURLWithPath: "\(dir)/recording-raw.mov")
-        try? FileManager.default.removeItem(at: rawURL)
 
         do {
             try await recorder.start(outputURL: rawURL)

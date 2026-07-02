@@ -15,9 +15,18 @@ import e2e_report_build as rb
 
 class ScenarioDirName(unittest.TestCase):
     def test_mirrors_swift_sanitizer(self):
-        # Must stay in sync with TestOrchestrator.scenarioDirName(for:).
-        self.assertEqual(rb.scenario_dir_name("Two Mac Pairing"), "two-mac-pairing")
-        self.assertEqual(rb.scenario_dir_name("OTEL: Usage (Overview)!"), "otel-usage-overview")
+        # Shared parity fixture — the Swift side asserts the same cases against
+        # TestOrchestrator.scenarioDirName(for:) in RecordingCoordinatorTests.
+        fixture_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "scenario_dir_name_fixture.json"
+        )
+        with open(fixture_path, encoding="utf-8") as f:
+            cases = json.load(f)["cases"]
+        self.assertTrue(cases)
+        for case in cases:
+            self.assertEqual(
+                rb.scenario_dir_name(case["name"]), case["expected"], msg=case["name"]
+            )
 
 
 class StoreArtifact(unittest.TestCase):

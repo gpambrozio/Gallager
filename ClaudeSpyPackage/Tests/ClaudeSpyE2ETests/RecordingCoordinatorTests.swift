@@ -38,10 +38,30 @@ struct RecordingCoordinatorTests {
         )
     }
 
-    @Test("Scenario dir name matches the orchestrator's sanitizer")
-    func scenarioDirName() {
-        #expect(TestOrchestrator.scenarioDirName(for: "Two Mac Pairing") == "two-mac-pairing")
-        #expect(TestOrchestrator.scenarioDirName(for: "OTEL: Usage (Overview)!") == "otel-usage-overview")
+    @Test("Scenario dir name matches the shared parity fixture (mirrored by e2e_report_build.py)")
+    func scenarioDirName() throws {
+        struct Fixture: Decodable {
+            struct Case: Decodable {
+                let name: String
+                let expected: String
+            }
+
+            let cases: [Case]
+        }
+        // scripts/tests/scenario_dir_name_fixture.json, reached from the repo
+        // root — the Python mirror (e2e_report_build.scenario_dir_name) asserts
+        // the same cases in scripts/tests/test_e2e_report_build.py.
+        let fixtureURL = URL(fileURLWithPath: #filePath) // .../ClaudeSpyPackage/Tests/ClaudeSpyE2ETests/RecordingCoordinatorTests.swift
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("scripts/tests/scenario_dir_name_fixture.json")
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL))
+        #expect(!fixture.cases.isEmpty)
+        for testCase in fixture.cases {
+            #expect(TestOrchestrator.scenarioDirName(for: testCase.name) == testCase.expected, "\(testCase.name)")
+        }
     }
 
     @Test("Writes timeline.json with per-step offsets, stops recorder, invokes post-processor")
@@ -87,6 +107,32 @@ struct RecordingCoordinatorTests {
         #expect(recorded.count == 1)
         #expect(recorded[0].raw.lastPathComponent == "recording-raw.mov")
         #expect(recorded[0].timeline.lastPathComponent == "timeline.json")
+    }
+
+    @Test("Scenario start clears stale outputs from a previous run into the same dir")
+    func staleOutputsCleared() async throws {
+        let dir = NSTemporaryDirectory() + "rc-test-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let scenarioDir = "\(dir)/video-demo"
+        try FileManager.default.createDirectory(atPath: scenarioDir, withIntermediateDirectories: true)
+        let staleFiles = ["recording-raw.mov", "video.mp4", "video.json", "timeline.json"]
+        for file in staleFiles {
+            FileManager.default.createFile(atPath: "\(scenarioDir)/\(file)", contents: Data("stale".utf8))
+        }
+
+        let coordinator = RecordingCoordinator(
+            screenshotsDir: dir,
+            recorder: FakeRecorder(),
+            postProcessor: nil
+        )
+        await coordinator.scenarioStarted("Video Demo", totalSteps: 1)
+
+        // The fake recorder recreates recording-raw.mov; the processed outputs
+        // from the earlier run must be gone so a failed re-run can't surface
+        // a stale video.mp4 in the report.
+        for file in ["video.mp4", "video.json", "timeline.json"] {
+            #expect(!FileManager.default.fileExists(atPath: "\(scenarioDir)/\(file)"), "\(file)")
+        }
     }
 
     @Test("Recorder start failure degrades gracefully — no timeline, no post-processing, no crash")
