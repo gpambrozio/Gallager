@@ -28,6 +28,7 @@ RELEASE_TAG="e2e-videos"
 PR_NUMBER=""
 NO_COMMENT=false
 MESSAGE="Recorded with the E2E \`--record\` pipeline:"
+LABEL=""
 SCENARIOS=()
 
 # =====================================================
@@ -50,6 +51,10 @@ usage() {
     echo "                      posting a PR comment"
     echo "  --message TEXT      Custom text above the video links, e.g. what the"
     echo "                      videos prove (markdown; default: \"$MESSAGE\")"
+    echo "  --label TEXT        Variant label added to the asset name and link title,"
+    echo "                      so two takes of the same scenario don't overwrite each"
+    echo "                      other (e.g. --label failing / --label passing for a"
+    echo "                      bug-fix repro pair)"
     echo "  -h, --help          Show this help"
 }
 
@@ -77,6 +82,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --message)
             MESSAGE="$2"
+            shift 2
+            ;;
+        --label)
+            LABEL="$2"
             shift 2
             ;;
         -h|--help)
@@ -196,6 +205,11 @@ fi
 STAGE_DIR=$(mktemp -d -t e2e-attach-video)
 trap 'rm -rf "$STAGE_DIR"' EXIT
 
+LABEL_SLUG=""
+if [ -n "$LABEL" ]; then
+    LABEL_SLUG=$(scenario_dir_name "$LABEL")
+fi
+
 MARKDOWN_LINES=()
 for scenario in "${SCENARIOS[@]}"; do
     if ! video_path=$(resolve_video "$scenario"); then
@@ -205,7 +219,7 @@ for scenario in "${SCENARIOS[@]}"; do
     fi
     video_dir=$(dirname "$video_path")
     dir_name=$(basename "$video_dir")
-    asset_name="pr${PR_NUMBER}-${dir_name}.mp4"
+    asset_name="pr${PR_NUMBER}-${dir_name}${LABEL_SLUG:+-$LABEL_SLUG}.mp4"
 
     # gh derives the asset name from the filename, so stage a copy under the
     # target name. --clobber replaces an earlier upload for the same PR+scenario.
@@ -215,7 +229,8 @@ for scenario in "${SCENARIOS[@]}"; do
     echo "Uploaded: $asset_name"
 
     url="https://github.com/$RESULTS_REPO/releases/download/$RELEASE_TAG/$asset_name"
-    MARKDOWN_LINES+=("- **▶ [$(pretty_name "$video_dir" "$scenario")]($url)**$(metadata_suffix "$video_dir")")
+    title="$(pretty_name "$video_dir" "$scenario")${LABEL:+ ($LABEL)}"
+    MARKDOWN_LINES+=("- **▶ [$title]($url)**$(metadata_suffix "$video_dir")")
 done
 
 # =====================================================
