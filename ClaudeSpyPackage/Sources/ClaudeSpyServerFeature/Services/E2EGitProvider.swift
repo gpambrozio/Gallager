@@ -38,7 +38,20 @@ struct E2EGitProvider: GitWorkbenchProvider {
                 author: status.author
             )
         }
-        return status
+        // GitWorkbench 1.6.0 added three binary (image/PDF) entries to the mock working-tree fixture to
+        // demo its new image/PDF diff viewer. Drop them so the E2E Git tab keeps the deterministic
+        // seven-text-file fixture the committed screenshot baselines — and the "7 changed files" badge
+        // assertion — were built against. Filtering by renderable-binary kind (rather than hard-coding
+        // the three paths) stays correct if future fixtures add more of the same.
+        return RepositoryStatus(
+            repositoryName: status.repositoryName,
+            currentBranch: status.currentBranch,
+            upstream: status.upstream,
+            ahead: status.ahead,
+            behind: status.behind,
+            files: status.files.filter { BinaryContent.kind(forPath: $0.path) == nil },
+            author: status.author
+        )
     }
 
     func loadHistory(of ref: String?, before: Commit.ID?, limit: Int) async throws -> [Commit] {
@@ -50,7 +63,15 @@ struct E2EGitProvider: GitWorkbenchProvider {
     }
 
     func loadBranches() async throws -> [Branch] {
-        try await base.loadBranches()
+        // GitWorkbench 1.6.0 gave the mock branches ahead/behind counts, which now render an
+        // `AheadBehindBadge` in each branch row. Zero them so the E2E branch/History screenshots keep
+        // matching the pre-1.6.0 baselines (the badge renders nothing when a branch is in sync).
+        try await base.loadBranches().map { branch in
+            var branch = branch
+            branch.ahead = 0
+            branch.behind = 0
+            return branch
+        }
     }
 
     func loadRemoteBranches() async throws -> [RemoteBranch] {
