@@ -163,7 +163,10 @@ public actor RecordingCoordinator: TestProgressReporter {
             }
             do {
                 let runner = ProcessRunner()
-                let result = try await runner.runOrThrow("/usr/bin/nice", arguments: args)
+                // ffmpeg encodes scale with take length (~10–30% of scenario duration);
+                // ProcessRunner's default 30s timeout is far too short. 30 minutes
+                // bounds even the longest scenarios.
+                let result = try await runner.runOrThrow("/usr/bin/nice", arguments: args, timeout: 1_800)
                 let summary = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
                 logger.info("Post-processed \(rawURL.deletingLastPathComponent().lastPathComponent): \(summary)")
             } catch {
