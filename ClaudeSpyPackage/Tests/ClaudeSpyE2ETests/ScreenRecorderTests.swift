@@ -36,6 +36,6 @@ struct ScreenRecorderTests {
 
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)
-        #expect(duration.seconds > 1.0)
+        #expect(duration.seconds > 1)
     }
 }
