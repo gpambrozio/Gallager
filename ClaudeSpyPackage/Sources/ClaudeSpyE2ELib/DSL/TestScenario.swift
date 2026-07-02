@@ -352,6 +352,16 @@ public enum TestStep: Sendable {
     /// and in this case some pixels will differ.
     case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02, instance: Int = 0)
 
+    // MARK: - Network
+
+    /// Occupy an IPv4 loopback TCP port with a plain listener (orchestrator-owned,
+    /// auto-released in the between-scenario cleanup). Simulates a foreign process
+    /// squatting on a port the app wants — e.g. an OTLP collector container
+    /// holding the receiver's preferred `--otlp-port` — so scenarios can prove
+    /// the app's port-collision fallback end-to-end. Must run BEFORE the app
+    /// launch whose bind it should collide with.
+    case occupyTCPPort(port: UInt16)
+
     // MARK: - Tmux
 
     /// Create a tmux session on the test socket

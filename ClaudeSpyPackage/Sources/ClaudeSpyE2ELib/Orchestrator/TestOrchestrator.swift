@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Logging
 
@@ -6,6 +7,8 @@ public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
     /// macOS drivers keyed by instance number. Created lazily via `macDriver(for:)`.
     private var macDrivers: [Int: MacOSDriver] = [:]
+    /// Sockets held open by the `occupyTCPPort` step, released in `cleanup()`.
+    private var occupiedPortSockets: [Int32] = []
     private let serverDriver = ServerDriver()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
@@ -318,6 +321,12 @@ public actor TestOrchestrator {
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
         cleanupInjectedScripts()
+        // Release ports held by the `occupyTCPPort` step so the next scenario
+        // starts with the loopback space it expects.
+        for fd in occupiedPortSockets {
+            close(fd)
+        }
+        occupiedPortSockets.removeAll()
         try? await simulatorDriver.terminateApp()
         let instanceKeys = Array(macDrivers.keys)
         for driver in macDrivers.values {
@@ -857,6 +866,11 @@ public actor TestOrchestrator {
             }
 
         // Tmux
+        case let .occupyTCPPort(port):
+            let fd = try Self.occupyIPv4LoopbackPort(port)
+            occupiedPortSockets.append(fd)
+            logger.info("Occupying 127.0.0.1:\(port) (fd \(fd)) for the rest of the scenario")
+
         case let .tmuxCreateSession(name, width, height):
             let socket = context.resolve("${tmuxSocket}")
             let resolvedName = context.resolve(name)
@@ -1324,6 +1338,37 @@ public actor TestOrchestrator {
                 "Run `swift build` in ClaudeSpyPackage first " +
                 "(or set CLAUDESPY_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
         )
+    }
+
+    // MARK: - Network Helpers
+
+    /// Bind AND listen a plain IPv4 socket on `127.0.0.1:port` — the shape of a
+    /// foreign process holding the port (see the `occupyTCPPort` step). The
+    /// socket accepts TCP connections but never speaks HTTP, exactly like a
+    /// non-cooperating squatter. Returns the fd; the caller owns closing it.
+    private static func occupyIPv4LoopbackPort(_ port: UInt16) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw OrchestratorError.configurationError("socket() failed: errno \(errno)")
+        }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Darwin.bind(fd, sa, addrLen)
+            }
+        }
+        guard bound == 0, listen(fd, 4) == 0 else {
+            let err = errno
+            close(fd)
+            throw OrchestratorError.configurationError(
+                "Could not occupy 127.0.0.1:\(port): errno \(err) (is something already using it?)"
+            )
+        }
+        return fd
     }
 
     // MARK: - Mac Instance Helpers

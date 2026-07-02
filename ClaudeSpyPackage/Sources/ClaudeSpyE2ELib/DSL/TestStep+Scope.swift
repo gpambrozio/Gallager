@@ -152,6 +152,7 @@ public extension TestStep {
              .serverReadFirstViewerIdentity,
              .serverCompletePairingAsViewer,
              .serverInjectPush,
+             .occupyTCPPort,
              .tmuxCreateSession,
              .tmuxStorePaneDimensions,
              .tmuxStorePaneId,
