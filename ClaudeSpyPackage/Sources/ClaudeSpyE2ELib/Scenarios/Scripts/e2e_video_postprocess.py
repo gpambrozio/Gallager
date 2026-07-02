@@ -195,11 +195,11 @@ def main():
     duration, width, height = probe(raw, work_dir)
 
     # 1. Static-span detection.
-    freeze_result = subprocess.run(
+    freeze_result = run_checked(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", raw,
          "-vf", f"freezedetect=n={args.freeze_noise}:d={args.freeze_min}",
          "-map", "0:v", "-f", "null", "-"],
-        cwd=work_dir, capture_output=True, text=True,
+        work_dir,
     )
     freezes = parse_freezedetect(freeze_result.stderr, duration)
     segments = build_edit_list(freezes, duration, mode=args.mode,
