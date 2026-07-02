@@ -22,7 +22,10 @@ public struct PluginEnv: Sendable {
     public let marketplaceSource: URL
 
     /// The base URL of the Mac-local OTLP/JSON receiver the host is listening on
-    /// (e.g. `http://127.0.0.1:4318`), or `nil` when no receiver is running.
+    /// (e.g. `http://127.0.0.1:24318`), or `nil` when no receiver is running.
+    /// The port is whatever the receiver ACTUALLY bound this launch — it probes
+    /// fallback candidates when its preferred port is taken — so cores must use
+    /// this value verbatim and never assume a fixed port.
     ///
     /// Cores whose agent reads `OTEL_*` env vars (Claude Code) ignore this — the
     /// host injects those vars directly into the pane. Cores whose agent is

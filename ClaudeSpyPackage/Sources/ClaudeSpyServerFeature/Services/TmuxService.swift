@@ -80,23 +80,37 @@ final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
     /// Includes Claude Code rendering/accessibility config, color + locale fidelity
     /// hints for the mirror, and oh-my-zsh update suppression.
-    private static let baseEnvironmentVars: [String] = {
+    ///
+    /// Computed (not cached) because the OTEL endpoint reads the port the
+    /// receiver ACTUALLY bound, which is only known once its startup bind has
+    /// settled — a cached `static let` could freeze a pre-bind snapshot.
+    private static var baseEnvironmentVars: [String] {
         var vars = [
             "CLAUDE_CODE_NO_FLICKER=1",
             "DISABLE_AUTO_UPDATE=true",
             "DISABLE_UPDATE_PROMPT=true",
-            // OpenTelemetry export → the Mac-local OTLP receiver (issue #597).
-            // Augments the hook channel with per-session token/cost/latency,
-            // commit/PR milestones, and permission-mode changes. One-way push;
-            // no content gates are enabled (no OTEL_LOG_USER_PROMPTS etc.), so
-            // no prompt/tool/body content ever leaves the Claude process. The
-            // receiver binds 127.0.0.1 only.
-            "CLAUDE_CODE_ENABLE_TELEMETRY=1",
-            "OTEL_METRICS_EXPORTER=otlp",
-            "OTEL_LOGS_EXPORTER=otlp",
-            "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
-            "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:\(OTLPReceiver.resolvedPort)",
-            "OTEL_METRIC_EXPORT_INTERVAL=10000",
+        ]
+        // OpenTelemetry export → the Mac-local OTLP receiver (issue #597).
+        // Augments the hook channel with per-session token/cost/latency,
+        // commit/PR milestones, and permission-mode changes. One-way push;
+        // no content gates are enabled (no OTEL_LOG_USER_PROMPTS etc.), so
+        // no prompt/tool/body content ever leaves the Claude process. The
+        // receiver binds 127.0.0.1 only. `advertisedPort` is the port the
+        // receiver actually bound — possibly a fallback candidate when the
+        // preferred port was taken; when it never bound at all, skip the OTEL
+        // block entirely rather than point agents at a dead (or worse,
+        // foreign) endpoint.
+        if let otlpPort = OTLPReceiver.advertisedPort {
+            vars += [
+                "CLAUDE_CODE_ENABLE_TELEMETRY=1",
+                "OTEL_METRICS_EXPORTER=otlp",
+                "OTEL_LOGS_EXPORTER=otlp",
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+                "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:\(otlpPort)",
+                "OTEL_METRIC_EXPORT_INTERVAL=10000",
+            ]
+        }
+        vars += [
             // Advertise 24-bit color so agents (Claude Code, Codex) and other CLI
             // tools emit RGB sequences instead of downgrading to 256 colors. The
             // matching `RGB` terminal-feature (see applyTerminalFeatureOptions) lets
@@ -128,7 +142,7 @@ final public class TmuxService {
             vars.append("TMPDIR=\(tmp)")
         }
         return vars
-    }()
+    }
 
     /// Absolute path to the user's login shell. Mirrors tmux's own resolution
     /// chain: `$SHELL` → passwd entry's `pw_shell` → POSIX-guaranteed `/bin/sh`.

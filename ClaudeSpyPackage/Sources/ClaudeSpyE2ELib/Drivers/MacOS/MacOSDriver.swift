@@ -21,11 +21,16 @@ public actor MacOSDriver {
     public static let defaultTestAccessibilityPort: UInt16 = 18_081
 
     /// Default base port for the in-app OTLP telemetry receiver, passed via
-    /// `--otlp-port`. Deliberately distinct from production's `4318` so an E2E
-    /// instance never shares a receiver with a developer's real app, and each
-    /// instance gets `defaultOTLPPort + instance` so concurrent instances don't
-    /// collide either (the OTEL channel's counterpart to the per-instance
-    /// accessibility port / ingress socket / tmux socket).
+    /// `--otlp-port`. Deliberately distinct from production's `24318` (see
+    /// `OTLPReceiver.defaultPort`) so an E2E instance never shares a receiver
+    /// with a developer's real app, and each instance gets
+    /// `defaultOTLPPort + instance` so concurrent instances don't collide
+    /// either (the OTEL channel's counterpart to the per-instance accessibility
+    /// port / ingress socket / tmux socket). This is only the port the app
+    /// tries FIRST: when it's taken the app probes fallback candidates at +100
+    /// strides — spacing that keeps a fallen-back instance off every sibling's
+    /// preferred port — and the orchestrator re-reads the actually-bound port
+    /// via `/otlp-port` after launch.
     public static let defaultOTLPPort: UInt16 = 14_318
 
     /// Port for the in-app TestAccessibilityServer HTTP endpoint.
