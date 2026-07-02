@@ -1035,8 +1035,8 @@ public actor TestOrchestrator {
             )
 
         // Sidecar Fixture Staging
-        case let .macStageSidecarFixture(id, instance):
-            try stageSidecarFixture(id: id, instance: instance)
+        case let .macStageSidecarFixture(id, instance, otlpNamespace):
+            try stageSidecarFixture(id: id, instance: instance, otlpNamespace: otlpNamespace)
 
         case let .macStageSidecarZip(id, displayName, storeAs, instance):
             let zipPath = try stageSidecarZip(id: id, displayName: displayName, instance: instance)
@@ -1175,7 +1175,7 @@ public actor TestOrchestrator {
     ///
     /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
     /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
-    private func stageSidecarFixture(id: String, instance: Int) throws {
+    private func stageSidecarFixture(id: String, instance: Int, otlpNamespace: String? = nil) throws {
         // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
         let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
         let gallagerRoot = stateRoot.deletingLastPathComponent()
@@ -1198,7 +1198,9 @@ public actor TestOrchestrator {
             ofItemAtPath: destBinary.path
         )
 
-        // Write a minimal plugin.json.
+        // Write a minimal plugin.json. An `otlp` declaration (issue #617) routes
+        // `<namespace>.api_request` OTLP records into the plugin session's meter.
+        let otlpField = otlpNamespace.map { #""otlp": { "namespace": "\#($0)" },"# } ?? ""
         let pluginJSON = """
         {
             "schema_version": 1,
@@ -1209,6 +1211,7 @@ public actor TestOrchestrator {
             "process_names": [],
             "runtime": "sidecar",
             "sidecar": { "executable": "bin/sidecar" },
+            \(otlpField)
             "ui": {}
         }
         """

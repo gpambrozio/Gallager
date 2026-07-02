@@ -246,4 +246,6 @@ plugins/opencode/
   to stay correct across versions.
 - Formal E2E-suite integration (the Swift `macStageSidecarFixture` path only
   stages the bundled Swift `EchoPluginSidecar`); this plugin is covered by the
-  standalone Python tests instead.
+  standalone Python tests instead. The declared-namespace telemetry pipeline
+  itself (manifest `otlp` → receiver → meter) has E2E coverage via the echo
+  fixture (`PluginOTLPTelemetryScenario`).
