@@ -170,6 +170,36 @@ ClaudeSpyE2E --scenario "Fresh Pairing" ...
 - `xcsift` installed (`brew install xcsift`) for build output filtering
 - **macOS 15+ Local Network:** the app no longer does a blocking local-network call at startup, so a fresh machine runs without a Local Network prompt. (If you ever do see Gallager hang at launch with a "find devices on your local network" prompt, allow it once in System Settings > Privacy & Security > Local Network and re-run.) See [known-issues.md](known-issues.md).
 
+## Recording runs as video (`--record`)
+
+`./scripts/e2e-test.sh --record` records each scenario as ONE full-display
+take (issue #621): ScreenCaptureKit captures the main display at ≤15 fps / 1x,
+started on `scenarioStarted` and finalized on `scenarioCompleted` (success or
+failure) by `RecordingCoordinator`, a `TestProgressReporter`.
+
+- **Stage layout:** with `--record`, the orchestrator translates instance-N
+  `macMoveWindow` / `macClickAtPoint` / `macDrag` coordinates into a per-
+  instance screen lane (side-by-side on wide displays, staggered diagonal on
+  laptops) so multi-instance scenarios are visible in one frame. Windows are
+  MOVED, never resized — baselines are unaffected. The Simulator window is
+  pinned top-right. Instance 0 is never touched.
+- **Post-processing:** `e2e_video_postprocess.py` (bundled resource) burns a
+  step-caption ribbon + a real-elapsed timecode on the 1x timeline, then
+  compresses static spans > 0.5s (`--record-mode speedup` (default, visible
+  `>> 8x` badge) or `remove`). Requires `brew install ffmpeg` — gated by
+  e2e-test.sh. `--record-keep-raw` keeps `recording-raw.mov` for timing
+  disputes (the published video is retimed; the burned-in timecode is the
+  wall-clock reference).
+- **Artifacts** per scenario dir: `timeline.json` (raw step offsets),
+  `video.mp4`, `video.json` (published duration + remapped seek chapters).
+  `e2e-report.sh` stores the video content-addressed (`images/<sha>.mp4`) and
+  embeds a `video` field in `report.json`; the ClaudeSpyTestResults viewer
+  plays it with clickable step-seek chapters.
+- **Caveats:** records the whole desktop — prefer CI VMs over personal
+  machines; incidental system UI can appear; occlusion is minimized, not
+  guaranteed zero, on small displays. Recording every scenario adds ~GBs per
+  full run to the results repo — keep it opt-in.
+
 ## Writing scenarios
 
 ### Basic scenario
