@@ -435,8 +435,11 @@ if [ "$LIST_SCENARIOS" != true ]; then
             fail "ffmpeg/ffprobe not found — install with: brew install ffmpeg"
             exit 1
         fi
+        # Capture the filter list once: piping into `grep -q` under pipefail
+        # falsely fails when grep exits early and ffmpeg dies with SIGPIPE.
+        ffmpeg_filters="$(ffmpeg -hide_banner -filters 2>/dev/null || true)"
         for filter in freezedetect drawtext ass; do
-            if ! ffmpeg -hide_banner -filters 2>/dev/null | grep -qw "$filter"; then
+            if ! grep -qw "$filter" <<< "$ffmpeg_filters"; then
                 fail "ffmpeg is missing the '$filter' filter — reinstall with: brew install ffmpeg"
                 exit 1
             fi
