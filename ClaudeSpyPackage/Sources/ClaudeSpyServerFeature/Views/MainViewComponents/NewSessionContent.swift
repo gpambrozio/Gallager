@@ -162,7 +162,7 @@ struct NewSessionContent: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .frame(maxHeight: popover ? 300 : .infinity)
+                .frame(maxHeight: popover ? 400 : .infinity)
                 .onChange(of: selection) { _, newValue in
                     guard let newValue else { return }
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -178,8 +178,8 @@ struct NewSessionContent: View {
                 }
             }
         }
-        .frame(maxWidth: popover ? 280 : 400)
-        .frame(width: popover ? 280 : nil)
+        .frame(maxWidth: popover ? 350 : 400)
+        .frame(width: popover ? 350 : nil)
     }
 
     private func moveSelection(by offset: Int) {
