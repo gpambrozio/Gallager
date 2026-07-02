@@ -5,6 +5,13 @@ import Testing
 
 @Suite("ScreenRecorder integration")
 struct ScreenRecorderTests {
+    @Test("stop() without a prior start is a safe no-op")
+    func stopWithoutStart() async {
+        let recorder = ScreenRecorder()
+        // Must return promptly without throwing or hanging.
+        await recorder.stop()
+    }
+
     /// Requires a GUI session + Screen Recording permission for the test
     /// runner, so it only runs when explicitly requested:
     ///   E2E_RECORDING_TESTS=1 swift test --package-path ClaudeSpyPackage \

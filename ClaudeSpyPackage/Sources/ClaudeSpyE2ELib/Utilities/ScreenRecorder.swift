@@ -78,7 +78,6 @@ public actor ScreenRecorder: ScreenRecording {
     public func stop() async {
         guard let stream else { return }
         do {
-            // Stopping capture finalizes the SCRecordingOutput file.
             try await stream.stopCapture()
         } catch {
             logger.warning("stopCapture failed (file may still be finalized): \(error)")
