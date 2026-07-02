@@ -134,7 +134,7 @@ public actor TestOrchestrator {
         await reporter?.scenarioStarted(scenario.name, totalSteps: scenario.steps.count)
         let startTime = ContinuousClock.now
 
-        let scenarioDirName = sanitizeForPath(scenario.name)
+        let scenarioDirName = Self.scenarioDirName(for: scenario.name)
 
         // Ensure per-scenario screenshots directory exists
         let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
@@ -1617,8 +1617,10 @@ public actor TestOrchestrator {
         return "\(baseDir)/\(scenarioName)"
     }
 
-    /// Convert a scenario name into a safe directory name
-    private func sanitizeForPath(_ name: String) -> String {
+    /// Convert a scenario name into a safe directory name. Static so
+    /// `RecordingCoordinator` (and the report pipeline) can derive the same
+    /// per-scenario directory the orchestrator writes screenshots into.
+    static func scenarioDirName(for name: String) -> String {
         name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
