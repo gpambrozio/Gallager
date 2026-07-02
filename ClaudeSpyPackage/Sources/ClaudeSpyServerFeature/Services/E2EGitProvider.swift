@@ -64,14 +64,9 @@ struct E2EGitProvider: GitWorkbenchProvider {
 
     func loadBranches() async throws -> [Branch] {
         // GitWorkbench 1.6.0 gave the mock branches ahead/behind counts, which now render an
-        // `AheadBehindBadge` in each branch row. Zero them so the E2E branch/History screenshots keep
-        // matching the pre-1.6.0 baselines (the badge renders nothing when a branch is in sync).
-        try await base.loadBranches().map { branch in
-            var branch = branch
-            branch.ahead = 0
-            branch.behind = 0
-            return branch
-        }
+        // `AheadBehindBadge` in each branch row. Keep those values so the badge actually renders in
+        // the E2E Git view; the affected screenshot baselines are dropped so CI regenerates them.
+        try await base.loadBranches()
     }
 
     func loadRemoteBranches() async throws -> [RemoteBranch] {
