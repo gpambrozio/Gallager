@@ -36,6 +36,9 @@ LIST_SCENARIOS=false
 NO_COMPARE=false
 SCENARIO=""
 JSON_OUTPUT=""
+RECORD=false
+RECORD_MODE=""
+RECORD_KEEP_RAW=false
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -90,6 +93,18 @@ while [[ $# -gt 0 ]]; do
             INTERACTIVE=true
             shift
             ;;
+        --record)
+            RECORD=true
+            shift
+            ;;
+        --record-mode)
+            RECORD_MODE="$2"
+            shift 2
+            ;;
+        --record-keep-raw)
+            RECORD_KEEP_RAW=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -103,6 +118,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
             echo "  --json-output FILE Write detailed JSON results to a file"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
+            echo "  --record           Record each scenario as a video (requires ffmpeg)"
+            echo "  --record-mode MODE Dead-time handling: speedup (default) or remove"
+            echo "  --record-keep-raw  Keep raw takes after post-processing"
             echo "  -h, --help       Show this help"
             exit 0
             ;;
@@ -410,6 +428,21 @@ if [ "$LIST_SCENARIOS" != true ]; then
         echo ""
         ok "All permissions granted."
     fi
+
+    if [ "$RECORD" = true ]; then
+        step "Checking video recording prerequisites"
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            fail "ffmpeg/ffprobe not found — install with: brew install ffmpeg"
+            exit 1
+        fi
+        for filter in freezedetect drawtext ass; do
+            if ! ffmpeg -hide_banner -filters 2>/dev/null | grep -qw "$filter"; then
+                fail "ffmpeg is missing the '$filter' filter — reinstall with: brew install ffmpeg"
+                exit 1
+            fi
+        done
+        ok "ffmpeg $(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')"
+    fi
 fi
 
 # =====================================================
@@ -607,6 +640,18 @@ fi
 
 if [ -n "$JSON_OUTPUT" ]; then
     E2E_ARGS+=(--json-output "$JSON_OUTPUT")
+fi
+
+if [ "$RECORD" = true ]; then
+    E2E_ARGS+=(--record)
+fi
+
+if [ -n "$RECORD_MODE" ]; then
+    E2E_ARGS+=(--record-mode "$RECORD_MODE")
+fi
+
+if [ "$RECORD_KEEP_RAW" = true ]; then
+    E2E_ARGS+=(--record-keep-raw)
 fi
 
 if [ -n "$DASHBOARD_URL" ]; then
