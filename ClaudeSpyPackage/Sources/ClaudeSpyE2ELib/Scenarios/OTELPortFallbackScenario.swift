@@ -54,9 +54,20 @@ public enum OTELPortFallbackScenario {
         // The OTEL meter is an opt-in sidebar field, off by default.
         TestStep.macSetSidebarFields(["customDescription", "projectName", "currentPath", "tokenUsage"])
 
-        // 3. Create a session and bind it to a known Claude session id.
-        TestStep.tmuxCreateSession(name: "fallback-session", width: 80, height: 24)
-        TestStep.tmuxStorePaneId(target: "fallback-session:0.0", storeAs: "fallbackPane")
+        // 3. Create the session through the app's "New Terminal" button (empty
+        //    state) rather than `tmuxCreateSession`. This routes through the same
+        //    `TmuxService.createSession` UI path users hit, which *selects the new
+        //    window* — so the mirror deterministically renders the pane (the curl
+        //    hitting the fallback port) instead of the "Select a Window"
+        //    placeholder a headless tmux create leaves behind (the app only
+        //    auto-selects windows it creates itself). The pane is captured while
+        //    the row is still the bare "terminal"; the SessionStart hook then
+        //    binds it to a known Claude session id + project so the sidebar row
+        //    relabels to "FallbackProject" and shows its meter.
+        TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
+        TestStep.macClickButton(titled: "New Terminal")
+        TestStep.macWaitForElement(titled: "terminal", timeout: 10)
+        TestStep.tmuxStorePaneId(target: "terminal", storeAs: "fallbackPane")
         TestStep.macSendHookEvent(
             json: """
             {
@@ -73,7 +84,7 @@ public enum OTELPortFallbackScenario {
         // 4. POST a synthetic api_request to the receiver's REAL endpoint.
         //    With the preferred port squatted, this only renders a meter if the
         //    fallback bind + advertised-port plumbing worked end-to-end.
-        Shortcut.tmuxRunCommand(target: "fallback-session:0.0", command: apiRequestCurl)
+        Shortcut.tmuxRunCommand(target: "${fallbackPane}", command: apiRequestCurl)
         TestStep.wait(seconds: 2)
 
         // 5. The meter renders in the sidebar row despite the squatter.
