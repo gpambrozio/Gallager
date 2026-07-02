@@ -200,6 +200,27 @@ failure) by `RecordingCoordinator`, a `TestProgressReporter`.
   guaranteed zero, on small displays. Recording every scenario adds ~GBs per
   full run to the results repo — keep it opt-in.
 
+### Attaching a video to a PR (`e2e-attach-video.sh`)
+
+`./scripts/e2e-attach-video.sh "Scenario Name"` uploads a recorded scenario's
+`video.mp4` as an asset on the rolling `e2e-videos` prerelease of
+ClaudeSpyTestResults (official `gh release upload` API — no repo history, no
+undocumented endpoints) and posts a PR comment linking it. Video proof that a
+feature works, discardable after review:
+
+```bash
+./scripts/e2e-test.sh --record --scenario "Window Description Sync"
+./scripts/e2e-attach-video.sh "Window Description Sync"   # PR auto-detected
+```
+
+Accepts multiple scenarios (one comment), scenario names / dir names / video
+paths, `--pr N` when off the PR branch, and `--no-comment` to just upload and
+print the markdown snippet. Assets are named `pr<N>-<scenario-dir>.mp4`
+(re-runs clobber), post as `gpa-agent` when `BOT_GITHUB_TOKEN` is set, and are
+deletable any time: `gh release delete-asset e2e-videos <asset>.mp4 --repo
+gpambrozio/ClaudeSpyTestResults`. Note: release-asset links download rather
+than play inline, and require access to the (private) results repo.
+
 ## Writing scenarios
 
 ### Basic scenario
