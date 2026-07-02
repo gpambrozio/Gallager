@@ -319,6 +319,13 @@ actor OTLPReceiver {
 
     /// Extracts the first complete HTTP request from `buffer`: `(path, body,
     /// bytesConsumed)`, or `nil` if the headers or full body haven't arrived.
+    ///
+    /// Supports both body framings a real exporter uses: `Content-Length` and
+    /// `Transfer-Encoding: chunked`. Claude Code's OTLP exporter (observed on
+    /// 2.1.198) streams every export chunked with NO `Content-Length` header —
+    /// a length-only parser sees an empty body (dropping every record while
+    /// still acking 200) and then misreads the chunk bytes as the next
+    /// request's headers.
     private nonisolated static func parseRequest(_ buffer: Data) -> (path: String, body: Data, consumed: Int)? {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerRange = buffer.range(of: separator) else { return nil }
@@ -333,8 +340,15 @@ actor OTLPReceiver {
         else { return nil }
         let path = String(lineParts[1])
 
-        let contentLength = contentLength(from: lines)
         let bodyStart = headerRange.upperBound
+        if isChunked(headerLines: lines) {
+            guard let (body, bodyEnd) = dechunkBody(buffer, from: bodyStart) else {
+                return nil // chunk stream not fully arrived
+            }
+            return (path, body, bodyEnd)
+        }
+
+        let contentLength = contentLength(from: lines)
         let bodyEnd = bodyStart + contentLength
         guard buffer.count >= bodyEnd else { return nil } // body not fully arrived
         let body = buffer.subdata(in: bodyStart..<bodyEnd)
@@ -348,6 +362,65 @@ actor OTLPReceiver {
             return Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
         }
         return 0
+    }
+
+    private nonisolated static func isChunked(headerLines: [String]) -> Bool {
+        for line in headerLines {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0].lowercased() == "transfer-encoding" else { continue }
+            return parts[1].lowercased().contains("chunked")
+        }
+        return false
+    }
+
+    /// Decodes a `Transfer-Encoding: chunked` body starting at `start`:
+    /// `size-hex[;ext]\r\n<data>\r\n` repeated, terminated by a zero-size chunk
+    /// and (empty here — exporters don't send trailers) trailer section. Returns
+    /// the concatenated chunk data and the index one past the terminator, or
+    /// `nil` while the stream is incomplete (or malformed — the caller then
+    /// waits for more bytes until the peer closes or the size cap trips, the
+    /// same terminal path as any garbage request).
+    private nonisolated static func dechunkBody(_ buffer: Data, from start: Int) -> (body: Data, consumed: Int)? {
+        let crlf = Data("\r\n".utf8)
+        var body = Data()
+        var cursor = start
+        while true {
+            guard
+                cursor < buffer.count,
+                let sizeLineEnd = buffer.range(of: crlf, in: cursor..<buffer.count)
+            else { return nil }
+            let sizeLine = buffer.subdata(in: cursor..<sizeLineEnd.lowerBound)
+            guard
+                let sizeText = String(data: sizeLine, encoding: .utf8),
+                let sizeHex = sizeText.split(separator: ";").first,
+                let size = Int(sizeHex.trimmingCharacters(in: .whitespaces), radix: 16),
+                size >= 0
+            else { return nil }
+
+            if size == 0 {
+                // Last chunk. An empty trailer section is just the closing CRLF;
+                // a non-empty one (never seen from a real exporter, but legal)
+                // ends at the next blank line.
+                let trailerStart = sizeLineEnd.upperBound
+                if
+                    buffer.count >= trailerStart + 2,
+                    buffer.subdata(in: trailerStart..<(trailerStart + 2)) == crlf {
+                    return (body, trailerStart + 2)
+                }
+                let crlfcrlf = Data("\r\n\r\n".utf8)
+                guard
+                    trailerStart < buffer.count,
+                    let terminator = buffer.range(of: crlfcrlf, in: trailerStart..<buffer.count)
+                else { return nil }
+                return (body, terminator.upperBound)
+            }
+
+            let dataStart = sizeLineEnd.upperBound
+            let dataEnd = dataStart + size
+            guard buffer.count >= dataEnd + 2 else { return nil } // chunk + its CRLF not arrived
+            body.append(buffer.subdata(in: dataStart..<dataEnd))
+            cursor = dataEnd + 2
+        }
     }
 
     // MARK: Processing (actor-isolated)

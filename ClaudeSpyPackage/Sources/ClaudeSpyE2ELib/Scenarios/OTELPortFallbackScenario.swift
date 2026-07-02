@@ -28,9 +28,13 @@ import Foundation
 public enum OTELPortFallbackScenario {
     /// `api_request` log: 20 000 input + 500 output tokens, $0.77.
     /// → meter "⚡ 20.5k · $0.77". Same real wire shape as
-    /// `OTELTelemetryRenderScenario` (fully-qualified `body`, bare `event.name`).
+    /// `OTELTelemetryRenderScenario` (fully-qualified `body`, bare `event.name`),
+    /// but framed with `Transfer-Encoding: chunked` (curl streams the body
+    /// chunked when told to, dropping Content-Length) — the framing Claude
+    /// Code's real exporter uses, so the suite covers both framings:
+    /// Content-Length in the render scenario, chunked here.
     private static let apiRequestCurl =
-        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-fallback-session"}},{"key":"input_tokens","value":{"intValue":"20000"}},{"key":"output_tokens","value":{"intValue":"500"}},{"key":"cost_usd","value":{"doubleValue":0.77}},{"key":"duration_ms","value":{"intValue":"1200"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
+        #"curl -s -o /dev/null -X POST ${otlpEndpoint}/v1/logs -H 'Content-Type: application/json' -H 'Transfer-Encoding: chunked' -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"e2e-fallback-session"}},{"key":"input_tokens","value":{"intValue":"20000"}},{"key":"output_tokens","value":{"intValue":"500"}},{"key":"cost_usd","value":{"doubleValue":0.77}},{"key":"duration_ms","value":{"intValue":"1200"}},{"key":"model","value":{"stringValue":"claude-opus-4-8"}}]}]}]}]}'"#
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "OTEL Port Fallback",
