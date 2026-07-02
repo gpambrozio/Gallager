@@ -10,7 +10,8 @@ import Foundation
 ///    `PaneState.claudeSessionID`, the shared OTEL join key).
 /// 2. Synthetic Codex OTLP/JSON is POSTed to the Mac-local receiver from the
 ///    pane's own shell via `curl`, addressed by the `${otlpEndpoint}` context
-///    variable (this instance's `--otlp-port`). Tokens ride `codex.sse_event`
+///    variable (the port this instance actually bound, queried via
+///    `/otlp-port` after launch). Tokens ride `codex.sse_event`
 ///    (`response.completed`) and per-turn latency rides `codex.turn_ttft`. Both
 ///    Codex log events carry `conversation.id` (`codex.api_request` does not).
 /// 3. The receiver joins by `conversation.id` and stamps the pane, so the

@@ -257,6 +257,31 @@
                             connection.cancel()
                         })
                     }
+                } else if request.hasPrefix("GET /otlp-port") {
+                    // The OTLP receiver port the app ACTUALLY bound — it probes
+                    // fallback candidates when the preferred `--otlp-port` is
+                    // taken. The orchestrator queries this after launch and
+                    // repoints `${otlpEndpoint}` so telemetry scenarios POST
+                    // where the receiver really listens. 404 while the bind
+                    // hasn't settled (or failed every candidate); the client
+                    // polls.
+                    Task { @MainActor in
+                        let response: Data
+                        if let port = OTLPReceiver.advertisedPort {
+                            let body = String(port)
+                            response = Data(
+                                "HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                                    .utf8
+                            )
+                        } else {
+                            response = Data(
+                                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8
+                            )
+                        }
+                        connection.send(content: response, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                    }
                 } else {
                     let response = Data("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n".utf8)
                     connection.send(content: response, completion: .contentProcessed { _ in

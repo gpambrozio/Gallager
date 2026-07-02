@@ -22,18 +22,23 @@ actor OTLPReceiver {
     typealias MilestoneHandler = @Sendable (_ milestone: TelemetryMilestone) async -> Void
     typealias ModeChangeHandler = @Sendable (_ change: TelemetryModeChange) async -> Void
 
-    /// The default loopback port Claude Code is pointed at via
-    /// `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`.
-    static let defaultPort: UInt16 = 4_318
+    /// The default loopback port. Deliberately NOT the OTLP-standard `4318`:
+    /// that port is the first thing any local OTLP collector binds (a Docker
+    /// collector container was observed holding `127.0.0.1:4318` and silently
+    /// swallowing every export meant for this receiver), so the app claims an
+    /// unassigned port of its own. Both ends of the pipe are app-controlled —
+    /// the receiver binds it and the env/config injection advertises it — so
+    /// nothing external ever needs the standard port.
+    static let defaultPort: UInt16 = 24_318
 
-    /// The port this process actually binds **and** advertises to launched
-    /// Claude instances. The single source of truth shared by the receiver
-    /// (`setupOTLPReceiver`) and the env injection (`TmuxService`), so the two
-    /// can never drift. Honors an `--otlp-port <port>` launch override: E2E
-    /// gives each app instance its own port so concurrent instances — and a
-    /// developer's real app already holding 4318 off to the side — never share
-    /// a loopback receiver. Falls back to `defaultPort` in production.
-    static var resolvedPort: UInt16 {
+    /// The port the receiver tries FIRST. Honors an `--otlp-port <port>` launch
+    /// override: E2E gives each app instance its own port so concurrent
+    /// instances — and a developer's real app on `defaultPort` off to the
+    /// side — never share a loopback receiver. Falls back to `defaultPort` in
+    /// production. The port actually bound can differ when this one is taken
+    /// (see `portCandidates(startingAt:)`); everything that advertises the
+    /// endpoint must read `advertisedPort` instead.
+    static var preferredPort: UInt16 {
         if
             let idx = CommandLine.arguments.firstIndex(of: "--otlp-port"),
             idx + 1 < CommandLine.arguments.count,
@@ -43,11 +48,42 @@ actor OTLPReceiver {
         return defaultPort
     }
 
+    /// The loopback port the receiver actually bound this launch — the single
+    /// value every advertisement (the `OTEL_*` env injection in `TmuxService`,
+    /// the `otlpReceiverEndpoint` in `PluginEnv`, the E2E `/otlp-port` query)
+    /// must read, so the bind and the advertisements can never drift even when
+    /// the preferred port was taken and a fallback candidate won. `nil` until
+    /// `start()` succeeds, and stays `nil` when every candidate was taken —
+    /// consumers then skip OTEL configuration entirely rather than point
+    /// agents at a dead (or worse, foreign) endpoint.
+    @MainActor static var advertisedPort: UInt16?
+
+    /// Distance between fallback candidates. Large enough that an E2E sibling
+    /// instance (preferred ports are `base + instance`, spacing 1) can never
+    /// sit inside another instance's fallback chain.
+    static let portProbeStride: UInt16 = 100
+
+    /// How many candidate ports `start()` probes before giving up.
+    static let portProbeAttempts = 5
+
+    /// The ports `start()` tries in order: the preferred port, then fallbacks
+    /// at `portProbeStride` steps, clamped at the UInt16 boundary.
+    static func portCandidates(startingAt preferred: UInt16) -> [UInt16] {
+        (0..<portProbeAttempts).compactMap { attempt in
+            let (candidate, overflow) = preferred
+                .addingReportingOverflow(UInt16(attempt) * portProbeStride)
+            return overflow ? nil : candidate
+        }
+    }
+
     /// Hard cap on a single buffered request, guarding against a misbehaving
     /// local client. OTLP batches are small (KBs); 32 MB is generous.
     private static let maxRequestBytes = 32 * 1_024 * 1_024
 
+    /// The preferred port — the first candidate `start()` probes.
     private let port: UInt16
+    /// The port actually bound, once `start()` has succeeded.
+    private(set) var boundPort: UInt16?
     private var listener: NWListener?
     private var accumulator = OTLPTelemetryAccumulator()
     private let decoder = JSONDecoder()
@@ -85,28 +121,93 @@ actor OTLPReceiver {
 
     // MARK: Lifecycle
 
-    func start() throws {
-        guard listener == nil else { return }
-        let params = NWParameters.tcp
-        params.allowLocalEndpointReuse = true
-        // Loopback only: unreachable off-host and exempt from Local Network Privacy.
-        params.requiredInterfaceType = .loopback
-        guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-            throw OTLPReceiverError.invalidPort(port)
+    /// Binds the first free candidate port (the preferred port, then fallbacks
+    /// — see `portCandidates(startingAt:)`) and returns the port actually
+    /// bound. Throws only when every candidate is taken.
+    @discardableResult
+    func start() async throws -> UInt16 {
+        if listener != nil, let boundPort { return boundPort }
+        var attempted: [UInt16] = []
+        for candidate in Self.portCandidates(startingAt: port) {
+            guard let nwPort = NWEndpoint.Port(rawValue: candidate) else { continue }
+            let params = NWParameters.tcp
+            params.allowLocalEndpointReuse = true
+            // Loopback only: unreachable off-host and exempt from Local Network Privacy.
+            params.requiredInterfaceType = .loopback
+            // Bind the IPv4 loopback address EXPLICITLY. A port-only bind
+            // creates a dual-stack IPv6 wildcard socket that happily coexists
+            // with another process's IPv4-specific `127.0.0.1` listener on the
+            // same port — the kernel then routes all IPv4 traffic (exporters
+            // dial `127.0.0.1`) to the more-specific socket, and the meter
+            // silently starves (observed live with an OTLP collector container
+            // holding `127.0.0.1:4318`). An explicit IPv4 bind turns that
+            // silent hijack into an `EADDRINUSE` we can react to by probing
+            // the next candidate.
+            params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: nwPort)
+            let listener = try NWListener(using: params)
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.accept(connection)
+            }
+            attempted.append(candidate)
+            if let error = await Self.bindOutcome(listener) {
+                logger.info("OTLP candidate port \(candidate) unavailable: \(error)")
+                listener.cancel()
+                continue
+            }
+            // Bound: swap in the long-lived handler (bind-time states were
+            // consumed by `bindOutcome`); later failures are log-only.
+            listener.stateUpdateHandler = { [logger] state in
+                if case let .failed(error) = state {
+                    logger.error("OTLP listener failed: \(error)")
+                }
+            }
+            self.listener = listener
+            boundPort = candidate
+            startConsumer()
+            logger.info("OTLP receiver listening on 127.0.0.1:\(candidate)")
+            return candidate
         }
-        let listener = try NWListener(using: params, on: nwPort)
-        listener.stateUpdateHandler = { [logger] state in
-            if case let .failed(error) = state {
-                logger.error("OTLP listener failed: \(error)")
+        throw OTLPReceiverError.allCandidatePortsUnavailable(attempted)
+    }
+
+    /// Starts `listener` and waits for the bind to settle: `nil` on `.ready`,
+    /// the error on `.failed`/`.cancelled` — and on `.waiting`, which some
+    /// macOS versions use to surface a port-in-use bind instead of `.failed`.
+    /// A loopback-only listener has no transient network condition to wait
+    /// out, so any `.waiting` IS a bind failure; treating it as terminal also
+    /// keeps `start()` (which gates `setupPluginRuntime()`) from hanging app
+    /// startup. States after the first terminal one are ignored (the caller
+    /// installs the long-lived handler).
+    private static func bindOutcome(_ listener: NWListener) async -> NWError? {
+        let states = AsyncStream<NWListener.State> { continuation in
+            listener.stateUpdateHandler = { state in
+                continuation.yield(state)
+                switch state {
+                case .ready,
+                     .waiting,
+                     .failed,
+                     .cancelled:
+                    continuation.finish()
+                default:
+                    break
+                }
+            }
+            listener.start(queue: .global(qos: .utility))
+        }
+        for await state in states {
+            switch state {
+            case .ready:
+                return nil
+            case let .waiting(error),
+                 let .failed(error):
+                return error
+            case .cancelled:
+                return NWError.posix(.ECANCELED)
+            default:
+                continue
             }
         }
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.accept(connection)
-        }
-        listener.start(queue: .global(qos: .utility))
-        self.listener = listener
-        startConsumer()
-        logger.info("OTLP receiver listening on 127.0.0.1:\(port)")
+        return NWError.posix(.ECANCELED) // stream ended without a terminal state
     }
 
     /// Single FIFO consumer: drains buffered request bodies and processes them
@@ -126,6 +227,7 @@ actor OTLPReceiver {
         consumerTask = nil
         listener?.cancel()
         listener = nil
+        boundPort = nil
     }
 
     /// Drops accumulated state for a session (called when its pane's session ends),
@@ -217,6 +319,13 @@ actor OTLPReceiver {
 
     /// Extracts the first complete HTTP request from `buffer`: `(path, body,
     /// bytesConsumed)`, or `nil` if the headers or full body haven't arrived.
+    ///
+    /// Supports both body framings a real exporter uses: `Content-Length` and
+    /// `Transfer-Encoding: chunked`. Claude Code's OTLP exporter (observed on
+    /// 2.1.198) streams every export chunked with NO `Content-Length` header —
+    /// a length-only parser sees an empty body (dropping every record while
+    /// still acking 200) and then misreads the chunk bytes as the next
+    /// request's headers.
     private nonisolated static func parseRequest(_ buffer: Data) -> (path: String, body: Data, consumed: Int)? {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerRange = buffer.range(of: separator) else { return nil }
@@ -231,8 +340,15 @@ actor OTLPReceiver {
         else { return nil }
         let path = String(lineParts[1])
 
-        let contentLength = contentLength(from: lines)
         let bodyStart = headerRange.upperBound
+        if isChunked(headerLines: lines) {
+            guard let (body, bodyEnd) = dechunkBody(buffer, from: bodyStart) else {
+                return nil // chunk stream not fully arrived
+            }
+            return (path, body, bodyEnd)
+        }
+
+        let contentLength = contentLength(from: lines)
         let bodyEnd = bodyStart + contentLength
         guard buffer.count >= bodyEnd else { return nil } // body not fully arrived
         let body = buffer.subdata(in: bodyStart..<bodyEnd)
@@ -246,6 +362,65 @@ actor OTLPReceiver {
             return Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
         }
         return 0
+    }
+
+    private nonisolated static func isChunked(headerLines: [String]) -> Bool {
+        for line in headerLines {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0].lowercased() == "transfer-encoding" else { continue }
+            return parts[1].lowercased().contains("chunked")
+        }
+        return false
+    }
+
+    /// Decodes a `Transfer-Encoding: chunked` body starting at `start`:
+    /// `size-hex[;ext]\r\n<data>\r\n` repeated, terminated by a zero-size chunk
+    /// and (empty here — exporters don't send trailers) trailer section. Returns
+    /// the concatenated chunk data and the index one past the terminator, or
+    /// `nil` while the stream is incomplete (or malformed — the caller then
+    /// waits for more bytes until the peer closes or the size cap trips, the
+    /// same terminal path as any garbage request).
+    private nonisolated static func dechunkBody(_ buffer: Data, from start: Int) -> (body: Data, consumed: Int)? {
+        let crlf = Data("\r\n".utf8)
+        var body = Data()
+        var cursor = start
+        while true {
+            guard
+                cursor < buffer.count,
+                let sizeLineEnd = buffer.range(of: crlf, in: cursor..<buffer.count)
+            else { return nil }
+            let sizeLine = buffer.subdata(in: cursor..<sizeLineEnd.lowerBound)
+            guard
+                let sizeText = String(data: sizeLine, encoding: .utf8),
+                let sizeHex = sizeText.split(separator: ";").first,
+                let size = Int(sizeHex.trimmingCharacters(in: .whitespaces), radix: 16),
+                size >= 0
+            else { return nil }
+
+            if size == 0 {
+                // Last chunk. An empty trailer section is just the closing CRLF;
+                // a non-empty one (never seen from a real exporter, but legal)
+                // ends at the next blank line.
+                let trailerStart = sizeLineEnd.upperBound
+                if
+                    buffer.count >= trailerStart + 2,
+                    buffer.subdata(in: trailerStart..<(trailerStart + 2)) == crlf {
+                    return (body, trailerStart + 2)
+                }
+                let crlfcrlf = Data("\r\n\r\n".utf8)
+                guard
+                    trailerStart < buffer.count,
+                    let terminator = buffer.range(of: crlfcrlf, in: trailerStart..<buffer.count)
+                else { return nil }
+                return (body, terminator.upperBound)
+            }
+
+            let dataStart = sizeLineEnd.upperBound
+            let dataEnd = dataStart + size
+            guard buffer.count >= dataEnd + 2 else { return nil } // chunk + its CRLF not arrived
+            body.append(buffer.subdata(in: dataStart..<dataEnd))
+            cursor = dataEnd + 2
+        }
     }
 
     // MARK: Processing (actor-isolated)
@@ -282,5 +457,6 @@ actor OTLPReceiver {
 }
 
 enum OTLPReceiverError: Error {
-    case invalidPort(UInt16)
+    /// Every candidate port (preferred + fallbacks) was already taken.
+    case allCandidatePortsUnavailable([UInt16])
 }
