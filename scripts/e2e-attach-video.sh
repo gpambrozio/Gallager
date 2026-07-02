@@ -27,6 +27,7 @@ RESULTS_REPO="gpambrozio/ClaudeSpyTestResults"
 RELEASE_TAG="e2e-videos"
 PR_NUMBER=""
 NO_COMMENT=false
+MESSAGE="Recorded with the E2E \`--record\` pipeline:"
 SCENARIOS=()
 
 # =====================================================
@@ -47,6 +48,8 @@ usage() {
     echo "  --release-tag TAG   Rolling release tag for assets (default: $RELEASE_TAG)"
     echo "  --no-comment        Upload only; print the markdown snippet instead of"
     echo "                      posting a PR comment"
+    echo "  --message TEXT      Custom text above the video links, e.g. what the"
+    echo "                      videos prove (markdown; default: \"$MESSAGE\")"
     echo "  -h, --help          Show this help"
 }
 
@@ -71,6 +74,10 @@ while [[ $# -gt 0 ]]; do
         --no-comment)
             NO_COMMENT=true
             shift
+            ;;
+        --message)
+            MESSAGE="$2"
+            shift 2
             ;;
         -h|--help)
             usage
@@ -216,7 +223,7 @@ done
 # =====================================================
 BODY="## 🎬 E2E Video Proof
 
-Recorded with the E2E \`--record\` pipeline:
+$MESSAGE
 
 $(printf '%s\n' "${MARKDOWN_LINES[@]}")
 

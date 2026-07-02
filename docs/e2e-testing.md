@@ -214,8 +214,9 @@ feature works, discardable after review:
 ```
 
 Accepts multiple scenarios (one comment), scenario names / dir names / video
-paths, `--pr N` when off the PR branch, and `--no-comment` to just upload and
-print the markdown snippet. Assets are named `pr<N>-<scenario-dir>.mp4`
+paths, `--pr N` when off the PR branch, `--message TEXT` to replace the
+comment's intro line with what the videos prove (markdown), and `--no-comment`
+to just upload and print the markdown snippet. Assets are named `pr<N>-<scenario-dir>.mp4`
 (re-runs clobber), post as `gpa-agent` when `BOT_GITHUB_TOKEN` is set, and are
 deletable any time: `gh release delete-asset e2e-videos <asset>.mp4 --repo
 gpambrozio/ClaudeSpyTestResults`. Note: release-asset links download rather
