@@ -171,11 +171,14 @@ These are all **requests** (Gallager expects a response for each):
   "appVersion": "2.4.0",
   "settings": {},
   "marketplaceSource": "/path/to/marketplace/assets",
-  "otlpReceiverEndpoint": "http://127.0.0.1:4318"
+  "otlpReceiverEndpoint": "http://127.0.0.1:24318"
 }
 ```
 
-`otlpReceiverEndpoint` is `null` when no OTLP receiver is running. `settings` is the
+`otlpReceiverEndpoint` is `null` when no OTLP receiver is running. The port is
+whatever the receiver actually bound this launch (it probes fallback candidates
+when its preferred port is taken) — use the value verbatim, never assume a
+fixed port. `settings` is the
 current settings object (or `{}` when empty). (camelCase keys — this is the stdio
 transport; see the casing note at the top of this section.)
 
@@ -354,7 +357,9 @@ separate from structured log lines written via the `log` notification, which go 
 
 If your agent supports OpenTelemetry, you can point its OTLP exporter at the
 `otlpReceiverEndpoint` value received in the `initialize` params. Gallager runs a
-local OTLP/JSON receiver on `http://127.0.0.1:4318` when active.
+local OTLP/JSON receiver on the IPv4 loopback (`http://127.0.0.1:<port>`, default
+port `24318` but not guaranteed — always use the endpoint value as received) when
+active.
 
 **Caveat:** The built-in OTLP accumulator currently only parses event namespaces
 `claude_code.*` and `codex.*`. OTLP payloads from a third-party agent that use a

@@ -84,6 +84,28 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Read the OTLP receiver port the app ACTUALLY bound — it may have fallen
+    /// back from the preferred `--otlp-port` when that port was taken
+    /// (`OTLPReceiver` collision protection). Polls until the app is up and the
+    /// bind has settled (connection refused while launching, 404 while
+    /// pending), or the deadline passes — then `nil`.
+    static func waitForOTLPPort(port: UInt16 = defaultPort, timeout: TimeInterval = 10) async -> UInt16? {
+        let url = URL(string: "http://127.0.0.1:\(port)/otlp-port")!
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if
+                let (data, response) = try? await URLSession.shared.data(from: url),
+                (response as? HTTPURLResponse)?.statusCode == 200,
+                let bound = UInt16(String(data: data, encoding: .utf8) ?? "") {
+                logger.info("HTTP otlp-port: \(bound)")
+                return bound
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        logger.warning("HTTP otlp-port: no response within \(timeout)s")
+        return nil
+    }
+
     /// Trigger a simulated Finder file drop on the given tmux pane.
     /// Calls the in-process `/drop-files` test endpoint, which finds the
     /// matching `InteractiveTerminalView` and invokes `simulateFileDrop`.

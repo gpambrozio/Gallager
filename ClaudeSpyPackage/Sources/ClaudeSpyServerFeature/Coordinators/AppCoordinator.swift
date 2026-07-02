@@ -557,6 +557,18 @@
             // settings.json, before cores read them via PluginEnv.settings (§11).
             PluginSettingsMigration.runIfNeeded(paths: paths, preferences: preferences)
 
+            // OTEL telemetry receiver (issue #597): a loopback OTLP/JSON listener
+            // that augments the hook channel with per-session token/cost/latency,
+            // commit/PR milestones, and permission-mode changes. Started BEFORE
+            // any plugin enables (and before any pane can be created) so the
+            // port it actually bound — the preferred port, or a fallback
+            // candidate when that one was taken — is published as
+            // `OTLPReceiver.advertisedPort` by the time `makePluginEnv` and
+            // `TmuxService`'s env injection read it. Failure to bind every
+            // candidate is non-fatal — the hook channel is unaffected, agents
+            // simply get no OTEL config, and the meter stays empty.
+            await setupOTLPReceiver()
+
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
                 onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
@@ -695,13 +707,6 @@
                 logger.error("Failed to start plugin ingress socket: \(error)")
             }
 
-            // OTEL telemetry receiver (issue #597): a loopback OTLP/JSON listener
-            // that augments the hook channel with per-session token/cost/latency,
-            // commit/PR milestones, and permission-mode changes. Failure to bind
-            // (e.g. the port is taken) is non-fatal — the hook channel is
-            // unaffected and the meter simply stays empty.
-            await setupOTLPReceiver()
-
             // E2E project-list determinism (spec §17.3). The per-agent in-memory
             // scanners that used to seed a fixed project set were deleted in the
             // plugin-system flip; restore the same deterministic set via the
@@ -820,21 +825,18 @@
                 appVersion: VersionCompatibility.currentAppVersion,
                 settings: settingsData,
                 marketplaceSource: marketplaceSource,
-                // The single source of truth for the receiver port (shared with the
-                // env injection in `TmuxService`), so a core that configures OTEL
+                // The port the receiver ACTUALLY bound (shared with the env
+                // injection in `TmuxService`), so a core that configures OTEL
                 // through its agent's own config (Codex) targets the same loopback
-                // receiver Claude's `OTEL_*` env vars point at (issue #602).
-                //
-                // Start-ordering note: this endpoint is built unconditionally,
-                // before `setupOTLPReceiver()` binds the port — plugin `initialize`
-                // fires during `registry.enable`, which runs ahead of the later
-                // `await setupOTLPReceiver()` in `setupPluginRuntime()`. So it stays
-                // non-nil even if the receiver subsequently fails to bind (e.g. port
-                // taken). That degrades gracefully by design: Codex's push-only OTLP
-                // export silently drops the ECONNREFUSED, so a dead endpoint means
-                // "no meter", never an error — not worth gating env construction on a
-                // bind result that almost always succeeds.
-                otlpReceiverEndpoint: URL(string: "http://127.0.0.1:\(OTLPReceiver.resolvedPort)")
+                // receiver Claude's `OTEL_*` env vars point at (issue #602) — even
+                // when the preferred port was taken and a fallback candidate won.
+                // `setupOTLPReceiver()` runs at the top of `setupPluginRuntime()`,
+                // ahead of every `registry.enable`, so the bind has settled by the
+                // time any plugin env is built. `nil` when every candidate port was
+                // taken: the core then skips OTEL config entirely instead of
+                // pointing its agent at a dead (or foreign) endpoint.
+                otlpReceiverEndpoint: OTLPReceiver.advertisedPort
+                    .flatMap { URL(string: "http://127.0.0.1:\($0)") }
             )
         }
 
@@ -1399,7 +1401,7 @@
             usageOverview = await currentUsageOverview()
 
             let receiver = OTLPReceiver(
-                port: OTLPReceiver.resolvedPort,
+                port: OTLPReceiver.preferredPort,
                 onTelemetry: { [weak self] sessionID, telemetry in
                     await self?.handleTelemetry(sessionID: sessionID, telemetry: telemetry)
                 },
@@ -1412,7 +1414,13 @@
             )
             otlpReceiver = receiver
             do {
-                try await receiver.start()
+                // Publish the port the bind actually landed on — possibly a
+                // fallback candidate — as the one value every advertisement
+                // (TmuxService env injection, PluginEnv endpoint, E2E
+                // `/otlp-port`) reads. Left `nil` on total failure so those
+                // consumers skip OTEL config instead of advertising a dead
+                // (or foreign) endpoint.
+                OTLPReceiver.advertisedPort = try await receiver.start()
             } catch {
                 logger.error("Failed to start OTLP telemetry receiver: \(error)")
             }

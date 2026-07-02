@@ -31,7 +31,7 @@ public actor CodexPluginCore: PluginCore {
     private var marketplaceSource = URL(fileURLWithPath: "/")
     private var command = "codex"
 
-    /// Base URL of the Mac-local OTLP receiver (e.g. `http://127.0.0.1:4318`),
+    /// Base URL of the Mac-local OTLP receiver (e.g. `http://127.0.0.1:24318`),
     /// from `PluginEnv`. Used to build the `-c otel.…` launch overrides that
     /// point Codex's OTLP log export here (issue #602). `nil` when no receiver
     /// is running, in which case Codex launches with no OTEL overrides.

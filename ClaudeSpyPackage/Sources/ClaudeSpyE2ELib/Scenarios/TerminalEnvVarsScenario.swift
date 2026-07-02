@@ -90,8 +90,10 @@ public enum TerminalEnvVarsScenario {
         TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_METRICS_EXPORTER=otlp")
         TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_LOGS_EXPORTER=otlp")
         TestStep.assertStoredContains(key: "envOutput", substring: "OTEL_EXPORTER_OTLP_PROTOCOL=http/json")
-        // Port-agnostic: E2E injects a per-instance `--otlp-port` (not the
-        // production 4318), so assert only the loopback endpoint prefix. The
+        // Port-agnostic: E2E instances bind a per-instance `--otlp-port` (not
+        // the production 24318), and the injected endpoint carries whatever
+        // port the receiver ACTUALLY bound (it probes fallback candidates when
+        // its preferred port is taken) — so assert only the loopback prefix. The
         // exact port is proven end-to-end by OTELTelemetryRenderScenario, where
         // the pane's curl POSTs to this same var and the meter renders.
         TestStep.assertStoredContains(

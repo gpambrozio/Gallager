@@ -166,11 +166,14 @@ public actor TestOrchestrator {
         // and place watched fixture files (e.g. a codex `config.toml`) inside
         // the per-scenario sandbox the orchestrator already cleans up.
         context.set("gallagerStateRoot", value: gallagerStateRootPath(for: 0))
-        // Instance 0's OTLP receiver endpoint, matching the `--otlp-port` the
-        // launch args pass (`defaultOTLPPort + 0`). Telemetry scenarios POST
-        // synthetic OTLP here via `${otlpEndpoint}`, so the curl follows this
-        // instance's own receiver port instead of a hardcoded 4318 (which could
-        // be held by another instance or a developer's real app).
+        // Instance 0's OTLP receiver endpoint, pre-seeded with the preferred
+        // `--otlp-port` the launch args pass (`defaultOTLPPort + 0`). Telemetry
+        // scenarios POST synthetic OTLP here via `${otlpEndpoint}`, so the curl
+        // follows this instance's own receiver instead of a hardcoded port
+        // (which could be held by another instance or a developer's real app).
+        // After `launchMacApp`, this is repointed at the port the app ACTUALLY
+        // bound (queried via `/otlp-port`) in case the preferred port was taken
+        // and the receiver fell back to a candidate.
         context.set("otlpEndpoint", value: "http://127.0.0.1:\(MacOSDriver.defaultOTLPPort)")
 
         // Clear any leftover fake-editor log from a previous run so scenario
@@ -591,9 +594,11 @@ public actor TestOrchestrator {
                 "--gallager-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 // Per-instance OTLP receiver port so concurrent instances (and a
-                // dev's real app on 4318) never share a loopback telemetry
-                // receiver. The env injection reads the same `--otlp-port`, so
-                // launched panes POST to this instance's own receiver.
+                // dev's real app on 24318) never share a loopback telemetry
+                // receiver. This is the app's PREFERRED port — it probes fallback
+                // candidates when taken, and the env injection advertises the
+                // actually-bound port, so launched panes always POST to this
+                // instance's own receiver.
                 "--otlp-port", "\(driver.otlpPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
@@ -634,6 +639,19 @@ public actor TestOrchestrator {
                 ]
             }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
+
+            // The app probes fallback candidates when its preferred
+            // `--otlp-port` is taken (OTLPReceiver collision protection), so
+            // the port actually bound can differ from the one passed above.
+            // Repoint `${otlpEndpoint}` at the real port for instance 0 —
+            // telemetry scenarios POST synthetic OTLP there. Best-effort: on
+            // timeout the pre-seeded preferred-port value stays, which matches
+            // the no-fallback case.
+            if
+                instance == 0,
+                let bound = await MacAppHTTPClient.waitForOTLPPort(port: driver.testAccessibilityPort) {
+                context.set("otlpEndpoint", value: "http://127.0.0.1:\(bound)")
+            }
 
         case let .terminateMacApp(instance):
             try? await macDriver(for: instance).terminateApp()

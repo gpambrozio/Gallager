@@ -47,6 +47,43 @@
             return UInt16(bigEndian: assigned.sin_port)
         }
 
+        /// Bind AND hold a plain IPv4 listener on an OS-assigned loopback port —
+        /// the shape of the real-world collision (an OTLP collector container
+        /// holding `127.0.0.1:<port>`). Returns the fd (caller closes) and the
+        /// occupied port.
+        private func occupyLoopbackPort() -> (fd: Int32, port: UInt16)? {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = 0 // let the OS assign
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    bind(fd, sa, addrLen)
+                }
+            }
+            guard bound == 0, listen(fd, 4) == 0 else {
+                close(fd)
+                return nil
+            }
+
+            var assigned = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let named = withUnsafeMutablePointer(to: &assigned) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getsockname(fd, sa, &len)
+                }
+            }
+            guard named == 0 else {
+                close(fd)
+                return nil
+            }
+            return (fd, UInt16(bigEndian: assigned.sin_port))
+        }
+
         /// Connect a client `AF_INET` socket to `127.0.0.1:port`, retrying briefly
         /// while the listener finishes binding. Returns the connected fd or `nil`.
         private func connectTCP(port: UInt16, deadline: Date) -> Int32? {
@@ -155,6 +192,45 @@
             #expect(latencies == (1...turnCount).map { $0 as Int? })
 
             await receiver.stop()
+        }
+
+        @Test("falls back to the next candidate when the preferred port is taken")
+        func fallsBackWhenPreferredPortTaken() async throws {
+            // Occupy a port with a plain IPv4 listener — the exact shape of the
+            // real-world collision (an OTLP collector container holding
+            // `127.0.0.1:4318`). This doubles as the explicit-IPv4-bind
+            // regression test: the old port-only bind created a dual-stack
+            // IPv6 wildcard socket that would coexist with this listener and
+            // go `.ready` on the same port, silently losing all IPv4 traffic.
+            let collector = SnapshotCollector()
+            let occupied = try #require(occupyLoopbackPort())
+            defer { close(occupied.fd) }
+
+            let receiver = makeReceiver(port: occupied.port, collector: collector)
+            let bound = try await receiver.start()
+
+            #expect(bound != occupied.port)
+            // Whichever candidate won (a later one may have been taken too on a
+            // busy CI host), it came from the preferred port's probe chain.
+            #expect(OTLPReceiver.portCandidates(startingAt: occupied.port).dropFirst().contains(bound))
+
+            // The fallback listener is live and reachable over IPv4 loopback.
+            let fd = try #require(connectTCP(port: bound, deadline: Date().addingTimeInterval(5)))
+            close(fd)
+
+            await receiver.stop()
+        }
+
+        @Test("port candidates: preferred first, +100 strides, clamped at the UInt16 boundary")
+        func portCandidateSequence() {
+            #expect(
+                OTLPReceiver.portCandidates(startingAt: 24_318)
+                    == [24_318, 24_418, 24_518, 24_618, 24_718]
+            )
+            // Near the top of the range, overflowing candidates are dropped
+            // rather than wrapped onto low (privileged) ports.
+            #expect(OTLPReceiver.portCandidates(startingAt: 65_500) == [65_500])
+            #expect(OTLPReceiver.portCandidates(startingAt: 65_435) == [65_435, 65_535])
         }
     }
 #endif

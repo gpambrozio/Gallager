@@ -7,10 +7,12 @@ import Foundation
 ///    synthetic `SessionStart` hook (sets `PaneState.claudeSessionID`).
 /// 2. Synthetic OTLP/JSON is POSTed to the Mac-local receiver from the pane's
 ///    own shell via `curl`, addressed by the `${otlpEndpoint}` context variable
-///    (resolved by the orchestrator to this instance's `--otlp-port`). Using the
-///    variable instead of a hardcoded `127.0.0.1:4318` means the POST follows the
-///    instance's own receiver port, so concurrent instances — and a developer's
-///    real app on 4318 — never cross-talk. (The env-injection half of the
+///    (resolved by the orchestrator to the port this instance ACTUALLY bound —
+///    queried via `/otlp-port` after launch, since the app falls back to
+///    candidate ports when its preferred `--otlp-port` is taken). Using the
+///    variable instead of a hardcoded port means the POST follows the
+///    instance's own receiver, so concurrent instances — and a developer's
+///    real app on 24318 — never cross-talk. (The env-injection half of the
 ///    contract is covered separately by TerminalEnvVarsScenario.)
 /// 3. The receiver joins by `session.id` and stamps the pane, so the sidebar's
 ///    `SessionTelemetrySummary` shows the meter and the model tag. The

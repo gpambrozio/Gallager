@@ -40,7 +40,7 @@ import Foundation
 ///   content ever leaves the process (same privacy posture as #597).
 enum CodexOtelConfig {
     /// The ordered `-c <override>` argument list for an OTLP base endpoint (e.g.
-    /// `http://127.0.0.1:4318`). Returns `[]` when `endpoint` is `nil` (no
+    /// `http://127.0.0.1:24318`). Returns `[]` when `endpoint` is `nil` (no
     /// receiver running), so the caller launches Codex with no OTEL overrides.
     ///
     /// Each override value is plain `key=value` text with TOML-quoted string
