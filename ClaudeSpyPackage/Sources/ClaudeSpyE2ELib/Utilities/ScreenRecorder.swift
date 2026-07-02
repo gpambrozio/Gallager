@@ -83,6 +83,22 @@ public actor ScreenRecorder: ScreenRecording {
         } catch {
             logger.warning("stopCapture failed (file may still be finalized): \(error)")
         }
+
+        // SCRecordingOutput finalizes the file (writes the moov atom)
+        // asynchronously — stopCapture() returning is not a guarantee the
+        // file is readable yet. Poll the delegate's finish signal so
+        // callers can safely read the file once stop() returns, bounded so
+        // a missed/late delegate callback can't hang the caller forever.
+        if let delegateBox {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while !delegateBox.isFinished, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if !delegateBox.isFinished {
+                logger.warning("Timed out waiting for SCRecordingOutput to finalize")
+            }
+        }
+
         self.stream = nil
         delegateBox = nil
         logger.info("Recording stopped")
@@ -90,18 +106,35 @@ public actor ScreenRecorder: ScreenRecording {
 }
 
 final private class RecorderDelegate: NSObject, SCStreamDelegate, SCRecordingOutputDelegate,
-    @unchecked Sendable { // Safe: Logger is Sendable, no shared mutable state
+    @unchecked Sendable { // Safe: Logger is Sendable, mutable state guarded by lock
     private let logger: Logger
+    private let lock = NSLock()
+    private var _finished = false
+
+    var isFinished: Bool {
+        lock.withLock { _finished }
+    }
 
     init(logger: Logger) {
         self.logger = logger
     }
 
+    private func markFinished() {
+        lock.withLock { _finished = true }
+    }
+
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         logger.error("SCStream stopped with error: \(error)")
+        markFinished()
     }
 
     func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
         logger.error("SCRecordingOutput failed: \(error)")
+        markFinished()
+    }
+
+    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+        logger.info("SCRecordingOutput finished finalizing")
+        markFinished()
     }
 }
