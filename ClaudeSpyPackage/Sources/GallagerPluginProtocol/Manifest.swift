@@ -111,8 +111,11 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.namespace = try container.decode(String.self, forKey: .namespace)
-            self.tokenEvent = try container.decodeIfPresent(String.self, forKey: .tokenEvent)
-                ?? OTLP.defaultTokenEvent
+            // An absent OR empty token_event falls back to the default — an
+            // empty string would otherwise match a record named exactly
+            // "<namespace>." in the accumulator.
+            let decoded = try container.decodeIfPresent(String.self, forKey: .tokenEvent)
+            self.tokenEvent = decoded?.isEmpty == false ? decoded! : OTLP.defaultTokenEvent
         }
     }
 

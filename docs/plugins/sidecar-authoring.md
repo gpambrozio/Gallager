@@ -377,8 +377,11 @@ Two steps:
    While your plugin is enabled, log records named
    `<namespace>.<token_event>` (e.g. `my-agent.api_request`) are aggregated;
    records in undeclared namespaces are silently dropped. `token_event` may be
-   omitted (defaults to `"api_request"`). The built-in `claude_code` / `codex`
-   namespaces cannot be claimed.
+   omitted (defaults to `"api_request"`). Matching is **case-sensitive** —
+   declaring `"MyAgent"` while emitting `myagent.api_request` gets nothing.
+   The built-in `claude_code` / `codex` namespaces cannot be claimed (nor
+   nested under), and when two enabled plugins declare the same namespace the
+   lexicographically-first plugin id wins (the conflict is logged).
 
 2. **POST OTLP/JSON log records** to `<otlpReceiverEndpoint>/v1/logs`, one per
    completed model call / assistant message, mirroring Claude Code's

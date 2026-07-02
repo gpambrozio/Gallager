@@ -61,5 +61,13 @@ struct ManifestV2Tests {
           "otlp": { "namespace": "opencode" } }
         """)
         #expect(defaulted.otlp == PluginManifest.OTLP(namespace: "opencode", tokenEvent: "api_request"))
+
+        // An EMPTY token_event also falls back — it would otherwise match a
+        // record named exactly "<namespace>." in the accumulator.
+        let empty = try decode("""
+        { "id": "opencode", "display_name": "opencode", "short_name": "opencode",
+          "otlp": { "namespace": "opencode", "token_event": "" } }
+        """)
+        #expect(empty.otlp == PluginManifest.OTLP(namespace: "opencode", tokenEvent: "api_request"))
     }
 }

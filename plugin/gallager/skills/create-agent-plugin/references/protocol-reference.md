@@ -538,7 +538,9 @@ meter Claude Code and Codex have. Two steps:
 
 1. **Manifest**: declare your namespace (`otlp.namespace`, `otlp.token_event` —
    see the schema table in §2). Records in undeclared namespaces are silently
-   dropped; the declaration applies while your plugin is enabled.
+   dropped; the declaration applies while your plugin is enabled. Matching is
+   **case-sensitive** — declaring `"MyAgent"` while emitting
+   `myagent.api_request` gets nothing.
 2. **Emit**: POST OTLP/JSON log records to `<otlpReceiverEndpoint>/v1/logs`
    (the endpoint arrives in the `initialize` env; `null` when no receiver is
    running — then skip telemetry). One record per completed model call, with

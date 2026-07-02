@@ -166,7 +166,11 @@ const OTLP_EMITTED_CAP = 512
 function emitTelemetry(info, context) {
   if (!OTLP_ENDPOINT || !context.TMUX_PANE) return
   if (!info || info.role !== "assistant") return
-  const completed = (info.time && info.time.completed) || info.finish
+  // `time.completed` ONLY (live-verified as the final-tally signal). Emission
+  // is deduped by message id, so a broader trigger (e.g. `finish`) that could
+  // fire before the final token/cost tally would freeze this message's
+  // contribution at the early values forever.
+  const completed = info.time && info.time.completed
   if (!completed || !info.id || OTLP_EMITTED.has(info.id)) return
   OTLP_EMITTED.add(info.id)
   if (OTLP_EMITTED.size > OTLP_EMITTED_CAP) {
@@ -186,7 +190,7 @@ function emitTelemetry(info, context) {
     { key: "cache_read_tokens", value: { intValue: int(cache.read) } },
     { key: "cache_creation_tokens", value: { intValue: int(cache.write) } },
     // opencode computes cost itself (a plain number on the message).
-    { key: "cost_usd", value: { doubleValue: typeof info.cost === "number" ? info.cost : 0 } },
+    { key: "cost_usd", value: { doubleValue: typeof info.cost === "number" && isFinite(info.cost) ? info.cost : 0 } },
   ]
   if (info.time && typeof info.time.created === "number" && typeof info.time.completed === "number") {
     attributes.push({ key: "duration_ms", value: { intValue: int(info.time.completed - info.time.created) } })

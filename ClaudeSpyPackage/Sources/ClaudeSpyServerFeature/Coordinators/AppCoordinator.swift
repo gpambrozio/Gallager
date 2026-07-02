@@ -1448,12 +1448,34 @@
         /// enable, CLI enable/disable, URL/zip install, remove — so a declared
         /// namespace classifies exactly while its plugin is enabled. Resolved
         /// here once per change; the accumulator never queries the registry.
+        ///
+        /// Declarations are sorted by plugin id: the accumulator's table is
+        /// first-write-wins, so a duplicate namespace resolves to the
+        /// lexicographically-first plugin id on every launch (never Dictionary
+        /// iteration order), and the loser is logged rather than silently
+        /// swallowed.
         private func refreshOTLPPluginNamespaces() async {
             guard let registry = pluginRegistry, let receiver = otlpReceiver else { return }
-            let declarations = registry.manifests.compactMap { id, manifest in
-                registry.isEnabled(id) ? manifest.otlp : nil
+            let declaring: [(id: String, otlp: PluginManifest.OTLP)] = registry.manifests
+                .compactMap { id, manifest in
+                    guard registry.isEnabled(id), let otlp = manifest.otlp else { return nil }
+                    return (id: id, otlp: otlp)
+                }
+                .sorted { $0.id < $1.id }
+            var namespaceOwners: [String: String] = [:]
+            for (id, otlp) in declaring {
+                let namespace = otlp.namespace.hasSuffix(".")
+                    ? String(otlp.namespace.dropLast())
+                    : otlp.namespace
+                if let owner = namespaceOwners[namespace] {
+                    logger.warning(
+                        "Plugins '\(owner)' and '\(id)' both declare OTLP namespace '\(namespace)'; '\(owner)' wins"
+                    )
+                } else {
+                    namespaceOwners[namespace] = id
+                }
             }
-            await receiver.updatePluginNamespaces(declarations)
+            await receiver.updatePluginNamespaces(declaring.map(\.otlp))
         }
 
         /// Stamps accumulated telemetry onto the joined pane (the host sidebar

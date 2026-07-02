@@ -148,7 +148,16 @@ struct OTLPTelemetryAccumulator {
                 self = .codex
             } else if eventName.hasPrefix(Agent.claudeNamespace) || Agent.bareClaudeEvents.contains(eventName) {
                 self = .claude
-            } else if let mapping = pluginMappings.first(where: { eventName.hasPrefix($0.key) }) {
+            } else if
+                let mapping = pluginMappings
+                    .filter({ eventName.hasPrefix($0.key) })
+                    // Longest prefix wins, deterministically: with nested
+                    // declarations (`acme.` and `acme.sub.`), a record named
+                    // `acme.sub.api_request` must classify as `acme.sub.` — the
+                    // shorter prefix would strip to `sub.api_request`, fail the
+                    // token-event guard, and silently drop the record. (A plain
+                    // `first(where:)` over the Dictionary also varied per launch.)
+                    .max(by: { $0.key.count < $1.key.count }) {
                 self = .declared(namespace: mapping.key, tokenEvent: mapping.value)
             } else {
                 return nil
@@ -184,18 +193,27 @@ struct OTLPTelemetryAccumulator {
     }
 
     /// Replaces the plugin-declared namespace table (issue #617). Declarations
-    /// naming a built-in namespace (`claude_code` / `codex`) or an empty string
-    /// are dropped so a plugin can never claim the built-in agents' records. A
-    /// trailing dot on the declared namespace is tolerated.
+    /// naming or nesting under a built-in namespace (`claude_code` / `codex`) —
+    /// whose records would classify as the built-in first and never reach the
+    /// declared mapping — or carrying an empty namespace/token event are
+    /// dropped, so a plugin can never claim the built-in agents' records. A
+    /// trailing dot on the declared namespace is tolerated. Duplicate
+    /// namespaces resolve first-write-wins, so the caller controls the winner
+    /// by ordering `declarations` (the app passes them sorted by plugin id and
+    /// logs the conflict).
     mutating func setPluginNamespaces(_ declarations: [PluginManifest.OTLP]) {
         var mappings: [String: String] = [:]
         for declaration in declarations {
             let namespace = declaration.namespace.hasSuffix(".")
                 ? String(declaration.namespace.dropLast())
                 : declaration.namespace
-            guard !namespace.isEmpty else { continue }
+            guard !namespace.isEmpty, !declaration.tokenEvent.isEmpty else { continue }
             let prefix = namespace + "."
-            guard prefix != Agent.claudeNamespace, prefix != Agent.codexNamespace else { continue }
+            guard
+                !prefix.hasPrefix(Agent.claudeNamespace),
+                !prefix.hasPrefix(Agent.codexNamespace),
+                mappings[prefix] == nil
+            else { continue }
             mappings[prefix] = declaration.tokenEvent
         }
         pluginMappings = mappings
