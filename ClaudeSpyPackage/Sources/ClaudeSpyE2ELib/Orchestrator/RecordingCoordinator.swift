@@ -127,6 +127,10 @@ public actor RecordingCoordinator: TestProgressReporter {
     public func printSummary(_ results: [TestOrchestrator.ScenarioResult]) async {
         guard !postProcessingTasks.isEmpty else { return }
         logger.info("Waiting for \(postProcessingTasks.count) video encode(s) to finish…")
+        // The recorder sits first in the reporter fan-out, so this wait blocks
+        // the pass/fail summary — say so on the terminal (the logger writes to
+        // the log file) or a long tail encode reads as a hang.
+        fputs("Waiting for \(postProcessingTasks.count) video encode(s) to finish…\n", stderr)
         for task in postProcessingTasks {
             await task.value
         }
