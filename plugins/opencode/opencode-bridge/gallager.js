@@ -26,6 +26,7 @@ import fs from "node:fs"
 // --- Baked-in identity (install substitutes these exact tokens) ---------------
 const RAW_SOCK = "__GALLAGER_INGRESS_SOCK__"
 const RAW_ID = "__GALLAGER_PLUGIN_ID__"
+const RAW_OTLP = "__GALLAGER_OTLP_ENDPOINT__"
 
 const SOCKET_PATH = RAW_SOCK.startsWith("__GALLAGER")
   ? process.env.GALLAGER_INGRESS_SOCK || path.join(os.homedir(), ".gallager", "state", "ingress.sock")
@@ -33,6 +34,13 @@ const SOCKET_PATH = RAW_SOCK.startsWith("__GALLAGER")
 const PLUGIN_ID = RAW_ID.startsWith("__GALLAGER")
   ? process.env.GALLAGER_PLUGIN_ID || "opencode"
   : RAW_ID
+// Gallager's loopback OTLP receiver (issue #617). Baked in at install like the
+// socket path (the port is whatever the receiver actually bound that launch);
+// the env fallback serves repo smoke tests. Empty → telemetry disabled (the
+// receiver failed to bind, or the bridge predates OTLP support).
+const OTLP_ENDPOINT = RAW_OTLP.startsWith("__GALLAGER")
+  ? process.env.GALLAGER_OTLP_ENDPOINT || ""
+  : RAW_OTLP
 
 // Optional: set GALLAGER_OPENCODE_DEBUG=1 to record every event type this bridge
 // sees (and which it forwards) — handy for confirming opencode's event names on a
@@ -131,6 +139,79 @@ function forward(event, context) {
   })
 }
 
+// --- OTLP telemetry (issue #617) ----------------------------------------------
+// opencode has no usable native OTEL export, but this bridge already sees every
+// `message.updated` on the event bus — and a completed AssistantMessage carries
+// everything Gallager's meter surfaces (tokens, cost, model, latency). Emit ONE
+// OTLP/JSON log record per completed assistant message, straight to Gallager's
+// loopback receiver (`POST /v1/logs`, plain fetch — no SDK, no third-party
+// plugin, no user-set OPENCODE_* env vars). This never goes through the ingress
+// socket: telemetry is the OTLP channel, and message.updated fires on every
+// streaming metadata change — far too chatty to forward.
+//
+// The attribute keys mirror Claude Code's `api_request` vocabulary exactly, so
+// the host aggregates them with the same additive per-message semantics (the
+// manifest's `otlp` declaration maps the `opencode.` namespace onto it).
+// `session.id` is the tmux PANE id — the same session identity the sidecar
+// reports — so telemetry joins the pane with no host-side changes. Multiple
+// opencode sessions in one pane therefore share one meter (accepted trade-off;
+// Gallager treats the pane as "the session").
+
+// Assistant-message ids already exported, so a post-completion re-emit of
+// `message.updated` can't double-count a turn. Bounded FIFO (Sets iterate in
+// insertion order).
+const OTLP_EMITTED = new Set()
+const OTLP_EMITTED_CAP = 512
+
+function emitTelemetry(info, context) {
+  if (!OTLP_ENDPOINT || !context.TMUX_PANE) return
+  if (!info || info.role !== "assistant") return
+  const completed = (info.time && info.time.completed) || info.finish
+  if (!completed || !info.id || OTLP_EMITTED.has(info.id)) return
+  OTLP_EMITTED.add(info.id)
+  if (OTLP_EMITTED.size > OTLP_EMITTED_CAP) {
+    OTLP_EMITTED.delete(OTLP_EMITTED.values().next().value)
+  }
+
+  const tokens = info.tokens || {}
+  const cache = tokens.cache || {}
+  const int = (v) => (typeof v === "number" && isFinite(v) ? Math.max(0, Math.round(v)) : 0)
+  const attributes = [
+    { key: "event.name", value: { stringValue: "opencode.api_request" } },
+    { key: "session.id", value: { stringValue: context.TMUX_PANE } },
+    // opencode's reasoning tokens are folded into output — matching Claude's
+    // api_request, where thinking tokens are billed/reported as output tokens.
+    { key: "input_tokens", value: { intValue: int(tokens.input) } },
+    { key: "output_tokens", value: { intValue: int(tokens.output) + int(tokens.reasoning) } },
+    { key: "cache_read_tokens", value: { intValue: int(cache.read) } },
+    { key: "cache_creation_tokens", value: { intValue: int(cache.write) } },
+    // opencode computes cost itself (a plain number on the message).
+    { key: "cost_usd", value: { doubleValue: typeof info.cost === "number" ? info.cost : 0 } },
+  ]
+  if (info.time && typeof info.time.created === "number" && typeof info.time.completed === "number") {
+    attributes.push({ key: "duration_ms", value: { intValue: int(info.time.completed - info.time.created) } })
+  }
+  if (info.modelID) {
+    attributes.push({ key: "model", value: { stringValue: String(info.modelID) } })
+  }
+
+  const body = {
+    resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: "opencode.api_request", attributes }] }] }],
+  }
+  debug(`otlp api_request message=${info.id} pane=${context.TMUX_PANE}`)
+  // Fire-and-forget: telemetry must never break opencode. The receiver is
+  // loopback-local, so a failure means Gallager is gone — drop silently.
+  try {
+    fetch(`${OTLP_ENDPOINT}/v1/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  } catch {
+    /* fetch unavailable or sync throw — never break opencode */
+  }
+}
+
 // Synthetic lifecycle frames Gallager understands (handled by the sidecar's
 // translate_event): one when opencode loads this bridge (≈ TUI start → the
 // session appears as idle), one when opencode disposes it (≈ TUI quit → the
@@ -163,6 +244,12 @@ export const GallagerMonitor = async ({ serverUrl, directory, worktree, project 
     event: async ({ event }) => {
       if (!event || typeof event.type !== "string") return
       debug(`event ${event.type}`)
+      if (event.type === "message.updated") {
+        // Telemetry rides the OTLP channel, not the ingress socket (see
+        // emitTelemetry) — message.updated is never forwarded.
+        emitTelemetry((event.properties || {}).info, context)
+        return
+      }
       if (!FORWARD.has(event.type)) return
       forward(event, context)
     },

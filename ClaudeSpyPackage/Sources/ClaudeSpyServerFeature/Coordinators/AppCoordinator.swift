@@ -664,6 +664,12 @@
                 }
             }
 
+            // Every plugin (bundled + folder-dropped) is now enabled; hand the
+            // declared OTLP namespaces to the receiver (issue #617). The receiver
+            // started before discovery, so the table is pushed here rather than
+            // injected at its construction.
+            await refreshOTLPPluginNamespaces()
+
             // Persist registry.json: one entry per known plugin (bundled or folder/url).
             // Merge so a .url entry is never downgraded to .folder or stripped of urls.
             // Best-effort — a write failure must never block startup.
@@ -860,8 +866,10 @@
             let env = makePluginEnv(id: id, registry: registry, paths: paths)
             await registry.enable(id, host: host, env: env)
             // The enabled-plugin set changed; re-push the complete presentation
-            // set to all connected viewers (spec §7.2/§7.3).
+            // set to all connected viewers (spec §7.2/§7.3) and refresh the
+            // OTLP namespace table (issue #617).
             await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
+            await refreshOTLPPluginNamespaces()
             return registry.isEnabled(id)
         }
 
@@ -881,6 +889,8 @@
             // state so viewers see the now-removed projects immediately.
             await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
             await connectedViewerManager?.pushSessionStateToAll()
+            // A disabled plugin's OTLP records must stop classifying (issue #617).
+            await refreshOTLPPluginNamespaces()
             return registry.isEnabled(id)
         }
 
@@ -926,6 +936,9 @@
             if case let .success(.installed(installedID)) = result {
                 pluginCatalogRevision += 1
                 lastInstalledPluginID = installedID
+                // The installer enabled the new plugin; refresh the OTLP
+                // namespace table so its declared telemetry classifies (issue #617).
+                await refreshOTLPPluginNamespaces()
             }
             return result
         }
@@ -969,6 +982,7 @@
             if case let .success(.installed(installedID)) = result {
                 pluginCatalogRevision += 1
                 lastInstalledPluginID = installedID
+                await refreshOTLPPluginNamespaces()
             }
             return result
         }
@@ -992,6 +1006,8 @@
                 pluginCatalogRevision += 1
                 // Clear so a later reinstall of the same id re-fires onChange.
                 lastInstalledPluginID = nil
+                // The removed plugin's namespace must stop classifying (issue #617).
+                await refreshOTLPPluginNamespaces()
             }
             return result
         }
@@ -1424,6 +1440,20 @@
             } catch {
                 logger.error("Failed to start OTLP telemetry receiver: \(error)")
             }
+        }
+
+        /// Pushes the enabled plugins' OTLP namespace declarations (manifest
+        /// `otlp` field, issue #617) to the receiver, replacing the previous
+        /// table. Must run whenever the enabled-plugin set changes — startup
+        /// enable, CLI enable/disable, URL/zip install, remove — so a declared
+        /// namespace classifies exactly while its plugin is enabled. Resolved
+        /// here once per change; the accumulator never queries the registry.
+        private func refreshOTLPPluginNamespaces() async {
+            guard let registry = pluginRegistry, let receiver = otlpReceiver else { return }
+            let declarations = registry.manifests.compactMap { id, manifest in
+                registry.isEnabled(id) ? manifest.otlp : nil
+            }
+            await receiver.updatePluginNamespaces(declarations)
         }
 
         /// Stamps accumulated telemetry onto the joined pane (the host sidebar

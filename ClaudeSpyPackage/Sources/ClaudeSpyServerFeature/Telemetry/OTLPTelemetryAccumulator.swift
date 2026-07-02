@@ -1,5 +1,6 @@
 import ClaudeSpyNetworking
 import Foundation
+import GallagerPluginProtocol
 
 // MARK: - Effects
 
@@ -44,10 +45,12 @@ struct OTLPProcessingResult: Equatable {
 /// logic with no I/O, so the parsing/accumulation rules are unit-testable in
 /// isolation from the network transport.
 ///
-/// Agent-blind: one receiver serves both Claude Code (issue #597) and Codex
-/// (issue #602), so each log record is classified by its event-name namespace
-/// (`claude_code.` vs `codex.`) — see ``Agent`` — and parsed with that agent's
-/// vocabulary, funneling into the same ``SessionTelemetry``.
+/// Agent-blind: one receiver serves Claude Code (issue #597), Codex (issue
+/// #602), and any sidecar plugin that declares an OTLP namespace in its
+/// manifest (issue #617), so each log record is classified by its event-name
+/// namespace (`claude_code.` / `codex.` / a declared plugin namespace) — see
+/// ``Agent`` — and parsed with that agent's vocabulary, funneling into the
+/// same ``SessionTelemetry``.
 ///
 /// - **Claude**: tokens, cost, latency, and model come **only** from
 ///   `claude_code.api_request` log events (the single source of truth); the
@@ -62,6 +65,13 @@ struct OTLPProcessingResult: Equatable {
 ///   the `/models` capability check, and turn calls run over websocket), so it is
 ///   unusable as a join source. No cost is emitted (cost stays 0). Permission/
 ///   approval mode is seeded from the hook channel, not OTEL.
+/// - **Declared plugin namespaces** (issue #617): a sidecar plugin's manifest
+///   `otlp` field maps its namespace to Claude's `api_request` vocabulary — the
+///   record named `<namespace>.<tokenEvent>` carries Claude's exact attribute
+///   keys, accumulates additively (per-message summation, NOT Codex's
+///   cumulative-delta handling), and joins on `session.id`. The mapping table is
+///   pushed in whenever the enabled-plugin set changes; no accumulator code
+///   change is needed for the next agent.
 struct OTLPTelemetryAccumulator {
     /// session id → accumulated telemetry snapshot. The id is Claude's `session.id`
     /// or Codex's `conversation.id`; both join to a pane's `claudeSessionID`.
@@ -78,6 +88,12 @@ struct OTLPTelemetryAccumulator {
     /// counting the same context (issue #602). Bounded with `metricsBySession` via
     /// `discardState`.
     private var lastCodexUsage: [String: (input: Int, cached: Int)] = [:]
+
+    /// Plugin-declared namespace table (issue #617): dot-suffixed namespace
+    /// prefix (`"opencode."`) → the namespace-stripped event name carrying the
+    /// token/latency/model attributes. Replaced wholesale via
+    /// `setPluginNamespaces` whenever the enabled-plugin set changes.
+    private var pluginMappings: [String: String] = [:]
 
     /// Session insertion order, for bounding memory with a simple cap.
     private var sessionOrder: [String] = []
@@ -112,32 +128,45 @@ struct OTLPTelemetryAccumulator {
 
     /// Which coding agent produced a log record, used to pick the right
     /// session-id attribute and event vocabulary. Classified by the event-name
-    /// namespace so one receiver serves both agents (issue #602).
+    /// namespace so one receiver serves every agent (issues #602, #617).
     private enum Agent {
         case claude
         case codex
+        /// A plugin-declared namespace (issue #617): the dot-suffixed prefix and
+        /// the namespace-stripped event name that carries Claude's `api_request`
+        /// attribute vocabulary.
+        case declared(namespace: String, tokenEvent: String)
 
         /// Codex always namespaces with `codex.`; Claude uses `claude_code.` on
         /// the log body and the bare name on the `event.name` attribute, so a
-        /// bare known event is Claude. Anything else is unrecognized (`nil`).
-        init?(eventName: String) {
-            if eventName.hasPrefix("codex.") {
+        /// bare known event is Claude. A plugin-declared namespace (always fully
+        /// qualified) is checked after the built-ins, so a plugin can never
+        /// shadow Claude's or Codex's records. Anything else is unrecognized
+        /// (`nil`).
+        init?(eventName: String, pluginMappings: [String: String]) {
+            if eventName.hasPrefix(Agent.codexNamespace) {
                 self = .codex
             } else if eventName.hasPrefix(Agent.claudeNamespace) || Agent.bareClaudeEvents.contains(eventName) {
                 self = .claude
+            } else if let mapping = pluginMappings.first(where: { eventName.hasPrefix($0.key) }) {
+                self = .declared(namespace: mapping.key, tokenEvent: mapping.value)
             } else {
                 return nil
             }
         }
 
-        private static let claudeNamespace = "claude_code."
-        private static let codexNamespace = "codex."
+        static let claudeNamespace = "claude_code."
+        static let codexNamespace = "codex."
         private static let bareClaudeEvents: Set<String> = [apiRequestEvent, permissionModeEvent, toolResultEvent]
 
-        /// The attribute key carrying the per-session join id.
+        /// The attribute key carrying the per-session join id. Declared plugin
+        /// namespaces reuse Claude's `session.id` (the opencode bridge stamps
+        /// the tmux pane id there — the same key the sidecar reports as its
+        /// session identity, so telemetry joins with no host-side changes).
         var sessionIDKey: String {
             switch self {
-            case .claude: OTLPTelemetryAccumulator.sessionIDKey
+            case .claude,
+                 .declared: OTLPTelemetryAccumulator.sessionIDKey
             case .codex: "conversation.id"
             }
         }
@@ -148,9 +177,28 @@ struct OTLPTelemetryAccumulator {
             let namespace = switch self {
             case .claude: Agent.claudeNamespace
             case .codex: Agent.codexNamespace
+            case let .declared(namespace, _): namespace
             }
             return name.hasPrefix(namespace) ? String(name.dropFirst(namespace.count)) : name
         }
+    }
+
+    /// Replaces the plugin-declared namespace table (issue #617). Declarations
+    /// naming a built-in namespace (`claude_code` / `codex`) or an empty string
+    /// are dropped so a plugin can never claim the built-in agents' records. A
+    /// trailing dot on the declared namespace is tolerated.
+    mutating func setPluginNamespaces(_ declarations: [PluginManifest.OTLP]) {
+        var mappings: [String: String] = [:]
+        for declaration in declarations {
+            let namespace = declaration.namespace.hasSuffix(".")
+                ? String(declaration.namespace.dropLast())
+                : declaration.namespace
+            guard !namespace.isEmpty else { continue }
+            let prefix = namespace + "."
+            guard prefix != Agent.claudeNamespace, prefix != Agent.codexNamespace else { continue }
+            mappings[prefix] = declaration.tokenEvent
+        }
+        pluginMappings = mappings
     }
 
     // MARK: Logs
@@ -177,10 +225,11 @@ struct OTLPTelemetryAccumulator {
         // event name, so the `event.name` attribute is the reliable source — a
         // single "resolved name" that trusted the field would drop every Codex
         // record (issue #602).
+        let mappings = pluginMappings
         guard
             let (agent, rawEvent) = record.eventNameCandidates()
                 .lazy
-                .compactMap({ name in Agent(eventName: name).map { ($0, name) } })
+                .compactMap({ name in Agent(eventName: name, pluginMappings: mappings).map { ($0, name) } })
                 .first
         else { return }
         guard let sessionID = attributes.string(for: agent.sessionIDKey), !sessionID.isEmpty else { return }
@@ -191,6 +240,12 @@ struct OTLPTelemetryAccumulator {
             processClaudeLog(event: event, attributes: attributes, sessionID: sessionID, into: &result)
         case .codex:
             processCodexLog(event: event, attributes: attributes, sessionID: sessionID, into: &result)
+        case let .declared(_, tokenEvent):
+            // A declared namespace's token event mirrors Claude's `api_request`
+            // vocabulary exactly (manifest contract, issue #617); other events
+            // in the namespace are ignored.
+            guard event == tokenEvent else { return }
+            accumulateAPIRequest(attributes: attributes, sessionID: sessionID, into: &result)
         }
     }
 
@@ -204,18 +259,7 @@ struct OTLPTelemetryAccumulator {
     ) {
         switch event {
         case Self.apiRequestEvent:
-            var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
-            telemetry.accumulate(
-                inputTokens: attributes.int(for: "input_tokens") ?? 0,
-                outputTokens: attributes.int(for: "output_tokens") ?? 0,
-                cacheReadTokens: attributes.int(for: "cache_read_tokens") ?? 0,
-                cacheCreationTokens: attributes.int(for: "cache_creation_tokens") ?? 0,
-                costUSD: attributes.double(for: "cost_usd") ?? 0,
-                durationMs: attributes.int(for: "duration_ms"),
-                model: attributes.string(for: "model")
-            )
-            store(telemetry, for: sessionID)
-            result.telemetryUpdates[sessionID] = telemetry
+            accumulateAPIRequest(attributes: attributes, sessionID: sessionID, into: &result)
 
         case Self.toolResultEvent:
             // One `tool_result` log per completed tool call — count it (issue
@@ -236,6 +280,29 @@ struct OTLPTelemetryAccumulator {
         default:
             break
         }
+    }
+
+    /// Folds one Claude-vocabulary `api_request` record — tokens, cost, latency,
+    /// model, all additive per event — into the session's snapshot. Shared by
+    /// Claude's own `api_request` and every declared plugin namespace's token
+    /// event (issue #617), whose attribute keys mirror Claude's exactly.
+    private mutating func accumulateAPIRequest(
+        attributes: [OTLPKeyValue],
+        sessionID: String,
+        into result: inout OTLPProcessingResult
+    ) {
+        var telemetry = metricsBySession[sessionID] ?? SessionTelemetry()
+        telemetry.accumulate(
+            inputTokens: attributes.int(for: "input_tokens") ?? 0,
+            outputTokens: attributes.int(for: "output_tokens") ?? 0,
+            cacheReadTokens: attributes.int(for: "cache_read_tokens") ?? 0,
+            cacheCreationTokens: attributes.int(for: "cache_creation_tokens") ?? 0,
+            costUSD: attributes.double(for: "cost_usd") ?? 0,
+            durationMs: attributes.int(for: "duration_ms"),
+            model: attributes.string(for: "model")
+        )
+        store(telemetry, for: sessionID)
+        result.telemetryUpdates[sessionID] = telemetry
     }
 
     /// Codex: tokens + model on `sse_event` (`response.completed`); per-turn

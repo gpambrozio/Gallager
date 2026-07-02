@@ -45,5 +45,21 @@ struct ManifestV2Tests {
         #expect(m.bundleURL == nil)
         #expect(m.capabilities.richPaneDetection == false)
         #expect(m.capabilities.modalPrompts == false)
+        #expect(m.otlp == nil)
+    }
+
+    @Test("otlp declaration decodes; token_event defaults to api_request (issue #617)")
+    func otlpDeclaration() throws {
+        let explicit = try decode("""
+        { "id": "opencode", "display_name": "opencode", "short_name": "opencode",
+          "otlp": { "namespace": "opencode", "token_event": "turn_metrics" } }
+        """)
+        #expect(explicit.otlp == PluginManifest.OTLP(namespace: "opencode", tokenEvent: "turn_metrics"))
+
+        let defaulted = try decode("""
+        { "id": "opencode", "display_name": "opencode", "short_name": "opencode",
+          "otlp": { "namespace": "opencode" } }
+        """)
+        #expect(defaulted.otlp == PluginManifest.OTLP(namespace: "opencode", tokenEvent: "api_request"))
     }
 }
