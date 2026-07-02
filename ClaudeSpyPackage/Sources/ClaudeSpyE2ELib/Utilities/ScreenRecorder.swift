@@ -90,7 +90,7 @@ public actor ScreenRecorder: ScreenRecording {
 }
 
 final private class RecorderDelegate: NSObject, SCStreamDelegate, SCRecordingOutputDelegate,
-    @unchecked Sendable {
+    @unchecked Sendable { // Safe: Logger is Sendable, no shared mutable state
     private let logger: Logger
 
     init(logger: Logger) {
