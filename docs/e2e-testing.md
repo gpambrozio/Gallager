@@ -186,7 +186,10 @@ failure) by `RecordingCoordinator`, a `TestProgressReporter`.
 - **Post-processing:** `e2e_video_postprocess.py` (bundled resource) burns a
   step-caption ribbon + a real-elapsed timecode on the 1x timeline, then
   compresses static spans > 0.5s (`--record-mode speedup` (default, visible
-  `>> 8x` badge) or `remove`). Requires `brew install ffmpeg` — gated by
+  `>> 8x` badge) or `remove`). Requires `brew install ffmpeg-full` — the slim
+  `ffmpeg` formula dropped the `drawtext`/`ass` filters, and `ffmpeg-full` is
+  keg-only so its bin must be on `PATH` (`export
+  PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"`). Gated by
   e2e-test.sh. `--record-keep-raw` keeps `recording-raw.mov` for timing
   disputes (the published video is retimed; the burned-in timecode is the
   wall-clock reference).

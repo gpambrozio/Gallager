@@ -432,7 +432,10 @@ if [ "$LIST_SCENARIOS" != true ]; then
     if [ "$RECORD" = true ]; then
         step "Checking video recording prerequisites"
         if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-            fail "ffmpeg/ffprobe not found — install with: brew install ffmpeg"
+            fail "ffmpeg/ffprobe not found"
+            echo "       Install the full build — it carries the drawtext/ass filters (keg-only, so put it on PATH):"
+            echo "         brew install ffmpeg-full"
+            echo "         export PATH=\"\$(brew --prefix ffmpeg-full)/bin:\$PATH\"   # add to your shell profile"
             exit 1
         fi
         # Capture the filter list once: piping into `grep -q` under pipefail
@@ -440,7 +443,10 @@ if [ "$LIST_SCENARIOS" != true ]; then
         ffmpeg_filters="$(ffmpeg -hide_banner -filters 2>/dev/null || true)"
         for filter in freezedetect drawtext ass; do
             if ! grep -qw "$filter" <<< "$ffmpeg_filters"; then
-                fail "ffmpeg is missing the '$filter' filter — reinstall with: brew install ffmpeg"
+                fail "ffmpeg is missing the '$filter' filter — Homebrew's slim 'ffmpeg' formula dropped drawtext/ass"
+                echo "       Install the full build (keg-only, so put it on PATH):"
+                echo "         brew install ffmpeg-full"
+                echo "         export PATH=\"\$(brew --prefix ffmpeg-full)/bin:\$PATH\"   # add to your shell profile"
                 exit 1
             fi
         done
