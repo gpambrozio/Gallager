@@ -458,6 +458,13 @@ IOS_APP="$PRODUCTS_SIM/Gallager.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
 E2E_HOST_APP="$PRODUCTS_SIM/ClaudeSpyE2EHost.app"
 
+# The EchoPluginSidecar SPM executable is staged by plugin/sidecar scenarios
+# (macStageSidecarFixture) and resolved from the package's own SwiftPM
+# .build/debug — a path the xcodebuild steps never populate, so it needs its
+# own build step below.
+PACKAGE_ROOT="$PROJECT_ROOT/ClaudeSpyPackage"
+SIDECAR_BIN="$PACKAGE_ROOT/.build/debug/EchoPluginSidecar"
+
 # Assert that an xcodebuild step produced its expected artifact. xcsift
 # reports "status: success" whenever no compile errors were parsed, even
 # when no executable was emitted — so a missing binary slips through to
@@ -505,7 +512,7 @@ if [ "$SKIP_BUILD" = true ]; then
 
     # Verify artifacts exist
     missing=false
-    for artifact in "$MACOS_APP" "$IOS_APP" "$E2E_BIN"; do
+    for artifact in "$MACOS_APP" "$IOS_APP" "$E2E_BIN" "$SIDECAR_BIN"; do
         if [ ! -e "$artifact" ]; then
             fail "Missing artifact: $artifact"
             missing=true
@@ -562,6 +569,18 @@ else
         -destination "id=$SIM_UDID" \
         build-for-testing 2>&1 | xcsift --format toon --executable
     verify_artifact "$E2E_HOST_APP"
+
+    # Build the EchoPluginSidecar SPM executable. Plugin/sidecar scenarios stage
+    # it via macStageSidecarFixture, which resolves the binary from the package's
+    # own .build/debug — a plain SwiftPM path none of the xcodebuild steps above
+    # emit. Without this, those scenarios fail at step 1 with "EchoPluginSidecar
+    # binary not found". Built last so its SwiftPM invocation can't interleave
+    # with the macOS PCM/Sparkle module cache (see the contiguous-build note above).
+    step "Building EchoPluginSidecar (plugin fixture)"
+    swift build \
+        --package-path "$PACKAGE_ROOT" \
+        --product EchoPluginSidecar 2>&1 | xcsift --format toon --executable
+    verify_artifact "$SIDECAR_BIN"
 fi
 
 # =====================================================
