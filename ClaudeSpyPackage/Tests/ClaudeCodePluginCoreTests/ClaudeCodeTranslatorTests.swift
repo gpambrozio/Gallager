@@ -71,15 +71,17 @@ struct ClaudeCodeTranslatorTests {
         """
         #expect(await core.handleIngress(frame(subagentPermission)) != nil)
 
-        // A main-agent Stop (no agent_id) is processed normally → doneWorking.
+        // A main-agent Stop (no agent_id, carries the assistant message) is
+        // processed normally → doneWorking.
         let mainStop = """
         {
             "hook_event_name": "Stop",
-            "session_id": "sess-1"
+            "session_id": "sess-1",
+            "last_assistant_message": "done"
         }
         """
         let event = try #require(await core.handleIngress(frame(mainStop)))
-        #expect(event.state == .doneWorking(summary: nil))
+        #expect(event.state == .doneWorking(summary: "done"))
     }
 
     @Test("a top-level SubagentStop without agent_id never flips the session to working")
@@ -94,6 +96,24 @@ struct ClaudeCodeTranslatorTests {
         {
             "hook_event_name": "SubagentStop",
             "session_id": "sess-1"
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop without last_assistant_message is a subagent stop and is dropped")
+    func stopWithoutMessageDropped() async throws {
+        let (core, _) = try await makeCore()
+
+        // Subagents fire the plain Stop hook too, without an agent_id for the
+        // pre-parse drop to see; only main-agent stops carry
+        // last_assistant_message. A message-less Stop must not flip a mid-task
+        // session to doneWorking or fire a notification.
+        let subagentStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "stop_hook_active": true
         }
         """
         #expect(await core.handleIngress(frame(subagentStop)) == nil)

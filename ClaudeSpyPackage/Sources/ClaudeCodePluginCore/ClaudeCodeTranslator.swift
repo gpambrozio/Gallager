@@ -61,6 +61,14 @@ enum ClaudeCodeTranslator {
         occurrenceID: String,
         closePaneOnSessionEnd: Bool = false
     ) -> Output? {
+        // Subagents fire the plain `Stop` hook too (not always with an `agent_id`
+        // for the pre-parse drop to see); only main-agent stops carry
+        // `last_assistant_message`. Drop the message-less ones — applying one would
+        // flip a mid-task session to doneWorking and fire a bogus notification.
+        if case let .stop(stopBody) = action, stopBody.lastAssistantMessage == nil {
+            return nil
+        }
+
         let body = action.body
         let sessionID = body.sessionId
 

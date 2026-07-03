@@ -44,6 +44,11 @@ just-stopped session back to "Working". This filter is shared with Codex via
 As defense-in-depth, `.subagentStart`/`.subagentStop` also map `isWorking` to `nil`,
 so even a subagent event lacking an `agent_id` cannot drive the main session.
 
+**Message-less `Stop` drop (translator):** subagents fire the plain `Stop` hook too,
+not always with an `agent_id` for the pre-parse drop to see. Only main-agent stops
+carry `last_assistant_message`, so a `Stop` without it is dropped entirely — applying
+one would flip a mid-task session to doneWorking and fire a bogus notification.
+
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,
   `nil` (no opinion) for neutral events.
