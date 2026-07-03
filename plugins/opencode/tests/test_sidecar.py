@@ -436,7 +436,7 @@ class InstallTests(unittest.TestCase):
                 dest = os.path.join(proj, ".opencode", "plugin", "gallager.js")
                 self.assertTrue(os.path.exists(dest))
                 self.assertEqual(sc.request("install_status", {"configRoot": proj}).get("result"),
-                                 {"installed": {"version": "0.1.0"}})
+                                 {"installed": {"version": "0.2.0"}})
             finally:
                 sc.close()
 
@@ -450,7 +450,7 @@ class InstallTests(unittest.TestCase):
             }
             sc = Sidecar(env)
             try:
-                sc.request("initialize", {})
+                sc.request("initialize", {"otlpReceiverEndpoint": "http://127.0.0.1:24318"})
                 self.assertEqual(sc.request("install_status").get("result"), {"notInstalled": {}})
 
                 res = sc.request("install").get("result")
@@ -461,14 +461,35 @@ class InstallTests(unittest.TestCase):
                     content = f.read()
                 self.assertIn("/tmp/fake-ingress.sock", content)
                 self.assertNotIn("__GALLAGER_INGRESS_SOCK__", content)
+                # The OTLP receiver endpoint from initialize is baked in the same
+                # way (issue #617) — opencode doesn't inherit Gallager's env.
+                self.assertIn("http://127.0.0.1:24318", content)
+                self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
                 self.assertIn("GallagerMonitor", content)
 
                 self.assertEqual(sc.request("install_status").get("result"),
-                                 {"installed": {"version": "0.1.0"}})
+                                 {"installed": {"version": "0.2.0"}})
 
                 sc.request("uninstall")
                 self.assertFalse(os.path.exists(dest))
                 self.assertEqual(sc.request("install_status").get("result"), {"notInstalled": {}})
+            finally:
+                sc.close()
+
+    def test_install_without_otlp_endpoint_bakes_empty(self):
+        # No receiver bound this launch → initialize carries no endpoint → the
+        # token is substituted with "" (NOT left in place, which would trip the
+        # bridge's env-var fallback on a real install).
+        with tempfile.TemporaryDirectory() as cfg:
+            env = {"GALLAGER_INGRESS_SOCK": "/tmp/s.sock", "GALLAGER_PLUGIN_ID": "opencode",
+                   "GALLAGER_PLUGIN_ROOT": ROOT, "XDG_CONFIG_HOME": cfg}
+            sc = Sidecar(env)
+            try:
+                sc.request("initialize", {})
+                sc.request("install")
+                with open(os.path.join(cfg, "opencode", "plugin", "gallager.js")) as f:
+                    content = f.read()
+                self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
             finally:
                 sc.close()
 

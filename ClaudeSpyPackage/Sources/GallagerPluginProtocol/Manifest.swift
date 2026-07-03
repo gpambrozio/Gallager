@@ -32,6 +32,11 @@ public struct PluginManifest: Sendable, Codable, Equatable {
     public let signature: String?
     public let sidecar: Sidecar?
     public let capabilities: Capabilities
+    /// OTLP telemetry declaration (issue #617): present when the plugin's agent
+    /// exports OTLP log records the host should aggregate into the per-session
+    /// token/cost/latency meter. Absent → records in unknown namespaces are
+    /// dropped, exactly as before.
+    public let otlp: OTLP?
 
     public struct UI: Sendable, Codable, Equatable {
         /// Relative path to the icon asset under the plugin root (e.g. "assets/icon.png").
@@ -75,6 +80,45 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         }
     }
 
+    /// Declares the plugin's OTLP event-name namespace so the host's telemetry
+    /// accumulator can classify its log records (issue #617). Records named
+    /// `<namespace>.<token_event>` must mirror Claude Code's `api_request`
+    /// attribute vocabulary (`input_tokens`, `output_tokens`, `cache_read_tokens`,
+    /// `cache_creation_tokens`, `cost_usd`, `duration_ms`, `model`) with the
+    /// per-message values accumulating by summation, and carry the session join
+    /// key in `session.id`.
+    public struct OTLP: Sendable, Codable, Equatable {
+        /// The event-name namespace, WITHOUT the trailing dot (e.g. `"opencode"`
+        /// classifies `opencode.api_request`). The built-in `claude_code` /
+        /// `codex` namespaces cannot be claimed; such declarations are ignored.
+        public let namespace: String
+        /// The namespace-stripped event name carrying the token/latency/model
+        /// attributes. Defaults to `"api_request"` (Claude's vocabulary).
+        public let tokenEvent: String
+
+        public static let defaultTokenEvent = "api_request"
+
+        public init(namespace: String, tokenEvent: String = OTLP.defaultTokenEvent) {
+            self.namespace = namespace
+            self.tokenEvent = tokenEvent
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case namespace
+            case tokenEvent = "token_event"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.namespace = try container.decode(String.self, forKey: .namespace)
+            // An absent OR empty token_event falls back to the default — an
+            // empty string would otherwise match a record named exactly
+            // "<namespace>." in the accumulator.
+            let decoded = try container.decodeIfPresent(String.self, forKey: .tokenEvent)
+            self.tokenEvent = decoded?.isEmpty == false ? decoded! : OTLP.defaultTokenEvent
+        }
+    }
+
     public struct Capabilities: Sendable, Codable, Equatable {
         public let richPaneDetection: Bool
         public let modalPrompts: Bool
@@ -110,7 +154,8 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         bundleSHA256: String? = nil,
         signature: String? = nil,
         sidecar: Sidecar? = nil,
-        capabilities: Capabilities = Capabilities()
+        capabilities: Capabilities = Capabilities(),
+        otlp: OTLP? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.id = id
@@ -127,6 +172,7 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         self.signature = signature
         self.sidecar = sidecar
         self.capabilities = capabilities
+        self.otlp = otlp
     }
 
     /// Default accent color when `ui.color` is absent (spec §10).
@@ -154,6 +200,7 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         case signature
         case sidecar
         case capabilities
+        case otlp
     }
 
     public init(from decoder: Decoder) throws {
@@ -175,6 +222,7 @@ public struct PluginManifest: Sendable, Codable, Equatable {
         self.sidecar = try container.decodeIfPresent(Sidecar.self, forKey: .sidecar)
         self.capabilities = try container.decodeIfPresent(Capabilities.self, forKey: .capabilities)
             ?? Capabilities()
+        self.otlp = try container.decodeIfPresent(OTLP.self, forKey: .otlp)
     }
 
     /// Load and decode a manifest from `<pluginRoot>/plugin.json`.

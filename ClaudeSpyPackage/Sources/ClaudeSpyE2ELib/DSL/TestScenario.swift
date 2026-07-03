@@ -480,7 +480,11 @@ public enum TestStep: Sendable {
     /// The `<gallagerRoot>` is derived from the instance's `--gallager-state-root`
     /// (its parent directory), so the staged plugin persists for the entire
     /// scenario in the per-instance E2E sandbox.
-    case macStageSidecarFixture(id: String, instance: Int = 0)
+    ///
+    /// `otlpNamespace` adds an `otlp` declaration to the staged manifest
+    /// (issue #617), so records named `<otlpNamespace>.api_request` POSTed to
+    /// the instance's OTLP receiver aggregate into the plugin session's meter.
+    case macStageSidecarFixture(id: String, instance: Int = 0, otlpNamespace: String? = nil)
 
     /// Build a self-contained sidecar `.zip` bundle (the `EchoPluginSidecar`
     /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the

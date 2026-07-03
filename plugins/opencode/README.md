@@ -3,8 +3,9 @@
 A Gallager **sidecar plugin** that teaches the Gallager (ClaudeSpy) Mac app to
 monitor [opencode](https://opencode.ai) sessions running in tmux panes: track
 working / done / idle, raise the attention badge, fire notifications on turn
-completion, and render opencode's permission prompts as interactive
-Gallager/iOS forms that answer back into opencode.
+completion, render opencode's permission prompts as interactive Gallager/iOS
+forms that answer back into opencode, and surface a per-session token / cost /
+latency / model meter via OTLP telemetry.
 
 ## Architecture
 
@@ -116,6 +117,43 @@ Verified against opencode v1.17.11's `question.tsx`. Edge cases left for follow-
 questions with >9 rows (number keys only reach 9) and a model that pre-selects
 options in its tool call (the sidecar assumes an empty initial selection).
 
+## Telemetry (token / cost / latency meter)
+
+opencode sessions get the same per-session meter as Claude Code — with **no
+third-party plugin and no user-set `OPENCODE_*` env vars** (issue #617).
+opencode has no usable native OTEL export, but the bridge already rides its
+event bus: on every **completed assistant message** (`message.updated` with
+`time.completed` set) it POSTs one OTLP/JSON log record to Gallager's loopback
+OTLP receiver (`/v1/logs`, plain `fetch`, fire-and-forget, deduped by message
+id). `message.updated` is never forwarded to the ingress socket — telemetry is
+the OTLP channel, and the event fires on every streaming metadata change.
+
+- The record's event name is `opencode.api_request` and its attributes mirror
+  Claude's `api_request` vocabulary exactly (`input_tokens`, `output_tokens`
+  with reasoning folded in, `cache_read_tokens`, `cache_creation_tokens`,
+  `cost_usd` — opencode computes cost itself, `duration_ms` =
+  `time.completed − time.created`, `model` = `modelID`), so the manifest's
+  `otlp` declaration (`{"namespace": "opencode"}`) is all the host needs to
+  aggregate it additively.
+- **Join key:** `session.id` carries **opencode's own session id**
+  (`info.sessionID`, `ses_…`). The host stamps a pane's telemetry join key from
+  the `sessionID` the sidecar reports in its `PluginEvent`s, and for every real
+  opencode event that is the opencode session id (the pane id is only reported
+  by the synthetic launch frame, before any turn) — so the record must carry
+  the same id or it never joins after the first turn starts. The meter
+  therefore follows the pane's *active* opencode session; switching sessions
+  resets the visible meter like Claude's `/clear` (the receiver keeps each
+  session's running totals, so switching back restores them on the next
+  completed message).
+- **Endpoint baking:** the opencode process doesn't inherit Gallager's env, so
+  the sidecar substitutes `__GALLAGER_OTLP_ENDPOINT__` in the bridge at
+  `install` time (from the `initialize` env's `otlpReceiverEndpoint` — the port
+  the receiver *actually* bound that launch), exactly like the ingress socket
+  path. Running the bridge straight from the repo falls back to the
+  `GALLAGER_OTLP_ENDPOINT` env var for smoke tests. If no receiver was running
+  at install, an empty endpoint is baked and telemetry stays off. Re-run
+  **Install** after the fact (or after the receiver's port changes) to re-bake.
+
 ## Install (development)
 
 ```bash
@@ -173,7 +211,7 @@ works out of the box:
 ## Test
 
 ```bash
-python3 tests/test_sidecar.py     # 35 tests: mapping, lifecycle, forms, install, projects
+python3 tests/test_sidecar.py     # 36 tests: mapping, lifecycle, forms, install, telemetry, projects
 node --check opencode-bridge/gallager.js
 ```
 
@@ -205,12 +243,15 @@ plugins/opencode/
 - A **hard kill** of opencode (`SIGKILL`/crash) skips its `dispose` finalizer, so
   no `gallager.lifecycle.stopped` frame is sent and the session lingers in the
   sidebar until Gallager next reconciles (graceful `/exit` and Ctrl-C are covered).
-- opencode's OTLP namespace is `opencode.*`, which Gallager's telemetry
-  accumulator doesn't parse yet (only `claude_code.*` / `codex.*`), so token/cost
-  metering is out of scope.
+- The telemetry meter shows the pane's **active** opencode session (the join
+  key re-stamps on every reported event), so it resets visually when you switch
+  sessions inside one TUI; the baked OTLP endpoint goes stale if the receiver
+  later binds a different port (re-run Install to re-bake).
 - Live event names confirmed against opencode v1.17.11; the bridge forwards a
   broad allowlist (both `permission.asked` and the SDK-typed `permission.updated`)
   to stay correct across versions.
 - Formal E2E-suite integration (the Swift `macStageSidecarFixture` path only
   stages the bundled Swift `EchoPluginSidecar`); this plugin is covered by the
-  standalone Python tests instead.
+  standalone Python tests instead. The declared-namespace telemetry pipeline
+  itself (manifest `otlp` → receiver → meter) has E2E coverage via the echo
+  fixture (`PluginOTLPTelemetryScenario`).

@@ -47,6 +47,8 @@ A sidecar plugin is a directory under `~/.gallager/plugins/<id>/` containing a
 | `signature` | string | no | Reserved for future code-signing; currently ignored |
 | `capabilities.rich_pane_detection` | boolean | no (defaults to false) | Opt in to the `detect_pane` RPC |
 | `capabilities.modal_prompts` | boolean | no (defaults to false) | Opt in to the `prompt_user` notification |
+| `otlp.namespace` | string | no | OTLP event-name namespace, WITHOUT the trailing dot (e.g. `"opencode"`). Declaring it routes `<namespace>.*` log records into the per-session token/cost/latency meter — see Section 6. The built-in `claude_code` / `codex` namespaces cannot be claimed. |
+| `otlp.token_event` | string | no (defaults to `"api_request"`) | The namespace-stripped event name carrying the token/latency/model attributes (Section 6) |
 
 ### Example manifest
 
@@ -355,16 +357,78 @@ separate from structured log lines written via the `log` notification, which go 
 
 ## 6. Telemetry (Optional)
 
-If your agent supports OpenTelemetry, you can point its OTLP exporter at the
-`otlpReceiverEndpoint` value received in the `initialize` params. Gallager runs a
-local OTLP/JSON receiver on the IPv4 loopback (`http://127.0.0.1:<port>`, default
-port `24318` but not guaranteed — always use the endpoint value as received) when
-active.
+If your agent (or your bridge) can emit OTLP, Gallager will aggregate a per-session
+token / cost / latency / model meter for it — the same meter Claude Code and Codex
+get. Gallager runs a local OTLP/JSON receiver on the IPv4 loopback
+(`http://127.0.0.1:<port>`, default port `24318` but not guaranteed — always use
+the `otlpReceiverEndpoint` value received in the `initialize` params verbatim).
 
-**Caveat:** The built-in OTLP accumulator currently only parses event namespaces
-`claude_code.*` and `codex.*`. OTLP payloads from a third-party agent that use a
-different event namespace are silently dropped today. Supporting arbitrary agent
-namespaces is a v2.x follow-on.
+Two steps:
+
+1. **Declare your namespace in the manifest** (the `otlp` field):
+
+   ```json
+   "otlp": {
+     "namespace": "my-agent",
+     "token_event": "api_request"
+   }
+   ```
+
+   While your plugin is enabled, log records named
+   `<namespace>.<token_event>` (e.g. `my-agent.api_request`) are aggregated;
+   records in undeclared namespaces are silently dropped. `token_event` may be
+   omitted (defaults to `"api_request"`). Matching is **case-sensitive** —
+   declaring `"MyAgent"` while emitting `myagent.api_request` gets nothing.
+   The built-in `claude_code` / `codex` namespaces cannot be claimed (nor
+   nested under), and when two enabled plugins declare the same namespace the
+   lexicographically-first plugin id wins (the conflict is logged).
+
+2. **POST OTLP/JSON log records** to `<otlpReceiverEndpoint>/v1/logs`, one per
+   completed model call / assistant message, mirroring Claude Code's
+   `api_request` attribute vocabulary exactly:
+
+   | Attribute key | Value |
+   |---------------|-------|
+   | `event.name` | `"<namespace>.<token_event>"` (string) |
+   | `session.id` | the SAME `sessionID` your sidecar reports in its `PluginEvent`s (the host stamps the pane's join key from every reported event, so a mismatched id never joins — opencode uses its `ses_…` session id) |
+   | `input_tokens` | int |
+   | `output_tokens` | int (fold reasoning/thinking tokens in, like Claude) |
+   | `cache_read_tokens` | int |
+   | `cache_creation_tokens` | int |
+   | `cost_usd` | double |
+   | `duration_ms` | int |
+   | `model` | string |
+
+   ```json
+   {
+     "resourceLogs": [{ "scopeLogs": [{ "logRecords": [{
+       "eventName": "my-agent.api_request",
+       "attributes": [
+         { "key": "event.name",    "value": { "stringValue": "my-agent.api_request" } },
+         { "key": "session.id",    "value": { "stringValue": "%3" } },
+         { "key": "input_tokens",  "value": { "intValue": 1234 } },
+         { "key": "output_tokens", "value": { "intValue": 567 } },
+         { "key": "cost_usd",      "value": { "doubleValue": 0.0123 } },
+         { "key": "duration_ms",   "value": { "intValue": 4200 } },
+         { "key": "model",         "value": { "stringValue": "some-model" } }
+       ]
+     }] }] }]
+   }
+   ```
+
+   `intValue` may be a JSON number or a numeric string (the proto3 int64
+   encoding); missing token/cost attributes read as 0. Values accumulate
+   **additively** — emit per-call/per-message amounts, NOT cumulative totals.
+   The event name is read from the `event.name` attribute first, then the
+   top-level `eventName` field, then a string `body`.
+
+The `plugins/opencode/` bundled plugin is the reference consumer: its bridge
+(`opencode-bridge/gallager.js`) POSTs one record per completed assistant message
+with a plain `fetch`, and its sidecar bakes the endpoint into the bridge at
+`install` time (the agent process does not inherit Gallager's env). If your
+agent has a native OTLP exporter you can instead point that exporter at the
+endpoint — provided you can make its event names and attribute keys match your
+declaration.
 
 ---
 
@@ -555,5 +619,7 @@ Do not run plugins from untrusted sources.
   the crash details are collected but the Settings UI banner is a v2.x follow-on.
 - **Update checker `If-None-Match`:** The update flow does not yet send `If-None-Match`
   to avoid redundant downloads on unchanged manifests. A v2.x follow-on.
-- **Third-party OTLP namespaces:** As noted in Section 6, event namespaces other than
-  `claude_code.*` and `codex.*` are silently dropped by the current accumulator.
+- **OTLP vocabulary:** A declared namespace (Section 6) surfaces only the single
+  `token_event` record shape (tokens/cost/latency/model). Claude's richer signals —
+  tool-result counts, commit/PR milestone metrics, permission-mode events — have no
+  declared-namespace equivalent yet.

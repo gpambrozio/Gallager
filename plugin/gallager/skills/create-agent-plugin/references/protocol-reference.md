@@ -21,6 +21,7 @@ to build a plugin against it.
 9. [Lifecycle & crash policy](#9-lifecycle--crash-policy)
 10. [Distribution](#10-distribution)
 11. [Security model](#11-security-model)
+11a. [Telemetry — the OTLP meter](#11a-telemetry--the-otlp-meter)
 12. [Known limitations](#12-known-limitations)
 13. [Settings (generic sidecar settings)](#13-settings-generic-sidecar-settings)
 
@@ -81,6 +82,8 @@ A plugin is a directory containing a `plugin.json` and an executable:
 | `bundle_sha256` | string | no | Lowercase hex SHA-256 of the bundle (remote install) |
 | `capabilities.rich_pane_detection` | bool | no (default false) | Opt in to the `detect_pane` RPC |
 | `capabilities.modal_prompts` | bool | no (default false) | Opt in to `prompt_user` / `deliver_response` |
+| `otlp.namespace` | string | no | OTLP event-name namespace, no trailing dot (e.g. `"my-agent"`). Declaring it routes `<namespace>.<token_event>` log records into the per-session token/cost/latency meter (§11a). `claude_code` / `codex` cannot be claimed. |
+| `otlp.token_event` | string | no (default `"api_request"`) | The namespace-stripped event name carrying the token/latency/model attributes (§11a) |
 
 ### ID rules
 
@@ -161,13 +164,14 @@ All are **requests** — the app waits for a response. `params` keys are camelCa
   "appVersion": "2.4.0",
   "settings": {},
   "marketplaceSource": "/path/to/marketplace/assets",
-  "otlpReceiverEndpoint": "http://127.0.0.1:4318"
+  "otlpReceiverEndpoint": "http://127.0.0.1:24318"
 }
 ```
 
-`otlpReceiverEndpoint` is `null` when no OTLP receiver is running. `settings` is
-your plugin's current settings object (`{}` when empty). Treat every `initialize`
-as a clean-slate boot — it is re-sent after a crash-restart.
+`otlpReceiverEndpoint` is `null` when no OTLP receiver is running; the port is
+whatever the receiver actually bound this launch — use the value verbatim (§11a).
+`settings` is your plugin's current settings object (`{}` when empty). Treat every
+`initialize` as a clean-slate boot — it is re-sent after a crash-restart.
 
 ---
 
@@ -527,6 +531,50 @@ vetting. Do not run plugins from untrusted sources.
 
 ---
 
+## 11a. Telemetry — the OTLP meter
+
+Optional: give your agent the same per-session token / cost / latency / model
+meter Claude Code and Codex have. Two steps:
+
+1. **Manifest**: declare your namespace (`otlp.namespace`, `otlp.token_event` —
+   see the schema table in §2). Records in undeclared namespaces are silently
+   dropped; the declaration applies while your plugin is enabled. Matching is
+   **case-sensitive** — declaring `"MyAgent"` while emitting
+   `myagent.api_request` gets nothing.
+2. **Emit**: POST OTLP/JSON log records to `<otlpReceiverEndpoint>/v1/logs`
+   (the endpoint arrives in the `initialize` env; `null` when no receiver is
+   running — then skip telemetry). One record per completed model call, with
+   Claude's exact `api_request` attribute keys, values **additive** per record
+   (never cumulative totals):
+
+```json
+{ "resourceLogs": [{ "scopeLogs": [{ "logRecords": [{
+  "eventName": "my-agent.api_request",
+  "attributes": [
+    { "key": "event.name",            "value": { "stringValue": "my-agent.api_request" } },
+    { "key": "session.id",            "value": { "stringValue": "<your reported sessionID>" } },
+    { "key": "input_tokens",          "value": { "intValue": 1234 } },
+    { "key": "output_tokens",         "value": { "intValue": 567 } },
+    { "key": "cache_read_tokens",     "value": { "intValue": 0 } },
+    { "key": "cache_creation_tokens", "value": { "intValue": 0 } },
+    { "key": "cost_usd",              "value": { "doubleValue": 0.0123 } },
+    { "key": "duration_ms",           "value": { "intValue": 4200 } },
+    { "key": "model",                 "value": { "stringValue": "some-model" } }
+  ]
+}] }] }] }
+```
+
+`session.id` must equal the `sessionID` your sidecar reports in its
+`PluginEvent`s — the host re-stamps the pane's telemetry join key from **every**
+reported event, so use the id your *turn* events carry (opencode: its `ses_…`
+session id, not the pane id, which only its synthetic launch frame reports). Fold reasoning/thinking tokens into
+`output_tokens` (Claude's convention). The agent process usually does not
+inherit Gallager's env, so bake the endpoint into whatever emits (the opencode
+plugin substitutes a token in its bridge at `install`, exactly like its ingress
+socket path).
+
+---
+
 ## 12. Known limitations
 
 - `rich_pane_detection`: the `detect_pane` types exist and the capability flag is
@@ -537,8 +585,9 @@ vetting. Do not run plugins from untrusted sources.
   `awaitingPermission`/`awaitingReplies`/`awaitingPlanApproval` states +
   `deliver_response` work today with no capability declared (§4a, §6).
 - Crash-loop banner UI is a follow-on (the auto-disable still happens).
-- OTLP: only `claude_code.*` and `codex.*` event namespaces are parsed today;
-  a third-party namespace is silently dropped.
+- OTLP: a declared namespace (§11a) surfaces only the single `token_event` record
+  shape. Claude's richer signals (tool-result counts, commit/PR milestones,
+  permission-mode events) have no declared-namespace equivalent yet.
 
 ---
 
