@@ -1,0 +1,29 @@
+name: Cleanup E2E proof videos
+
+on:
+  schedule:
+    - cron: '0 15 * * *' # daily; assets of PRs closed > grace period ago
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print what would be deleted/edited without mutating
+        type: boolean
+        default: false
+
+permissions:
+  pull-requests: read # PR state lookups
+  issues: write # PR comments are issue comments
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sweep proof videos of merged/closed PRs
+        run: ./scripts/e2e_video_cleanup.py ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS_REPO_TOKEN: ${{ secrets.RESULTS_REPO_TOKEN }}

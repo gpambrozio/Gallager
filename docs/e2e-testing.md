@@ -226,6 +226,23 @@ deletable any time: `gh release delete-asset e2e-videos <asset>.mp4 --repo
 gpambrozio/ClaudeSpyTestResults`. Note: release-asset links download rather
 than play inline, and require access to the (private) results repo.
 
+### Automatic cleanup (`e2e_video_cleanup.py`)
+
+The `.github/workflows/e2e-video-cleanup.yml` workflow sweeps daily: assets
+whose PR merged or closed more than 3 days ago are deleted, and the PR comments
+that linked them are edited (links struck through, deletion note appended) so
+nobody clicks dead links. Open — including reopened — PRs are skipped; asset
+names not matching `pr<N>-*.mp4` are left alone. Needs the `RESULTS_REPO_TOKEN`
+secret (fine-grained PAT, Contents read/write on ClaudeSpyTestResults only);
+everything on ClaudeSpy uses the workflow's own token. Also runs locally:
+
+```bash
+./scripts/e2e_video_cleanup.py --dry-run   # print, don't mutate
+```
+
+Design: `docs/superpowers/specs/2026-07-02-e2e-video-cleanup-design.md`.
+Unit tests: `python3 scripts/tests/test_e2e_video_cleanup.py`.
+
 ## Writing scenarios
 
 ### Basic scenario
