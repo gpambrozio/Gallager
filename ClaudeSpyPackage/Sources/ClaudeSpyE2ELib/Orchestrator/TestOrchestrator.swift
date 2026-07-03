@@ -1480,20 +1480,47 @@ public actor TestOrchestrator {
         let dir = zdotDirShimPath
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
-        func delegating(to file: String) -> String {
+        // `if`-form (not `[[ -f … ]] && source …`) so a missing user dotfile
+        // (~/.zlogin rarely exists) doesn't leave the startup file exiting 1 —
+        // exit-status prompt themes would flag `$? = 1` at the first prompt.
+        func delegating(to file: String, in root: String) -> String {
             """
             # Written by the Gallager E2E orchestrator. Delegates to the user's
-            # real ~/\(file) so e2e shells behave like normal ones.
-            [[ -f "$HOME/\(file)" ]] && source "$HOME/\(file)"
+            # real \(file) so e2e shells behave like normal ones.
+            if [[ -f "\(root)/\(file)" ]]; then
+              source "\(root)/\(file)"
+            fi
 
             """
         }
 
+        // The user's ~/.zshenv may relocate ZDOTDIR (e.g. to ~/.config/zsh).
+        // The shim's .zshenv captures that as the delegation root for the
+        // remaining dotfiles, then re-pins ZDOTDIR to the shim — otherwise zsh
+        // would read .zshrc from the user's directory and the history unset
+        // would never run. Not exported: the same shell instance sources all
+        // four startup files, so a plain variable is visible to them without
+        // leaking into the pane's child processes.
+        let userRoot = "${GALLAGER_E2E_USER_ZDOTDIR:-$HOME}"
+        let zshenv = delegating(to: ".zshenv", in: "$HOME") + """
+
+        # If the user's zshenv relocated ZDOTDIR, keep delegating the
+        # remaining dotfiles there, but re-pin ZDOTDIR to this shim so zsh
+        # still reads .zprofile/.zshrc/.zlogin (and the history unset) here.
+        if [[ -z "$ZDOTDIR" || "$ZDOTDIR" == "\(dir)" ]]; then
+          GALLAGER_E2E_USER_ZDOTDIR="$HOME"
+        else
+          GALLAGER_E2E_USER_ZDOTDIR="$ZDOTDIR"
+        fi
+        export ZDOTDIR="\(dir)"
+
+        """
+
         let files: [String: String] = [
-            ".zshenv": delegating(to: ".zshenv"),
-            ".zprofile": delegating(to: ".zprofile"),
-            ".zlogin": delegating(to: ".zlogin"),
-            ".zshrc": delegating(to: ".zshrc") + """
+            ".zshenv": zshenv,
+            ".zprofile": delegating(to: ".zprofile", in: userRoot),
+            ".zlogin": delegating(to: ".zlogin", in: userRoot),
+            ".zshrc": delegating(to: ".zshrc", in: userRoot) + """
 
             # E2E: never record scenario-typed commands in the user's shell
             # history. Runs after the user's rc so nothing can re-enable it.
