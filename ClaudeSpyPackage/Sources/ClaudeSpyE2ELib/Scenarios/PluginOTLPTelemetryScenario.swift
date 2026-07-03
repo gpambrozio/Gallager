@@ -83,6 +83,15 @@ public enum PluginOTLPTelemetryScenario {
         TestStep.macWaitForElement(titled: "PluginOtlpProject", timeout: 10)
         TestStep.macClickButton(titled: "PluginOtlpProject")
         TestStep.wait(seconds: 3)
-        TestStep.macScreenshot(label: "mac-plugin-otlp-meter")
+        // The mirrored terminal in the main pane exhibits ~2.68% sub-pixel
+        // glyph-rendering jitter run-to-run (font hinting/anti-aliasing between two
+        // stable render states — verified as an in-place difference, not a row
+        // shift, so neither a fresh baseline nor a prompt-ready wait removes it).
+        // The meter's correctness is asserted functionally above (`$0.42` +
+        // `sonnet-5` via AXValue), so this shot only needs to guard against gross
+        // visual regressions; widen the tolerance to 4% to clear the sub-pixel
+        // jitter while still failing on a missing meter or wrong content (which
+        // diff far more than 4%).
+        TestStep.macScreenshot(label: "mac-plugin-otlp-meter", tolerance: 4)
     }
 }
