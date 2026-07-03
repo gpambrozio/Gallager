@@ -211,7 +211,7 @@ The mac defaults (`tolerance: 2%`, `perPixelThreshold: 0.02`) are looser than iO
 ## Tmux Steps
 
 ### `tmuxCreateSession(name: String, width: Int, height: Int)`
-Create a tmux session on the test socket with the given name and initial dimensions. The tmux socket path is managed by the orchestrator (default `/tmp/claudespy-e2e/claudespy-e2e.sock`).
+Create a tmux session on the test socket with the given name and initial dimensions. The tmux socket path is managed by the orchestrator (default `/tmp/claudespy-e2e/claudespy-e2e.sock`). The session env sets `DISABLE_AUTO_UPDATE`/`DISABLE_UPDATE_PROMPT`, pins `TMPDIR` to the runner's temp dir (so `injectScript` paths resolve), and points `ZDOTDIR` at the orchestrator's shell-history shim so typed commands never reach the user's `~/.zsh_history`.
 
 ### `tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)`
 Query a tmux pane's current dimensions and store width/height in the execution context. The `target` uses tmux target format (e.g., `"session-name:0.0"`).

@@ -130,6 +130,8 @@ public enum TerminalEnvVarsScenario {
         )
         TestStep.tmuxCapturePaneContent(target: "${envPane}", storeAs: "appPaneHist")
         TestStep.assertStoredContains(key: "appPaneHist", substring: "HISTCHECK=[][0]")
+        // Visual proof: empty HISTFILE brackets + the shim basename on screen.
+        TestStep.macScreenshot(label: "mac-history-suppressed")
 
         // 7. … then an orchestrator-created session, whose initial shell gets
         //    the shim via `tmuxCreateSession`'s own `new-session -e ZDOTDIR`.
