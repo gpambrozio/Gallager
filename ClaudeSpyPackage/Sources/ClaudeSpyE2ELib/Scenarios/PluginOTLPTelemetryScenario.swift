@@ -72,6 +72,17 @@ public enum PluginOTLPTelemetryScenario {
         //    silently dropped, the pre-#617 behavior).
         TestStep.macWaitForElementQuery(.anyTextMatches("$0.42"), timeout: 10)
         TestStep.macWaitForElementQuery(.anyTextMatches("sonnet-5"), timeout: 5)
+
+        // 6. Select the session row so its pane is mirrored in the main area.
+        //    The scenario has no other selection step, so without this the
+        //    screenshot races on whatever window happens to be selected — the
+        //    empty "Select a Window" placeholder vs. the mirrored terminal.
+        //    Clicking the row (labelled by the project name) deterministically
+        //    shows the pane; the sidebar meter is unaffected. Same
+        //    select-then-mirror-then-settle pattern as MultiPaneWindowScenario.
+        TestStep.macWaitForElement(titled: "PluginOtlpProject", timeout: 10)
+        TestStep.macClickButton(titled: "PluginOtlpProject")
+        TestStep.wait(seconds: 3)
         TestStep.macScreenshot(label: "mac-plugin-otlp-meter")
     }
 }
