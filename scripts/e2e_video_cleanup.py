@@ -189,7 +189,9 @@ def main():
     )
     args = parser.parse_args()
 
-    results_token = os.environ.get("RESULTS_REPO_TOKEN")
+    # strip(): stray whitespace pasted into the secret would ride into the
+    # Authorization header and 401 (or be rejected client-side for \n).
+    results_token = os.environ.get("RESULTS_REPO_TOKEN", "").strip() or None
     if os.environ.get("GITHUB_ACTIONS") == "true" and not results_token:
         # Without it, results-repo calls fall back to the ambient token, which
         # can't see the private results repo: GitHub 404s, list_release_assets
