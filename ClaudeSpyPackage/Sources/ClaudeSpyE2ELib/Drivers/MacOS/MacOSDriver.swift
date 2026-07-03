@@ -356,19 +356,52 @@ public actor MacOSDriver {
         let pid = try requirePID()
         logger.info("Context menu click: '\(elementTitle)' → '\(menuItem)'")
 
-        // Step 1: Right-click to open context menu
+        // Retry the whole right-click → find-menu-item sequence, because a
+        // session row is a moving target and a single attempt is racy:
+        //   • A "working" row re-renders continuously (animated busy spinner)
+        //     and its title is exposed only through a 1pt / opacity-0 AX
+        //     overlay leaf, so that leaf can momentarily lack a resolvable
+        //     frame — `rightClick` then finds no clickable frame and returns
+        //     false without clicking.
+        //   • An unselected row swallows the first right-click into row
+        //     selection: selecting a session reloads the detail pane's
+        //     terminal mirror, and that re-layout dismisses the just-opened
+        //     context menu, so the menu item never appears on that attempt.
+        // Retrying covers both — the row becomes clickable, and a second
+        // right-click on the now-selected, settled row opens the menu cleanly.
+        // Escape between attempts closes any half-open menu so the next
+        // right-click starts clean and never lands inside an open menu. The
+        // fast path (row already clickable, menu opens) returns on the first
+        // attempt without ever pressing Escape, so existing scenarios are
+        // unaffected.
         try await waitForAXElement(pid: pid, titled: elementTitle, timeout: 5)
-        if !MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) {
-            throw MacOSDriverError.elementNotFound(elementTitle)
-        }
 
-        // Step 2: Poll for the menu item (context menu needs time to appear)
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-            try await Task.sleep(for: .milliseconds(300))
-            if MacOSAccessibility.press(appPID: pid, titled: menuItem) {
-                return
+        let overallDeadline = Date().addingTimeInterval(10)
+        while Date() < overallDeadline {
+            // Right-click to open the context menu. A false return means the
+            // matched leaf had no resolvable frame yet (no click performed) —
+            // wait and retry rather than treating it as fatal.
+            guard MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) else {
+                try await Task.sleep(for: .milliseconds(300))
+                continue
             }
+
+            // Poll for the menu item (context menu needs time to appear).
+            let menuItemDeadline = Date().addingTimeInterval(2)
+            while Date() < menuItemDeadline {
+                try await Task.sleep(for: .milliseconds(300))
+                if MacOSAccessibility.press(appPID: pid, titled: menuItem) {
+                    return
+                }
+            }
+
+            // The menu never yielded the item (it didn't open, or a
+            // row-selection re-layout dismissed it). Close anything half-open
+            // with Escape and try the whole sequence again.
+            if let escape = MacOSAccessibility.virtualKeyCode(for: .escape) {
+                MacOSAccessibility.pressKey(code: escape)
+            }
+            try await Task.sleep(for: .milliseconds(300))
         }
 
         throw MacOSDriverError.elementNotFound("\(elementTitle) context menu → \(menuItem)")

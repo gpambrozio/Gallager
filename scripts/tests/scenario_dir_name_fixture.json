@@ -1,0 +1,11 @@
+{
+  "_comment": "Parity fixture for the scenario-name → directory-name sanitizer. Consumed by BOTH TestOrchestrator.scenarioDirName(for:) (RecordingCoordinatorTests.scenarioDirName) and e2e_report_build.scenario_dir_name (test_e2e_report_build.py). Add cases here, never to just one test.",
+  "cases": [
+    { "name": "Two Mac Pairing", "expected": "two-mac-pairing" },
+    { "name": "OTEL: Usage (Overview)!", "expected": "otel-usage-overview" },
+    { "name": "multi_pane iOS 2", "expected": "multi_pane-ios-2" },
+    { "name": "A  B", "expected": "a--b" },
+    { "name": "Video/Demo.v2", "expected": "videodemov2" },
+    { "name": "Café Über-Test", "expected": "café-über-test" }
+  ]
+}

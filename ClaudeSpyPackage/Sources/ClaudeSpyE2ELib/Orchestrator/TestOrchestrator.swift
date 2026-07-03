@@ -1,3 +1,4 @@
+import CoreGraphics
 import Darwin
 import Foundation
 import Logging
@@ -30,6 +31,10 @@ public actor TestOrchestrator {
     /// hook-delivery DSL step writes frames to `<stateRoot>/ingress.sock`.
     private let gallagerStateRootBase: String
     private let skipComparison: Bool
+    /// Lane geometry applied when a recorded run needs every instance visible
+    /// in one full-display take (issue #621). `nil` (the default) means
+    /// coordinates pass through untouched — zero behavior change unrecorded.
+    private let stageLayout: StageLayout?
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
     /// Paths of scripts copied to TMPDIR via `injectScript`, cleaned up after each scenario.
@@ -113,6 +118,7 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
+        stageLayoutEnabled: Bool = false,
         gallagerStateRootBase: String? = nil,
         reporter: (any TestProgressReporter)? = nil
     ) {
@@ -124,6 +130,9 @@ public actor TestOrchestrator {
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
         self.skipComparison = skipComparison
+        self.stageLayout = stageLayoutEnabled
+            ? StageLayout(display: CGDisplayBounds(CGMainDisplayID()).size)
+            : nil
         self.reporter = reporter
         self.gallagerStateRootBase = gallagerStateRootBase
             ?? (NSTemporaryDirectory() + "claudespy-e2e-gallager")
@@ -137,7 +146,7 @@ public actor TestOrchestrator {
         await reporter?.scenarioStarted(scenario.name, totalSteps: scenario.steps.count)
         let startTime = ContinuousClock.now
 
-        let scenarioDirName = sanitizeForPath(scenario.name)
+        let scenarioDirName = Self.scenarioDirName(for: scenario.name)
 
         // Ensure per-scenario screenshots directory exists
         let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
@@ -500,6 +509,11 @@ public actor TestOrchestrator {
                 bundleId: iosBundleId(),
                 arguments: iosArgs
             )
+            if let stageLayout {
+                await simulatorDriver.positionWindowTopRight(
+                    displayWidth: Int(stageLayout.display.width)
+                )
+            }
 
         case .terminateIOSApp:
             try await simulatorDriver.terminateApp()
@@ -822,7 +836,8 @@ public actor TestOrchestrator {
             try await macDriver(for: instance).openPanesWindow()
 
         case let .macMoveWindow(x, y, instance):
-            try await macDriver(for: instance).moveWindow(x: x, y: y)
+            let p = staged(x: x, y: y, instance: instance)
+            try await macDriver(for: instance).moveWindow(x: p.x, y: p.y)
 
         case let .macResizeWindow(width, height, instance):
             try await macDriver(for: instance).resizeWindow(width: width, height: height)
@@ -847,10 +862,14 @@ public actor TestOrchestrator {
             try await macDriver(for: instance).scrollWheel(deltaY: deltaY, count: count)
 
         case let .macClickAtPoint(x, y, instance):
-            try await macDriver(for: instance).clickAtScreenPoint(x: x, y: y)
+            let p = staged(x: x, y: y, instance: instance)
+            try await macDriver(for: instance).clickAtScreenPoint(x: p.x, y: p.y)
 
         case let .macDrag(fromX, fromY, toX, toY, instance):
-            try await macDriver(for: instance).drag(fromX: fromX, fromY: fromY, toX: toX, toY: toY)
+            let from = staged(x: fromX, y: fromY, instance: instance)
+            let to = staged(x: toX, y: toY, instance: instance)
+            try await macDriver(for: instance)
+                .drag(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y)
 
         case let .macDragElement(fromQuery, toQuery, instance):
             try await macDriver(for: instance).dragElement(from: fromQuery, to: toQuery)
@@ -1373,6 +1392,20 @@ public actor TestOrchestrator {
 
     // MARK: - Mac Instance Helpers
 
+    /// Translate scenario-authored absolute coordinates into the instance's
+    /// stage lane. Identity when stage layout is off or for instance 0.
+    private func staged(x: Int, y: Int, instance: Int) -> (x: Int, y: Int) {
+        guard let stageLayout else { return (x, y) }
+        let t = stageLayout.translation(instance: instance)
+        return (x + Int(t.dx), y + Int(t.dy))
+    }
+
+    private func staged(x: Double, y: Double, instance: Int) -> (x: Double, y: Double) {
+        guard let stageLayout else { return (x, y) }
+        let t = stageLayout.translation(instance: instance)
+        return (x + t.dx, y + t.dy)
+    }
+
     /// Return (or create) the macOS driver for the given instance number.
     /// Instance 0 is the primary app; instance 1+ are additional instances with
     /// derived ports and labels.
@@ -1680,8 +1713,10 @@ public actor TestOrchestrator {
         return "\(baseDir)/\(scenarioName)"
     }
 
-    /// Convert a scenario name into a safe directory name
-    private func sanitizeForPath(_ name: String) -> String {
+    /// Convert a scenario name into a safe directory name. Static so
+    /// `RecordingCoordinator` (and the report pipeline) can derive the same
+    /// per-scenario directory the orchestrator writes screenshots into.
+    static func scenarioDirName(for name: String) -> String {
         name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
