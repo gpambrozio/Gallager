@@ -1,5 +1,6 @@
 import ClaudeSpyNetworking
 import Foundation
+import GallagerPluginProtocol
 import Logging
 import Network
 
@@ -234,6 +235,14 @@ actor OTLPReceiver {
     /// so a long-running host doesn't retain telemetry for finished sessions.
     func evictSession(_ sessionID: String) {
         accumulator.evict(sessionID: sessionID)
+    }
+
+    /// Replaces the plugin-declared OTLP namespace table (issue #617). Called
+    /// whenever the enabled-plugin set changes — the receiver starts before
+    /// plugin discovery, so the table arrives after `start()` rather than at
+    /// construction. Resolved once per change, never queried per record.
+    func updatePluginNamespaces(_ declarations: [PluginManifest.OTLP]) {
+        accumulator.setPluginNamespaces(declarations)
     }
 
     // MARK: Connection handling (nonisolated — runs on the listener queue)

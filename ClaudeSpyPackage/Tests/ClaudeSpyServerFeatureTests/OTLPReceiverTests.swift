@@ -2,6 +2,7 @@
     import ClaudeSpyNetworking
     import Darwin
     import Foundation
+    import GallagerPluginProtocol
     import Testing
     @testable import ClaudeSpyServerFeature
 
@@ -301,6 +302,45 @@
 
             let snapshot = try #require(await waitForTurns(collector, atLeast: 1))
             #expect(snapshot.recentTurns.map(\.latencyMs) == [7])
+
+            await receiver.stop()
+        }
+
+        @Test("a declared plugin namespace classifies over the wire once its table is pushed (issue #617)")
+        func declaredNamespaceOverTheWire() async throws {
+            let collector = SnapshotCollector()
+            let port = try #require(freeLoopbackPort())
+            let receiver = makeReceiver(port: port, collector: collector)
+            try await receiver.start()
+            // The table arrives after start() in production too (the receiver
+            // binds before plugin discovery). The undeclared-namespace drop is
+            // covered deterministically in the accumulator unit tests — over
+            // the wire the 200 ack isn't gated on processing, so a before/after
+            // sequence here would race the FIFO consumer.
+            await receiver.updatePluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+
+            let fd = try #require(connectTCP(port: port, deadline: Date().addingTimeInterval(5)))
+            defer { close(fd) }
+
+            // The exact record shape the opencode bridge POSTs (issue #617):
+            // fully-qualified `opencode.api_request` in the `event.name`
+            // attribute + `eventName` field, Claude's attribute keys, the tmux
+            // pane id as `session.id`.
+            let body = Data(#"""
+            {"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"opencode.api_request","attributes":[{"key":"event.name","value":{"stringValue":"opencode.api_request"}},{"key":"session.id","value":{"stringValue":"%3"}},{"key":"input_tokens","value":{"intValue":1234}},{"key":"output_tokens","value":{"intValue":567}},{"key":"cost_usd","value":{"doubleValue":0.0123}},{"key":"duration_ms","value":{"intValue":4200}},{"key":"model","value":{"stringValue":"claude-sonnet-5"}}]}]}]}]}
+            """#.utf8)
+            let request = Data(
+                "POST /v1/logs HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\n\r\n"
+                    .utf8
+            ) + body
+            #expect(writeAll(fd, request))
+
+            let snapshot = try #require(await waitForTurns(collector, atLeast: 1))
+            #expect(snapshot.inputTokens == 1_234)
+            #expect(snapshot.outputTokens == 567)
+            #expect(snapshot.costUSD == 0.0_123)
+            #expect(snapshot.model == "claude-sonnet-5")
+            #expect(snapshot.recentTurns.map(\.latencyMs) == [4_200])
 
             await receiver.stop()
         }

@@ -167,6 +167,13 @@ SESSION_PENDING = {}  # session_id → set(request_id)
 # command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
 SETTINGS = {}
 
+# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
+# into the bridge at install so opencode — which does not inherit Gallager's
+# env — can POST telemetry to it (issue #617). Empty when the receiver failed
+# to bind: the install then bakes an empty endpoint and telemetry stays off.
+OTLP_ENDPOINT = ""
+
 
 def _record_pending(request_id, server_url, opencode_id, session_id, questions=None):
     # `opencode_id` is the id the HTTP reply route needs (permission or question
@@ -594,6 +601,7 @@ def handle_install(req_id, params):
             content = f.read()
         content = content.replace("__GALLAGER_INGRESS_SOCK__", sock)
         content = content.replace("__GALLAGER_PLUGIN_ID__", plugin_id)
+        content = content.replace("__GALLAGER_OTLP_ENDPOINT__", OTLP_ENDPOINT)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         tmp = dest + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -747,7 +755,7 @@ def handle_refresh_projects(req_id, params):
 # ---------------------------------------------------------------------------
 # Remaining RPC handlers.
 # ---------------------------------------------------------------------------
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.2.0"
 
 
 def _store_settings(value):
@@ -757,7 +765,9 @@ def _store_settings(value):
 
 
 def handle_initialize(req_id, params):
+    global OTLP_ENDPOINT
     _store_settings((params or {}).get("settings"))
+    OTLP_ENDPOINT = (params or {}).get("otlpReceiverEndpoint") or ""
     log("info", "opencode sidecar initialized (app %s)" % (params or {}).get("appVersion", "?"))
     respond(req_id, {})
     _emit_projects()  # seed the sidebar before the first refresh tick

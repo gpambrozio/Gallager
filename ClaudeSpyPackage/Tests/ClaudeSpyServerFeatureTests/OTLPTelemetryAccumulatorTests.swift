@@ -1,6 +1,7 @@
 #if os(macOS)
     import ClaudeSpyNetworking
     import Foundation
+    import GallagerPluginProtocol
     import Testing
     @testable import ClaudeSpyServerFeature
 
@@ -657,6 +658,231 @@
             #expect(claude.costUSD == 0.25)
             #expect(codex.tokensUsed == 100)
             #expect(codex.costUSD == 0)
+        }
+
+        // MARK: - Declared plugin namespaces (issue #617)
+
+        /// Builds a log payload the way the opencode bridge emits it (issue
+        /// #617): fully-qualified name in both the `event.name` attribute and
+        /// the top-level `eventName` field, Claude's exact attribute keys, ints
+        /// as JSON numbers, and the tmux pane id in `session.id`.
+        private func declaredNamespaceLogs(
+            eventName: String,
+            sessionID: String,
+            input: Int,
+            output: Int,
+            cacheRead: Int = 0,
+            cacheCreation: Int = 0,
+            costUSD: Double = 0,
+            durationMs: Int = 0,
+            model: String = "claude-sonnet-5"
+        ) -> String {
+            """
+            {
+              "resourceLogs": [{
+                "scopeLogs": [{
+                  "logRecords": [{
+                    "eventName": "\(eventName)",
+                    "attributes": [
+                      {"key": "event.name", "value": {"stringValue": "\(eventName)"}},
+                      {"key": "session.id", "value": {"stringValue": "\(sessionID)"}},
+                      {"key": "input_tokens", "value": {"intValue": \(input)}},
+                      {"key": "output_tokens", "value": {"intValue": \(output)}},
+                      {"key": "cache_read_tokens", "value": {"intValue": \(cacheRead)}},
+                      {"key": "cache_creation_tokens", "value": {"intValue": \(cacheCreation)}},
+                      {"key": "cost_usd", "value": {"doubleValue": \(costUSD)}},
+                      {"key": "duration_ms", "value": {"intValue": \(durationMs)}},
+                      {"key": "model", "value": {"stringValue": "\(model)"}}
+                    ]
+                  }]
+                }]
+              }]
+            }
+            """
+        }
+
+        @Test("A declared namespace's token event accumulates like Claude's api_request (issue #617)")
+        func declaredNamespaceAccumulates() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            accumulator.setPluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+            let first = try ingestLogs(
+                declaredNamespaceLogs(
+                    eventName: "opencode.api_request", sessionID: "%3",
+                    input: 1_234, output: 567, cacheRead: 11, cacheCreation: 22,
+                    costUSD: 0.0_123, durationMs: 4_200
+                ),
+                into: &accumulator
+            )
+            let telemetry = try #require(first.telemetryUpdates["%3"])
+            #expect(telemetry.inputTokens == 1_234)
+            #expect(telemetry.outputTokens == 567)
+            #expect(telemetry.cacheReadTokens == 11)
+            #expect(telemetry.cacheCreationTokens == 22)
+            #expect(telemetry.costUSD == 0.0_123)
+            #expect(telemetry.lastTurnLatencyMs == 4_200)
+            #expect(telemetry.model == "claude-sonnet-5")
+
+            // Per-message emission is ADDITIVE (Claude semantics, not Codex's
+            // cumulative deltas): a second message sums onto the first.
+            let second = try ingestLogs(
+                declaredNamespaceLogs(
+                    eventName: "opencode.api_request", sessionID: "%3",
+                    input: 100, output: 50, costUSD: 0.001, durationMs: 800
+                ),
+                into: &accumulator
+            )
+            let updated = try #require(second.telemetryUpdates["%3"])
+            #expect(updated.inputTokens == 1_334)
+            #expect(updated.outputTokens == 617)
+            #expect(updated.costUSD == 0.0_123 + 0.001)
+            #expect(updated.lastTurnLatencyMs == 800)
+        }
+
+        @Test("An undeclared namespace stays dropped; the table applies and clears at runtime")
+        func namespaceTableAppliesAndClears() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            let record = declaredNamespaceLogs(
+                eventName: "opencode.api_request", sessionID: "%3", input: 10, output: 5
+            )
+            // No declaration → unclassified → dropped (the pre-#617 behavior).
+            #expect(try ingestLogs(record, into: &accumulator).isEmpty)
+
+            accumulator.setPluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+            #expect(try ingestLogs(record, into: &accumulator).telemetryUpdates["%3"] != nil)
+
+            // Plugin disabled → table replaced without it → dropped again.
+            accumulator.setPluginNamespaces([])
+            #expect(try ingestLogs(record, into: &accumulator).isEmpty)
+        }
+
+        @Test("A declared namespace only recognizes its declared token event")
+        func declaredNamespaceIgnoresOtherEvents() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            accumulator.setPluginNamespaces(
+                [PluginManifest.OTLP(namespace: "myagent", tokenEvent: "turn_metrics")]
+            )
+            // The declared (custom-named) token event classifies and accumulates…
+            let matched = try ingestLogs(
+                declaredNamespaceLogs(eventName: "myagent.turn_metrics", sessionID: "s1", input: 10, output: 5),
+                into: &accumulator
+            )
+            #expect(matched.telemetryUpdates["s1"]?.tokensUsed == 15)
+            // …while other events in the namespace are ignored.
+            let unmatched = try ingestLogs(
+                declaredNamespaceLogs(eventName: "myagent.api_request", sessionID: "s1", input: 99, output: 99),
+                into: &accumulator
+            )
+            #expect(unmatched.isEmpty)
+        }
+
+        @Test("Built-in namespaces cannot be claimed by a declaration; a trailing dot is tolerated")
+        func builtInNamespacesProtected() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            // A hostile/buggy manifest declaring the built-ins (with a bogus token
+            // event) — exactly OR nested under them — must not disturb Claude
+            // processing; "opencode." normalizes; empty fields are dropped.
+            accumulator.setPluginNamespaces([
+                PluginManifest.OTLP(namespace: "claude_code", tokenEvent: "bogus"),
+                PluginManifest.OTLP(namespace: "claude_code.myext", tokenEvent: "bogus"),
+                PluginManifest.OTLP(namespace: "codex.", tokenEvent: "bogus"),
+                PluginManifest.OTLP(namespace: "opencode."),
+                PluginManifest.OTLP(namespace: ""),
+                PluginManifest.OTLP(namespace: "emptytoken", tokenEvent: ""),
+            ])
+            let claude = try ingestLogs(
+                apiRequestLogs(
+                    sessionID: "claude-1", input: 100, output: 50, cacheRead: 0, cacheCreation: 0,
+                    costUSD: 0.25, durationMs: 900, model: "claude-opus-4-8", intsAsStrings: false
+                ),
+                into: &accumulator
+            )
+            #expect(claude.telemetryUpdates["claude-1"]?.tokensUsed == 150)
+            let opencode = try ingestLogs(
+                declaredNamespaceLogs(eventName: "opencode.api_request", sessionID: "%9", input: 7, output: 3),
+                into: &accumulator
+            )
+            #expect(opencode.telemetryUpdates["%9"]?.tokensUsed == 10)
+            // An empty token_event declaration is dropped, not stored as "" —
+            // a record named exactly "emptytoken." must not accumulate.
+            let emptyToken = try ingestLogs(
+                declaredNamespaceLogs(eventName: "emptytoken.", sessionID: "s-empty", input: 9, output: 9),
+                into: &accumulator
+            )
+            #expect(emptyToken.isEmpty)
+        }
+
+        @Test("Overlapping declared namespaces: the longest matching prefix wins, deterministically")
+        func overlappingNamespacesLongestPrefixWins() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            accumulator.setPluginNamespaces([
+                PluginManifest.OTLP(namespace: "acme"),
+                PluginManifest.OTLP(namespace: "acme.sub"),
+            ])
+            // A record in the NESTED namespace must classify as `acme.sub.` on
+            // every launch — matching the shorter `acme.` would strip to
+            // "sub.api_request", fail the token-event guard, and drop the
+            // record (the pre-fix behavior varied with Dictionary order).
+            let nested = try ingestLogs(
+                declaredNamespaceLogs(eventName: "acme.sub.api_request", sessionID: "s-sub", input: 10, output: 5),
+                into: &accumulator
+            )
+            #expect(nested.telemetryUpdates["s-sub"]?.tokensUsed == 15)
+            // The outer namespace still classifies its own records.
+            let outer = try ingestLogs(
+                declaredNamespaceLogs(eventName: "acme.api_request", sessionID: "s-outer", input: 1, output: 2),
+                into: &accumulator
+            )
+            #expect(outer.telemetryUpdates["s-outer"]?.tokensUsed == 3)
+        }
+
+        @Test("Duplicate declared namespaces resolve first-write-wins")
+        func duplicateNamespacesFirstWriteWins() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            // Two plugins claiming one namespace: the first declaration in the
+            // array wins (the app passes declarations sorted by plugin id and
+            // logs the conflict), so resolution never depends on Dictionary
+            // iteration order.
+            accumulator.setPluginNamespaces([
+                PluginManifest.OTLP(namespace: "acme", tokenEvent: "api_request"),
+                PluginManifest.OTLP(namespace: "acme", tokenEvent: "other_event"),
+            ])
+            let winner = try ingestLogs(
+                declaredNamespaceLogs(eventName: "acme.api_request", sessionID: "s1", input: 10, output: 5),
+                into: &accumulator
+            )
+            #expect(winner.telemetryUpdates["s1"]?.tokensUsed == 15)
+            let loser = try ingestLogs(
+                declaredNamespaceLogs(eventName: "acme.other_event", sessionID: "s1", input: 99, output: 99),
+                into: &accumulator
+            )
+            #expect(loser.isEmpty)
+        }
+
+        @Test("Codex records still classify with plugin mappings present")
+        func codexCoexistsWithDeclaredNamespaces() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            accumulator.setPluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+            _ = try ingestLogs(
+                codexSseCompletedLogs(
+                    conversationID: "codex-1", inputTokenCount: 80, outputTokenCount: 20,
+                    cachedTokenCount: 0, model: "gpt-5-codex"
+                ),
+                into: &accumulator
+            )
+            #expect(accumulator.telemetry(for: "codex-1")?.tokensUsed == 100)
+        }
+
+        @Test("evict drops a declared-namespace session like any other")
+        func declaredNamespaceEvicts() throws {
+            var accumulator = OTLPTelemetryAccumulator()
+            accumulator.setPluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+            _ = try ingestLogs(
+                declaredNamespaceLogs(eventName: "opencode.api_request", sessionID: "%3", input: 10, output: 5),
+                into: &accumulator
+            )
+            #expect(accumulator.telemetry(for: "%3") != nil)
+            accumulator.evict(sessionID: "%3")
+            #expect(accumulator.telemetry(for: "%3") == nil)
         }
     }
 #endif
