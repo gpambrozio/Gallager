@@ -11,6 +11,7 @@ on:
         default: false
 
 permissions:
+  contents: read # actions/checkout clones this private repo
   pull-requests: read # PR state lookups
   issues: write # PR comments are issue comments
 

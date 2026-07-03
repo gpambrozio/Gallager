@@ -190,6 +190,15 @@ def main():
     args = parser.parse_args()
 
     results_token = os.environ.get("RESULTS_REPO_TOKEN")
+    if os.environ.get("GITHUB_ACTIONS") == "true" and not results_token:
+        # Without it, results-repo calls fall back to the ambient token, which
+        # can't see the private results repo: GitHub 404s, list_release_assets
+        # reads that as "release not found", and the sweep exits 0 as if there
+        # were nothing to do — a broken/expired secret masquerading as success.
+        raise SystemExit(
+            "ERROR: RESULTS_REPO_TOKEN is unset in CI; refusing to run with the "
+            "ambient token, which cannot see the private results repo."
+        )
     now = datetime.now(timezone.utc)
 
     assets = list_release_assets(args.results_repo, args.release_tag, results_token)
@@ -228,8 +237,11 @@ def main():
             )
 
         if deleted_urls and not mark_pr_comments(args.repo, number, deleted_urls, args.dry_run):
-            # Does not self-heal (the assets are already gone), so make the
-            # run red for manual follow-up.
+            # Accepted trade-off (see the design spec under docs/superpowers/
+            # specs/2026-07-02-e2e-video-cleanup-design.md): the assets are
+            # already gone, so the next sweep can't rebuild deleted_urls for
+            # this PR — the orphaned comment stays unmarked. Don't "fix" this by
+            # retrying the delete; just make the run red for manual follow-up.
             exit_code = 1
 
     return exit_code
