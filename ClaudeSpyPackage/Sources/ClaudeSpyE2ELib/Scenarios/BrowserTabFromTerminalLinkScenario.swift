@@ -190,10 +190,25 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 3: Click link 2; toggle 'Don't ask again' + In App → setting flips to .alwaysInApp")
         // Switch back to the terminal window-tab so the link is clickable.
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (1): confirm the terminal is displayed and
+        // idle before sending the advance key. link_block.py advances on *any*
+        // byte read, so a keystroke dropped while the pane is mid-repaint (after a
+        // window refocus, or the Panes window auto-resizing) leaves the script
+        // stuck on the prior link — the block stays painted with `OPEN-LINK-(n-1)`
+        // and the next `macWaitForElementQuery(OPEN-LINK-n)` times out fatally.
+        // Waiting for the current link + a short beat lets the pane quiesce before
+        // the advance keystroke is sent. This is the host-side mirror of the
+        // viewer's Phase-16 "settle on the current link, then advance" guard, and
+        // the post-advance waits use the same generous 15s timeout.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 2
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
@@ -221,10 +236,16 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 5: With .alwaysInApp, clicking link 3 opens directly (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (2) before advancing — see the Phase 3 rationale.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-2")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 3
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Confirmation sheet must NOT appear.
@@ -256,10 +277,16 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 7: With .alwaysInDefaultBrowser, clicking link 4 routes via URLOpener — no new in-app tab")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (3) before advancing — see the Phase 3 rationale.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-3")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 4
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Neither the confirmation sheet nor a new in-app tab should appear.
@@ -306,10 +333,16 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 9: With global .ask + no domain rule, clicking link 5 shows the sheet")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (4) before advancing — see the Phase 3 rationale.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-4")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 5
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-5")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
@@ -342,10 +375,16 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 12: Click link 6 → opens directly via the per-domain rule (no sheet)")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (5) before advancing — see the Phase 3 rationale.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-5")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 6
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-6")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         // Confirmation sheet must NOT appear — the per-domain rule short-circuits .ask.
@@ -370,10 +409,16 @@ public enum BrowserTabFromTerminalLinkScenario {
         TestStep.log("Phase 14: With the rule gone (global .ask), clicking link 7 shows the sheet again")
         TestStep.macClickButton(titled: "weblinks")
         TestStep.macClickButton(titled: "weblinks:0")
+        // Settle on the current link (6) before advancing — see the Phase 3 rationale.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-6")]),
+            timeout: 15
+        )
+        TestStep.wait(seconds: 2)
         TestStep.tmuxSendKeys(target: "weblinks:0", keys: "Space") // advance link_block.py to link 7
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-7")]),
-            timeout: 5
+            timeout: 15
         )
         TestStep.macClickAtPoint(x: linkClickX, y: linkClickY)
         TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
