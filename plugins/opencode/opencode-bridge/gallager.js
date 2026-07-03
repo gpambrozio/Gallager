@@ -152,10 +152,16 @@ function forward(event, context) {
 // The attribute keys mirror Claude Code's `api_request` vocabulary exactly, so
 // the host aggregates them with the same additive per-message semantics (the
 // manifest's `otlp` declaration maps the `opencode.` namespace onto it).
-// `session.id` is the tmux PANE id — the same session identity the sidecar
-// reports — so telemetry joins the pane with no host-side changes. Multiple
-// opencode sessions in one pane therefore share one meter (accepted trade-off;
-// Gallager treats the pane as "the session").
+// `session.id` is opencode's OWN session id (`info.sessionID`, "ses_…"): the
+// host stamps a pane's telemetry join key from the sessionID the sidecar
+// reports in its PluginEvents, and for every real opencode event that IS the
+// opencode session id — the pane id is only reported by the synthetic launch
+// frame, before any turn. Stamping the pane id here would therefore join only
+// until the first turn's `session.status busy` re-stamps the key, and never
+// again. Bonus: the meter follows the ACTIVE opencode session in the pane, and
+// switching sessions resets the visible meter exactly like Claude's `/clear`
+// (the receiver keeps each session's running totals, so switching back
+// restores them on the next completed message).
 
 // Assistant-message ids already exported, so a post-completion re-emit of
 // `message.updated` can't double-count a turn. Bounded FIFO (Sets iterate in
@@ -172,6 +178,10 @@ function emitTelemetry(info, context) {
   // contribution at the early values forever.
   const completed = info.time && info.time.completed
   if (!completed || !info.id || OTLP_EMITTED.has(info.id)) return
+  // opencode's session id — the join key (see the header comment). The pane-id
+  // fallback covers a hypothetical message without one; such records only join
+  // before the first turn.
+  const sessionID = info.sessionID || context.TMUX_PANE
   OTLP_EMITTED.add(info.id)
   if (OTLP_EMITTED.size > OTLP_EMITTED_CAP) {
     OTLP_EMITTED.delete(OTLP_EMITTED.values().next().value)
@@ -182,7 +192,7 @@ function emitTelemetry(info, context) {
   const int = (v) => (typeof v === "number" && isFinite(v) ? Math.max(0, Math.round(v)) : 0)
   const attributes = [
     { key: "event.name", value: { stringValue: "opencode.api_request" } },
-    { key: "session.id", value: { stringValue: context.TMUX_PANE } },
+    { key: "session.id", value: { stringValue: sessionID } },
     // opencode's reasoning tokens are folded into output — matching Claude's
     // api_request, where thinking tokens are billed/reported as output tokens.
     { key: "input_tokens", value: { intValue: int(tokens.input) } },
@@ -202,7 +212,7 @@ function emitTelemetry(info, context) {
   const body = {
     resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: "opencode.api_request", attributes }] }] }],
   }
-  debug(`otlp api_request message=${info.id} pane=${context.TMUX_PANE}`)
+  debug(`otlp api_request message=${info.id} session=${sessionID} pane=${context.TMUX_PANE}`)
   // Fire-and-forget: telemetry must never break opencode. The receiver is
   // loopback-local, so a failure means Gallager is gone — drop silently.
   try {

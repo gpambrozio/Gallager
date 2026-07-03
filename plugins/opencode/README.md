@@ -135,10 +135,16 @@ the OTLP channel, and the event fires on every streaming metadata change.
   `time.completed − time.created`, `model` = `modelID`), so the manifest's
   `otlp` declaration (`{"namespace": "opencode"}`) is all the host needs to
   aggregate it additively.
-- **Join key:** `session.id` carries the tmux **pane id** (`TMUX_PANE`) — the
-  same session identity the sidecar reports — so telemetry attaches to the pane
-  with no host-side changes. Trade-off: multiple opencode sessions in one pane
-  share one meter (Gallager treats the pane as "the session").
+- **Join key:** `session.id` carries **opencode's own session id**
+  (`info.sessionID`, `ses_…`). The host stamps a pane's telemetry join key from
+  the `sessionID` the sidecar reports in its `PluginEvent`s, and for every real
+  opencode event that is the opencode session id (the pane id is only reported
+  by the synthetic launch frame, before any turn) — so the record must carry
+  the same id or it never joins after the first turn starts. The meter
+  therefore follows the pane's *active* opencode session; switching sessions
+  resets the visible meter like Claude's `/clear` (the receiver keeps each
+  session's running totals, so switching back restores them on the next
+  completed message).
 - **Endpoint baking:** the opencode process doesn't inherit Gallager's env, so
   the sidecar substitutes `__GALLAGER_OTLP_ENDPOINT__` in the bridge at
   `install` time (from the `initialize` env's `otlpReceiverEndpoint` — the port
@@ -237,10 +243,10 @@ plugins/opencode/
 - A **hard kill** of opencode (`SIGKILL`/crash) skips its `dispose` finalizer, so
   no `gallager.lifecycle.stopped` frame is sent and the session lingers in the
   sidebar until Gallager next reconciles (graceful `/exit` and Ctrl-C are covered).
-- Telemetry joins on the **pane id**, so multiple opencode sessions in one
-  TUI/pane accumulate into a single meter (no reset on `session.created`); the
-  baked OTLP endpoint goes stale if the receiver later binds a different port
-  (re-run Install to re-bake).
+- The telemetry meter shows the pane's **active** opencode session (the join
+  key re-stamps on every reported event), so it resets visually when you switch
+  sessions inside one TUI; the baked OTLP endpoint goes stale if the receiver
+  later binds a different port (re-run Install to re-bake).
 - Live event names confirmed against opencode v1.17.11; the bridge forwards a
   broad allowlist (both `permission.asked` and the SDK-typed `permission.updated`)
   to stay correct across versions.

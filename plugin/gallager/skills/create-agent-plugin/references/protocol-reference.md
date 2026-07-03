@@ -564,9 +564,10 @@ meter Claude Code and Codex have. Two steps:
 }] }] }] }
 ```
 
-`session.id` must equal the session identity your sidecar reports in its
-`PluginEvent`s (the pane id for a pane-keyed plugin) — that's the join key that
-attaches the meter to the pane. Fold reasoning/thinking tokens into
+`session.id` must equal the `sessionID` your sidecar reports in its
+`PluginEvent`s — the host re-stamps the pane's telemetry join key from **every**
+reported event, so use the id your *turn* events carry (opencode: its `ses_…`
+session id, not the pane id, which only its synthetic launch frame reports). Fold reasoning/thinking tokens into
 `output_tokens` (Claude's convention). The agent process usually does not
 inherit Gallager's env, so bake the endpoint into whatever emits (the opencode
 plugin substitutes a token in its bridge at `install`, exactly like its ingress

@@ -390,7 +390,7 @@ Two steps:
    | Attribute key | Value |
    |---------------|-------|
    | `event.name` | `"<namespace>.<token_event>"` (string) |
-   | `session.id` | the session identity your sidecar reports (the join key — for a pane-keyed plugin like opencode, the tmux pane id) |
+   | `session.id` | the SAME `sessionID` your sidecar reports in its `PluginEvent`s (the host stamps the pane's join key from every reported event, so a mismatched id never joins — opencode uses its `ses_…` session id) |
    | `input_tokens` | int |
    | `output_tokens` | int (fold reasoning/thinking tokens in, like Claude) |
    | `cache_read_tokens` | int |
