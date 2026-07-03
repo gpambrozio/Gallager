@@ -225,6 +225,14 @@ final public class TmuxService {
     /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
     public var apiSocketPath: String?
 
+    /// When set, spawned shells get `ZDOTDIR=<path>` so zsh reads its startup
+    /// files from that directory instead of `$HOME`. Set by the composition
+    /// root from the `--zdotdir` launch argument the E2E orchestrator passes:
+    /// the shim there sources the user's real dotfiles, then disables history
+    /// so test-typed commands never land in the user's `~/.zsh_history`.
+    /// Nil (production) leaves the pane environment unchanged.
+    public var zdotDirOverride: String?
+
     /// When true, the user opted into the editor override (issue #591 §5):
     /// `export VISUAL='<editor> edit'` is typed into newly-created shell panes
     /// (and chained onto app-launched agent commands) so Gallager's in-app
@@ -263,6 +271,9 @@ final public class TmuxService {
         }
         if let apiSocketPath {
             vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
+        }
+        if let zdotDirOverride {
+            vars.append("ZDOTDIR=\(zdotDirOverride)")
         }
         return vars
     }
@@ -2832,6 +2843,9 @@ final public class TmuxService {
         var env = Self.baseEnvironmentVars
         if let apiSocketPath {
             env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+        }
+        if let zdotDirOverride {
+            env.append("ZDOTDIR=\(zdotDirOverride)")
         }
         env.append("VISUAL=\(EditorOverride.probeSentinel)")
 

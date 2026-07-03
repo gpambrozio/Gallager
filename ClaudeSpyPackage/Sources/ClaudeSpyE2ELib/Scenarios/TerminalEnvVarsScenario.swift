@@ -17,6 +17,12 @@ import Foundation
 ///    `DISABLE_UPDATE_PROMPT=true` — set via tmux `new-session -e` flags
 ///    (`baseEnvironmentVars`), which tmux honors for vars it doesn't
 ///    hardcode-overwrite.
+/// 4. `ZDOTDIR=<shim>` history suppression — e2e shells source their zsh
+///    startup files from the orchestrator's shim dir, which delegates to the
+///    user's real dotfiles and then unsets `HISTFILE` so scenario-typed
+///    commands never land in `~/.zsh_history`. Verified on BOTH spawn paths:
+///    the app-created pane (`--zdotdir` → `TmuxService.zdotDirOverride`) and
+///    an orchestrator-created session (`tmuxCreateSession`'s `new-session -e`).
 ///
 /// The terminal is created via the app's "New Terminal" button rather than
 /// `tmuxCreateSession` so the test exercises the same `TmuxService.createSession`
@@ -106,5 +112,37 @@ public enum TerminalEnvVarsScenario {
         // en_US.UTF-8 fallback applies), so assert presence rather than an exact,
         // machine-dependent value.
         TestStep.assertStoredContains(key: "envOutput", substring: "LANG=")
+
+        // 6. History suppression (ZDOTDIR shim): the typed line echoes literal
+        //    `$HISTFILE`/`${ZDOTDIR:t}`, so only the shell's *expanded* output
+        //    can match the assertions below. Probe lines are kept short (empty
+        //    brackets, `:t` basename) because `capture-pane` without `-J`
+        //    splits wrapped lines, which would break substring matching.
+        //    First the app-created pane (`--zdotdir` → `zdotDirOverride`) …
+        Shortcut.tmuxRunCommand(
+            target: "${envPane}",
+            command: #"echo "HISTCHECK=[$HISTFILE][$SAVEHIST]" && echo "ZDOTCHECK=${ZDOTDIR:t}""#
+        )
+        // The wait doubles as the ZDOTDIR assertion: `ZDOTCHECK=gallager-e2e-zdotdir`
+        // only exists in the shell's expanded output, never in the typed line.
+        TestStep.tmuxWaitForPaneContent(
+            target: "${envPane}", contains: "ZDOTCHECK=gallager-e2e-zdotdir"
+        )
+        TestStep.tmuxCapturePaneContent(target: "${envPane}", storeAs: "appPaneHist")
+        TestStep.assertStoredContains(key: "appPaneHist", substring: "HISTCHECK=[][0]")
+
+        // 7. … then an orchestrator-created session, whose initial shell gets
+        //    the shim via `tmuxCreateSession`'s own `new-session -e ZDOTDIR`.
+        TestStep.tmuxCreateSession(name: "histcheck", width: 120, height: 30)
+        TestStep.tmuxStorePaneId(target: "histcheck", storeAs: "histPane")
+        Shortcut.tmuxRunCommand(
+            target: "${histPane}",
+            command: #"echo "HISTCHECK=[$HISTFILE][$SAVEHIST]" && echo "ZDOTCHECK=${ZDOTDIR:t}""#
+        )
+        TestStep.tmuxWaitForPaneContent(
+            target: "${histPane}", contains: "ZDOTCHECK=gallager-e2e-zdotdir"
+        )
+        TestStep.tmuxCapturePaneContent(target: "${histPane}", storeAs: "orchPaneHist")
+        TestStep.assertStoredContains(key: "orchPaneHist", substring: "HISTCHECK=[][0]")
     }
 }

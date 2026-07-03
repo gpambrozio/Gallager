@@ -254,6 +254,14 @@
             // on a prior launch (issue #591).
             tmuxService.overrideVisualInShellPanes = settings.editorOverrideMode == .overrideInGallagerSessions
 
+            // E2E: the orchestrator passes a `--zdotdir` shim so shells spawned
+            // in test panes never write to the user's real ~/.zsh_history.
+            if
+                let idx = CommandLine.arguments.firstIndex(of: "--zdotdir"),
+                idx + 1 < CommandLine.arguments.count {
+                tmuxService.zdotDirOverride = CommandLine.arguments[idx + 1]
+            }
+
             // Create control client manager for tmux control mode
             self.controlClientManager = TmuxControlClientManager(
                 tmuxPath: settings.tmuxPath,

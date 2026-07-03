@@ -96,6 +96,12 @@ Both apps accept `--e2e-test` as a launch argument. When present, `prepareDepend
 
 The macOS app accepts `--tmux-socket <path>` (alongside `--e2e-test`) to use a dedicated tmux server socket instead of the system default. This prevents E2E tests from polluting the developer's real tmux sessions. The default socket path is `/tmp/claudespy-e2e.sock`. During cleanup, the orchestrator kills the isolated tmux server and removes the socket file.
 
+### Shell history isolation
+
+Shells spawned in E2E panes never write to the developer's `~/.zsh_history`. The orchestrator maintains a `$ZDOTDIR` shim directory (`<TMPDIR>/gallager-e2e-zdotdir`) whose zsh startup files source the user's real dotfiles — so the shell behaves exactly like a normal one — and then unset `HISTFILE` after the user's rc has run. A plain `HISTFILE=` env var wouldn't work: macOS's `/etc/zshrc` reassigns `HISTFILE` after tmux applies the pane environment.
+
+The shim reaches both spawn paths: orchestrator-created sessions get `-e ZDOTDIR=<shim>` on `new-session` directly, and app-created panes get it via the `--zdotdir <shim>` launch argument, which the composition root forwards to `TmuxService.zdotDirOverride`. The shim path is deliberately stable (shared across instances and runs) so zsh's `.zcompdump-*` completion cache is reused. Side effect: commands you type into panes during `--interactive` sessions aren't recorded either. Verified end-to-end by the "Terminal Env Vars" scenario.
+
 ### Variable interpolation
 
 Steps can pass data between each other via `ExecutionContext`. Use `macReadClipboard(storeAs: "key")` or `storeValue(key:value:)` to store, and `"${key}"` in any string argument to reference it. The orchestrator resolves variables before passing to drivers.
