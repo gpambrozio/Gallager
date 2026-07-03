@@ -8,7 +8,6 @@ import Testing
 /// real `ClaudeCodePluginCore.handleIngress`, using realistic hook JSON shapes
 /// copied from the E2E scenarios. Asserts the `state` (incl. the open form) /
 /// notification / appActions fields the dispatcher fans out.
-@Suite("ClaudeCodeTranslator")
 struct ClaudeCodeTranslatorTests {
     // MARK: - Helpers
 
@@ -117,6 +116,25 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop with an empty last_assistant_message is kept, not dropped")
+    func stopWithEmptyMessageKept() async throws {
+        let (core, _) = try await makeCore()
+
+        // Boundary: the drop guards on `== nil`, NOT `isEmpty`, so a main-agent Stop
+        // that carries an empty string is intentionally KEPT → doneWorking. Pinned so
+        // a future `isEmpty` tightening can't silently reintroduce the stuck-"Working"
+        // risk for tool-only turns (where the assistant's last message is empty).
+        let emptyMessageStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": ""
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(emptyMessageStop)))
+        #expect(event.state == .doneWorking(summary: ""))
     }
 
     // MARK: - Plain permission request
