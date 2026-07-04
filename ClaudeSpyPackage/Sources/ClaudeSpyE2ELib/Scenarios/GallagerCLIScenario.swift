@@ -441,10 +441,10 @@ public enum GallagerCLIScenario {
         )
         TestStep.assertStoredContains(key: "tmuxEmojiOptionByName", substring: "🐛")
 
-        // 16h. find-emoji searches the Unicode emoji database by name. Running
-        // it in the terminal must print "<glyph>  <lowercased name>" for every
-        // match — an exact name match short-circuits to a single result, so
-        // "rocket" is guaranteed to be the only line.
+        // 16h. find-emoji searches the emoji database by name. Running it in the
+        // terminal must print "<glyph>  <lowercased name>" for every match — an
+        // exact name match short-circuits to a single result, so "rocket" is
+        // guaranteed to be the only line.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
             command: #"gallager find-emoji rocket > /tmp/e2e-cli-find-emoji.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-emoji.txt"#
@@ -453,6 +453,18 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-find-emoji.txt", storeAs: "findEmojiResult")
         TestStep.assertStoredContains(key: "findEmojiResult", substring: "🚀  rocket")
         TestStep.assertStoredContains(key: "findEmojiResult", substring: "exit=0")
+
+        // 16h-bis. Keyword search (issue #630): "trash" isn't the wastebasket's
+        // Unicode name (WASTEBASKET), but it is a CLDR keyword synonym, so it
+        // must still resolve 🗑️ — the whole point of the better-search change.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager find-emoji trash > /tmp/e2e-cli-find-trash.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-trash.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-find-trash.txt", storeAs: "findTrashResult")
+        TestStep.assertStoredContains(key: "findTrashResult", substring: "🗑️  wastebasket")
+        TestStep.assertStoredContains(key: "findTrashResult", substring: "exit=0")
 
         // 16i. set-emoji none clears the emoji. The badge disappears and the
         // tmux option is unset.

@@ -110,10 +110,10 @@ gallager set-title ""                                     # default targets call
 gallager set-color blue --session work                    # set/replace sidebar dot color (none/empty clears)
 gallager set-color none                                   # clear color on calling pane's session
 gallager set-emoji "🚀" --session work                    # set/replace sidebar emoji icon (none/empty clears)
-gallager set-emoji rocket --session work                  # same — looks up emoji by Unicode name/description
-gallager set-emoji "smiling face heart" --session work    # any word-set substring of a Unicode name works
+gallager set-emoji rocket --session work                  # same — looks up emoji by name/keyword
+gallager set-emoji trash --session work                   # keyword synonyms work too → 🗑️ (named WASTEBASKET)
 gallager set-emoji none                                   # clear emoji on calling pane's session
-gallager find-emoji rocket                                # search the Unicode emoji database — prints "<glyph>  <name>"
+gallager find-emoji trash                                 # search by name or CLDR keyword — prints "<glyph>  <name>"
 gallager find-emoji rocket --json                         # JSON array; empty match set is `[]` with exit 0
 gallager select-session work
 gallager current-session

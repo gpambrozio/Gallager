@@ -691,7 +691,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Build GallagerCLI and copy into app bundle\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"${DEST}/GallagerCLI\"\nelse\n    echo \"warning: GallagerCLI not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
+			shellScript = "# Build GallagerCLI and copy into app bundle\nset -e\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    # GallagerEmoji is shared by the app and the CLI, so Xcode links it as a\n    # dynamic framework embedded in Contents/Frameworks. The bare copied CLI's\n    # rpaths don't cover that (Release has only /usr/lib/swift), so add it here\n    # or every CLI invocation dies in dyld before main(). See docs/known-issues.md.\n    install_name_tool -add_rpath \"@loader_path/../Frameworks\" \"${DEST}/GallagerCLI\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"${DEST}/GallagerCLI\"\nelse\n    echo \"warning: GallagerCLI not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
 		};
 		81B5E4A02F90000100000001 /* Sync Codex Skills */ = {
 			isa = PBXShellScriptBuildPhase;

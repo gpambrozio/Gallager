@@ -105,27 +105,30 @@ session-only targeting rules as `session.set_title`. Pass `emoji: ""` (or
 `none` from the CLI) to clear.
 
 The CLI argument accepts either an emoji character directly (`🚀`) or a
-Unicode name / description (`rocket`, `bug`, `"smiling face heart"`).
-Names are resolved locally against `Unicode.Scalar.Properties.name`; an
-exact match short-circuits to a single result, ambiguous queries print
+name / keyword (`rocket`, `bug`, `trash`, `"smiling face heart"`). Names
+resolve locally against a bundled CLDR keyword table (the same one the
+Mac/iOS picker uses), so common synonyms work even when they aren't the
+formal Unicode name — `trash` resolves 🗑️ (named WASTEBASKET). An exact
+name match short-circuits to a single result; ambiguous queries print
 candidates and exit non-zero. The relay/server only ever sees the
 resolved glyph — name lookup happens entirely CLI-side. Junk text that
-matches neither an emoji nor a Unicode name is rejected with a
-validation error so it never reaches the server.
+matches neither an emoji nor a name is rejected with a validation error
+so it never reaches the server.
 - Params: `{ "emoji": string, "session_id"?: string, "pane_id"?: string }`
 - Result: `{}`
 - Errors: `not_found` when the target doesn't resolve.
 
 ### `find-emoji <query> [--json]` _(CLI-only)_
-Searches the Unicode emoji database by name and prints `<glyph>  <name>`
-for every match (one per line). Every whitespace-separated word in the
-query must appear in the candidate's name (case-insensitive); results
-are sorted shortest-name-first so the most canonical candidate floats
-to the top. With `--json` emits `[{"emoji": "...", "name": "..."}, …]`
-on stdout — an empty match set is `[]` with exit 0 (success, no
-results). Interactive mode (no `--json`) exits 1 on empty matches so
-shell scripts can branch on `if gallager find-emoji foo > /dev/null`.
-This command never touches the relay/tmux; it's pure local lookup.
+Searches the emoji database by name **or CLDR keyword synonym** and
+prints `<glyph>  <name>` for every match (one per line), so `find-emoji
+trash` surfaces 🗑️. Each whitespace-separated query word must prefix a
+word in the candidate's name or keywords (case-insensitive); results are
+ranked name-matches-first, then shortest-name-first. With `--json` emits
+`[{"emoji": "...", "name": "..."}, …]` on stdout — an empty match set is
+`[]` with exit 0 (success, no results). Interactive mode (no `--json`)
+exits 1 on empty matches so shell scripts can branch on `if gallager
+find-emoji foo > /dev/null`. This command never touches the relay/tmux;
+it's pure local lookup.
 
 ### `session.select` — `gallager select-session <id>`
 - Params: `{ "session_id": string }`
