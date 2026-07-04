@@ -347,11 +347,15 @@ Static utility detecting the `claude` CLI path.
 
 ### DockIconManager (`ClaudeSpyServerFeature/Managers/DockIconManager.swift`)
 
-`@MainActor` managing dock icon visibility.
+`@MainActor` managing dock icon visibility and the dock tile badge.
 
 - App runs as accessory (no dock icon) when no windows visible
 - Switches to regular mode when windows open
 - Ignores menu bar and popover windows
+- Owns the badge (`setBadgeCount`): `NSDockTile.badgeLabel`'s setter dedups
+  unchanged values in-process while the Dock discards tile state on
+  `.accessory` transitions, so the manager clears the label before every set
+  and re-applies it on policy updates (issue #217)
 
 ### SleepPreventionManager (`ClaudeSpyServerFeature/Managers/SleepPreventionManager.swift`)
 
