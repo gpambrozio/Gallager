@@ -19,6 +19,11 @@ ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
 
+# Repo plugins (plugins/*) published for remote install
+PLUGINS_DIR="$PROJECT_ROOT/plugins"
+PLUGINS_BUILD_DIR="$BUILD_DIR/plugins"
+PLUGIN_MANIFEST_URLS=()
+
 # Sparkle / FTP configuration
 APPCAST_DIR="$PROJECT_ROOT/docs"
 APPCAST_FILE="$APPCAST_DIR/ClaudeSpy.xml"
@@ -169,6 +174,34 @@ check_prerequisites() {
 }
 
 # =====================================================
+# Package repo plugins (plugins/*) for remote install
+# =====================================================
+package_plugins() {
+    if ! compgen -G "$PLUGINS_DIR/*/plugin.json" > /dev/null; then
+        log_info "No plugins found in $PLUGINS_DIR — skipping plugin packaging"
+        return
+    fi
+
+    for manifest in "$PLUGINS_DIR"/*/plugin.json; do
+        local plugin_dir plugin_id
+        plugin_dir="$(dirname "$manifest")"
+        plugin_id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["id"])' "$manifest") \
+            || log_error "Could not read plugin id from $manifest"
+
+        log_info "Packaging plugin '$plugin_id'..."
+        "$SCRIPT_DIR/package-plugin.sh" "$plugin_dir" \
+            --base-url "$DOWNLOAD_URL_PREFIX/plugins/$plugin_id" \
+            --out "$PLUGINS_BUILD_DIR/$plugin_id" \
+            --exclude 'tests/*' --exclude 'scripts/*' \
+            || log_error "Packaging failed for plugin '$plugin_id'"
+
+        PLUGIN_MANIFEST_URLS+=("$DOWNLOAD_URL_PREFIX/plugins/$plugin_id/plugin.json")
+    done
+
+    log_success "Packaged ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) into $PLUGINS_BUILD_DIR"
+}
+
+# =====================================================
 # Verify bundled plugin exists in archive
 # =====================================================
 verify_bundled_plugin() {
@@ -204,7 +237,6 @@ run_unit_tests() {
 build_archive() {
     log_info "Building archive..."
 
-    rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
     local build_args=(
@@ -477,7 +509,13 @@ upload_to_ftp() {
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    # Upload DMG (versioned + canonical) and appcast.xml
+    # Mirror packaged plugins (zip + distribution plugin.json per plugin)
+    local plugins_mirror=""
+    if [ -d "$PLUGINS_BUILD_DIR" ]; then
+        plugins_mirror="mirror -R '$PLUGINS_BUILD_DIR' plugins;"
+    fi
+
+    # Upload DMG (versioned + canonical), appcast.xml, and plugins
     lftp -c "
 set ssl:verify-certificate false;
 set cmd:fail-exit true;
@@ -486,10 +524,14 @@ cd $FTP_REMOTE_DIR;
 put -O . '$dmg_path';
 put '$dmg_path' -o 'Gallager.dmg';
 put -O . '$APPCAST_FILE';
+$plugins_mirror
 " || log_error "FTP upload failed"
 
     log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
     log_success "Updated Gallager.dmg link → $dmg_name"
+    if [ -n "$plugins_mirror" ]; then
+        log_success "Uploaded ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) to $FTP_HOST/plugins/"
+    fi
 }
 
 # =====================================================
@@ -604,6 +646,7 @@ run_beta_build() {
     build_number=$(get_build_number)
     log_info "Building beta of version $version (build $build_number)"
 
+    rm -rf "$BUILD_DIR"
     build_archive
     export_archive
     verify_bundled_plugin
@@ -657,6 +700,11 @@ main() {
         log_info "Release cancelled"
         exit 0
     fi
+
+    # Package plugins first — it's fast, so a bad plugin tree aborts the
+    # release before the lengthy build/sign/notarize pipeline.
+    rm -rf "$BUILD_DIR"
+    package_plugins
 
     run_unit_tests
 
@@ -737,6 +785,9 @@ main() {
     echo "Released: ClaudeSpy $version"
     echo "Download: $DOWNLOAD_URL_PREFIX/$(basename "$dmg_path")"
     echo "Appcast:  $DOWNLOAD_URL_PREFIX/appcast.xml"
+    for manifest_url in "${PLUGIN_MANIFEST_URLS[@]}"; do
+        echo "Plugin:   $manifest_url (gallager plugin install $manifest_url)"
+    done
     echo ""
 }
 

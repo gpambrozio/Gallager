@@ -445,6 +445,10 @@ will be hosted, no filename) and it also emits a ready-to-host distribution
 lands in `build/plugins/<id>/` (gitignored); trim dev-only files with
 `--exclude '<glob>'`. Run `scripts/package-plugin.sh --help` for details.
 
+Plugins living in this repo's `plugins/` directory are packaged and published
+automatically by `scripts/release.sh` (non-beta releases) to
+`https://updates.gustavo.eng.br/plugins/<id>/`, excluding `tests/` and `scripts/`.
+
 ### Remote install (recommended)
 
 Host a `plugin.json` manifest at an HTTPS URL with these additional fields:
