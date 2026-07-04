@@ -9,6 +9,8 @@
 # repo, named pr<N>-<scenario-dir>.mp4, and can be deleted any time after
 # review:
 #   gh release delete-asset e2e-videos <asset>.mp4 --repo gpambrozio/ClaudeSpyTestResults
+# The e2e-video-cleanup.yml workflow deletes them automatically (and marks the
+# PR comment) 3 days after the PR merges or closes.
 #
 # Note: release-asset links download the file (GitHub serves them with an
 # attachment disposition) rather than playing inline, and require access to

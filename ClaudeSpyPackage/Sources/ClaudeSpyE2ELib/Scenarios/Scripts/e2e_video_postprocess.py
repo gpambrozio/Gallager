@@ -13,8 +13,10 @@ Pipeline (issue #621):
      offsets remapped through the edit list) next to the raw take, deleting
      the raw take unless --keep-raw.
 
-Requires ffmpeg + ffprobe with the freezedetect, ass, and drawtext filters
-(`brew install ffmpeg`). Python stdlib only. Unit tests:
+Requires ffmpeg + ffprobe with the freezedetect, ass, and drawtext filters.
+Homebrew's slim `ffmpeg` formula dropped drawtext (libfreetype) and ass
+(libass), so install `ffmpeg-full` (keg-only; put `$(brew --prefix
+ffmpeg-full)/bin` on PATH). Python stdlib only. Unit tests:
 scripts/tests/test_e2e_video_postprocess.py.
 """
 import argparse
