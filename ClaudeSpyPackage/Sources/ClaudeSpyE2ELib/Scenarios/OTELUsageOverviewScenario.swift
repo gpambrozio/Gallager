@@ -82,6 +82,23 @@ public enum OTELUsageOverviewScenario {
         Shortcut.tmuxRunCommand(target: "usage-session:0.0", command: commitMetricCurl)
         TestStep.wait(seconds: 2)
 
+        //    Close the turn so the session row's status is deterministic before
+        //    any screenshot: with only a UserPromptSubmit the row races between
+        //    Working (spinner, animating) and Idle, and the run-to-run diff on
+        //    the iOS shots exceeds tolerance.
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "Stop",
+                "session_id": "e2e-usage-session",
+                "timestamp": "2026-02-14T10:00:06.000000Z"
+            }
+            """,
+            tmuxPane: "${usagePane}",
+            projectPath: "/Users/test/OverviewProject"
+        )
+        TestStep.wait(seconds: 2)
+
         // 4. macOS: the local sidebar section shows the collapsed "Today"
         //    overview cell. Match on its accessibility label (SwiftUI
         //    identifiers don't reliably surface as AXIdentifier on macOS, but
