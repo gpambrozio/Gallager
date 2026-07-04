@@ -15,6 +15,11 @@ import SwiftUI
 public struct GallagerEmojiPicker: View {
     @Binding private var selectedEmoji: String
     @State private var searchText = ""
+    /// Which section sits at the top of the browse scroll view. Written by the
+    /// category bar to jump; SwiftUI keeps re-anchoring the scroll position to
+    /// this id as the lazy layout realizes content, so jumps land exactly
+    /// (a one-shot `scrollTo` only reaches an *estimated* offset).
+    @State private var scrolledCategory: EmojiCategory?
 
     /// Sections are bucketed once; the table is immutable so there is nothing
     /// to recompute per render.
@@ -90,38 +95,31 @@ public struct GallagerEmojiPicker: View {
     // MARK: - Browsing
 
     private var browseView: some View {
-        ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                categoryBar(proxy)
-                Divider()
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2, pinnedViews: [.sectionHeaders]) {
-                        ForEach(sections, id: \.category) { section in
-                            Section {
-                                grid(section.emoji)
-                            } header: {
-                                sectionHeader(section.category)
-                            }
-                            .id(section.category)
+        VStack(spacing: 0) {
+            categoryBar
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2, pinnedViews: [.sectionHeaders]) {
+                    ForEach(sections, id: \.category) { section in
+                        Section {
+                            grid(section.emoji)
+                        } header: {
+                            sectionHeader(section.category)
                         }
+                        .id(section.category)
                     }
                 }
+                .scrollTargetLayout()
             }
+            .scrollPosition(id: $scrolledCategory, anchor: .top)
         }
     }
 
-    private func categoryBar(_ proxy: ScrollViewProxy) -> some View {
+    private var categoryBar: some View {
         HStack(spacing: 0) {
             ForEach(sections, id: \.category) { section in
                 Button {
-                    // scrollTo into a LazyVStack estimates offsets for
-                    // sections that aren't laid out yet and can land past the
-                    // header. The first call realizes the target region; the
-                    // second, next runloop, lands on exact geometry.
-                    proxy.scrollTo(section.category, anchor: .top)
-                    Task { @MainActor in
-                        proxy.scrollTo(section.category, anchor: .top)
-                    }
+                    scrolledCategory = section.category
                 } label: {
                     section.category.symbol.image
                         .frame(maxWidth: .infinity)
