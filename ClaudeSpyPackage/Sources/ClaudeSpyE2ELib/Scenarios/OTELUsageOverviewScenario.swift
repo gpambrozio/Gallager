@@ -104,16 +104,17 @@ public enum OTELUsageOverviewScenario {
         TestStep.iosWaitForElement(.labelContains("Today's usage"), timeout: 20)
         TestStep.iosScreenshot(label: "ios-usage-overview")
 
-        //    Expand: tap the header Button by its accessibility identifier.
-        //    A label-based tap resolves the combined cell element and taps its
-        //    center, which lands below the header button once the cell is
-        //    expanded — the identifier pins the Button itself.
-        TestStep.iosTap(.identifier("usage-overview-toggle"))
+        //    Expand: tap the header row by its label. XCUITest never surfaces
+        //    the button's `usage-overview-toggle` identifier (the plain-style
+        //    Button collapses into its combined header child), so the label is
+        //    the only handle that resolves. Its element is the header line
+        //    itself in both states, so the centre tap always lands on the row.
+        TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElement(.labelContains("Projects"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-usage-overview-expanded")
 
         //    Contract: tap again, the details disappear.
-        TestStep.iosTap(.identifier("usage-overview-toggle"))
+        TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElementToDisappear(.labelContains("Projects"), timeout: 10)
     }
 }
