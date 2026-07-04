@@ -76,5 +76,33 @@
                 }
             }
         }
+
+        @Test("setBadgeCount clears before setting so a fresh dock tile receives the value")
+        func badgeWritesClearBeforeSet() {
+            let manager = withDependencies {
+                $0.continuousClock = ImmediateClock()
+            } operation: { @MainActor in
+                LiveDockIconManager()
+            }
+            let writes = LockIsolated<[String?]>([])
+            manager.badgeLabelWriter = { label in
+                writes.withValue { $0.append(label) }
+            }
+
+            // NSDockTile.badgeLabel dedups unchanged values in-process, so the
+            // clear must precede every set — including a re-set of the SAME
+            // value after a policy cycle destroyed the Dock's tile state
+            // (issue #217).
+            manager.setBadgeCount(3)
+            #expect(writes.value == [nil, "3"])
+
+            writes.withValue { $0.removeAll() }
+            manager.setBadgeCount(3)
+            #expect(writes.value == [nil, "3"])
+
+            writes.withValue { $0.removeAll() }
+            manager.setBadgeCount(0)
+            #expect(writes.value == [nil])
+        }
     }
 #endif

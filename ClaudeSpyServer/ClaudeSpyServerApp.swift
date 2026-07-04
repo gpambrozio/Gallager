@@ -379,7 +379,11 @@ struct TmuxPaneMirrorApp: App {
             (coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide) ? .presented : .suppressed
         )
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
-            NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
+            // Routed through DockIconService (not NSApp.dockTile directly) so
+            // the badge survives .accessory → .regular activation-policy
+            // transitions, which destroy the Dock's tile state (issue #217).
+            @Dependency(DockIconService.self) var dockIconService
+            Task { await dockIconService.setBadgeCount(newValue) }
         }
         .commands {
             // App menu - custom About window
