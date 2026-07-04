@@ -85,7 +85,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --export-only       Same as --skip-upload (alias)"
             echo "  --set-changelog     Set TestFlight 'What to Test' from git commits (run after build processes)"
             echo "  --skip-submit       Don't assign to $BETA_GROUP_NAME group or submit for beta review"
-            echo "  --yes, -y           Skip confirmation prompts"
+            echo "  --yes, -y           Skip confirmation prompts (the 'What to Test' edit offer still appears)"
             echo "  --api-key KEY       App Store Connect API Key ID"
             echo "  --api-issuer ID     App Store Connect API Issuer ID"
             echo "  --help              Show this help message"
@@ -523,10 +523,10 @@ build_changelog_and_set() {
     echo "$changelog"
     echo ""
 
-    if [ "$AUTO_YES" != true ]; then
-        offer_to_edit_notes "$changelog" "What to Test notes" "what-to-test.txt"
-        changelog="$EDITED_NOTES"
-    fi
+    # Always offered, even with --yes: editing the notes is an opportunity
+    # (Enter skips it), not a confirmation, and release.sh runs us with --yes.
+    offer_to_edit_notes "$changelog" "What to Test notes" "what-to-test.txt"
+    changelog="$EDITED_NOTES"
 
     local build_number
     build_number=$(get_build_number)
