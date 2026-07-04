@@ -83,14 +83,17 @@ public enum OTELUsageOverviewScenario {
         TestStep.wait(seconds: 2)
 
         //    Close the turn so the session row's status is deterministic before
-        //    any screenshot: with only a UserPromptSubmit the row races between
-        //    Working (spinner, animating) and Idle, and the run-to-run diff on
-        //    the iOS shots exceeds tolerance.
+        //    any screenshot: with only a UserPromptSubmit the row keeps the
+        //    Working spinner, whose animation frames differ run to run and push
+        //    the iOS screenshot diff past tolerance. `last_assistant_message`
+        //    is required — the claude core drops message-less Stops as
+        //    subagent stops (ClaudeCodePluginCore.handle).
         TestStep.macSendHookEvent(
             json: """
             {
                 "hook_event_name": "Stop",
                 "session_id": "e2e-usage-session",
+                "last_assistant_message": "Done.",
                 "timestamp": "2026-02-14T10:00:06.000000Z"
             }
             """,
@@ -118,11 +121,8 @@ public enum OTELUsageOverviewScenario {
         // 5. iOS: the overview rode the session-state push to the viewer.
         //    The host throttles telemetry pushes to ~1/s, so allow a little
         //    slack for the collapsed line to appear.
-        //    2% tolerance (matching the mac shots): the session row's Working
-        //    spinner animates, so two captures land on different frames, and
-        //    that alone measured ~1.3% against the default 0.5%.
         TestStep.iosWaitForElement(.labelContains("Today's usage"), timeout: 20)
-        TestStep.iosScreenshot(label: "ios-usage-overview", tolerance: 2)
+        TestStep.iosScreenshot(label: "ios-usage-overview")
 
         //    Expand: tap the header row by its label. XCUITest never surfaces
         //    the button's `usage-overview-toggle` identifier (the plain-style
@@ -134,7 +134,7 @@ public enum OTELUsageOverviewScenario {
         //    header once expanded (proven by failure-step-63).
         TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElement(.labelContains("Projects"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-usage-overview-expanded", tolerance: 2)
+        TestStep.iosScreenshot(label: "ios-usage-overview-expanded")
 
         //    Contract: tap again, the details disappear.
         TestStep.iosTap(.labelContains("Today's usage"))
