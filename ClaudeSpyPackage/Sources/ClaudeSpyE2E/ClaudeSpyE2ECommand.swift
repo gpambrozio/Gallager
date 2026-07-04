@@ -385,6 +385,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AgentsInstallZipAutoSelectScenario.scenario,
         OTELPortFallbackScenario.scenario,
         PluginOTLPTelemetryScenario.scenario,
+        SubagentStopIgnoredScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
