@@ -62,7 +62,16 @@ public struct GallagerEmojiPicker: View {
         }
         .padding(8)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-        .padding(8)
+        #if os(iOS)
+            // The detent sheet's content starts under the drag indicator, inside
+            // the sheet's large corner radius — the popover-sized 8pt inset gets
+            // the capsule clipped by the corner cut. Clear both.
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
+        #else
+            .padding(8)
+        #endif
     }
 
     private var searchTextField: some View {
@@ -105,7 +114,12 @@ public struct GallagerEmojiPicker: View {
         HStack(spacing: 0) {
             ForEach(sections, id: \.category) { section in
                 Button {
-                    withAnimation {
+                    // scrollTo into a LazyVStack estimates offsets for
+                    // sections that aren't laid out yet and can land past the
+                    // header. The first call realizes the target region; the
+                    // second, next runloop, lands on exact geometry.
+                    proxy.scrollTo(section.category, anchor: .top)
+                    Task { @MainActor in
                         proxy.scrollTo(section.category, anchor: .top)
                     }
                 } label: {
