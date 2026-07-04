@@ -50,7 +50,7 @@ enum EmojiData {
 🫡	saluting face	face|good|luck|ma’am|ok|respect|salute|saluting|sir|troops|yes	0	14.0
 🤐	zipper-mouth face	face|keep|mouth|quiet|secret|shut|zip|zipper|zipper-mouth|:z|:Z	0	1.0
 🤨	face with raised eyebrow	disapproval|disbelief|distrust|emoji|eyebrow|face|hmm|mild|raised|skeptic|skeptical|skepticism|surprise|what	0	5.0
-😐	neutral face	awkward|blank|deadpan|expressionless|face|fine|jealous|meh|neutral|oh|shade|straight|unamused|unhappy|unimpressed|whatever|:|	0	0.7
+😐	neutral face	awkward|blank|deadpan|expressionless|face|fine|jealous|meh|neutral|oh|shade|straight|unamused|unhappy|unimpressed|whatever	0	0.7
 😑	expressionless face	awkward|dead|expressionless|face|fine|inexpressive|jealous|meh|not|oh|omg|straight|uh|unhappy|unimpressed|whatever	0	1.0
 😶	face without mouth	awkward|blank|expressionless|face|mouth|mouthless|mute|quiet|secret|silence|silent|speechless|:#	0	1.0
 🫥	dotted line face	depressed|disappear|dotted|face|hidden|hide|introvert|invisible|line|meh|whatever|wtv	0	14.0

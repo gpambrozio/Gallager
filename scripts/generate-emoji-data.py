@@ -92,6 +92,16 @@ KEYWORD_SEP = "|"
 VS16 = "️"
 
 
+def usable_keyword(text: str) -> bool:
+    """Keywords must not collide with the table's field or keyword separators.
+
+    ``KEYWORD_SEP`` matters too (PR #632 review): the neutral-face emoticon
+    ``:|`` would otherwise land verbatim in the ``|``-joined keyword field and
+    silently parse as the keyword ``:``.
+    """
+    return bool(text) and FIELD_SEP not in text and "\n" not in text and KEYWORD_SEP not in text
+
+
 def canonical_glyph(entry: dict) -> str:
     """Return the canonical renderable glyph.
 
@@ -133,7 +143,7 @@ def normalize(entries: list[dict]) -> list[tuple]:
         seen = set()
         for tag in entry.get("tags", []) or []:
             tag = tag.strip().lower()
-            if tag and tag not in seen and FIELD_SEP not in tag and "\n" not in tag:
+            if tag not in seen and usable_keyword(tag):
                 seen.add(tag)
                 tags.append(tag)
         # emoticons (":)" etc.) make handy extra search keys.
@@ -142,14 +152,14 @@ def normalize(entries: list[dict]) -> list[tuple]:
             emoticons = [emoticons]
         for emo in emoticons or []:
             emo = emo.strip()
-            if emo and emo not in seen and FIELD_SEP not in emo and "\n" not in emo:
+            if emo not in seen and usable_keyword(emo):
                 seen.add(emo)
                 tags.append(emo)
 
         # Curated synonyms CLDR misses (see EXTRA_KEYWORDS).
         for extra in EXTRA_KEYWORDS.get(label.lower(), []):
             extra = extra.strip().lower()
-            if extra and extra not in seen and FIELD_SEP not in extra and "\n" not in extra:
+            if extra not in seen and usable_keyword(extra):
                 seen.add(extra)
                 tags.append(extra)
 
