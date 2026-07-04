@@ -184,15 +184,18 @@ public enum Shortcut {
     /// machine-dependent first-run onboarding (theme picker vs. "trust this
     /// folder" prompt, which differ per machine and break screenshots).
     ///
-    /// Implemented as a `claude` *shell function* loaded via a custom
-    /// `ZDOTDIR`: a `claude` on PATH can't win because the pane's login shell
-    /// rebuilds PATH from the user's rc (rbenv/homebrew/…), but a function
-    /// overrides command lookup. The stub's `.zshrc` first sources the real
-    /// `~/.zshrc` (so the prompt still matches) and then defines `claude()` to
-    /// print `claudeStubMarker` (plus its args) and block, like the real REPL.
-    /// `ZDOTDIR` is read from the environment before any rc, so setting it on
-    /// the tmux *global* environment makes every session Gallager creates
-    /// afterwards pick it up.
+    /// Implemented as a `claude` *shell function*: a `claude` on PATH can't win
+    /// because the pane's login shell rebuilds PATH from the user's rc
+    /// (rbenv/homebrew/…), but a function overrides command lookup.
+    ///
+    /// The function is delivered by writing it to a file and pointing the tmux
+    /// *global* environment variable `GALLAGER_E2E_EXTRA_ZSHRC` at it. The E2E
+    /// ZDOTDIR shim's `.zshrc` (see `TestOrchestrator.ensureZDotDirShim`) sources
+    /// that file last — after the user's rc — so `claude()` wins. We can't set a
+    /// competing `ZDOTDIR` here: the app forces `ZDOTDIR=<shim>` per-pane
+    /// (`-e ZDOTDIR=…`), which overrides the tmux global environment. A separate
+    /// global env var the shim voluntarily sources survives that override and is
+    /// still inherited into every session Gallager creates afterwards.
     ///
     /// Run against an idle pane *before* opening a Claude project, and call
     /// `uninstallClaudeStub` afterwards so later plain terminals are unaffected.
@@ -207,9 +210,11 @@ public enum Shortcut {
             tags: ["shortcut"]
         ) {
             // Marker in the function body must stay in sync with `claudeStubMarker`.
+            // The shim already sources the user's real `~/.zshrc`, so this file
+            // only needs to define `claude()`.
             Shortcut.tmuxRunCommand(
                 target: target,
-                command: #"D="$TMPDIR/e2e-zdotdir"; mkdir -p "$D"; printf '[ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc"\nclaude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$D/.zshrc"; tmux set-environment -g ZDOTDIR "$D""#
+                command: #"F="$TMPDIR/e2e-claude-stub.zshrc"; printf 'claude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$F"; tmux set-environment -g GALLAGER_E2E_EXTRA_ZSHRC "$F""#
             )
             TestStep.wait(seconds: 1)
         }
@@ -222,7 +227,7 @@ public enum Shortcut {
             "Uninstall Claude Stub",
             tags: ["shortcut"]
         ) {
-            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u ZDOTDIR")
+            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u GALLAGER_E2E_EXTRA_ZSHRC")
             TestStep.wait(seconds: 1)
         }
     }
