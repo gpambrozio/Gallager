@@ -171,12 +171,15 @@ public struct GallagerEmojiPicker: View {
     private func rowView(_ row: BrowseRow) -> some View {
         switch row.kind {
         case let .header(category):
+            // Vertically centered in the fixed-height row: the leftover space
+            // splits evenly above and below the title, so the top of the list
+            // doesn't read as a dead gap (bottom-aligning put all ~23pt of the
+            // row's slack above the text).
             Text(category.title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .padding(.leading, 2)
-                .padding(.bottom, 4)
         case let .emoji(emoji):
             HStack(spacing: cellSpacing) {
                 ForEach(emoji) { cell($0) }
