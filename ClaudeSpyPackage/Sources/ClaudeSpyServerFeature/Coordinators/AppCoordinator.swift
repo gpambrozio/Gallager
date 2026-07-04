@@ -1393,7 +1393,7 @@
             // Stamp the real pane id so tapping the banner navigates to the
             // originating session; fall back to "system" only when the event
             // carries no pane (e.g. a gallager-cli notify with no target).
-            terminalNotificationService.showNotification(paneId ?? "system", macNotification)
+            terminalNotificationService.showNotification(paneId ?? "system", macNotification, nil)
             await connectedViewerManager?.sendCustomPushNotificationToAll(
                 title: notification.title,
                 body: notification.body,
@@ -2236,7 +2236,7 @@
                         body: body
                     )
                     let targetPane = paneId ?? "system"
-                    notificationService.showNotification(targetPane, notification)
+                    notificationService.showNotification(targetPane, notification, nil)
 
                     // Forward to paired iOS viewers when --push is requested.
                     // Reuses the encrypted-push path that hook events go through,
@@ -2711,7 +2711,7 @@
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
             let notificationService = terminalNotificationService
             paneStreamManager.onNotification = { paneId, notification in
-                notificationService.showNotification(paneId, notification)
+                notificationService.showNotification(paneId, notification, nil)
             }
 
             // Wire title changes from background notification readers to window manager
@@ -3143,10 +3143,17 @@
         }
 
         /// Wires the notification tap handler on the delegate directly.
-        /// Always opens the panes view with the tapped session selected.
+        /// Always opens the panes view with the tapped session selected —
+        /// a local pane, or a remote host's session when the banner carried a
+        /// `hostId` (viewer-mode agent notification).
         private func setupNotificationTapHandler() {
-            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
-                self?.revealLocalPane(paneId)
+            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId, hostId in
+                guard let self else { return }
+                if let hostId {
+                    self.revealRemotePane(hostId: hostId, paneId: paneId)
+                } else {
+                    self.revealLocalPane(paneId)
+                }
             }
         }
 
@@ -3156,6 +3163,18 @@
         private func revealLocalPane(_ paneId: String) {
             NSApp.setActivationPolicy(.regular)
             pendingMenuBarSelection = .local(paneId: paneId)
+            NotificationCenter.default.post(name: .openPanesWindow, object: nil)
+            Self.forceActivate()
+        }
+
+        /// Brings the panes window forward with a *remote* host's session
+        /// selected. Used by the notification-tap handler when the tapped banner
+        /// came from a connected remote host (viewer mode). Falls back to the raw
+        /// id for the display name if the host is no longer paired.
+        private func revealRemotePane(hostId: String, paneId: String) {
+            NSApp.setActivationPolicy(.regular)
+            let hostName = settings.getHostPairing(id: hostId)?.displayName ?? hostId
+            pendingMenuBarSelection = .remote(hostId: hostId, hostName: hostName, paneId: paneId)
             NotificationCenter.default.post(name: .openPanesWindow, object: nil)
             Self.forceActivate()
         }
@@ -3549,6 +3568,25 @@
                     guard let remoteEditorContentStore, let panes = store?.panes else { return }
                     let activeIds = Set(panes.compactMap { $0.editorSession?.sessionId })
                     remoteEditorContentStore.retainOnly(activeSessionIds: activeIds)
+                }
+
+                // Materialize pre-baked notifications pushed by remote hosts over
+                // the live socket as local desktop notifications — the same alerts
+                // a paired iOS device shows. This lets a connected Mac viewer learn
+                // about remote agent activity (needs-permission, done, questions…)
+                // without watching the viewer window. `pairId` is the host's key, so
+                // tapping the banner reveals the originating remote session.
+                manager.onAgentNotification = { [weak self] notification in
+                    guard let self else { return }
+                    let macNotification = TerminalStreamMessage.TerminalNotification(
+                        title: notification.title,
+                        body: notification.body
+                    )
+                    self.terminalNotificationService.showNotification(
+                        notification.sessionId ?? "system",
+                        macNotification,
+                        notification.pairId
+                    )
                 }
 
                 // Wire partner key received to persist in settings

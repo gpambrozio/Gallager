@@ -283,6 +283,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         YoloModeMacToMacScenario.scenario,
         YoloModeContextCompactionScenario.scenario,
         TerminalNotificationScenario.scenario,
+        MacViewerNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
         YoloModeAutoApproveScenario.scenario,
