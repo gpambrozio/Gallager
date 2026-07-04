@@ -1484,9 +1484,9 @@ public actor TestOrchestrator {
         let dir = zdotDirShimPath
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
-        // `if`-form (not `[[ -f … ]] && source …`) so a missing user dotfile
-        // (~/.zlogin rarely exists) doesn't leave the startup file exiting 1 —
-        // exit-status prompt themes would flag `$? = 1` at the first prompt.
+        /// `if`-form (not `[[ -f … ]] && source …`) so a missing user dotfile
+        /// (~/.zlogin rarely exists) doesn't leave the startup file exiting 1 —
+        /// exit-status prompt themes would flag `$? = 1` at the first prompt.
         func delegating(to file: String, in root: String) -> String {
             """
             # Written by the Gallager E2E orchestrator. Delegates to the user's
@@ -1530,6 +1530,19 @@ public actor TestOrchestrator {
             # history. Runs after the user's rc so nothing can re-enable it.
             unset HISTFILE
             SAVEHIST=0
+
+            # E2E: source an optional per-scenario extra rc whose path a scenario
+            # exports on the tmux *global* environment as GALLAGER_E2E_EXTRA_ZSHRC.
+            # Deliberately a separate variable from ZDOTDIR: the app forces
+            # ZDOTDIR=<shim> per-pane (`-e ZDOTDIR=…`), which overrides tmux's
+            # global environment, so a scenario can't hand a shell its own
+            # ZDOTDIR anymore. A global env var the shim voluntarily sources
+            # survives that override. Sourced last so its definitions win over
+            # the user's rc — used by the deterministic `claude` stub to define a
+            # `claude()` function that survives into app-created panes.
+            if [[ -n "$GALLAGER_E2E_EXTRA_ZSHRC" && -f "$GALLAGER_E2E_EXTRA_ZSHRC" ]]; then
+              source "$GALLAGER_E2E_EXTRA_ZSHRC"
+            fi
 
             """,
         ]

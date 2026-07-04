@@ -2153,8 +2153,20 @@
                         let panes = await tmux.refreshPanes()
                         await MainActor.run { winManager.updatePaneStates(from: panes) }
                         if let found = panes.first(where: { $0.paneId == newPaneId }) {
+                            // Keep the latest snapshot even if it's still settling,
+                            // so we return the pane rather than throwing if the cwd
+                            // never resolves.
                             newPane = found
-                            break
+                            // The pane can surface mid-spawn: while its
+                            // `default-command` wrapper is still running the
+                            // `printf` OSC-color preamble before `exec zsh`, tmux
+                            // reports `pane_current_command=printf` and an empty
+                            // `pane_current_path`. Poll on until the shell settles
+                            // so the returned JSON carries the real cwd (e.g. the
+                            // `--path` the caller asked for), not a spawn-time blank.
+                            if !found.currentPath.isEmpty {
+                                break
+                            }
                         }
                         if attempt < PaneSurfaceRetry.attempts - 1 {
                             try await Task.sleep(for: PaneSurfaceRetry.delay)
