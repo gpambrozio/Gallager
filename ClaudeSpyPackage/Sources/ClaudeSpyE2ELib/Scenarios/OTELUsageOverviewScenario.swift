@@ -102,10 +102,17 @@ public enum OTELUsageOverviewScenario {
         )
         TestStep.wait(seconds: 2)
 
-        //    Re-pin the window before any screenshot: creating a session
-        //    auto-resizes the Panes window to fit the mirrored pane at a
-        //    timing that varies run to run, which shifted whole-window
-        //    captures by >60%.
+        //    Select the session deterministically: the Stop's notification
+        //    races app focus, so captures otherwise flip-flop between the
+        //    "Select a Window" placeholder and the terminal mirror (>60%
+        //    frame diff). Viewing also settles the row's attention badge.
+        //    List rows need a real CGEvent click — AXPress doesn't select.
+        TestStep.macCGClick(titled: "OverviewProject")
+        TestStep.wait(seconds: 1)
+
+        //    Re-pin the window before any screenshot: session creation and
+        //    opening the mirror auto-resize the Panes window at timings that
+        //    vary run to run.
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macSetSidebarWidth(280)
         TestStep.wait(seconds: 1)
