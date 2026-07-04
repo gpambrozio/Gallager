@@ -1,20 +1,26 @@
 import Foundation
 
-/// E2E scenario: the cross-session cost/usage overview renders on the macOS
-/// sidebar (issue #598, part B).
+/// E2E scenario: the cross-session cost/usage overview renders as a collapsed
+/// "Today" line on the macOS sidebar AND the iOS session list, and expands /
+/// contracts in place via the disclosure chevron (issue #598, part B +
+/// collapsible cell).
 ///
 /// Proves the receive → accumulate → durable-store → overview → render pipeline
-/// without a live Claude, building on the #597 OTEL channel:
-/// 1. A tmux session is created and bound to a Claude `session.id` via a
+/// without a live Claude, building on the #597 OTEL channel — plus the
+/// cross-device path: the overview rides `SessionStateMessage` to the paired
+/// iOS viewer.
+/// 1. Mac host + iOS viewer pair via `FreshPairingScenario`.
+/// 2. A tmux session is created and bound to a Claude `session.id` via a
 ///    synthetic `SessionStart` hook, then a `UserPromptSubmit` carrying a
 ///    `permission_mode` + project path so the pane has a `detectedProjectPath`
 ///    (the aggregation key the usage store attributes spend to).
-/// 2. Synthetic OTLP/JSON `api_request` + `commit.count` are POSTed to the
+/// 3. Synthetic OTLP/JSON `api_request` + `commit.count` are POSTed to the
 ///    Mac-local receiver from the pane's own shell (addressed by the instance's
 ///    `${otlpEndpoint}`, like the render scenario).
-/// 3. `AppCoordinator` folds the snapshot into `UsageAggregationStore`, recomputes
-///    the host `UsageOverview`, and the local sidebar section shows the
-///    `UsageOverviewHeader` "Today" total.
+/// 4. The mac sidebar shows the collapsed "Today" total; clicking it expands
+///    to Projects + Recent days; clicking again contracts it.
+/// 5. The iOS session list shows the same collapsed line (the overview rode
+///    the session-state push); tapping expands and contracts it.
 public enum OTELUsageOverviewScenario {
     /// `api_request` log: 30 000 input + 1 000 output tokens, $1.23, opus-4.8.
     /// → today total "31k · $1.23 · 1 session". Real wire shape (bare `event.name`
@@ -29,10 +35,12 @@ public enum OTELUsageOverviewScenario {
 
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "OTEL Usage Overview",
-        tags: ["telemetry", "otel", "macos-only"]
+        tags: ["telemetry", "otel"]
     ) {
-        // 1. Launch the host and open the Panes window.
-        Shortcut.macOnlySetup
+        // 1. Pair the mac host with the iOS simulator (starts the relay and
+        //    launches both apps), then open the Panes window on the host.
+        FreshPairingScenario.scenario
+        Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macSetSidebarWidth(280)
 
@@ -74,10 +82,35 @@ public enum OTELUsageOverviewScenario {
         Shortcut.tmuxRunCommand(target: "usage-session:0.0", command: commitMetricCurl)
         TestStep.wait(seconds: 2)
 
-        // 4. The local sidebar section now shows the "Today" usage overview
-        //    header. Match on its accessibility label (SwiftUI identifiers don't
-        //    reliably surface as AXIdentifier on macOS, but labels do).
+        // 4. macOS: the local sidebar section shows the collapsed "Today"
+        //    overview cell. Match on its accessibility label (SwiftUI
+        //    identifiers don't reliably surface as AXIdentifier on macOS, but
+        //    labels do — the header's label is the button's AXDescription).
         TestStep.macWaitForElementQuery(.anyTextMatches("Today's usage"), timeout: 10)
         TestStep.macScreenshot(label: "mac-usage-overview")
+
+        //    Expand: click the header row, the Projects section appears.
+        TestStep.macClickButton(titled: "Today's usage")
+        TestStep.macWaitForElement(titled: "Projects", timeout: 10)
+        TestStep.macScreenshot(label: "mac-usage-overview-expanded")
+
+        //    Contract: click again, the details disappear.
+        TestStep.macClickButton(titled: "Today's usage")
+        TestStep.macWaitForElementToDisappear(titled: "Projects", timeout: 10)
+
+        // 5. iOS: the overview rode the session-state push to the viewer.
+        //    The host throttles telemetry pushes to ~1/s, so allow a little
+        //    slack for the collapsed line to appear.
+        TestStep.iosWaitForElement(.labelContains("Today's usage"), timeout: 20)
+        TestStep.iosScreenshot(label: "ios-usage-overview")
+
+        //    Expand: tap the header row, the Projects section appears.
+        TestStep.iosTap(.labelContains("Today's usage"))
+        TestStep.iosWaitForElement(.labelContains("Projects"), timeout: 10)
+        TestStep.iosScreenshot(label: "ios-usage-overview-expanded")
+
+        //    Contract: tap again, the details disappear.
+        TestStep.iosTap(.labelContains("Today's usage"))
+        TestStep.iosWaitForElementToDisappear(.labelContains("Projects"), timeout: 10)
     }
 }
