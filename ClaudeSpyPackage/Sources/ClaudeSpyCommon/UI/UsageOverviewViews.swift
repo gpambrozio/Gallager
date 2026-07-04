@@ -102,8 +102,9 @@ public struct UsageOverviewView: View {
             // the iOS List row merges the whole cell into one element carrying the
             // header's label, whose frame grows with the expanded sections — so a
             // centre tap on it (VoiceOver or UI tests) misses the header row.
+            // No container identifier here: both call sites stamp their own
+            // (`usage-overview-local` on the Mac, `usage-overview-row` on iOS).
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("usage-overview")
         }
     }
 
