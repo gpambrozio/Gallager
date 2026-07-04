@@ -95,6 +95,11 @@ public struct UsageOverviewView: View {
                 }
             }
         }
+        // Keep the header button its own accessibility element. Without this,
+        // the iOS List row merges the whole cell into one element carrying the
+        // header's label, whose frame grows with the expanded sections — so a
+        // centre tap on it (VoiceOver or UI tests) misses the header row.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("usage-overview")
     }
 

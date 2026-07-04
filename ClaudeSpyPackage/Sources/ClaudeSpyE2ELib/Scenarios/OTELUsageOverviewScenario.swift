@@ -107,8 +107,11 @@ public enum OTELUsageOverviewScenario {
         //    Expand: tap the header row by its label. XCUITest never surfaces
         //    the button's `usage-overview-toggle` identifier (the plain-style
         //    Button collapses into its combined header child), so the label is
-        //    the only handle that resolves. Its element is the header line
-        //    itself in both states, so the centre tap always lands on the row.
+        //    the only handle that resolves. The view marks its container
+        //    `.accessibilityElement(children: .contain)` so the labelled
+        //    element stays the header line in both states — without that, the
+        //    List row merges the whole cell and the centre tap misses the
+        //    header once expanded (proven by failure-step-63).
         TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElement(.labelContains("Projects"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-usage-overview-expanded")
