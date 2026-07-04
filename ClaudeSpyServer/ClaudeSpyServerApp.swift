@@ -383,7 +383,7 @@ struct TmuxPaneMirrorApp: App {
             // the badge survives .accessory → .regular activation-policy
             // transitions, which destroy the Dock's tile state (issue #217).
             @Dependency(DockIconService.self) var dockIconService
-            Task { await dockIconService.setBadgeCount(newValue) }
+            dockIconService.setBadgeCount(newValue)
         }
         .commands {
             // App menu - custom About window
