@@ -8,7 +8,6 @@ import Testing
 /// real `ClaudeCodePluginCore.handleIngress`, using realistic hook JSON shapes
 /// copied from the E2E scenarios. Asserts the `state` (incl. the open form) /
 /// notification / appActions fields the dispatcher fans out.
-@Suite("ClaudeCodeTranslator")
 struct ClaudeCodeTranslatorTests {
     // MARK: - Helpers
 
@@ -71,15 +70,17 @@ struct ClaudeCodeTranslatorTests {
         """
         #expect(await core.handleIngress(frame(subagentPermission)) != nil)
 
-        // A main-agent Stop (no agent_id) is processed normally → doneWorking.
+        // A main-agent Stop (no agent_id, carries the assistant message) is
+        // processed normally → doneWorking.
         let mainStop = """
         {
             "hook_event_name": "Stop",
-            "session_id": "sess-1"
+            "session_id": "sess-1",
+            "last_assistant_message": "done"
         }
         """
         let event = try #require(await core.handleIngress(frame(mainStop)))
-        #expect(event.state == .doneWorking(summary: nil))
+        #expect(event.state == .doneWorking(summary: "done"))
     }
 
     @Test("a top-level SubagentStop without agent_id never flips the session to working")
@@ -97,6 +98,43 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop without last_assistant_message is a subagent stop and is dropped")
+    func stopWithoutMessageDropped() async throws {
+        let (core, _) = try await makeCore()
+
+        // Subagents fire the plain Stop hook too, without an agent_id for the
+        // pre-parse drop to see; only main-agent stops carry
+        // last_assistant_message. A message-less Stop must not flip a mid-task
+        // session to doneWorking or fire a notification.
+        let subagentStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "stop_hook_active": true
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop with an empty last_assistant_message is kept, not dropped")
+    func stopWithEmptyMessageKept() async throws {
+        let (core, _) = try await makeCore()
+
+        // Boundary: the drop guards on `== nil`, NOT `isEmpty`, so a main-agent Stop
+        // that carries an empty string is intentionally KEPT → doneWorking. Pinned so
+        // a future `isEmpty` tightening can't silently reintroduce the stuck-"Working"
+        // risk for tool-only turns (where the assistant's last message is empty).
+        let emptyMessageStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": ""
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(emptyMessageStop)))
+        #expect(event.state == .doneWorking(summary: ""))
     }
 
     // MARK: - Plain permission request

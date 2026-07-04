@@ -283,6 +283,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         YoloModeMacToMacScenario.scenario,
         YoloModeContextCompactionScenario.scenario,
         TerminalNotificationScenario.scenario,
+        MacViewerNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
         YoloModeAutoApproveScenario.scenario,
@@ -384,6 +385,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AgentsInstallZipAutoSelectScenario.scenario,
         OTELPortFallbackScenario.scenario,
         PluginOTLPTelemetryScenario.scenario,
+        SubagentStopIgnoredScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
