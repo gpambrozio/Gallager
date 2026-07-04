@@ -169,8 +169,11 @@ extension Target.Dependency {
 
     /// Foundation-only emoji table + keyword search, shared by the picker UI
     /// (ClaudeSpyCommon) and the CLI (Gallager). No resources — the data is
-    /// baked into source so the single-file GallagerCLI binary copied into the
-    /// app bundle stays self-contained.
+    /// baked into source (no Bundle.module for the bare GallagerCLI copied
+    /// into the app bundle). NOTE: because this target is shared by the app
+    /// and the CLI executable, Xcode links it as a dynamic framework; the
+    /// copy phase adds an rpath so the bundled CLI finds it — see
+    /// docs/known-issues.md before restructuring.
     static var gallagerEmoji: Self {
         "GallagerEmoji"
     }
