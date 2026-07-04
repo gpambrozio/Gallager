@@ -36,14 +36,19 @@ public struct UsageOverviewHeader: View {
 
 // MARK: - Full Overview
 
-/// The full cross-session overview (issue #598): today's total, a per-project
-/// ranking over the recent window, and a per-day trend. Used in the iOS session
-/// list's overview section. Shared by both platforms.
+/// The full cross-session overview (issue #598): a compact "Today" header row
+/// that expands in place — via the trailing disclosure chevron — to the
+/// per-project ranking over the recent window and the per-day trend. Starts
+/// collapsed on every appearance (transient state, no persistence). Shared by
+/// both platforms: the iOS session list and the Mac sidebar.
 public struct UsageOverviewView: View {
     private let overview: UsageOverview
 
-    public init(overview: UsageOverview) {
+    @State private var isExpanded: Bool
+
+    public init(overview: UsageOverview, initiallyExpanded: Bool = false) {
         self.overview = overview
+        _isExpanded = State(initialValue: initiallyExpanded)
     }
 
     private var trendDays: [DayUsage] {
@@ -52,22 +57,40 @@ public struct UsageOverviewView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            UsageOverviewHeader(overview: overview)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    UsageOverviewHeader(overview: overview)
+                    Symbols.chevronRight.image
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("usage-overview-toggle")
+            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
 
-            if !overview.projects.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Projects", symbol: .folder)
-                    ForEach(overview.projects) { project in
-                        UsageProjectRow(project: project)
+            if isExpanded {
+                if !overview.projects.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        sectionLabel("Projects", symbol: .folder)
+                        ForEach(overview.projects) { project in
+                            UsageProjectRow(project: project)
+                        }
                     }
                 }
-            }
 
-            if !trendDays.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Recent days", symbol: .calendar)
-                    ForEach(trendDays) { day in
-                        UsageDayRow(day: day)
+                if !trendDays.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        sectionLabel("Recent days", symbol: .calendar)
+                        ForEach(trendDays) { day in
+                            UsageDayRow(day: day)
+                        }
                     }
                 }
             }
@@ -184,8 +207,14 @@ private let previewOverview = UsageOverview(
         .frame(width: 320)
 }
 
-#Preview("Overview full") {
+#Preview("Overview collapsed") {
     UsageOverviewView(overview: previewOverview)
+        .padding()
+        .frame(width: 320)
+}
+
+#Preview("Overview expanded") {
+    UsageOverviewView(overview: previewOverview, initiallyExpanded: true)
         .padding()
         .frame(width: 320)
 }
