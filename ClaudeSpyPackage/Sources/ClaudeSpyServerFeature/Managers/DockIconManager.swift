@@ -13,6 +13,13 @@ public struct DockIconService: Sendable {
 
     /// Stop observing window changes.
     public var stopObserving: @Sendable () async -> Void
+
+    /// Set the dock tile badge to `count` (hidden when ≤ 0). The manager owns
+    /// the badge so it can re-apply it after `.accessory` → `.regular`
+    /// activation-policy transitions, which destroy the Dock's tile state
+    /// (issue #217). Synchronous and MainActor-bound so rapid successive
+    /// counts can't be applied out of order.
+    public var setBadgeCount: @MainActor @Sendable (_ count: Int) -> Void
 }
 
 // MARK: - DependencyKey
@@ -21,7 +28,8 @@ extension DockIconService: DependencyKey {
     public static var previewValue: DockIconService {
         DockIconService(
             startObserving: { },
-            stopObserving: { }
+            stopObserving: { },
+            setBadgeCount: { _ in }
         )
     }
 
@@ -32,6 +40,9 @@ extension DockIconService: DependencyKey {
             },
             stopObserving: {
                 await LiveDockIconManagerHolder.shared.stopObserving()
+            },
+            setBadgeCount: { count in
+                LiveDockIconManagerHolder.shared.setBadgeCount(count)
             }
         )
     }
@@ -82,6 +93,33 @@ final class LiveDockIconManager {
     /// observable cost; tests substitute it to count debounced fires.
     var onActivationPolicyUpdated: (@MainActor () -> Void)?
 
+    /// Test hook that receives every dock-tile badge write. `nil` in
+    /// production, where writes go to `NSApp.dockTile.badgeLabel`; tests
+    /// substitute it to record the write sequence.
+    var badgeLabelWriter: (@MainActor (String?) -> Void)?
+
+    /// The AppKit surface `updateActivationPolicy()` touches: activation
+    /// policy read/write, visible-window count, and app activation.
+    struct PolicyControls {
+        var currentPolicy: @MainActor () -> NSApplication.ActivationPolicy
+        var setPolicy: @MainActor (NSApplication.ActivationPolicy) -> Void
+        var visibleWindowCount: @MainActor () -> Int
+        var activate: @MainActor () -> Void
+    }
+
+    /// Test hook substituting the AppKit surface of
+    /// `updateActivationPolicy()`. `nil` in production, where the shared
+    /// `NSApplication` is used; tests substitute it to drive policy
+    /// transitions headlessly — `NSApp` is nil under `swift test` and E2E
+    /// mode pins the policy, so the transition branches (including the
+    /// badge re-apply that fixes issue #217) are otherwise unreachable.
+    var policyControls: PolicyControls?
+
+    /// The badge count currently requested by the app, kept so the badge can
+    /// be re-applied whenever the dock tile is recreated by an activation
+    /// policy transition.
+    private(set) var badgeCount = 0
+
     init(closingDebounce: Duration = LiveDockIconManager.defaultClosingDebounce) {
         self.closingDebounce = closingDebounce
     }
@@ -105,6 +143,33 @@ final class LiveDockIconManager {
     func stopObserving() {
         observationTask?.cancel()
         observationTask = nil
+    }
+
+    func setBadgeCount(_ count: Int) {
+        badgeCount = count
+        applyBadge()
+    }
+
+    /// Writes the stored badge count to the dock tile.
+    ///
+    /// `NSDockTile.badgeLabel`'s setter dedups unchanged values in-process,
+    /// but the Dock discards its badge state whenever an `.accessory`
+    /// transition destroys the tile — so re-setting the same value after the
+    /// tile is recreated never reaches the Dock (issue #217). Clearing first
+    /// forces the subsequent set to actually be transmitted.
+    private func applyBadge() {
+        writeBadgeLabel(nil)
+        if badgeCount > 0 {
+            writeBadgeLabel("\(badgeCount)")
+        }
+    }
+
+    private func writeBadgeLabel(_ label: String?) {
+        if let badgeLabelWriter {
+            badgeLabelWriter(label)
+        } else {
+            NSApp?.dockTile.badgeLabel = label
+        }
     }
 
     // MARK: - Notification Observation
@@ -202,22 +267,40 @@ final class LiveDockIconManager {
     }
 
     private func updateActivationPolicy() {
+        if let policyControls {
+            applyActivationPolicy(using: policyControls)
+            return
+        }
         guard !DockIconConfig.isE2ETestMode else { return }
         // No shared application instance (e.g. a headless unit-test process where
         // the `NSApp` IUO global is nil) → there is no dock icon to manage. The
         // caller still fires `onActivationPolicyUpdated`, so debounce-counting
         // tests are unaffected.
         guard let app = NSApp else { return }
-        let visibleCount = countVisibleAppWindows()
-        let currentPolicy = app.activationPolicy()
+        applyActivationPolicy(using: PolicyControls(
+            currentPolicy: { app.activationPolicy() },
+            setPolicy: { app.setActivationPolicy($0) },
+            visibleWindowCount: { self.countVisibleAppWindows() },
+            activate: { app.activate(ignoringOtherApps: false) }
+        ))
+    }
+
+    private func applyActivationPolicy(using controls: PolicyControls) {
+        let visibleCount = controls.visibleWindowCount()
+        let currentPolicy = controls.currentPolicy()
 
         if visibleCount > 0 {
             if currentPolicy != .regular {
-                app.setActivationPolicy(.regular)
-                app.activate(ignoringOtherApps: false)
+                controls.setPolicy(.regular)
+                controls.activate()
             }
+            // The tile may be freshly created — by the transition above, or by
+            // a manual `.regular` set elsewhere (menu bar, notification tap)
+            // right before the window that triggered this update appeared.
+            // Fresh tiles start badge-less, so re-apply unconditionally.
+            applyBadge()
         } else if currentPolicy != .accessory {
-            app.setActivationPolicy(.accessory)
+            controls.setPolicy(.accessory)
         }
     }
 }

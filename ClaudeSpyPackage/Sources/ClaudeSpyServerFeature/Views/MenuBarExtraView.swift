@@ -31,8 +31,8 @@ public struct MenuBarExtraView: View {
         let hasAny = !local.isEmpty || !remote.isEmpty
 
         // Cross-session usage rollup (issue #598): today's total across active
-        // sessions, plus the top projects. In the dropdown — not the dock badge,
-        // which is lost across the .accessory↔.regular policy transition.
+        // sessions, plus the top projects. In the dropdown — the dock badge
+        // only carries the needs-attention count.
         if let overview = coordinator.usageOverview, !overview.isEmpty {
             Text("Today — \(usageTodayLine(overview))")
             ForEach(overview.projects.prefix(3)) { project in
