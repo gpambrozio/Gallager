@@ -102,6 +102,14 @@ public enum OTELUsageOverviewScenario {
         )
         TestStep.wait(seconds: 2)
 
+        //    Re-pin the window before any screenshot: creating a session
+        //    auto-resizes the Panes window to fit the mirrored pane at a
+        //    timing that varies run to run, which shifted whole-window
+        //    captures by >60%.
+        TestStep.macResizeWindow(width: 1_200, height: 700)
+        TestStep.macSetSidebarWidth(280)
+        TestStep.wait(seconds: 1)
+
         // 4. macOS: the local sidebar section shows the collapsed "Today"
         //    overview cell. Match on its accessibility label (SwiftUI
         //    identifiers don't reliably surface as AXIdentifier on macOS, but
