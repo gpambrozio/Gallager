@@ -46,6 +46,8 @@ public struct UsageOverviewView: View {
 
     @State private var isExpanded: Bool
 
+    /// `initiallyExpanded` exists for the expanded #Preview only — production
+    /// call sites use the default and always start collapsed.
     public init(overview: UsageOverview, initiallyExpanded: Bool = false) {
         self.overview = overview
         _isExpanded = State(initialValue: initiallyExpanded)
@@ -56,51 +58,53 @@ public struct UsageOverviewView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
+        if !overview.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        UsageOverviewHeader(overview: overview)
+                        Symbols.chevronRight.image
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    UsageOverviewHeader(overview: overview)
-                    Symbols.chevronRight.image
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("usage-overview-toggle")
-            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("usage-overview-toggle")
+                .accessibilityValue(isExpanded ? "expanded" : "collapsed")
 
-            if isExpanded {
-                if !overview.projects.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        sectionLabel("Projects", symbol: .folder)
-                        ForEach(overview.projects) { project in
-                            UsageProjectRow(project: project)
+                if isExpanded {
+                    if !overview.projects.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            sectionLabel("Projects", symbol: .folder)
+                            ForEach(overview.projects) { project in
+                                UsageProjectRow(project: project)
+                            }
+                        }
+                    }
+
+                    if !trendDays.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            sectionLabel("Recent days", symbol: .calendar)
+                            ForEach(trendDays) { day in
+                                UsageDayRow(day: day)
+                            }
                         }
                     }
                 }
-
-                if !trendDays.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        sectionLabel("Recent days", symbol: .calendar)
-                        ForEach(trendDays) { day in
-                            UsageDayRow(day: day)
-                        }
-                    }
-                }
             }
+            // Keep the header button its own accessibility element. Without this,
+            // the iOS List row merges the whole cell into one element carrying the
+            // header's label, whose frame grows with the expanded sections — so a
+            // centre tap on it (VoiceOver or UI tests) misses the header row.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("usage-overview")
         }
-        // Keep the header button its own accessibility element. Without this,
-        // the iOS List row merges the whole cell into one element carrying the
-        // header's label, whose frame grows with the expanded sections — so a
-        // centre tap on it (VoiceOver or UI tests) misses the header row.
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("usage-overview")
     }
 
     private func sectionLabel(_ title: String, symbol: Symbols) -> some View {

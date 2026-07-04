@@ -490,7 +490,7 @@ public struct MainView: View {
             if let overview = coordinator.usageOverview, !overview.isEmpty {
                 UsageOverviewView(overview: overview)
                     .padding(.vertical, 2)
-                    .accessibilityIdentifier("usage-overview-header-local")
+                    .accessibilityIdentifier("usage-overview-local")
             }
             if sessions.isEmpty && settings.hasRemoteHosts {
                 Text("No local sessions")
