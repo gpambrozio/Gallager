@@ -73,8 +73,9 @@ Commit the data as data and let SPM embed the bytes in code at build time.
 Implemented through Tasks 1–2 of the plan, then **abandoned during verification**:
 the macOS `ClaudeSpyServer` workspace build fails with `cannot find
 'PackageResources' in scope`. Root cause (Xcode 26.6, confirmed via build-log
-inspection): when a resource-bearing package target is consumed by **two
-products in the same build graph** — here the app's library stack *and* the
+inspection; later verified the dynamicization happens **regardless of
+resources** — see `docs/known-issues.md`): when a resource-bearing package
+target is consumed by **two products in the same build graph** — here the app's library stack *and* the
 `GallagerCLI` executable product linked by the app target to force its build
 for the copy-into-bundle phase — XCBuild silently ignores `.embedInCode`,
 generates the legacy `Bundle.module` accessor, spawns a

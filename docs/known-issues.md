@@ -211,7 +211,10 @@ before codesigning, pointing the CLI at the framework Xcode already embeds
 in the app bundle. The CLI is therefore no longer a strictly single-file
 binary — it's binary + app-embedded framework — which is fine because it
 only ever runs from inside the bundle (standalone `swift build` copies
-remain fully static).
+remain fully static). That invariant is load-bearing: the `gallager`
+installer (`CLIInstaller.swift`) deliberately installs a wrapper script
+that `exec`s the binary *in place* inside `Contents/MacOS/` — switching it
+to a copy-out install would dangle the rpath.
 
 **Consequence 2 — `.embedInCode` resources break the macOS build (do not
 retry).** Shipping the emoji table as `resources: [.embedInCode(...)]`

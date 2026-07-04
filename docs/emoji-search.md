@@ -31,8 +31,8 @@ ClaudeSpyPackage/Sources/GallagerEmoji/   # Foundation-only, no resources
 - **`Gallager/EmojiNameLookup.swift`** — thin CLI adapter over `EmojiDatabase`.
 
 The data is baked into Swift source (a `"""` string literal parsed at load),
-**not** a resource bundle, because the single-file `GallagerCLI` binary copied
-into `Gallager.app/Contents/MacOS/` wouldn't carry a `Bundle.module` alongside it.
+**not** a resource bundle, because the `GallagerCLI` binary copied into
+`Gallager.app/Contents/MacOS/` carries no `Bundle.module` alongside it.
 (Xcode still links the shared `GallagerEmoji` target as a dynamic framework the
 CLI reaches via an rpath added in the copy phase — see `docs/known-issues.md`;
 don't swap the string literal for `.embedInCode` or a bundle, both are dead ends
