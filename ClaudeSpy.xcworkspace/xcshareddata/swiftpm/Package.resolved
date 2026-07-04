@@ -353,15 +353,6 @@
       }
     },
     {
-      "identity" : "swiftemojipicker",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sergius-la/SwiftEmojiPicker",
-      "state" : {
-        "revision" : "c1091a476d98a26ff4ee11eaeba3fe742e88d672",
-        "version" : "2.2.1"
-      }
-    },
-    {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
