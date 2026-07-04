@@ -118,8 +118,11 @@ public enum OTELUsageOverviewScenario {
         // 5. iOS: the overview rode the session-state push to the viewer.
         //    The host throttles telemetry pushes to ~1/s, so allow a little
         //    slack for the collapsed line to appear.
+        //    2% tolerance (matching the mac shots): the session row's Working
+        //    spinner animates, so two captures land on different frames, and
+        //    that alone measured ~1.3% against the default 0.5%.
         TestStep.iosWaitForElement(.labelContains("Today's usage"), timeout: 20)
-        TestStep.iosScreenshot(label: "ios-usage-overview")
+        TestStep.iosScreenshot(label: "ios-usage-overview", tolerance: 2)
 
         //    Expand: tap the header row by its label. XCUITest never surfaces
         //    the button's `usage-overview-toggle` identifier (the plain-style
@@ -131,7 +134,7 @@ public enum OTELUsageOverviewScenario {
         //    header once expanded (proven by failure-step-63).
         TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElement(.labelContains("Projects"), timeout: 10)
-        TestStep.iosScreenshot(label: "ios-usage-overview-expanded")
+        TestStep.iosScreenshot(label: "ios-usage-overview-expanded", tolerance: 2)
 
         //    Contract: tap again, the details disappear.
         TestStep.iosTap(.labelContains("Today's usage"))
