@@ -162,6 +162,10 @@ public actor TestOrchestrator {
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
+        // Instance 1's notification log. Two-Mac scenarios assert that a
+        // connected Mac *viewer* materialized a host-pushed agent notification
+        // locally (issue #628); instance 0 stays under the unsuffixed key.
+        context.set("notificationLogPath1", value: notificationLogPath(for: 1))
         context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
         context.set("defaultBrowserLogPath", value: defaultBrowserLogPath(for: 0))

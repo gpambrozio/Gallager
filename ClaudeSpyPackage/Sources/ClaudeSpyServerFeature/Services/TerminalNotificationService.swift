@@ -6,14 +6,20 @@
     import Logging
     import UserNotifications
 
-    /// Displays macOS desktop notifications for terminal notification
-    /// escape sequences (OSC 9/777) detected in monitored tmux panes.
+    /// Displays macOS desktop notifications — both for terminal notification
+    /// escape sequences (OSC 9/777) detected in monitored tmux panes and for
+    /// agent notifications pushed by a remote host while acting as its viewer.
     @DependencyClient
     public struct TerminalNotificationService: Sendable {
-        /// Show a notification for a terminal escape sequence.
+        /// Show a local desktop notification. Fired both for terminal escape
+        /// sequences (OSC 9/777) in the app's own monitored panes and for agent
+        /// notifications pushed by a remote host while acting as its viewer.
+        /// When `hostId` is non-nil the notification came from that remote host,
+        /// so tapping it reveals the remote session rather than a local pane.
         public var showNotification: @Sendable (
             _ paneId: String,
-            _ notification: TerminalStreamMessage.TerminalNotification
+            _ notification: TerminalStreamMessage.TerminalNotification,
+            _ hostId: String?
         ) -> Void
     }
 
@@ -24,9 +30,13 @@
         /// displaying desktop notifications, allowing test assertions on the file.
         static func e2eTest(logPath: String) -> TerminalNotificationService {
             TerminalNotificationService(
-                showNotification: { paneId, notification in
+                showNotification: { paneId, notification, hostId in
                     let title = notification.title ?? ""
-                    let entry = "\(paneId)|\(title)|\(notification.body)\n"
+                    // Append the originating host only for viewer notifications
+                    // (hostId set) so scenarios can assert on them; local terminal
+                    // notifications keep the original three-field format.
+                    let origin = hostId.map { "|\($0)" } ?? ""
+                    let entry = "\(paneId)|\(title)|\(notification.body)\(origin)\n"
                     let data = Data(entry.utf8)
 
                     if let handle = FileHandle(forWritingAtPath: logPath) {
@@ -45,15 +55,15 @@
 
     extension TerminalNotificationService: DependencyKey {
         public static var previewValue: TerminalNotificationService {
-            TerminalNotificationService(showNotification: { _, _ in })
+            TerminalNotificationService(showNotification: { _, _, _ in })
         }
 
         public static var liveValue: TerminalNotificationService {
             let handler = LiveNotificationHandler()
             return TerminalNotificationService(
-                showNotification: { paneId, notification in
+                showNotification: { paneId, notification, hostId in
                     Task {
-                        await handler.show(paneId: paneId, notification: notification)
+                        await handler.show(paneId: paneId, notification: notification, hostId: hostId)
                     }
                 }
             )
@@ -71,7 +81,8 @@
 
         func show(
             paneId: String,
-            notification: TerminalStreamMessage.TerminalNotification
+            notification: TerminalStreamMessage.TerminalNotification,
+            hostId: String?
         ) async {
             await ensurePermission()
             guard isAuthorized else { return }
@@ -81,7 +92,13 @@
             content.body = notification.body
             content.sound = .default
             content.categoryIdentifier = "terminalNotification"
-            content.userInfo = ["paneId": paneId]
+            // Carry the originating remote host (viewer mode) so a tap can reveal
+            // the remote session; left nil for the app's own local panes.
+            var userInfo: [String: String] = ["paneId": paneId]
+            if let hostId {
+                userInfo["hostId"] = hostId
+            }
+            content.userInfo = userInfo
 
             let request = UNNotificationRequest(
                 identifier: UUID().uuidString,
@@ -154,7 +171,9 @@
         static let shared = ForegroundNotificationDelegate()
 
         /// Handler called on the main actor when a notification is tapped.
-        @MainActor var onTapped: ((_ paneId: String) -> Void)?
+        /// `hostId` is non-nil when the notification came from a remote host
+        /// (viewer mode), so the tap reveals that host's remote session.
+        @MainActor var onTapped: ((_ paneId: String, _ hostId: String?) -> Void)?
 
         func userNotificationCenter(
             _: UNUserNotificationCenter,
@@ -167,14 +186,16 @@
             _: UNUserNotificationCenter,
             didReceive response: UNNotificationResponse
         ) async {
-            guard let paneId = response.notification.request.content.userInfo["paneId"] as? String else { return }
+            let userInfo = response.notification.request.content.userInfo
+            guard let paneId = userInfo["paneId"] as? String else { return }
+            let hostId = userInfo["hostId"] as? String
             // Schedule after didReceive returns — the system may reclaim focus
             // while this async method is still running.
             await MainActor.run {
                 let handler = onTapped
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(300))
-                    handler?(paneId)
+                    handler?(paneId, hostId)
                 }
             }
         }
