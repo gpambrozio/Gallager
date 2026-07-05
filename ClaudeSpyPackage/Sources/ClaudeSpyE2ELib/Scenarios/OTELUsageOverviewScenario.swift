@@ -165,10 +165,15 @@ public enum OTELUsageOverviewScenario {
         //    overview rides the same SessionStateMessage the iOS viewer
         //    consumes. The viewer has no local usage, so the header is
         //    unambiguous.
+        //    Close the viewer's Settings window first: window move/resize
+        //    steps target the app's FIRST standard window, and with Settings
+        //    still open (from pairing) the pin lands on it instead of the
+        //    Panes window — whose restored frame then drifts run-to-run
+        //    (image-size mismatches on the viewer screenshots).
+        TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
         Shortcut.openPanesWindow(instance: 1)
         //    Let the viewer's async layout restore settle before pinning the
-        //    window — it re-frames the window and races an immediate resize,
-        //    which made the captured window size drift run-to-run.
+        //    window — it re-frames the window and races an immediate resize.
         TestStep.wait(seconds: 2)
         TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
         TestStep.macSetSidebarWidth(280, instance: 1)
