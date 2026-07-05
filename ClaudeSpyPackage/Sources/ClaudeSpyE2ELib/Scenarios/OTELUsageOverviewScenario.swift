@@ -172,10 +172,14 @@ public enum OTELUsageOverviewScenario {
         //    (image-size mismatches on the viewer screenshots).
         TestStep.macCloseWindow(titled: "Remote Hosts", instance: 1)
         Shortcut.openPanesWindow(instance: 1)
-        //    Let the viewer's async layout restore settle before pinning the
-        //    window — it re-frames the window and races an immediate resize.
+        //    Let the viewer's async layout restore settle, then re-pin ONLY
+        //    the sidebar width. Keep openPanesWindow's 1000x600: under
+        //    --record the orchestrator moves instance-1 windows into a
+        //    staggered screen lane, and a 1200x700 window doesn't fit there
+        //    on laptop displays — AppKit clamps it, so the captured window
+        //    size differed between plain and recorded runs.
         TestStep.wait(seconds: 2)
-        TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
+        TestStep.macResizeWindow(width: 1_000, height: 600, instance: 1)
         TestStep.macSetSidebarWidth(280, instance: 1)
         TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("Today's usage"), timeout: 15, instance: 1)
