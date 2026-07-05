@@ -162,7 +162,13 @@ Read the macOS clipboard contents and store them in the execution context under 
 Wait for a text element to appear in the macOS app's accessibility tree. Matches by title, label, value (contains), or help (exact). Useful for verifying status text like "Connected" or dimension labels like "80x24".
 
 ### `macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)`
-Wait for a text element to no longer be in the macOS app's accessibility tree. Mirror of `macWaitForElement`.
+Wait for a text element to no longer be in the macOS app's accessibility tree. Mirror of `macWaitForElement`. **Caveat:** NSTableView-backed SwiftUI Lists keep off-screen rows in the AX tree, so this never fires for a row that merely scrolled out of view — use `macWaitForElementNotVisible` for that.
+
+### `macWaitForElementVisible(titled: String, timeout: TimeInterval = 10)`
+Wait for an element matching `titled` to be scrolled into view — its AX frame center inside the app window's frame. `macWaitForElement` only checks AX-tree *presence*, which can't tell whether a List row is actually on screen. Use after scrolling a List/tree to assert the target row really became visible.
+
+### `macWaitForElementNotVisible(titled: String, timeout: TimeInterval = 10)`
+Wait until no element matching `titled` is visible inside the window frame — either gone from the AX tree or scrolled out of view. Complement of `macWaitForElementVisible`; the assertion of choice for "this row scrolled off screen".
 
 ### `macWaitForElementQuery(_ query: ElementQuery, timeout: TimeInterval = 10)`
 Wait for an element matching an `ElementQuery` to appear in the macOS app's accessibility tree. Use for precise matching (e.g. a toggle with a specific help text AND value). Example: `.allOf([.help("Auto-resize tmux pane..."), .valueContains("1")])` to verify a toggle is checked.
@@ -195,7 +201,10 @@ Type text into the macOS app via AppleScript `keystroke`. Supports `${variable}`
 Scroll the macOS terminal view up by the given number of pages (Page Up key).
 
 ### `macScrollWheel(deltaY: Int32, count: Int = 3)`
-Send scroll-wheel events to the macOS app window via CGEvent. `deltaY > 0` scrolls up, `< 0` scrolls down. `count` is how many events to send.
+Send scroll-wheel events to the macOS app window via CGEvent. `deltaY > 0` scrolls up, `< 0` scrolls down. `count` is how many events to send. The events land at the **window center** — with the file browser open that's the detail pane, so scrolling the tree sidebar needs `macScrollWheelAtElement`.
+
+### `macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3)`
+Send scroll-wheel events at the center of the accessibility element matching `titled` instead of the window center — targets a specific scrollable region (e.g. the file-tree sidebar, by anchoring on one of its rows). The element's frame is resolved once, before the first event, so all events land on the same screen point even as the matched row scrolls away beneath it.
 
 ### `macClickAtPoint(x: Double, y: Double)`
 Click at a specific screen coordinate inside the macOS app. For places where no accessibility-tree target exists (e.g. clicking on terminal cells).

@@ -668,6 +668,27 @@ public actor MacOSDriver {
         }
     }
 
+    /// Send scroll wheel events at the center of the first element matching
+    /// `titled` instead of the window center, so scenarios can scroll a
+    /// specific scrollable region (e.g. the file-tree sidebar) rather than
+    /// whatever sits mid-window. The frame is resolved once, before the
+    /// first event — all events land on the same screen point even as the
+    /// matched row scrolls away beneath it.
+    public func scrollWheel(atElementTitled titled: String, deltaY: Int32, count: Int = 1) async throws {
+        let pid = try requirePID()
+        logger.info("Scroll wheel at element '\(titled)': deltaY=\(deltaY), count=\(count)")
+        try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
+        if
+            !MacOSAccessibility.scrollWheel(
+                appPID: pid,
+                matching: .anyTextMatches(titled),
+                deltaY: deltaY,
+                count: count
+            ) {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+    }
+
     /// Click at a specific screen coordinate after focusing the app.
     public func clickAtScreenPoint(x: Double, y: Double) async throws {
         let pid = try requirePID()
@@ -867,6 +888,38 @@ public actor MacOSDriver {
             let diag = MacOSAccessibility.diagnoseQuery(appPID: pid, query: query)
             logger.warning("AX diagnostic for \(query):\n\(diag)")
             throw MacOSDriverError.elementQueryTimedOut(query: "\(query)", diagnostic: diag)
+        }
+    }
+
+    /// Wait for an element matching `titled` to be scrolled into view — its
+    /// AX frame center inside the app window's frame. A plain
+    /// `waitForElement` only checks AX-tree presence, and NSTableView-backed
+    /// SwiftUI Lists keep off-screen rows in the tree, so presence alone
+    /// can't prove a row is on screen.
+    public func waitForElementVisible(titled: String, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
+        logger.info("Waiting for element to be visible in window: \(titled)")
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to be visible in the window",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
+        }
+    }
+
+    /// Wait until no element matching `titled` is visible inside the window
+    /// frame. Passes both when the element left the AX tree entirely and
+    /// when it is still present but scrolled out of view.
+    public func waitForElementNotVisible(titled: String, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
+        logger.info("Waiting for element to not be visible in window: \(titled)")
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to not be visible in the window",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            !MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
         }
     }
 

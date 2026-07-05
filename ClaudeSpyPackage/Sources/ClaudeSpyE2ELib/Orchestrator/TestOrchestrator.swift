@@ -845,6 +845,14 @@ public actor TestOrchestrator {
             let resolvedTitle = context.resolve(titled)
             try await macDriver(for: instance).waitForElementToDisappear(titled: resolvedTitle, timeout: timeout)
 
+        case let .macWaitForElementVisible(titled, timeout, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElementVisible(titled: resolvedTitle, timeout: timeout)
+
+        case let .macWaitForElementNotVisible(titled, timeout, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElementNotVisible(titled: resolvedTitle, timeout: timeout)
+
         case let .macWaitForElementQuery(query, timeout, instance):
             try await macDriver(for: instance).waitForElement(matching: query.resolved(context.resolve), timeout: timeout)
 
@@ -880,6 +888,11 @@ public actor TestOrchestrator {
 
         case let .macScrollWheel(deltaY, count, instance):
             try await macDriver(for: instance).scrollWheel(deltaY: deltaY, count: count)
+
+        case let .macScrollWheelAtElement(titled, deltaY, count, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance)
+                .scrollWheel(atElementTitled: resolvedTitle, deltaY: deltaY, count: count)
 
         case let .macClickAtPoint(x, y, instance):
             let p = staged(x: x, y: y, instance: instance)

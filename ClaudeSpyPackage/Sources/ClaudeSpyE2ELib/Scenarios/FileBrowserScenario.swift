@@ -32,6 +32,10 @@ import Foundation
 ///     scroll position are shared across windows in the same tmux session
 ///     (commit 90f1d8f). Switching to a sibling window's Files tab shows the
 ///     same state without rebuilding it.
+/// 15. The file tree's own scroll position is preserved when switching to a
+///     different tab or session and back (issue #437). The tree List is
+///     destroyed on every switch; `ListScrollPreserver` saves the offset on
+///     `FileBrowserState.treeScrollY` and restores it on remount.
 ///
 /// Regression guards:
 /// - Nested NavigationSplitView layout gap (ee55599)
@@ -837,6 +841,63 @@ public enum FileBrowserScenario {
         TestStep.macWaitForElementToDisappear(titled: "README.md", timeout: 3)
         TestStep.macWaitForElementQuery(.anyTextMatches("@main"), timeout: 5)
         TestStep.macScreenshot(label: "mac-cross-window-state-window0-restored")
+
+        // ── Phase 33: File tree scroll position preserved (issue #437) ─
+        //
+        // Regression guard for issue #437. The tree's `List` is destroyed on
+        // every tab/session switch; expansions and selection already survive
+        // on `FileBrowserState.viewState`, but the scroll offset lived only
+        // in the destroyed NSScrollView, so the tree snapped back to the top.
+        // `ListScrollPreserver` now mirrors the offset into
+        // `FileBrowserState.treeScrollY` and restores it on remount.
+        //
+        // Expanding `generated` (30 tree-scroll-NN.txt rows) makes the tree
+        // taller than the viewport. The assertions use the *visible*-frame
+        // waits, not AX presence: the NSTableView behind the List keeps
+        // off-screen rows in the AX tree (with frames above the window), so
+        // `macWaitForElementToDisappear` would never fire for a scrolled-out
+        // row. After each round trip, `tree-scroll-30.txt` must sit inside
+        // the window and `.claude` (the tree's first row) outside it — a
+        // broken restore leaves `.claude` on screen and the not-visible wait
+        // times out. The screenshots prove the visual state.
+        TestStep.log("Phase 33: File tree preserves scroll position across tab/session switches")
+
+        // Clear the Phase 32 search so the tree is visible again.
+        TestStep.macClickButton(titled: "Clear search")
+        TestStep.macWaitForElement(titled: "README.md", timeout: 5)
+
+        // Expand `generated` — its 31 children overflow the viewport.
+        TestStep.macClickButton(titled: "generated")
+        TestStep.macWaitForElement(titled: "tree-scroll-01.txt", timeout: 5)
+        TestStep.macScreenshot(label: "mac-tree-scroll-expanded-top")
+
+        // Scroll the tree to the bottom. The wheel events are anchored on
+        // the `.claude` row (top of the sidebar) so they land in the tree —
+        // `macScrollWheel` targets the window centre, which sits over the
+        // detail pane and would scroll long.md instead.
+        TestStep.macScrollWheelAtElement(titled: ".claude", deltaY: -10, count: 30)
+        TestStep.macWaitForElementVisible(titled: "tree-scroll-30.txt", timeout: 5)
+        TestStep.macWaitForElementNotVisible(titled: ".claude", timeout: 5)
+        TestStep.macScreenshot(label: "mac-tree-scroll-bottom-initial")
+
+        // Tab round trip via window 0's terminal → back to Files. The tree
+        // List is rebuilt and must restore the offset from `treeScrollY`.
+        TestStep.macClickButton(titled: "filebrowse:0")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.macWaitForElementVisible(titled: "tree-scroll-30.txt", timeout: 5)
+        TestStep.macWaitForElementNotVisible(titled: ".claude", timeout: 5)
+        TestStep.macScreenshot(label: "mac-tree-scroll-after-tab-switch")
+
+        // Session round trip via the shared `scrollalt`.
+        TestStep.macClickButton(titled: "scrollalt")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "filebrowse")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "Files")
+        TestStep.macWaitForElementVisible(titled: "tree-scroll-30.txt", timeout: 5)
+        TestStep.macWaitForElementNotVisible(titled: ".claude", timeout: 5)
+        TestStep.macScreenshot(label: "mac-tree-scroll-after-session-switch")
 
         // Tear down the persistent alt session and both filebrowse windows.
         Shortcut.tmuxRunCommand(target: "scrollalt:0.0", command: "exit")

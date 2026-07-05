@@ -262,10 +262,22 @@ struct TmuxPaneMirrorApp: App {
                 fakeTree["ephemeral.txt"] = .file(
                     .ephemeralText("This file is about to disappear.\n")
                 )
+                // Thirty numbered rows so that expanding `generated` makes the
+                // file tree taller than the viewport — the tree-scroll
+                // preservation phase (issue #437) needs enough rows to scroll.
+                // The folder stays collapsed in every other phase, so earlier
+                // screenshots are unaffected. Names and contents deliberately
+                // avoid the strings other phases search for ("hello", "helper",
+                // "swift", "## BOTTOM").
+                var generatedChildren: [String: FakeEntry] = [
+                    "output.txt": .file(.text("Generated content.\n")),
+                ]
+                for index in 1 ... 30 {
+                    let name = String(format: "tree-scroll-%02d.txt", index)
+                    generatedChildren[name] = .file(.text("Generated row \(index).\n"))
+                }
                 let dynamicEntries: [String: FakeEntry] = [
-                    "generated": .folder([
-                        "output.txt": .file(.text("Generated content.\n")),
-                    ]),
+                    "generated": .folder(generatedChildren),
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
