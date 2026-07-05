@@ -677,15 +677,31 @@ public actor MacOSDriver {
     public func scrollWheel(atElementTitled titled: String, deltaY: Int32, count: Int = 1) async throws {
         let pid = try requirePID()
         logger.info("Scroll wheel at element '\(titled)': deltaY=\(deltaY), count=\(count)")
-        try await waitForAXElement(pid: pid, titled: titled, timeout: 5)
-        if
-            !MacOSAccessibility.scrollWheel(
+        // Gate on the element being *visible*, not merely present in the AX
+        // tree: NSTableView-backed Lists keep off-screen rows alive with
+        // frames outside the window, and anchoring on one of those would
+        // post the CGEvents at whatever happens to sit under that point.
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to be visible to anchor the scroll",
+            timeout: 5,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
+        }
+        guard
+            let frame = MacOSAccessibility.visibleFrameOfElement(
                 appPID: pid,
-                matching: .anyTextMatches(titled),
-                deltaY: deltaY,
-                count: count
-            ) {
+                matching: .anyTextMatches(titled)
+            )
+        else {
             throw MacOSDriverError.elementNotFound(titled)
+        }
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        for _ in 0..<count {
+            MacOSAccessibility.scrollWheel(at: center, deltaY: deltaY)
+            try await Task.sleep(for: .milliseconds(50))
         }
     }
 

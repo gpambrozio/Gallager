@@ -1570,44 +1570,6 @@ private struct MarkdownContentView: View {
     }
 }
 
-/// Renders monospaced text via `NSTextView` wrapped in `NSScrollView`,
-/// with a left line-number gutter (`NSRulerView`) and an optional
-/// one-line highlight that the content-search detail pane uses to
-/// surface the matched line.
-///
-/// `savedScrollY` is an optional binding owned by an open file tab.
-/// When set, the view restores its scroll position from the binding
-/// on first appearance and updates it on every user scroll, so
-/// switching tabs/sessions and returning preserves the position.
-///
-/// `highlightLine` (1-based) tints the matched line via a custom
-/// `NSTextView.drawBackground(in:)` override and the view scrolls so
-/// the line lands at the viewport center. When set on initial load it
-/// overrides `savedScrollY` — the user wants to see the match, not
-/// the previous reading position.
-///
-/// **Why AppKit.** SwiftUI's `Text` was forcing a full TextKit pass
-/// over the entire string on every body invocation — even at ~128 KB
-/// it was taking multi-second initial layout. `NSTextView` lays out
-/// non-contiguously (TextKit2), so opening a file and scrolling to a
-/// line is bounded by the visible glyph range, not the file size.
-///
-/// **Layer-backing discipline.** Earlier AppKit attempts left
-/// neighbouring SwiftUI surfaces (tab bar, sidebar, the detail-pane
-/// viewport itself) in an unrendered state until the next input event.
-/// The fix was finding STTextView, which sets `wantsLayer = true` on
-/// every view in its hierarchy — when the embedded scroll view shares
-/// its parent's layer with sibling SwiftUI views, AppKit's display
-/// invalidation propagates to those siblings without triggering a
-/// SwiftUI redraw of them. We give every AppKit view here its own
-/// backing layer so invalidation stays contained.
-///
-/// **Update discipline.** All text/highlight/scroll mutations are
-/// pushed through a `PlainTextController` from `.task(id: text)` and
-/// `.onChange(of: highlightLine)` rather than from `updateNSView`.
-/// Highlight is painted in a `drawBackground(in:)` override instead
-/// of `addTemporaryAttribute` so there are no layout-manager
-/// mutations either.
 /// Preserves the vertical scroll offset of the SwiftUI `List` it backgrounds
 /// (issue #437).
 ///
@@ -1689,12 +1651,22 @@ private struct ListScrollPreserver: NSViewRepresentable {
             let target = coordinator.savedScrollY?.wrappedValue ?? 0
             coordinator.isRestoring = true
             attachObserver(scrollView: scrollView, coordinator: coordinator)
-            await restoreScroll(scrollView: scrollView, target: target)
+            let landed = await restoreScroll(scrollView: scrollView, target: target)
+            // A dismantle mid-restore cancels this task; writing the
+            // torn-down clip view's origin below would clobber the saved
+            // offset with 0 and reintroduce the reset-to-top bug.
+            guard !Task.isCancelled else { return }
             coordinator.isRestoring = false
             // The restore's own bounds changes were suppressed above; sync
-            // the binding to wherever the clip view actually landed (the
-            // tree may be shorter than the saved offset after a collapse).
-            coordinator.savedScrollY?.wrappedValue = scrollView.contentView.bounds.origin.y
+            // the binding to wherever the clip view actually landed. Only
+            // when the restore ran to completion, though: if the retry
+            // budget expired while the table was still growing, writing the
+            // clamped offset would permanently shrink the saved position —
+            // leaving it intact lets the next remount (or the user's own
+            // scroll) converge instead.
+            if landed {
+                coordinator.savedScrollY?.wrappedValue = scrollView.contentView.bounds.origin.y
+            }
         }
     }
 
@@ -1736,6 +1708,13 @@ private struct ListScrollPreserver: NSViewRepresentable {
     private func attachObserver(scrollView: NSScrollView, coordinator: Coordinator) {
         let clip = scrollView.contentView
         guard coordinator.observedClipView !== clip else { return }
+        // Unlike `PDFViewRepresentable.attachObserver`, no `detachObserver()`
+        // call here: this runs inside `attachTask`, and `detachObserver`
+        // cancels that task — the self-cancellation would abort the
+        // `restoreScroll` that follows. The single caller always runs on a
+        // fresh coordinator, so there is never a previous observer to
+        // remove; if a re-attach path is ever added, detach the old
+        // observer without cancelling the in-flight task.
         clip.postsBoundsChangedNotifications = true
         coordinator.observedClipView = clip
         coordinator.observer = NotificationCenter.default.addObserver(
@@ -1756,25 +1735,66 @@ private struct ListScrollPreserver: NSViewRepresentable {
     /// Re-applies the saved offset until the clip view lands on (or near)
     /// the target. The table materializes row heights lazily, so a single
     /// `scroll(to:)` right after mount can clamp against a document view
-    /// that hasn't grown to its full height yet.
+    /// that hasn't grown to its full height yet. Returns true when the clip
+    /// view reached the target (or there was nothing to restore); false
+    /// when the retry budget expired or the task was cancelled mid-restore.
     ///
     /// The clip view's x origin is preserved, NOT forced to 0: a
     /// sidebar-styled List inside a `NavigationSplitView` detail pane sits
     /// at a non-zero x (its table extends under the split-view sidebar),
     /// and zeroing it shifts every row left to render behind the sidebar.
-    private func restoreScroll(scrollView: NSScrollView, target: CGFloat) async {
-        guard target > 0 else { return }
+    private func restoreScroll(scrollView: NSScrollView, target: CGFloat) async -> Bool {
+        guard target > 0 else { return true }
         for _ in 0..<10 {
-            if Task.isCancelled { return }
+            if Task.isCancelled { return false }
             let clip = scrollView.contentView
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: target))
             scrollView.reflectScrolledClipView(clip)
-            if abs(clip.bounds.origin.y - target) < 1 { return }
+            if abs(clip.bounds.origin.y - target) < 1 { return true }
             try? await Task.sleep(for: .milliseconds(50))
         }
+        return false
     }
 }
 
+/// Renders monospaced text via `NSTextView` wrapped in `NSScrollView`,
+/// with a left line-number gutter (`NSRulerView`) and an optional
+/// one-line highlight that the content-search detail pane uses to
+/// surface the matched line.
+///
+/// `savedScrollY` is an optional binding owned by an open file tab.
+/// When set, the view restores its scroll position from the binding
+/// on first appearance and updates it on every user scroll, so
+/// switching tabs/sessions and returning preserves the position.
+///
+/// `highlightLine` (1-based) tints the matched line via a custom
+/// `NSTextView.drawBackground(in:)` override and the view scrolls so
+/// the line lands at the viewport center. When set on initial load it
+/// overrides `savedScrollY` — the user wants to see the match, not
+/// the previous reading position.
+///
+/// **Why AppKit.** SwiftUI's `Text` was forcing a full TextKit pass
+/// over the entire string on every body invocation — even at ~128 KB
+/// it was taking multi-second initial layout. `NSTextView` lays out
+/// non-contiguously (TextKit2), so opening a file and scrolling to a
+/// line is bounded by the visible glyph range, not the file size.
+///
+/// **Layer-backing discipline.** Earlier AppKit attempts left
+/// neighbouring SwiftUI surfaces (tab bar, sidebar, the detail-pane
+/// viewport itself) in an unrendered state until the next input event.
+/// The fix was finding STTextView, which sets `wantsLayer = true` on
+/// every view in its hierarchy — when the embedded scroll view shares
+/// its parent's layer with sibling SwiftUI views, AppKit's display
+/// invalidation propagates to those siblings without triggering a
+/// SwiftUI redraw of them. We give every AppKit view here its own
+/// backing layer so invalidation stays contained.
+///
+/// **Update discipline.** All text/highlight/scroll mutations are
+/// pushed through a `PlainTextController` from `.task(id: text)` and
+/// `.onChange(of: highlightLine)` rather than from `updateNSView`.
+/// Highlight is painted in a `drawBackground(in:)` override instead
+/// of `addTemporaryAttribute` so there are no layout-manager
+/// mutations either.
 private struct PlainTextContentView: View {
     let text: String
     var savedScrollY: Binding<CGFloat>?
