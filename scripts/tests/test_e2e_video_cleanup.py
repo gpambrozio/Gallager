@@ -70,6 +70,15 @@ URL = (
     "e2e-videos/pr626-subagent-stop-ignored-passing.mp4"
 )
 
+BODY_WITH_HINT = """## 🎬 E2E Video Proof
+
+Fix verification: the scenario passes.
+
+- **▶ [Subagent Stop Ignored (passing)](https://github.com/gpambrozio/ClaudeSpyTestResults/releases/download/e2e-videos/pr626-subagent-stop-ignored-passing.mp4)** — 3s (speedup), 23 steps
+  - watch: `./scripts/e2e-watch-video.sh pr626-subagent-stop-ignored-passing.mp4`
+
+_Ephemeral release asset(s) on gpambrozio/ClaudeSpyTestResults (`e2e-videos` prerelease) — not part of any repo's git history; may be deleted after review._"""
+
 
 class RewriteComment(unittest.TestCase):
     def test_strikes_link_and_appends_note(self):
@@ -103,6 +112,30 @@ class RewriteComment(unittest.TestCase):
         two_links = BODY + f"\n- **▶ [Other]({other_url})** — 5s"
         new_body = vc.rewrite_comment(two_links, [URL, other_url])
         self.assertEqual(new_body.count(vc.DELETED_NOTE), 1)
+
+    def test_strikes_watch_hint_alongside_link(self):
+        new_body = vc.rewrite_comment(BODY_WITH_HINT, [URL])
+        self.assertIsNotNone(new_body)
+        self.assertNotIn(URL, new_body)
+        self.assertIn("- **▶ ~~Subagent Stop Ignored (passing)~~** — 3s (speedup), 23 steps", new_body)
+        self.assertIn(
+            "  - watch: ~~`./scripts/e2e-watch-video.sh "
+            "pr626-subagent-stop-ignored-passing.mp4`~~",
+            new_body,
+        )
+
+    def test_watch_hint_rewrite_is_idempotent(self):
+        once = vc.rewrite_comment(BODY_WITH_HINT, [URL])
+        self.assertIsNone(vc.rewrite_comment(once, [URL]))
+
+    def test_no_hint_line_still_strikes_link_only(self):
+        # Old-format comments (pre-#631) have no watch: sub-bullet at all;
+        # the link must still be struck without erroring on the missing hint.
+        new_body = vc.rewrite_comment(BODY, [URL])
+        self.assertIsNotNone(new_body)
+        self.assertNotIn(URL, new_body)
+        self.assertIn("- **▶ ~~Subagent Stop Ignored (passing)~~** — 3s (speedup), 23 steps", new_body)
+        self.assertNotIn("watch:", new_body)
 
 
 class GroupAssets(unittest.TestCase):
