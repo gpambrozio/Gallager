@@ -99,7 +99,7 @@ Create `scripts/e2e-video-player.html` with exactly this content:
   } else {
     video.src = src;
     video.addEventListener("error", () => {
-      const rerun = title ? " " + escapeHTML(title) : " <asset>";
+      const rerun = title ? " " + escapeHTML(title) : " &lt;asset&gt;";
       showError("Couldn't load the video — the signed URL has likely expired " +
         "(they're valid for about an hour). Re-run " +
         "<code>./scripts/e2e-watch-video.sh" + rerun + "</code> to get a fresh one.");
