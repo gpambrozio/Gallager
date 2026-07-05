@@ -485,11 +485,12 @@ public struct MainView: View {
 
     private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
         Section {
-            // Host's own cross-session usage rollup (issue #598).
+            // Host's own cross-session usage rollup (issue #598), collapsed to
+            // the "Today" line until the disclosure chevron expands it.
             if let overview = coordinator.usageOverview, !overview.isEmpty {
-                UsageOverviewHeader(overview: overview)
+                UsageOverviewView(overview: overview)
                     .padding(.vertical, 2)
-                    .accessibilityIdentifier("usage-overview-header-local")
+                    .accessibilityIdentifier("usage-overview-local")
             }
             if sessions.isEmpty && settings.hasRemoteHosts {
                 Text("No local sessions")

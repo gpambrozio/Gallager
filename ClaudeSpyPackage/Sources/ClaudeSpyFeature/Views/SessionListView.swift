@@ -265,10 +265,10 @@
                     .accessibilityIdentifier("host-version-mismatch-row")
                 } else if hasContent {
                     // Cross-session usage rollup for this host (issue #598).
+                    // Renders as its own List rows (header + detail rows when
+                    // expanded) and owns their insets/separators internally.
                     if let overview = sessionStore.usageOverview(for: host.id), !overview.isEmpty {
                         UsageOverviewView(overview: overview)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                            .accessibilityIdentifier("usage-overview-row")
                     }
 
                     // Claude sessions

@@ -36,14 +36,21 @@ public struct UsageOverviewHeader: View {
 
 // MARK: - Full Overview
 
-/// The full cross-session overview (issue #598): today's total, a per-project
-/// ranking over the recent window, and a per-day trend. Used in the iOS session
-/// list's overview section. Shared by both platforms.
+/// The full cross-session overview (issue #598): a compact "Today" header row
+/// that expands in place — via the trailing disclosure chevron — to the
+/// per-project ranking over the recent window and the per-day trend. Starts
+/// collapsed on every appearance (transient state, no persistence). Shared by
+/// both platforms: the iOS session list and the Mac sidebar.
 public struct UsageOverviewView: View {
     private let overview: UsageOverview
 
-    public init(overview: UsageOverview) {
+    @State private var isExpanded: Bool
+
+    /// `initiallyExpanded` exists for the expanded #Preview only — production
+    /// call sites use the default and always start collapsed.
+    public init(overview: UsageOverview, initiallyExpanded: Bool = false) {
         self.overview = overview
+        _isExpanded = State(initialValue: initiallyExpanded)
     }
 
     private var trendDays: [DayUsage] {
@@ -51,28 +58,107 @@ public struct UsageOverviewView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            UsageOverviewHeader(overview: overview)
-
-            if !overview.projects.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Projects", symbol: .folder)
-                    ForEach(overview.projects) { project in
-                        UsageProjectRow(project: project)
-                    }
+        // Each top-level view here is its OWN List row (List flattens the
+        // builder), so expanding never resizes the header's cell — the List
+        // animates the detail rows in natively and the header line cannot
+        // wobble. Animating the height of a single cell instead makes the
+        // platform cell (UIKit/AppKit) and SwiftUI content interpolate on
+        // separate tracks: the header visibly shakes on iOS, and macOS
+        // reloads the row and drops the animation entirely. Separators are
+        // managed per row to keep the one-card look on iOS: no divider
+        // inside the expanded cell, one after it (macOS sidebars draw none).
+        if !overview.isEmpty {
+            headerButton
+                .listRowInsets(headerRowInsets)
+                .listRowSeparator(separator(visibleWhen: !isExpanded))
+            if isExpanded {
+                if !overview.projects.isEmpty {
+                    projectsSection
+                        .listRowInsets(detailRowInsets(bottom: 8))
+                        .listRowSeparator(separator(visibleWhen: trendDays.isEmpty))
                 }
-            }
-
-            if !trendDays.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Recent days", symbol: .calendar)
-                    ForEach(trendDays) { day in
-                        UsageDayRow(day: day)
-                    }
+                if !trendDays.isEmpty {
+                    daysSection
+                        .listRowInsets(detailRowInsets(bottom: 12))
                 }
             }
         }
-        .accessibilityIdentifier("usage-overview")
+    }
+
+    /// iOS keeps the one-card look (divider after the collapsed cell, none
+    /// inside it); macOS sidebars draw no separators, and forcing `.visible`
+    /// there paints one — so never do.
+    private func separator(visibleWhen visible: Bool) -> Visibility {
+        #if os(iOS)
+            visible ? .visible : .hidden
+        #else
+            _ = visible
+            return .hidden
+        #endif
+    }
+
+    /// Row insets are an iOS concern (the insetGrouped card needs the header
+    /// comfortably above the List's ~44pt minimum row height so it is never
+    /// vertically re-centred); `nil` keeps the macOS sidebar defaults.
+    private var headerRowInsets: EdgeInsets? {
+        #if os(iOS)
+            EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        #else
+            nil
+        #endif
+    }
+
+    private func detailRowInsets(bottom: CGFloat) -> EdgeInsets? {
+        #if os(iOS)
+            EdgeInsets(top: 0, leading: 16, bottom: bottom, trailing: 16)
+        #else
+            _ = bottom
+            return nil
+        #endif
+    }
+
+    private var headerButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                UsageOverviewHeader(overview: overview)
+                // Down-when-collapsed, up-when-expanded (Mail-style
+                // disclosure) — a right chevron would read as navigation.
+                Symbols.chevronDown.image
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Constant height + explicit identity: the header line must not
+        // resize or read as new content when the cell expands.
+        .frame(height: 24)
+        .id("usage-overview-toggle")
+        .accessibilityIdentifier("usage-overview-toggle")
+        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+    }
+
+    private var projectsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionLabel("Projects", symbol: .folder)
+            ForEach(overview.projects) { project in
+                UsageProjectRow(project: project)
+            }
+        }
+    }
+
+    private var daysSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sectionLabel("Recent days", symbol: .calendar)
+            ForEach(trendDays) { day in
+                UsageDayRow(day: day)
+            }
+        }
     }
 
     private func sectionLabel(_ title: String, symbol: Symbols) -> some View {
@@ -184,8 +270,14 @@ private let previewOverview = UsageOverview(
         .frame(width: 320)
 }
 
-#Preview("Overview full") {
-    UsageOverviewView(overview: previewOverview)
-        .padding()
-        .frame(width: 320)
+#Preview("Overview collapsed") {
+    List {
+        UsageOverviewView(overview: previewOverview)
+    }
+}
+
+#Preview("Overview expanded") {
+    List {
+        UsageOverviewView(overview: previewOverview, initiallyExpanded: true)
+    }
 }
