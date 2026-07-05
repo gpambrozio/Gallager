@@ -129,6 +129,14 @@ final class FileBrowserState {
     /// the view being destroyed and rebuilt when the user switches tmux windows
     /// or sessions and returns to the same file.
     var scrollOffsets: [String: CGFloat] = [:]
+    /// Saved vertical scroll offset of the file tree itself (issue #437).
+    /// The tree's `List` is torn down whenever the user switches to another
+    /// tab, window, or session; expansions and selection survive on
+    /// `viewState`, but the scroll position lives in the destroyed AppKit
+    /// scroll view, so it is mirrored here and re-applied on remount by
+    /// `ListScrollPreserver`. Reset by `reloadTree` when the directory
+    /// changes — a different tree makes the old offset meaningless.
+    var treeScrollY: CGFloat = 0
     /// Monotonic counter bumped from outside the view (e.g., the Cmd-Shift-F
     /// menu command) to request the search field take keyboard focus. The view
     /// observes the value and drives `@FocusState` when it changes; using a
@@ -185,6 +193,9 @@ final class FileBrowserState {
     /// reliably propagate through the navigator's disclosure views, so
     /// expansions otherwise load one step behind.
     func reloadTree(directoryPath: String, service: FileSystemLoadingService) async {
+        if let previous = loadedPath, previous != directoryPath {
+            treeScrollY = 0
+        }
         let result = await service.loadFileTree(
             URL(fileURLWithPath: directoryPath),
             loadedFolderPaths,
@@ -899,6 +910,7 @@ struct FileBrowserView: View {
                     }
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
+                    .background(ListScrollPreserver(savedScrollY: $state.treeScrollY))
                     .focused($listFocused)
                     .onChange(of: viewState.selection) { _, _ in listFocused = true }
                     .task { await focusList() }
@@ -1555,6 +1567,193 @@ private struct MarkdownContentView: View {
                 isTrackingUserScroll = true
             }
         }
+    }
+}
+
+/// Preserves the vertical scroll offset of the SwiftUI `List` it backgrounds
+/// (issue #437).
+///
+/// SwiftUI offers no API to save/restore a plain pixel offset on `List`, and
+/// the file tree's `List` is destroyed whenever the user switches to another
+/// tab, window, or session. This representable is placed in the List's
+/// `.background`, locates the List's underlying `NSScrollView` in the AppKit
+/// hierarchy, mirrors user scrolls into `savedScrollY`, and re-applies the
+/// saved offset when the List is rebuilt — the same clip-view observer and
+/// retry-restore approach as `PDFViewRepresentable`. If the scroll view can't
+/// be found (e.g. a future SwiftUI stops backing `List` with `NSTableView`),
+/// it does nothing and the tree merely reverts to today's scroll-to-top
+/// behavior.
+private struct ListScrollPreserver: NSViewRepresentable {
+    var savedScrollY: Binding<CGFloat>
+
+    @MainActor
+    final class Coordinator {
+        var savedScrollY: Binding<CGFloat>?
+        var isRestoring = false
+        var observer: NSObjectProtocol?
+        weak var observedClipView: NSClipView?
+        /// Handle for the in-flight `attachAndRestore` task so its lifetime
+        /// is tied to the view's — without this the find/retry loop keeps
+        /// running after `dismantleNSView` and writes into a binding whose
+        /// owner may be gone.
+        var attachTask: Task<Void, Never>?
+
+        func detachObserver() {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+                self.observer = nil
+            }
+            observedClipView = nil
+            attachTask?.cancel()
+            attachTask = nil
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.savedScrollY = savedScrollY
+        attachAndRestore(view: view, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.savedScrollY = savedScrollY
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detachObserver()
+    }
+
+    /// Waits for the background view to land in a window and for SwiftUI to
+    /// create the List's scroll view (both need at least one runloop turn
+    /// after `makeNSView`), then restores the saved offset and attaches the
+    /// bounds observer that keeps `savedScrollY` in sync with user scrolls.
+    ///
+    /// The saved target is read *before* the observer attaches: the table
+    /// view posts layout-driven bounds changes at y=0 while its rows
+    /// materialize, and letting those reach the binding first would wipe the
+    /// offset we're about to restore.
+    private func attachAndRestore(view: NSView, coordinator: Coordinator) {
+        coordinator.attachTask?.cancel()
+        coordinator.attachTask = Task { @MainActor [weak coordinator, weak view] in
+            var scrollView: NSScrollView?
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let view, coordinator != nil, !Task.isCancelled else { return }
+                scrollView = Self.findListScrollView(near: view)
+                if scrollView != nil { break }
+            }
+            guard let coordinator, let scrollView, !Task.isCancelled else { return }
+            let target = coordinator.savedScrollY?.wrappedValue ?? 0
+            coordinator.isRestoring = true
+            attachObserver(scrollView: scrollView, coordinator: coordinator)
+            let landed = await restoreScroll(scrollView: scrollView, target: target)
+            // A dismantle mid-restore cancels this task; writing the
+            // torn-down clip view's origin below would clobber the saved
+            // offset with 0 and reintroduce the reset-to-top bug.
+            guard !Task.isCancelled else { return }
+            coordinator.isRestoring = false
+            // The restore's own bounds changes were suppressed above; sync
+            // the binding to wherever the clip view actually landed. Only
+            // when the restore ran to completion, though: if the retry
+            // budget expired while the table was still growing, writing the
+            // clamped offset would permanently shrink the saved position —
+            // leaving it intact lets the next remount (or the user's own
+            // scroll) converge instead.
+            if landed {
+                coordinator.savedScrollY?.wrappedValue = scrollView.contentView.bounds.origin.y
+            }
+        }
+    }
+
+    /// Locates the `NSScrollView` SwiftUI created for the backgrounded
+    /// `List`. The background view is hosted as a sibling of the List's
+    /// platform view with the same frame, so this walks up the ancestor
+    /// chain and breadth-first searches each subtree for the nearest
+    /// table-backed scroll view whose window-space frame overlaps ours —
+    /// the geometry check keeps a flat hosting arrangement from matching
+    /// some other list in the window (e.g. the sessions sidebar).
+    private static func findListScrollView(near view: NSView) -> NSScrollView? {
+        guard view.window != nil else { return nil }
+        let target = view.convert(view.bounds, to: nil)
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let scrollView = firstListScrollView(in: current, overlapping: target) {
+                return scrollView
+            }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    private static func firstListScrollView(in root: NSView, overlapping target: NSRect) -> NSScrollView? {
+        var queue: [NSView] = [root]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            if
+                let scrollView = current as? NSScrollView,
+                scrollView.documentView is NSTableView,
+                scrollView.convert(scrollView.bounds, to: nil).intersects(target) {
+                return scrollView
+            }
+            queue.append(contentsOf: current.subviews)
+        }
+        return nil
+    }
+
+    private func attachObserver(scrollView: NSScrollView, coordinator: Coordinator) {
+        let clip = scrollView.contentView
+        guard coordinator.observedClipView !== clip else { return }
+        // Unlike `PDFViewRepresentable.attachObserver`, no `detachObserver()`
+        // call here: this runs inside `attachTask`, and `detachObserver`
+        // cancels that task — the self-cancellation would abort the
+        // `restoreScroll` that follows. The single caller always runs on a
+        // fresh coordinator, so there is never a previous observer to
+        // remove; if a re-attach path is ever added, detach the old
+        // observer without cancelling the in-flight task.
+        clip.postsBoundsChangedNotifications = true
+        coordinator.observedClipView = clip
+        coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: nil
+        ) { [weak coordinator, weak clip] _ in
+            // Posted synchronously from the main thread; safe to read state
+            // and write the binding without dispatching.
+            MainActor.assumeIsolated {
+                guard let coordinator, let clip else { return }
+                guard !coordinator.isRestoring else { return }
+                coordinator.savedScrollY?.wrappedValue = clip.bounds.origin.y
+            }
+        }
+    }
+
+    /// Re-applies the saved offset until the clip view lands on (or near)
+    /// the target. The table materializes row heights lazily, so a single
+    /// `scroll(to:)` right after mount can clamp against a document view
+    /// that hasn't grown to its full height yet. Returns true when the clip
+    /// view reached the target (or there was nothing to restore); false
+    /// when the retry budget expired or the task was cancelled mid-restore.
+    ///
+    /// The clip view's x origin is preserved, NOT forced to 0: a
+    /// sidebar-styled List inside a `NavigationSplitView` detail pane sits
+    /// at a non-zero x (its table extends under the split-view sidebar),
+    /// and zeroing it shifts every row left to render behind the sidebar.
+    private func restoreScroll(scrollView: NSScrollView, target: CGFloat) async -> Bool {
+        guard target > 0 else { return true }
+        for _ in 0..<10 {
+            if Task.isCancelled { return false }
+            let clip = scrollView.contentView
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: target))
+            scrollView.reflectScrolledClipView(clip)
+            if abs(clip.bounds.origin.y - target) < 1 { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
     }
 }
 

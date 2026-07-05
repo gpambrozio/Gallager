@@ -312,6 +312,17 @@ public enum TestStep: Sendable {
     case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree
     case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait for an element matching `titled` to be scrolled into view — its AX
+    /// frame center inside the app window's frame. `macWaitForElement` only
+    /// checks AX-tree presence, and NSTableView-backed SwiftUI Lists keep
+    /// off-screen rows in the tree; use this to assert a row is actually on
+    /// screen (e.g. after a scroll).
+    case macWaitForElementVisible(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait until no element matching `titled` is visible inside the window
+    /// frame — either gone from the AX tree or scrolled out of view. The
+    /// complement of `macWaitForElementVisible`; `macWaitForElementToDisappear`
+    /// never fires for rows a List keeps alive off screen.
+    case macWaitForElementNotVisible(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for an element matching an ElementQuery to appear in the macOS app's accessibility tree
     case macWaitForElementQuery(ElementQuery, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for an element matching an ElementQuery to disappear from the macOS app's accessibility tree
@@ -338,6 +349,13 @@ public enum TestStep: Sendable {
     /// Send scroll wheel events to the macOS app window via CGEvent.
     /// `deltaY` > 0 scrolls up, < 0 scrolls down. `count` is how many events to send.
     case macScrollWheel(deltaY: Int32, count: Int = 3, instance: Int = 0)
+    /// Send scroll wheel events at the center of the accessibility element
+    /// matching `titled` instead of the window center — targets a specific
+    /// scrollable region (e.g. the file-tree sidebar) rather than whatever
+    /// sits mid-window. The element's frame is resolved once, before the
+    /// first event, so all events land on the same screen point even as the
+    /// matched row scrolls away beneath it.
+    case macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3, instance: Int = 0)
     /// Click at a specific screen coordinate in the macOS app.
     case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
     /// Drag from one screen coordinate to another in the macOS app.

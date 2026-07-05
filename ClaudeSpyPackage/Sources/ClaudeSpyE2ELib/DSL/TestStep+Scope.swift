@@ -96,6 +96,10 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macWaitForElement(_, _, instance):
             return .macOS(instance: instance)
+        case let .macWaitForElementVisible(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macWaitForElementNotVisible(_, _, instance):
+            return .macOS(instance: instance)
         case let .macWaitForElementToDisappear(_, _, instance):
             return .macOS(instance: instance)
         case let .macWaitForElementQuery(_, _, instance):
@@ -119,6 +123,8 @@ public extension TestStep {
         case let .macScrollUp(_, instance):
             return .macOS(instance: instance)
         case let .macScrollWheel(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macScrollWheelAtElement(_, _, _, instance):
             return .macOS(instance: instance)
         case let .macClickAtPoint(_, _, instance):
             return .macOS(instance: instance)
