@@ -129,8 +129,7 @@ class RewriteComment(unittest.TestCase):
         self.assertIsNone(vc.rewrite_comment(once, [URL]))
 
     def test_no_hint_line_still_strikes_link_only(self):
-        # Old-format comments (pre-#631) have no watch: sub-bullet at all;
-        # the link must still be struck without erroring on the missing hint.
+        # Comments without watch-hint (pre-watch-hint format) still get struck.
         new_body = vc.rewrite_comment(BODY, [URL])
         self.assertIsNotNone(new_body)
         self.assertNotIn(URL, new_body)
