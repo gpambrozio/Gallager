@@ -46,6 +46,14 @@ struct RemoteHostSidebarSection: View {
                     Task { await connection?.enableReconnectAndRetry() }
                 }
             } else if hasContent {
+                // The remote host's cross-session usage rollup (issue #598),
+                // from its SessionStateMessage — same collapsible cell the
+                // local section and the iOS list show.
+                if let overview = sessionStore.usageOverview(for: host.id), !overview.isEmpty {
+                    UsageOverviewView(overview: overview)
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("usage-overview-remote-\(host.id)")
+                }
                 ForEach(sortedSessions) { session in
                     remoteSessionButton(session)
                 }

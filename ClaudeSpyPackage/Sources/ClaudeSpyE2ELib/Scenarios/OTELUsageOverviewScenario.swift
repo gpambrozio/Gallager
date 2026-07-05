@@ -21,6 +21,8 @@ import Foundation
 ///    to Projects + Recent days; clicking again contracts it.
 /// 5. The iOS session list shows the same collapsed line (the overview rode
 ///    the session-state push); tapping expands and contracts it.
+/// 6. A paired Mac viewer shows the collapsed cell under the remote host's
+///    sidebar section (issue #598 remote-host rendering).
 public enum OTELUsageOverviewScenario {
     /// `api_request` log: 30 000 input + 1 000 output tokens, $1.23, opus-4.8.
     /// → today total "31k · $1.23 · 1 session". Real wire shape (bare `event.name`
@@ -38,8 +40,11 @@ public enum OTELUsageOverviewScenario {
         tags: ["telemetry", "otel"]
     ) {
         // 1. Pair the mac host with the iOS simulator (starts the relay and
-        //    launches both apps), then open the Panes window on the host.
+        //    launches both apps), add a Mac viewer (instance 1) while the
+        //    host's Settings window is still open, then open the Panes
+        //    window on the host.
         FreshPairingScenario.scenario
+        Shortcut.addMacViewer
         Shortcut.openPanesWindow()
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.macSetSidebarWidth(280)
@@ -154,5 +159,16 @@ public enum OTELUsageOverviewScenario {
         //    Contract: tap again, the details disappear.
         TestStep.iosTap(.labelContains("Today's usage"))
         TestStep.iosWaitForElementToDisappear(.labelContains("Projects"), timeout: 10)
+
+        // 6. The paired Mac viewer (instance 1) shows the same collapsed
+        //    overview cell under the remote host's sidebar section — the
+        //    overview rides the same SessionStateMessage the iOS viewer
+        //    consumes. The viewer has no local usage, so the header is
+        //    unambiguous.
+        Shortcut.openPanesWindow(instance: 1)
+        TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
+        TestStep.macSetSidebarWidth(280, instance: 1)
+        TestStep.macWaitForElementQuery(.anyTextMatches("Today's usage"), timeout: 15, instance: 1)
+        TestStep.macScreenshot(label: "mac-viewer-usage-overview", instance: 1)
     }
 }
