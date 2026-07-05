@@ -249,6 +249,8 @@ Detailed patterns are in `references/patterns.md`. Key patterns:
 
 Both apps accept `--e2e-test` which overrides `PreferencesService` and `SecretsService` with in-memory implementations. The macOS app also accepts `--tmux-socket <path>` for tmux session isolation. The orchestrator builds these launch arguments automatically per instance, so the user's real Gallager config and tmux server are untouched.
 
+Shell history is isolated too: every e2e-spawned shell gets a `$ZDOTDIR` shim (`<TMPDIR>/gallager-e2e-zdotdir`, maintained by the orchestrator, delivered via `tmuxCreateSession`'s `new-session -e` and the app's `--zdotdir` launch argument) that sources the user's real dotfiles and then unsets `HISTFILE` — commands scenarios type never land in the developer's `~/.zsh_history`. See "Shell history isolation" in `docs/e2e-testing.md`.
+
 ## Additional Resources
 
 ### Reference Files

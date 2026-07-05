@@ -614,7 +614,7 @@ public actor TestOrchestrator {
                 atPath: stateRoot,
                 withIntermediateDirectories: true
             )
-            var arguments = [
+            var arguments = try [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
@@ -632,6 +632,10 @@ public actor TestOrchestrator {
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
                 "--git-changes-file", gitChangesFilePath(for: instance),
+                // Shells the app spawns use the shim as $ZDOTDIR (forwarded to
+                // TmuxService.zdotDirOverride) so scenario-typed commands never
+                // reach the user's ~/.zsh_history.
+                "--zdotdir", ensureZDotDirShim(),
             ]
             // Seed deterministic projects so project-list / project-search
             // scenarios see a stable set (the in-memory scanners that used to
@@ -906,9 +910,13 @@ public actor TestOrchestrator {
             // SAME directory. We used to rely on the tmux server inheriting the runner's TMPDIR, but
             // that breaks when the runner and the tmux server have different temp dirs (e.g. under a
             // sandbox), leaving injected scripts unfindable.
+            // Point ZDOTDIR at the shim so scenario-typed commands never reach the
+            // user's ~/.zsh_history (a plain `-e HISTFILE=` wouldn't survive
+            // /etc/zshrc, which reassigns HISTFILE after the pane env is applied).
+            let zdotDir = try ensureZDotDirShim()
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())", "-e", "ZDOTDIR=\(zdotDir)"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
@@ -1450,6 +1458,102 @@ public actor TestOrchestrator {
     private func tmuxSocketPath(for instance: Int) -> String {
         let base = tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock"
         return instance == 0 ? base : "\(base)-\(instance)"
+    }
+
+    /// Directory used as `$ZDOTDIR` by every shell spawned during E2E runs —
+    /// both by `tmuxCreateSession` (via `new-session -e`) and by app-created
+    /// panes (via `--zdotdir` → `TmuxService.zdotDirOverride`). Its rc files
+    /// source the user's real dotfiles so e2e shells behave identically to
+    /// normal ones, then `.zshrc` disables history so scenario-typed commands
+    /// never land in the user's `~/.zsh_history`. macOS's `/etc/zshrc` derives
+    /// `HISTFILE` from `$ZDOTDIR`, so even the pre-rc default points inside
+    /// this directory rather than at `$HOME`.
+    ///
+    /// Deliberately a stable path shared by all instances (their `TMPDIR` is
+    /// pinned to the runner's, see `MacOSDriver.launchApp`) and across runs,
+    /// so zsh reuses the `.zcompdump-*` completion cache written here.
+    private var zdotDirShimPath: String {
+        NSTemporaryDirectory() + "gallager-e2e-zdotdir"
+    }
+
+    /// Create (or refresh) the ZDOTDIR shim and return its path. Idempotent:
+    /// files are rewritten only when their content changed, and writes are
+    /// atomic so a shell sourcing a file mid-refresh never sees partial
+    /// content.
+    private func ensureZDotDirShim() throws -> String {
+        let dir = zdotDirShimPath
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        /// `if`-form (not `[[ -f … ]] && source …`) so a missing user dotfile
+        /// (~/.zlogin rarely exists) doesn't leave the startup file exiting 1 —
+        /// exit-status prompt themes would flag `$? = 1` at the first prompt.
+        func delegating(to file: String, in root: String) -> String {
+            """
+            # Written by the Gallager E2E orchestrator. Delegates to the user's
+            # real \(file) so e2e shells behave like normal ones.
+            if [[ -f "\(root)/\(file)" ]]; then
+              source "\(root)/\(file)"
+            fi
+
+            """
+        }
+
+        // The user's ~/.zshenv may relocate ZDOTDIR (e.g. to ~/.config/zsh).
+        // The shim's .zshenv captures that as the delegation root for the
+        // remaining dotfiles, then re-pins ZDOTDIR to the shim — otherwise zsh
+        // would read .zshrc from the user's directory and the history unset
+        // would never run. Not exported: the same shell instance sources all
+        // four startup files, so a plain variable is visible to them without
+        // leaking into the pane's child processes.
+        let userRoot = "${GALLAGER_E2E_USER_ZDOTDIR:-$HOME}"
+        let zshenv = delegating(to: ".zshenv", in: "$HOME") + """
+
+        # If the user's zshenv relocated ZDOTDIR, keep delegating the
+        # remaining dotfiles there, but re-pin ZDOTDIR to this shim so zsh
+        # still reads .zprofile/.zshrc/.zlogin (and the history unset) here.
+        if [[ -z "$ZDOTDIR" || "$ZDOTDIR" == "\(dir)" ]]; then
+          GALLAGER_E2E_USER_ZDOTDIR="$HOME"
+        else
+          GALLAGER_E2E_USER_ZDOTDIR="$ZDOTDIR"
+        fi
+        export ZDOTDIR="\(dir)"
+
+        """
+
+        let files: [String: String] = [
+            ".zshenv": zshenv,
+            ".zprofile": delegating(to: ".zprofile", in: userRoot),
+            ".zlogin": delegating(to: ".zlogin", in: userRoot),
+            ".zshrc": delegating(to: ".zshrc", in: userRoot) + """
+
+            # E2E: never record scenario-typed commands in the user's shell
+            # history. Runs after the user's rc so nothing can re-enable it.
+            unset HISTFILE
+            SAVEHIST=0
+
+            # E2E: source an optional per-scenario extra rc whose path a scenario
+            # exports on the tmux *global* environment as GALLAGER_E2E_EXTRA_ZSHRC.
+            # Deliberately a separate variable from ZDOTDIR: the app forces
+            # ZDOTDIR=<shim> per-pane (`-e ZDOTDIR=…`), which overrides tmux's
+            # global environment, so a scenario can't hand a shell its own
+            # ZDOTDIR anymore. A global env var the shim voluntarily sources
+            # survives that override. Sourced last so its definitions win over
+            # the user's rc — used by the deterministic `claude` stub to define a
+            # `claude()` function that survives into app-created panes.
+            if [[ -n "$GALLAGER_E2E_EXTRA_ZSHRC" && -f "$GALLAGER_E2E_EXTRA_ZSHRC" ]]; then
+              source "$GALLAGER_E2E_EXTRA_ZSHRC"
+            fi
+
+            """,
+        ]
+        for (name, content) in files {
+            let url = URL(fileURLWithPath: "\(dir)/\(name)")
+            if let existing = try? String(contentsOf: url, encoding: .utf8), existing == content {
+                continue
+            }
+            try Data(content.utf8).write(to: url, options: .atomic)
+        }
+        return dir
     }
 
     /// Return the notification log file path for the given instance number.
