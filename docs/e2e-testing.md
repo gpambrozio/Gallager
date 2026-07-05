@@ -233,7 +233,24 @@ each take before re-recording, since a new run overwrites the local
 (re-runs clobber), post as `gpa-agent` when `BOT_GITHUB_TOKEN` is set, and are
 deletable any time: `gh release delete-asset e2e-videos <asset>.mp4 --repo
 gpambrozio/ClaudeSpyTestResults`. Note: release-asset links download rather
-than play inline, and require access to the (private) results repo.
+than play inline, and require access to the (private) results repo — use
+`e2e-watch-video.sh` (below) to watch one in the browser.
+
+### Watching a video (`e2e-watch-video.sh`)
+
+`./scripts/e2e-watch-video.sh TARGET [TARGET ...]` plays an uploaded proof
+video inline in the browser: it resolves the asset's short-lived signed URL
+(~1 hour) with your `gh` credentials and opens the static player page
+`scripts/e2e-video-player.html` with the URL in the fragment (media loads are
+no-cors, so the private asset plays and seeks even though pages can't
+`fetch()` it). Each TARGET is an asset name (`pr626-foo[.mp4]`), a
+release-asset download URL, a local video file / scenario dir (opened
+directly), or a scenario name (`--pr N`, defaulting to the current branch's
+PR). `--results-repo` / `--release-tag` override the defaults, as with the
+attach script. The attach script's PR comments include a copy-pasteable
+`watch:` hint per video.
+
+Design: `docs/superpowers/specs/2026-07-05-e2e-watch-video-design.md`.
 
 ### Automatic cleanup (`e2e_video_cleanup.py`)
 
