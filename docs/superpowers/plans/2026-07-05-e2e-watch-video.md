@@ -68,7 +68,7 @@ Create `scripts/e2e-video-player.html` with exactly this content:
 </head>
 <body>
 <h1 id="title">E2E proof video</h1>
-<video id="player" controls autoplay playsinline></video>
+<video id="player" controls autoplay muted playsinline></video>
 <div id="error"></div>
 <script>
   const params = new URLSearchParams(location.hash.slice(1));
@@ -290,8 +290,11 @@ urlencode() {
     python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=sys.argv[2]))" "$1" "${2:-}"
 }
 
-# Same local resolution e2e-attach-video.sh uses: direct file path, dir with
-# video.mp4, or scenario dir (raw or sanitized name) under SCREENSHOTS_DIR.
+# Local resolution: direct file path, dir with video.mp4, or raw dir name
+# under SCREENSHOTS_DIR. Unlike e2e-attach-video.sh's resolve_video, there is
+# deliberately NO sanitized-name lookup: a human-readable scenario name falls
+# through to the remote pr<N>-<dir>.mp4 asset (form 4) — this script verifies
+# what was uploaded, not the local recording.
 resolve_local_video() {
     local arg="$1"
     if [ -f "$arg" ]; then
@@ -325,9 +328,10 @@ signed_url_for_asset() {
     fi
     token=$(gh auth token)
     location=$(curl -fsS -o /dev/null -D - \
-        -H "Authorization: Bearer $token" \
+        -H @- \
         -H "Accept: application/octet-stream" \
         "https://api.github.com/repos/$repo/releases/assets/$asset_id" \
+        <<<"Authorization: Bearer $token" \
         | tr -d '\r' | sed -n 's/^[Ll]ocation: //p' | head -1)
     if [ -z "$location" ]; then
         echo "ERROR: no redirect from the API for '$asset' — cannot resolve signed URL." >&2
