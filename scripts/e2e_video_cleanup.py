@@ -53,15 +53,32 @@ def is_eligible(state, closed_at, grace_days, now):
 
 
 def rewrite_comment(body, deleted_urls):
-    """Strike deleted links and append the deletion note.
+    """Strike deleted links (and any watch-hint sub-bullet under them) and
+    append the deletion note.
+
+    e2e-attach-video.sh (see docs/superpowers/specs/2026-07-05-e2e-watch-video-design.md)
+    appends a "  - watch: `./scripts/e2e-watch-video.sh <asset>`" sub-bullet
+    directly under each video link; when the link above it is struck, that
+    command would otherwise still read as copy-pasteable for an asset that no
+    longer exists.
 
     Returns the rewritten body, or None when no deleted URL appears in it
-    (which also makes the rewrite idempotent — struck links have no URL left).
+    (which also makes the rewrite idempotent — struck links have no URL left,
+    so a second pass matches nothing, including the hint line since it's only
+    matched together with the still-linked title).
     """
     new_body = body
     for url in deleted_urls:
-        pattern = re.compile(r"\[([^\]]+)\]\(" + re.escape(url) + r"\)")
-        new_body = pattern.sub(r"~~\1~~", new_body)
+        asset = url.rsplit("/", 1)[-1]
+        with_hint = re.compile(
+            r"\[(?P<title>[^\]]+)\]\(" + re.escape(url) + r"\)"
+            r"(?P<rest>[^\n]*\n  - watch: )`(?P<cmd>[^`\n]*" + re.escape(asset) + r")`"
+        )
+        new_body = with_hint.sub(
+            r"~~\g<title>~~\g<rest>~~`\g<cmd>`~~", new_body
+        )
+        plain = re.compile(r"\[([^\]]+)\]\(" + re.escape(url) + r"\)")
+        new_body = plain.sub(r"~~\1~~", new_body)
     if new_body == body:
         return None
     if DELETED_NOTE not in new_body:

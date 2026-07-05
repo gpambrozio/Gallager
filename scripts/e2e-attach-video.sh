@@ -14,7 +14,8 @@
 #
 # Note: release-asset links download the file (GitHub serves them with an
 # attachment disposition) rather than playing inline, and require access to
-# the results repo.
+# the results repo. To watch one inline in the browser instead:
+#   ./scripts/e2e-watch-video.sh <asset|url|scenario>
 
 set -eo pipefail
 
@@ -233,6 +234,7 @@ for scenario in "${SCENARIOS[@]}"; do
     url="https://github.com/$RESULTS_REPO/releases/download/$RELEASE_TAG/$asset_name"
     title="$(pretty_name "$video_dir" "$scenario")${LABEL:+ ($LABEL)}"
     MARKDOWN_LINES+=("- **▶ [$title]($url)**$(metadata_suffix "$video_dir")")
+    MARKDOWN_LINES+=("  - watch: \`./scripts/e2e-watch-video.sh $asset_name\`")
 done
 
 # =====================================================
