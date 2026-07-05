@@ -166,9 +166,22 @@ public enum OTELUsageOverviewScenario {
         //    consumes. The viewer has no local usage, so the header is
         //    unambiguous.
         Shortcut.openPanesWindow(instance: 1)
+        //    Let the viewer's async layout restore settle before pinning the
+        //    window — it re-frames the window and races an immediate resize,
+        //    which made the captured window size drift run-to-run.
+        TestStep.wait(seconds: 2)
         TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
         TestStep.macSetSidebarWidth(280, instance: 1)
+        TestStep.wait(seconds: 1)
         TestStep.macWaitForElementQuery(.anyTextMatches("Today's usage"), timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "mac-viewer-usage-overview", instance: 1)
+
+        //    Expand on the viewer: click the remote host's header, the
+        //    details appear; contract again.
+        TestStep.macClickButton(titled: "Today's usage", instance: 1)
+        TestStep.macWaitForElement(titled: "Projects", timeout: 10, instance: 1)
+        TestStep.macScreenshot(label: "mac-viewer-usage-overview-expanded", instance: 1)
+        TestStep.macClickButton(titled: "Today's usage", instance: 1)
+        TestStep.macWaitForElementToDisappear(titled: "Projects", timeout: 10, instance: 1)
     }
 }
