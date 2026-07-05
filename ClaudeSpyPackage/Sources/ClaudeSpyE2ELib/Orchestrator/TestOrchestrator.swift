@@ -296,6 +296,18 @@ public actor TestOrchestrator {
 
     /// Run multiple scenarios, cleaning up after each one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
+        // Reset the shared gallager state-root base once before the suite runs.
+        // Per-scenario `cleanup()` only removes `<base>/<idx>` — never the sibling
+        // `<base>/plugins/` where sidecar fixtures and zip-installed plugins land.
+        // Because `<base>` defaults to a stable `NSTemporaryDirectory()` path that
+        // is reused across runs, a prior run's `AgentsInstallZipAutoSelectScenario`
+        // would otherwise leave `ziptest-sidecar` behind and leak a phantom
+        // "Zip Install Test" agent into the *next* run's `AgentsSettingsTabScenario`
+        // (which registers before the zip scenario). Wiping here guarantees every
+        // suite run starts with an empty plugins dir → a deterministic agent list.
+        try? FileManager.default.removeItem(atPath: gallagerStateRootBase)
+        logger.info("Reset gallager state-root base: \(gallagerStateRootBase)")
+
         var results: [ScenarioResult] = []
         for scenario in scenarios {
             let result = await run(scenario)
