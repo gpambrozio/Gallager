@@ -204,3 +204,11 @@ plugins/pi/
   gating to surface. If a popular pi extension adds permission prompts with a
   stable event surface, the bridge could forward those too.
 - Event names confirmed against pi v0.80.3 (`@earendil-works/pi-coding-agent`).
+- Formal E2E-suite integration: the Swift `macStageSidecarFixture` path only
+  stages the bundled Swift `EchoPluginSidecar`, and a real-pi scenario would
+  depend on live model calls (nondeterministic in CI) — so this plugin is
+  covered by the standalone Python tests plus live verification instead. The
+  host pipeline itself (ingress → `translate_event` → sidebar state /
+  `sessionEnded`, and declared-namespace OTLP → meter) has E2E coverage via the
+  echo fixture (`PluginSidecarIngressScenario`,
+  `PluginSidecarSessionEndedScenario`, `PluginOTLPTelemetryScenario`).
