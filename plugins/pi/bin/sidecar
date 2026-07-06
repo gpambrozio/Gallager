@@ -1,0 +1,453 @@
+#!/usr/bin/env python3
+"""
+Gallager sidecar plugin for pi (https://github.com/earendil-works/pi, the
+`@earendil-works/pi-coding-agent` npm CLI).
+
+A sidecar is a long-lived child process Gallager spawns once and talks to over
+stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
+turns pi's extension-bus events (forwarded by the companion `gallager.ts` pi
+extension → Gallager's ingress socket → here as `translate_event` calls) into the
+agent-blind `PluginEvent` shape Gallager understands.
+
+pi's event bus is unusually complete for this job: it fires real events at both
+ends of a session's life (`session_start` on launch and on /new//resume//fork;
+`session_shutdown` on quit — including Ctrl+C/Ctrl+D/SIGHUP/SIGTERM) and brackets
+every prompt with `agent_start`/`agent_end`, so no synthetic lifecycle frames and
+no working/seen bookkeeping are needed. Token telemetry rides the separate OTLP
+channel straight from the bridge (issue #617) and never passes through here.
+
+Casing reminder (the #1 footgun):
+  - plugin.json manifest .......... snake_case
+  - ingress *socket* frame ........ snake_case (plugin_id, context, payload)
+  - stdio *transport* (this file) . camelCase (pluginID, sessionID, tmuxPane, ...)
+
+IMPORTANT: stdout is the RPC channel. Never `print()` to stdout — it corrupts the
+frame stream. Use `log(...)` (Settings → View Logs) or write to stderr.
+
+Run requirements: Python 3.9+. No third-party packages.
+"""
+import json
+import os
+import sys
+
+PLUGIN_VERSION = "0.1.0"
+
+# Marker the bridge file carries; install_status greps for it to tell an
+# installed Gallager bridge from any other extension the user may have.
+BRIDGE_MARKER = "GallagerPiBridge"
+
+
+# ---------------------------------------------------------------------------
+# Framing — read/write one Content-Length-framed JSON message.
+# ---------------------------------------------------------------------------
+def _read_exactly(n):
+    """Read exactly n bytes from stdin, or return None on EOF."""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sys.stdin.buffer.read(n - len(buf))
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def read_message():
+    """Block until one full message arrives. Returns the decoded dict, or None on EOF."""
+    header = b""
+    while b"\r\n\r\n" not in header:
+        ch = sys.stdin.buffer.read(1)
+        if not ch:
+            return None  # stdin closed → Gallager is gone
+        header += ch
+    length = 0
+    for line in header.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1].strip())
+    body = _read_exactly(length) if length else b""
+    if body is None:
+        return None
+    return json.loads(body)
+
+
+def write_message(msg):
+    body = json.dumps(msg).encode("utf-8")
+    sys.stdout.buffer.write(b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+    sys.stdout.buffer.flush()
+
+
+def respond(req_id, result):
+    write_message({"id": req_id, "result": result})
+
+
+def fail(req_id, code, message):
+    write_message({"id": req_id, "error": {"code": code, "message": message}})
+
+
+def notify(method, params):
+    write_message({"method": method, "params": params})
+
+
+def log(level, message):
+    notify("log", {"level": level, "message": message})
+
+
+# ---------------------------------------------------------------------------
+# AgentState builders (the `state` field of a PluginEvent). Encoding is the
+# Swift auto-synthesized tagged-enum form: a single-key object; labeled
+# associated values become named keys, unlabeled ones become "_0".
+# ---------------------------------------------------------------------------
+def state_working():
+    return {"working": {}}
+
+
+def state_done(summary=None):
+    return {"doneWorking": {"summary": summary}}
+
+
+def state_idle():
+    return {"idle": {}}
+
+
+# Current plugin settings (snake_case, as delivered by initialize + apply_settings):
+# command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
+SETTINGS = {}
+
+# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
+# into the bridge at install so pi — which does not inherit Gallager's env — can
+# POST telemetry to it (issue #617). Empty when the receiver failed to bind: the
+# install then bakes an empty endpoint and telemetry stays off.
+OTLP_ENDPOINT = ""
+
+
+# ---------------------------------------------------------------------------
+# pi bridge frame → PluginEvent mapping.
+# ---------------------------------------------------------------------------
+def _project_name(project_path):
+    if not project_path:
+        return None
+    return os.path.basename(project_path.rstrip("/")) or project_path
+
+
+def _done_state_and_notification(payload, project_path):
+    """agent_end → doneWorking + a notification tailored to how the turn ended."""
+    stop_reason = payload.get("stopReason")
+    summary = payload.get("summary")
+    if stop_reason == "error":
+        summary = payload.get("errorMessage") or summary or "pi hit an error"
+        body = summary
+    elif stop_reason == "aborted":
+        summary = summary or "Interrupted"
+        body = "Interrupted"
+    else:
+        name = _project_name(project_path)
+        body = ("Finished — %s" % name) if name else "Finished working"
+    return state_done(summary), {"title": "pi", "body": body}
+
+
+def handle_translate_event(req_id, params):
+    context = params.get("context") or {}
+    payload = params.get("payload") or {}
+
+    tmux_pane = context.get("TMUX_PANE")
+    project_path = context.get("PI_PROJECT_DIR")
+    plugin_id = params.get("pluginID")
+
+    etype = payload.get("type")
+    session_id = payload.get("sessionId") or tmux_pane or "unknown"
+
+    state = None
+    notification = None
+    app_actions = []
+
+    if etype == "session_start":
+        # Fires on launch AND on /new, /resume, /fork, /reload — always a fresh
+        # (or restored) idle session. Surfacing it stamps the pane↔session
+        # mapping and makes the sidebar row appear before the first turn.
+        state = state_idle()
+
+    elif etype == "agent_start":
+        state = state_working()
+
+    elif etype == "agent_end":
+        state, notification = _done_state_and_notification(payload, project_path)
+
+    elif etype == "session_shutdown":
+        # pi tears a session runtime down for quit AND for session replacement
+        # (/new, /resume, /fork, /reload). Only a quit ends the Gallager session
+        # — replacements are immediately followed by a session_start that
+        # re-stamps the same pane with the new session id, and ending here would
+        # make the sidebar row flicker out and back.
+        if payload.get("reason") == "quit" and tmux_pane:
+            close_eligible = bool(SETTINGS.get("close_pane_on_session_end", False))
+            app_actions.append({
+                "sessionEnded": {"sessionID": tmux_pane, "closePaneEligible": close_eligible},
+            })
+
+    if state is None and notification is None and not app_actions:
+        respond(req_id, None)
+        return
+
+    # `appActions` is NON-optional in Swift's PluginEvent — its synthesized
+    # Decodable requires the key (the memberwise default is not used at decode).
+    # Omitting it makes the host's `decode(PluginEvent.self)` throw and silently
+    # drop the whole event, so the session state never updates. Always send it.
+    respond(req_id, {
+        "pluginID": plugin_id,
+        "sessionID": session_id,
+        "state": state,
+        "notification": notification,
+        "appActions": app_actions,
+        "tmuxPane": tmux_pane,
+        "projectPath": project_path,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Install / uninstall the pi bridge extension.
+# ---------------------------------------------------------------------------
+def _pi_agent_dir():
+    return os.path.expanduser("~/.pi/agent")
+
+
+def _bridge_dest(config_root=None):
+    """Resolve where the bridge installs for a given config root.
+
+    The default settings row passes configRoot=None → pi's global extensions dir
+    (~/.pi/agent/extensions/, auto-discovered for every project). An
+    additional-folder row passes a project root → that project's
+    `.pi/extensions/` so pi loads it there only (after the project is trusted).
+    """
+    if config_root:
+        return os.path.join(os.path.expanduser(config_root), ".pi", "extensions", "gallager.ts")
+    return os.path.join(_pi_agent_dir(), "extensions", "gallager.ts")
+
+
+def handle_install(req_id, params):
+    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "pi")
+    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "pi-bridge", "gallager.ts")
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(template, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = content.replace("__GALLAGER_INGRESS_SOCK__", sock)
+        content = content.replace("__GALLAGER_PLUGIN_ID__", plugin_id)
+        content = content.replace("__GALLAGER_OTLP_ENDPOINT__", OTLP_ENDPOINT)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, dest)
+        respond(req_id, {"installed": {"message": "pi bridge installed at %s" % dest}})
+    except Exception as exc:
+        fail(req_id, "install_error", str(exc))
+
+
+def handle_uninstall(req_id, params):
+    try:
+        os.remove(_bridge_dest((params or {}).get("configRoot")))
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        sys.stderr.write("uninstall error: %s\n" % exc)
+    respond(req_id, {})
+
+
+def handle_install_status(req_id, params):
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(dest, "r", encoding="utf-8") as f:
+            installed = BRIDGE_MARKER in f.read()
+    except OSError:
+        installed = False
+    if installed:
+        respond(req_id, {"installed": {"version": PLUGIN_VERSION}})
+    else:
+        respond(req_id, {"notInstalled": {}})
+
+
+# ---------------------------------------------------------------------------
+# Project discovery — surface pi's known projects in Gallager's "+" sidebar
+# menu, the same way Claude Code / Codex do. pi keeps per-project session
+# directories under ~/.pi/agent/sessions/; the directory name is a lossy
+# munging of the cwd, but every session file's FIRST line is a SessionHeader
+# carrying the exact `cwd`, so read that from the newest file per directory.
+# Works offline (no running pi needed); best-effort, never raises.
+# ---------------------------------------------------------------------------
+# Seconds between 1970-01-01 and 2001-01-01 — JSONValue.decode uses a default
+# JSONDecoder (`.deferredToDate`), so AgentProject.lastUsed is seconds since the
+# 2001 reference date.
+_EPOCH_2001 = 978307200.0
+
+
+def _sessions_dir():
+    return os.path.join(_pi_agent_dir(), "sessions")
+
+
+def _newest_session_file(dir_path):
+    """The most recently modified .jsonl in a session dir, with its mtime."""
+    newest, newest_mtime = None, 0.0
+    try:
+        for name in os.listdir(dir_path):
+            if not name.endswith(".jsonl"):
+                continue
+            full = os.path.join(dir_path, name)
+            try:
+                mtime = os.path.getmtime(full)
+            except OSError:
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = full, mtime
+    except OSError:
+        return None, 0.0
+    return newest, newest_mtime
+
+
+def _session_header_cwd(session_file):
+    """The `cwd` from a session file's first line (its SessionHeader)."""
+    try:
+        with open(session_file, "r", encoding="utf-8") as f:
+            header = json.loads(f.readline())
+        if header.get("type") == "session":
+            cwd = header.get("cwd")
+            if isinstance(cwd, str) and cwd:
+                return cwd
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _scan_projects():
+    """Read pi's project list from its session store. Best-effort — any failure
+    yields an empty list (never raises)."""
+    root = _sessions_dir()
+    if not os.path.isdir(root):
+        return []
+    projects = []
+    seen = {}
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return []
+    for entry in entries:
+        dir_path = os.path.join(root, entry)
+        if not os.path.isdir(dir_path):
+            continue
+        session_file, mtime = _newest_session_file(dir_path)
+        if not session_file:
+            continue
+        cwd = _session_header_cwd(session_file)
+        if not cwd or not os.path.isdir(cwd):
+            continue
+        # Two munged dirs can resolve to the same cwd (e.g. after --session-dir
+        # experiments); keep the most recently used one.
+        if cwd in seen and seen[cwd] >= mtime:
+            continue
+        seen[cwd] = mtime
+        projects = [p for p in projects if p["path"] != cwd]
+        proj = {
+            "name": os.path.basename(cwd.rstrip("/")) or cwd,
+            "path": cwd,
+            "pluginID": "pi",
+            "lastUsed": mtime - _EPOCH_2001,
+        }
+        projects.append(proj)
+    return projects
+
+
+def _emit_projects():
+    notify("set_projects", {"projects": _scan_projects()})
+
+
+def handle_refresh_projects(req_id, params):
+    _emit_projects()
+    respond(req_id, {})
+
+
+# ---------------------------------------------------------------------------
+# Remaining RPC handlers.
+# ---------------------------------------------------------------------------
+def _store_settings(value):
+    global SETTINGS
+    if isinstance(value, dict):
+        SETTINGS = value
+
+
+def handle_initialize(req_id, params):
+    global OTLP_ENDPOINT
+    _store_settings((params or {}).get("settings"))
+    OTLP_ENDPOINT = (params or {}).get("otlpReceiverEndpoint") or ""
+    log("info", "pi sidecar initialized (app %s)" % (params or {}).get("appVersion", "?"))
+    respond(req_id, {})
+    _emit_projects()  # seed the sidebar before the first refresh tick
+
+
+def handle_command_for_launch(req_id, params):
+    # Honor the user's Agents-settings toggles (delivered via apply_settings).
+    if not SETTINGS.get("auto_run", True):
+        respond(req_id, None)  # auto-run off → don't launch
+        return
+    command = (SETTINGS.get("command_path") or "").strip() or "pi"
+    respond(req_id, {"command": command, "args": [], "env": {}})
+
+
+def handle_apply_settings(req_id, params):
+    _store_settings((params or {}).get("settings"))
+    respond(req_id, {"applied": {}})
+
+
+def handle_deliver_response(req_id, params):
+    # pi has no interactive permission/question prompts of its own (extensions
+    # can add them, but core pi runs tools without gating), so this sidecar never
+    # emits an awaiting* state and nothing should arrive here. Answer politely.
+    respond(req_id, {})
+
+
+REQUEST_HANDLERS = {
+    "initialize": handle_initialize,
+    "translate_event": handle_translate_event,
+    "deliver_response": handle_deliver_response,
+    "command_for_launch": handle_command_for_launch,
+    "install": handle_install,
+    "uninstall": handle_uninstall,
+    "install_status": handle_install_status,
+    "apply_settings": handle_apply_settings,
+    "refresh_projects": handle_refresh_projects,
+}
+
+
+def main():
+    while True:
+        try:
+            msg = read_message()
+        except Exception as exc:
+            sys.stderr.write("read error: %s\n" % exc)
+            continue
+        if msg is None:
+            break  # EOF
+
+        method = msg.get("method")
+        req_id = msg.get("id")
+        if method is None:
+            continue  # a stray response/notification — ignore
+
+        if method == "shutdown":
+            respond(req_id, {})
+            break
+
+        handler = REQUEST_HANDLERS.get(method)
+        if handler is not None:
+            try:
+                handler(req_id, msg.get("params"))
+            except Exception as exc:
+                sys.stderr.write("handler error in %s: %s\n" % (method, exc))
+                if req_id is not None:
+                    fail(req_id, "internal_error", str(exc))
+        elif req_id is not None:
+            fail(req_id, "method_not_found", "Unknown method: %s" % method)
+
+
+if __name__ == "__main__":
+    main()
