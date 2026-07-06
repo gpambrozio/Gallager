@@ -34,9 +34,9 @@ The data is baked into Swift source (a `"""` string literal parsed at load),
 **not** a resource bundle, because the `GallagerCLI` binary copied into
 `Gallager.app/Contents/MacOS/` carries no `Bundle.module` alongside it.
 (Xcode still links the shared `GallagerEmoji` target as a dynamic framework the
-CLI reaches via an rpath added in the copy phase — see `docs/known-issues.md`;
-don't swap the string literal for `.embedInCode` or a bundle, both are dead ends
-documented there.)
+CLI reaches via an rpath added in the copy phase; don't swap the string literal
+for `.embedInCode` or a bundle — both are dead ends, see
+`docs/superpowers/specs/2026-07-03-emoji-data-shipping-design.md`.)
 
 ## Search semantics
 

@@ -173,7 +173,8 @@ extension Target.Dependency {
     /// into the app bundle). NOTE: because this target is shared by the app
     /// and the CLI executable, Xcode links it as a dynamic framework; the
     /// copy phase adds an rpath so the bundled CLI finds it — see
-    /// docs/known-issues.md before restructuring.
+    /// docs/superpowers/specs/2026-07-03-emoji-data-shipping-design.md
+    /// before restructuring.
     static var gallagerEmoji: Self {
         "GallagerEmoji"
     }

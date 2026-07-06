@@ -74,7 +74,7 @@ Implemented through Tasks 1–2 of the plan, then **abandoned during verificatio
 the macOS `ClaudeSpyServer` workspace build fails with `cannot find
 'PackageResources' in scope`. Root cause (Xcode 26.6, confirmed via build-log
 inspection; later verified the dynamicization happens **regardless of
-resources** — see `docs/known-issues.md`): when a resource-bearing package
+resources**): when a resource-bearing package
 target is consumed by **two products in the same build graph** — here the app's library stack *and* the
 `GallagerCLI` executable product linked by the app target to force its build
 for the copy-into-bundle phase — XCBuild silently ignores `.embedInCode`,
@@ -89,7 +89,7 @@ the mechanism looked viable until the real app build ran. Upstream context:
 
 Resolution: reverted to the original committed-`EmojiData.swift` mechanism
 (measured as fine in this spec's own benchmarks), keeping the generator's
-`KEYWORD_SEP` escaping fix. See `docs/known-issues.md` for the durable warning.
+`KEYWORD_SEP` escaping fix.
 
 ## Scope
 

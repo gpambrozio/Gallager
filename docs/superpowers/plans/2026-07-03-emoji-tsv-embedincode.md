@@ -5,7 +5,7 @@
 > ignores `.embedInCode` when the resource target is shared between the app and
 > the `GallagerCLI` executable product (falls back to a resource bundle +
 > dynamic framework, which would also break the single-file CLI at runtime).
-> See the spec's Outcome section and `docs/known-issues.md`. Only the
+> See the spec's Outcome section. Only the
 > generator's `KEYWORD_SEP` fix survived. Do not execute this plan.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
