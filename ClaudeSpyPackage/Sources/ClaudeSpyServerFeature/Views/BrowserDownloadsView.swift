@@ -34,7 +34,8 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
     /// indeterminate spinner instead of a stuck-at-zero gauge.
     private(set) var fractionCompleted: Double?
 
-    @ObservationIgnored private let download: WKDownload
+    /// `nil` only for preview fixtures, which have no live transfer.
+    @ObservationIgnored private let download: WKDownload?
     @ObservationIgnored private let destinationDirectory: URL
     @ObservationIgnored private var progressObservation: NSKeyValueObservation?
 
@@ -60,11 +61,33 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
         }
     }
 
+    /// Preview-only fixture: a row in an arbitrary phase with no live
+    /// `WKDownload` behind it, so Xcode previews can render every bar state
+    /// without starting real transfers.
+    private init(previewFilename: String, phase: Phase, fractionCompleted: Double?) {
+        self.download = nil
+        self.destinationDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        self.filename = previewFilename
+        self.phase = phase
+        self.fractionCompleted = fractionCompleted
+        super.init()
+    }
+
+    static func previewFixture(
+        filename: String,
+        phase: Phase,
+        fractionCompleted: Double? = nil
+    ) -> BrowserDownload {
+        BrowserDownload(
+            previewFilename: filename, phase: phase, fractionCompleted: fractionCompleted
+        )
+    }
+
     /// Cancels an in-flight download. The phase flips immediately so the
     /// trailing `didFailWithError` callback (WebKit reports user cancellation
     /// as `NSURLErrorCancelled`) doesn't repaint the row as a failure.
     func cancel() {
-        guard phase == .inProgress else { return }
+        guard phase == .inProgress, let download else { return }
         phase = .cancelled
         let partialFile = destinationURL
         download.cancel { _ in
@@ -111,6 +134,11 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
         // WebKit invokes download delegate methods on the main thread, same
         // as the navigation/UI delegates wired in BrowserView.
         MainActor.assumeIsolated {
+            // A no-op for ~/Downloads; needed when an E2E override points at
+            // a temp directory that doesn't exist yet.
+            try? FileManager.default.createDirectory(
+                at: destinationDirectory, withIntermediateDirectories: true
+            )
             let destination = Self.uniqueDestinationURL(
                 preferredFilename: suggestedFilename,
                 in: destinationDirectory
@@ -253,4 +281,23 @@ private struct BrowserDownloadRow: View {
                 .foregroundStyle(.secondary)
         }
     }
+}
+
+// MARK: - Previews
+
+#Preview("BrowserDownloadsBar — all states") {
+    BrowserDownloadsBar(
+        downloads: [
+            .previewFixture(filename: "report.pdf", phase: .inProgress, fractionCompleted: 0.35),
+            .previewFixture(filename: "unknown-size.bin", phase: .inProgress),
+            .previewFixture(filename: "release-notes-2.txt", phase: .completed),
+            .previewFixture(
+                filename: "flaky-download.zip",
+                phase: .failed("The network connection was lost.")
+            ),
+            .previewFixture(filename: "cancelled.dmg", phase: .cancelled),
+        ],
+        onRemove: { _ in }
+    )
+    .frame(width: 720)
 }

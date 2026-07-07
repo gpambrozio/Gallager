@@ -171,6 +171,13 @@ final class BrowserTabState {
             },
             onNavigationError: { [weak self] error in
                 self?.navigationError = error
+                // Keep the failed URL in the address bar (Safari-like) so
+                // the user can correct a typo — without this, the `\.url`
+                // KVO observer reverts the field to the last committed
+                // page's URL when a provisional load fails.
+                if let failedURL = error.failedURL {
+                    self?.urlFieldText = failedURL.absoluteString
+                }
             },
             onDownloadStart: { [weak self] download in
                 self?.register(download)
@@ -243,8 +250,9 @@ final class BrowserTabState {
     /// `BrowserDownload` (which becomes the download's delegate) and adds it
     /// to the downloads bar.
     private func register(_ download: WKDownload) {
+        @Dependency(BrowserDownloadsLocation.self) var downloadsLocation
         downloads.append(
-            BrowserDownload(download: download, destinationDirectory: Self.downloadsDirectory)
+            BrowserDownload(download: download, destinationDirectory: downloadsLocation.directory())
         )
     }
 
@@ -253,12 +261,6 @@ final class BrowserTabState {
     func removeDownload(_ download: BrowserDownload) {
         download.cancel()
         downloads.removeAll { $0.id == download.id }
-    }
-
-    /// Where downloads land: the user's `~/Downloads` folder.
-    private static var downloadsDirectory: URL {
-        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
     }
 
     /// Coerces user input into a usable URL. Adds an `https://` scheme when

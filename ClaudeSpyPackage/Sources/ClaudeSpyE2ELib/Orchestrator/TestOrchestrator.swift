@@ -175,6 +175,10 @@ public actor TestOrchestrator {
         // under the unsuffixed `defaultBrowserLogPath` for backwards-compat
         // with existing scenarios.
         context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
+        // Instance 0's browser downloads directory (`--downloads-dir`), so
+        // download scenarios can assert on saved files without touching the
+        // machine's real ~/Downloads (which would trip a TCC consent prompt).
+        context.set("downloadsDirPath", value: downloadsDirPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
         // Instance 0's `--gallager-state-root`, so scenarios can pre-seed
@@ -643,6 +647,7 @@ public actor TestOrchestrator {
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
+                "--downloads-dir", downloadsDirPath(for: instance),
                 "--git-changes-file", gitChangesFilePath(for: instance),
                 // Shells the app spawns use the shim as $ZDOTDIR (forwarded to
                 // TmuxService.zdotDirOverride) so scenario-typed commands never
@@ -1627,6 +1632,15 @@ public actor TestOrchestrator {
     /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
     func defaultBrowserLogPath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
+    }
+
+    /// Return the browser downloads directory for the given instance number.
+    /// The macOS app saves browser-tab downloads here instead of the real
+    /// ~/Downloads, which would trip an unanswerable TCC consent prompt on an
+    /// unattended runner. The app wipes it on launch so collision-naming
+    /// assertions start clean.
+    func downloadsDirPath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-downloads-\(instance)"
     }
 
     // MARK: - Script Cleanup
