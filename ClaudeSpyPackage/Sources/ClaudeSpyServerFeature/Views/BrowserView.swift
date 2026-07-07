@@ -60,6 +60,86 @@ struct BrowserTab: Identifiable, Equatable {
     }
 }
 
+/// A network/navigation failure surfaced to the user as an overlay over the web
+/// content. Carries the failed URL so a Retry action can reload exactly what
+/// failed rather than whatever the web view last committed (a provisional
+/// failure often leaves `WKWebView.url` nil).
+struct BrowserLoadError: Equatable {
+    let message: String
+    let failedURL: URL?
+}
+
+/// Live state for a single file download started from a browser tab.
+///
+/// Created when WebKit converts a navigation into a `WKDownload` — a response
+/// whose MIME type the web view can't render inline, or a link carrying the
+/// `download` attribute. Holds the `WKDownload` strongly so the transfer keeps
+/// running and its `Progress` stays observable (WebKit only references the
+/// download weakly through its delegate), and mirrors the pieces the downloads
+/// popover renders: filename, on-disk destination, completion fraction, and
+/// terminal status.
+@Observable
+@MainActor
+final class BrowserDownload: Identifiable {
+    enum Status: Equatable {
+        case inProgress
+        case finished
+        case failed(String)
+    }
+
+    let id = UUID()
+    private(set) var filename: String
+    /// Where the file is written on disk. `nil` until WebKit asks us to decide
+    /// a destination via `decideDestinationUsing`.
+    private(set) var destinationURL: URL?
+    private(set) var fractionCompleted: Double = 0
+    private(set) var status: Status = .inProgress
+
+    let download: WKDownload
+    private var progressObserver: NSKeyValueObservation?
+
+    init(download: WKDownload) {
+        self.download = download
+        // Best-effort placeholder until `decideDestinationUsing` hands us the
+        // server-suggested filename.
+        self.filename = download.originalRequest?.url?.lastPathComponent ?? "download"
+    }
+
+    /// Records the resolved destination and starts mirroring the transfer's
+    /// progress into `fractionCompleted`.
+    func start(filename: String, destinationURL: URL) {
+        self.filename = filename
+        self.destinationURL = destinationURL
+        // `Progress.fractionCompleted` is KVO-compliant, but its notifications
+        // can arrive off the main thread, so hop explicitly rather than
+        // `assumeIsolated` the way the WKWebView observers do.
+        progressObserver = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+            let fraction = progress.fractionCompleted
+            Task { @MainActor in
+                self?.fractionCompleted = fraction
+            }
+        }
+    }
+
+    func markFinished() {
+        fractionCompleted = 1
+        status = .finished
+        progressObserver = nil
+    }
+
+    func markFailed(_ message: String) {
+        status = .failed(message)
+        progressObserver = nil
+    }
+
+    /// Opens Finder with the finished file selected. No-op until a destination
+    /// exists.
+    func revealInFinder() {
+        guard let destinationURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([destinationURL])
+    }
+}
+
 /// Live state for a browser tab: holds the long-lived `WKWebView` and the
 /// values mirrored back from its KVO properties so SwiftUI can drive the URL
 /// field, navigation buttons, and progress indicator.
@@ -95,6 +175,14 @@ final class BrowserTabState {
     /// observer resets it back to `nil` after handling so subsequent requests
     /// for the same URL still fire `.onChange`.
     var pendingNewTabURL: URL?
+    /// Set when a navigation fails at the network layer (host not found, no
+    /// connection, TLS failure, timeout…). Rendered as an overlay over the web
+    /// content with a Retry action; cleared when a fresh navigation starts or
+    /// succeeds.
+    var loadError: BrowserLoadError?
+    /// Active and recently-finished downloads started from this tab, oldest
+    /// first. Surfaced through the downloads popover in the navigation bar.
+    var downloads: [BrowserDownload] = []
 
     let webView: WKWebView
 
@@ -105,6 +193,11 @@ final class BrowserTabState {
     /// `…Delegate` so SwiftLint's `weak_delegate` rule doesn't flag the
     /// strong storage that's intentional here.
     private var retainedUIDelegateAdapter: BrowserUIDelegateAdapter?
+    /// Retained strongly for the same reason as `retainedUIDelegateAdapter`:
+    /// both `WKWebView.navigationDelegate` and `WKDownload.delegate` are weak
+    /// references, so the shared adapter would deallocate immediately after
+    /// `init` and navigation errors / downloads would silently no-op.
+    private var retainedNavigationAdapter: BrowserNavigationDelegateAdapter?
 
     init(initialURL: URL) {
         let configuration = WKWebViewConfiguration()
@@ -150,6 +243,13 @@ final class BrowserTabState {
         }
         webView.uiDelegate = adapter
         self.retainedUIDelegateAdapter = adapter
+
+        // Surface navigation failures and route downloads. A single adapter
+        // serves as both the navigation and download delegate; the state holds
+        // it strongly because both delegate properties are weak.
+        let navigationAdapter = BrowserNavigationDelegateAdapter(state: self)
+        webView.navigationDelegate = navigationAdapter
+        self.retainedNavigationAdapter = navigationAdapter
 
         observers.append(webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
@@ -240,6 +340,137 @@ final class BrowserTabState {
         let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
         return URL(string: "https://\(encoded)")
     }
+
+    // MARK: - Downloads
+
+    /// Registers a freshly-created `WKDownload` so it appears in the downloads
+    /// popover. The returned model is updated by the download delegate as the
+    /// transfer proceeds.
+    @discardableResult
+    func registerDownload(_ download: WKDownload) -> BrowserDownload {
+        let item = BrowserDownload(download: download)
+        downloads.append(item)
+        return item
+    }
+
+    /// Resolves where a download is written: the user's Downloads folder, with
+    /// the server-suggested filename made unique so a second download of
+    /// `report.pdf` becomes `report (1).pdf` instead of failing on an
+    /// existing-file collision. Also records the destination on the tracking
+    /// model so the popover can reveal it in Finder once finished.
+    func decideDownloadDestination(for download: WKDownload, suggestedFilename: String) -> URL? {
+        let destination = Self.resolveDownloadDestination(
+            directory: Self.downloadsDirectory(),
+            suggestedFilename: suggestedFilename
+        )
+        downloads.first { $0.download === download }?
+            .start(filename: destination.lastPathComponent, destinationURL: destination)
+        return destination
+    }
+
+    func finishDownload(_ download: WKDownload) {
+        downloads.first { $0.download === download }?.markFinished()
+    }
+
+    func failDownload(_ download: WKDownload, error: Error) {
+        downloads.first { $0.download === download }?
+            .markFailed(error.localizedDescription)
+    }
+
+    /// Drops finished and failed downloads from the list, leaving in-progress
+    /// transfers untouched. Backs the popover's "Clear" action.
+    func clearFinishedDownloads() {
+        downloads.removeAll { $0.status != .inProgress }
+    }
+
+    static func downloadsDirectory() -> URL {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
+    }
+
+    /// Builds a collision-free destination inside `directory` for
+    /// `suggestedFilename`, matching Finder/Safari's de-duplication: an
+    /// existing file gets a ` (n)` suffix inserted before the extension.
+    /// `fileExists` is injected so the resolution logic is unit-testable
+    /// without touching disk.
+    static func resolveDownloadDestination(
+        directory: URL,
+        suggestedFilename: String,
+        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+    ) -> URL {
+        let sanitized = sanitizedFilename(suggestedFilename)
+        let candidate = directory.appendingPathComponent(sanitized)
+        guard fileExists(candidate) else { return candidate }
+
+        let ext = (sanitized as NSString).pathExtension
+        let base = (sanitized as NSString).deletingPathExtension
+        var index = 1
+        while true {
+            let numbered = ext.isEmpty ? "\(base) (\(index))" : "\(base) (\(index)).\(ext)"
+            let next = directory.appendingPathComponent(numbered)
+            if !fileExists(next) { return next }
+            index += 1
+        }
+    }
+
+    /// Reduces a server-suggested filename to a safe last path component:
+    /// strips `/` (which would otherwise let a download escape the Downloads
+    /// folder) and falls back to `"download"` for empty / `.` / `..` names.
+    static func sanitizedFilename(_ suggested: String) -> String {
+        let cleaned = suggested
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: "\0", with: "")
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." {
+            return "download"
+        }
+        return cleaned
+    }
+
+    // MARK: - Load errors
+
+    func reportLoadError(_ error: Error, failedURL: URL?) {
+        guard Self.shouldReport(error) else { return }
+        loadError = BrowserLoadError(
+            message: error.localizedDescription,
+            failedURL: failedURL ?? currentURL
+        )
+    }
+
+    func clearLoadError() {
+        loadError = nil
+    }
+
+    /// Reloads whatever failed. Prefers the captured failing URL because a
+    /// provisional-navigation failure often leaves `webView.url` nil.
+    func retryFailedLoad() {
+        let target = loadError?.failedURL
+        loadError = nil
+        if let target {
+            webView.load(URLRequest(url: target))
+        } else {
+            webView.reload()
+        }
+    }
+
+    /// Whether a navigation error is worth surfacing. Filters the two
+    /// "not really a failure" cases WebKit reports through the same callbacks:
+    /// `NSURLErrorCancelled` (the user hit Stop, or a redirect / newer load
+    /// superseded this one) and WebKit's "frame load interrupted" (code 102),
+    /// which fires whenever a navigation is turned into a download.
+    static func shouldReport(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return false
+        }
+        // `WebKitErrorDomain` / 102 == WebKitErrorFrameLoadInterruptedByPolicyChange.
+        // Neither constant is exposed by the Swift WebKit module, so match the
+        // raw values (same approach as the hardcoded Safari UA token above).
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+            return false
+        }
+        return true
+    }
 }
 
 /// Content view shown when the user selects a browser tab. Renders the URL
@@ -258,6 +489,7 @@ struct BrowserTabContentView: View {
     let onRequestNewTab: (URL) -> Void
 
     @FocusState private var isURLFieldFocused: Bool
+    @State private var showDownloadsPopover = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -268,8 +500,17 @@ struct BrowserTabContentView: View {
                     .progressViewStyle(.linear)
                     .frame(height: 2)
             }
-            BrowserWebViewRepresentable(webView: state.webView)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                BrowserWebViewRepresentable(webView: state.webView)
+                if let error = state.loadError {
+                    BrowserErrorView(
+                        error: error,
+                        onRetry: { state.retryFailedLoad() },
+                        onDismiss: { state.clearLoadError() }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: state.pageTitle) { _, newValue in
             onTitleChange(newValue)
@@ -296,6 +537,21 @@ struct BrowserTabContentView: View {
             try? await Task.sleep(for: .milliseconds(50))
             guard !Task.isCancelled else { return }
             isURLFieldFocused = true
+        }
+        .task(id: isURLFieldFocused) {
+            // Select the whole address when the field gains focus — matching
+            // every browser's location bar — so the user can immediately type a
+            // replacement URL. SwiftUI's `TextField` has no select-on-focus, so
+            // reach the window's field editor (the `NSText` that becomes first
+            // responder while editing) and select all. This covers both a mouse
+            // click and the programmatic focus path above, since both flip
+            // `isURLFieldFocused`. The brief sleep lets AppKit finish placing
+            // the insertion point from a click before we override it with a
+            // full selection.
+            guard isURLFieldFocused else { return }
+            try? await Task.sleep(for: .milliseconds(30))
+            guard !Task.isCancelled, isURLFieldFocused else { return }
+            (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil)
         }
     }
 
@@ -364,11 +620,47 @@ struct BrowserTabContentView: View {
                     isURLFieldFocused = false
                 }
                 .accessibilityLabel("URL")
+                .accessibilityIdentifier("browser-url-field")
+
+            if !state.downloads.isEmpty {
+                downloadsButton
+            }
         }
         .padding(.trailing, 8)
         .padding(.leading, 16)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    private var activeDownloadCount: Int {
+        state.downloads.reduce(into: 0) { count, download in
+            if download.status == .inProgress { count += 1 }
+        }
+    }
+
+    private var downloadsButton: some View {
+        Button {
+            showDownloadsPopover.toggle()
+        } label: {
+            Symbols.squareAndArrowDown.image
+                .overlay(alignment: .topTrailing) {
+                    if activeDownloadCount > 0 {
+                        Text("\(activeDownloadCount)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 13, minHeight: 13)
+                            .background(Color.accentColor, in: Circle())
+                            .offset(x: 7, y: -7)
+                    }
+                }
+        }
+        .buttonStyle(.borderless)
+        .help("Downloads")
+        .accessibilityLabel("Downloads")
+        .popover(isPresented: $showDownloadsPopover, arrowEdge: .bottom) {
+            BrowserDownloadsView(state: state)
+        }
     }
 }
 
@@ -414,6 +706,149 @@ final private class BrowserUIDelegateAdapter: NSObject, WKUIDelegate {
     }
 }
 
+/// `WKNavigationDelegate` + `WKDownloadDelegate` adapter that gives the browser
+/// tab three things its bare `WKWebView` lacked: visible load errors, file
+/// downloads, and the plumbing that converts a non-displayable response into a
+/// download.
+///
+/// Holds the owning state weakly (the state retains this adapter strongly via
+/// `retainedNavigationAdapter`, mirroring the UI-delegate arrangement). Like
+/// `BrowserUIDelegateAdapter`, the protocol methods are `nonisolated` and hop
+/// onto the main actor with `assumeIsolated` — valid because WebKit invokes
+/// navigation and download delegate callbacks on the main thread.
+@MainActor
+final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDelegate, WKDownloadDelegate {
+    private weak var state: BrowserTabState?
+
+    init(state: BrowserTabState) {
+        self.state = state
+    }
+
+    // MARK: Navigation lifecycle
+
+    nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            state?.clearLoadError()
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        let failingURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
+        MainActor.assumeIsolated {
+            state?.reportLoadError(error, failedURL: failingURL)
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let failingURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
+        MainActor.assumeIsolated {
+            state?.reportLoadError(error, failedURL: failingURL)
+        }
+    }
+
+    // MARK: Download conversion
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+    ) {
+        // Download instead of rendering when appropriate (see `shouldDownload`).
+        // The SDK marks the decision handler `@MainActor`, so evaluate and call
+        // it from an asserted main-actor context.
+        MainActor.assumeIsolated {
+            decisionHandler(shouldDownload(navigationResponse) ? .download : .allow)
+        }
+    }
+
+    /// Whether a response should be saved rather than displayed. Two cases:
+    /// a MIME type the web view can't render inline (a zip, a dmg, an
+    /// `application/octet-stream`…) would otherwise show a blank page; and a
+    /// response the server explicitly marked `Content-Disposition: attachment`,
+    /// which a browser downloads even when it *could* display the type (a PDF
+    /// behind a "Download" link is the common case).
+    private func shouldDownload(_ navigationResponse: WKNavigationResponse) -> Bool {
+        if !navigationResponse.canShowMIMEType {
+            return true
+        }
+        if
+            let http = navigationResponse.response as? HTTPURLResponse,
+            let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+            disposition.lowercased().contains("attachment") {
+            return true
+        }
+        return false
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        // Links carrying an explicit `download` attribute ask to be saved even
+        // when their MIME type is displayable. Deliberately the overload
+        // *without* a `preferences` argument so the desktop content mode / JS
+        // defaults configured on the web view stay in force.
+        MainActor.assumeIsolated {
+            decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        navigationAction: WKNavigationAction,
+        didBecome download: WKDownload
+    ) {
+        MainActor.assumeIsolated {
+            beginDownload(download)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        navigationResponse: WKNavigationResponse,
+        didBecome download: WKDownload
+    ) {
+        MainActor.assumeIsolated {
+            beginDownload(download)
+        }
+    }
+
+    private func beginDownload(_ download: WKDownload) {
+        download.delegate = self
+        state?.registerDownload(download)
+    }
+
+    // MARK: WKDownloadDelegate
+
+    nonisolated func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping @MainActor @Sendable (URL?) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            completionHandler(state?.decideDownloadDestination(for: download, suggestedFilename: suggestedFilename))
+        }
+    }
+
+    nonisolated func downloadDidFinish(_ download: WKDownload) {
+        MainActor.assumeIsolated {
+            state?.finishDownload(download)
+        }
+    }
+
+    nonisolated func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        MainActor.assumeIsolated {
+            state?.failDownload(download, error: error)
+        }
+    }
+}
+
 /// Embeds an existing `WKWebView` instance in SwiftUI. The web view is created
 /// once per `BrowserTabState` and reused across view rebuilds so navigation
 /// state survives switching between tabs/sessions.
@@ -426,6 +861,162 @@ private struct BrowserWebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
         // The web view is owned by `BrowserTabState`; nothing to push here.
+    }
+}
+
+// MARK: - Downloads UI
+
+/// Popover listing a browser tab's downloads with per-item progress and
+/// actions: reveal a finished file in Finder, or read the failure message for a
+/// failed one. The "Clear" button drops finished/failed rows.
+private struct BrowserDownloadsView: View {
+    @Bindable var state: BrowserTabState
+
+    private var hasClearable: Bool {
+        state.downloads.contains { $0.status != .inProgress }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Downloads")
+                    .font(.headline)
+                Spacer()
+                if hasClearable {
+                    Button("Clear") {
+                        state.clearFinishedDownloads()
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(state.downloads) { download in
+                        BrowserDownloadRow(download: download)
+                        if download.id != state.downloads.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 320)
+        .frame(maxHeight: 320)
+    }
+}
+
+/// A single row in the downloads popover: status glyph, filename, and either a
+/// progress bar (in flight), a "Completed" caption + Show-in-Finder button
+/// (finished), or the failure message (failed).
+private struct BrowserDownloadRow: View {
+    @Bindable var download: BrowserDownload
+
+    var body: some View {
+        HStack(spacing: 10) {
+            statusIcon
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(download.filename)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                switch download.status {
+                case .inProgress:
+                    ProgressView(value: download.fractionCompleted)
+                        .progressViewStyle(.linear)
+                case .finished:
+                    Text("Completed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case let .failed(message):
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+            if download.status == .finished {
+                Button {
+                    download.revealInFinder()
+                } label: {
+                    Symbols.folder.image
+                }
+                .buttonStyle(.borderless)
+                .help("Show in Finder")
+                .accessibilityLabel("Show in Finder")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch download.status {
+        case .inProgress:
+            Symbols.arrowDownCircle.image
+                .foregroundStyle(.secondary)
+        case .finished:
+            Symbols.checkmarkCircleFill.image
+                .foregroundStyle(.green)
+        case .failed:
+            Symbols.exclamationmarkTriangle.image
+                .foregroundStyle(.red)
+        }
+    }
+}
+
+// MARK: - Load Error UI
+
+/// Overlay shown over the web content when a navigation fails at the network
+/// layer (host not found, no connection, TLS failure, timeout…). Presents the
+/// system error message plus Retry / Dismiss actions over a dimmed backdrop.
+private struct BrowserErrorView: View {
+    let error: BrowserLoadError
+    let onRetry: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Symbols.exclamationmarkTriangle.image
+                .font(.system(size: 44))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text("This page couldn't load")
+                    .font(.headline)
+                Text(error.message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                if let url = error.failedURL {
+                    Text(url.absoluteString)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            HStack {
+                Button("Retry", action: onRetry)
+                    .keyboardShortcut(.defaultAction)
+                Button("Dismiss", action: onDismiss)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: 420)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background.opacity(0.6))
     }
 }
 

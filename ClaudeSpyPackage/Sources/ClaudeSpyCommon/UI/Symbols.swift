@@ -99,6 +99,7 @@ public enum Symbols: String {
     case shield
     case sparkles
     case square
+    case squareAndArrowDown = "square.and.arrow.down"
     case squareAndArrowUp = "square.and.arrow.up"
     case squareFill = "square.fill"
     case stopCircleFill = "stop.circle.fill"
