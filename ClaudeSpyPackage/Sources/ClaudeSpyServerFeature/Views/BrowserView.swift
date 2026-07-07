@@ -897,7 +897,12 @@ private struct BrowserDownloadsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(state.downloads) { download in
-                        BrowserDownloadRow(download: download)
+                        BrowserDownloadRow(
+                            filename: download.filename,
+                            status: download.status,
+                            fractionCompleted: download.fractionCompleted,
+                            onRevealInFinder: { download.revealInFinder() }
+                        )
                         if download.id != state.downloads.last?.id {
                             Divider()
                         }
@@ -912,22 +917,27 @@ private struct BrowserDownloadsView: View {
 
 /// A single row in the downloads popover: status glyph, filename, and either a
 /// progress bar (in flight), a "Completed" caption + Show-in-Finder button
-/// (finished), or the failure message (failed).
+/// (finished), or the failure message (failed). A pure value view — it's driven
+/// by a snapshot of `BrowserDownload` rather than the model itself so it stays
+/// previewable (a `WKDownload` can't be constructed for a preview).
 private struct BrowserDownloadRow: View {
-    @Bindable var download: BrowserDownload
+    let filename: String
+    let status: BrowserDownload.Status
+    let fractionCompleted: Double
+    let onRevealInFinder: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
             statusIcon
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
-                Text(download.filename)
+                Text(filename)
                     .font(.callout)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                switch download.status {
+                switch status {
                 case .inProgress:
-                    ProgressView(value: download.fractionCompleted)
+                    ProgressView(value: fractionCompleted)
                         .progressViewStyle(.linear)
                 case .finished:
                     Text("Completed")
@@ -941,10 +951,8 @@ private struct BrowserDownloadRow: View {
                 }
             }
             Spacer(minLength: 0)
-            if download.status == .finished {
-                Button {
-                    download.revealInFinder()
-                } label: {
+            if status == .finished {
+                Button(action: onRevealInFinder) {
                     Symbols.folder.image
                 }
                 .buttonStyle(.borderless)
@@ -958,7 +966,7 @@ private struct BrowserDownloadRow: View {
 
     @ViewBuilder
     private var statusIcon: some View {
-        switch download.status {
+        switch status {
         case .inProgress:
             Symbols.arrowDownCircle.image
                 .foregroundStyle(.secondary)
@@ -1228,4 +1236,43 @@ private enum BrowserPreviewSample {
         onResolve: { _, _ in },
         onCancel: { }
     )
+}
+
+#Preview("BrowserDownloadRow — every state") {
+    VStack(spacing: 0) {
+        BrowserDownloadRow(
+            filename: "Gallager-1.2.3.dmg",
+            status: .inProgress,
+            fractionCompleted: 0.42,
+            onRevealInFinder: { }
+        )
+        Divider()
+        BrowserDownloadRow(
+            filename: "quarterly-report.pdf",
+            status: .finished,
+            fractionCompleted: 1,
+            onRevealInFinder: { }
+        )
+        Divider()
+        BrowserDownloadRow(
+            filename: "large-archive-with-a-very-long-name.zip",
+            status: .failed("The network connection was lost."),
+            fractionCompleted: 0,
+            onRevealInFinder: { }
+        )
+    }
+    .frame(width: 320)
+    .padding(.vertical, 8)
+}
+
+#Preview("BrowserErrorView") {
+    BrowserErrorView(
+        error: BrowserLoadError(
+            message: "A server with the specified hostname could not be found.",
+            failedURL: URL(string: "https://nonexistent.example.invalid/some/path")
+        ),
+        onRetry: { },
+        onDismiss: { }
+    )
+    .frame(width: 720, height: 480)
 }
