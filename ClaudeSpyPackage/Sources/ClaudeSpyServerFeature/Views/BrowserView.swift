@@ -99,6 +99,12 @@ final class BrowserTabState {
     /// page overlay; cleared when the next navigation starts or the user
     /// dismisses it.
     var navigationError: BrowserNavigationError?
+    /// Bumped whenever `urlFieldText` is replaced programmatically (URL KVO
+    /// sync, failed-URL restore, submit normalization) rather than by the
+    /// user typing. The content view watches this to drop its live
+    /// `TextSelection` — selection indices built for the previous string
+    /// are out of bounds for the new one and crash `TextField`.
+    private(set) var urlFieldTextReplacements = 0
     /// Downloads started from this tab, oldest first. Rows stay in the
     /// downloads bar until dismissed; dismissing an in-flight row cancels it.
     var downloads: [BrowserDownload] = []
@@ -176,11 +182,18 @@ final class BrowserTabState {
                 // KVO observer reverts the field to the last committed
                 // page's URL when a provisional load fails.
                 if let failedURL = error.failedURL {
-                    self?.urlFieldText = failedURL.absoluteString
+                    self?.replaceURLFieldText(with: failedURL.absoluteString)
                 }
             },
             onDownloadStart: { [weak self] download in
                 self?.register(download)
+            },
+            onExternalURL: { url in
+                // Schemes WebKit can't load itself (mailto:, tel:, custom
+                // app schemes) go to the system's registered handler,
+                // matching Safari.
+                @Dependency(URLOpener.self) var urlOpener
+                urlOpener.openInDefaultBrowser(url)
             }
         )
         webView.navigationDelegate = navigationAdapter
@@ -191,7 +204,7 @@ final class BrowserTabState {
                 guard let self else { return }
                 self.currentURL = webView.url
                 if let newURL = webView.url {
-                    self.urlFieldText = newURL.absoluteString
+                    self.replaceURLFieldText(with: newURL.absoluteString)
                 }
             }
         })
@@ -228,9 +241,17 @@ final class BrowserTabState {
     /// URL when the user typed something incomplete (no scheme, plain host).
     func loadFromURLField() {
         guard let url = Self.normalizedURL(from: urlFieldText) else { return }
-        urlFieldText = url.absoluteString
+        replaceURLFieldText(with: url.absoluteString)
         navigationError = nil
         webView.load(URLRequest(url: url))
+    }
+
+    /// Replaces the URL field's text from code (as opposed to the user
+    /// typing into the bound `TextField`) and signals the content view to
+    /// discard any live text selection built for the old string.
+    private func replaceURLFieldText(with text: String) {
+        urlFieldText = text
+        urlFieldTextReplacements += 1
     }
 
     /// Retries the navigation that produced `navigationError`, preferring the
@@ -261,6 +282,16 @@ final class BrowserTabState {
     func removeDownload(_ download: BrowserDownload) {
         download.cancel()
         downloads.removeAll { $0.id == download.id }
+    }
+
+    /// Cancels every in-flight download, deleting their partial files.
+    /// Called when the owning tab (or its whole session) is torn down —
+    /// letting the state deallocate mid-transfer would orphan half-written
+    /// files with nothing left in the UI to manage them.
+    func cancelActiveDownloads() {
+        for download in downloads {
+            download.cancel()
+        }
     }
 
     /// Coerces user input into a usable URL. Adds an `https://` scheme when
@@ -370,6 +401,13 @@ struct BrowserTabContentView: View {
                 guard !text.isEmpty else { return }
                 urlSelection = TextSelection(range: text.startIndex..<text.endIndex)
             }
+        }
+        .onChange(of: state.urlFieldTextReplacements) {
+            // A programmatic rewrite of `urlFieldText` (redirect landing
+            // while the field is focused, failed-URL restore) invalidates a
+            // selection whose indices were built for the old string —
+            // applying stale indices to the new text crashes `TextField`.
+            urlSelection = nil
         }
         .onChange(of: state.currentURL) { _, newValue in
             if let newValue {
@@ -562,11 +600,14 @@ enum BrowserNavigationPolicy {
     }
 }
 
-/// `WKNavigationDelegate` adapter owned by `BrowserTabState`. Three jobs:
+/// `WKNavigationDelegate` adapter owned by `BrowserTabState`. Four jobs:
 ///
 /// - Convert download-shaped navigations into `WKDownload`s: anchor
 ///   `download` attributes (`shouldPerformDownload`), responses WebKit can't
 ///   display inline, and `Content-Disposition: attachment` responses.
+/// - Hand navigations to schemes WebKit can't load (`mailto:`, `tel:`, app
+///   schemes) to the system's registered handler instead of letting the
+///   provisional navigation fail onto the error page.
 /// - Report main-frame load failures so the tab can show an error page.
 /// - Clear a stale error when a new navigation starts.
 ///
@@ -577,15 +618,18 @@ final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDele
     private let onNavigationStart: () -> Void
     private let onNavigationError: (BrowserNavigationError) -> Void
     private let onDownloadStart: (WKDownload) -> Void
+    private let onExternalURL: (URL) -> Void
 
     init(
         onNavigationStart: @escaping () -> Void,
         onNavigationError: @escaping (BrowserNavigationError) -> Void,
-        onDownloadStart: @escaping (WKDownload) -> Void
+        onDownloadStart: @escaping (WKDownload) -> Void,
+        onExternalURL: @escaping (URL) -> Void
     ) {
         self.onNavigationStart = onNavigationStart
         self.onNavigationError = onNavigationError
         self.onDownloadStart = onDownloadStart
+        self.onExternalURL = onExternalURL
     }
 
     nonisolated func webView(
@@ -594,7 +638,17 @@ final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDele
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
     ) {
         MainActor.assumeIsolated {
-            decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download)
+            } else if
+                let url = navigationAction.request.url,
+                let scheme = url.scheme,
+                !WKWebView.handlesURLScheme(scheme) {
+                decisionHandler(.cancel)
+                onExternalURL(url)
+            } else {
+                decisionHandler(.allow)
+            }
         }
     }
 

@@ -345,6 +345,16 @@ final class SessionFileTabsState {
             if case let .window(id) = $0 { id } else { nil }
         })
     }
+
+    /// Cancels in-flight browser downloads across every tab, deleting their
+    /// partial files. Must be called before this whole state is dropped
+    /// (session killed, host unpaired) — deallocating a `BrowserTabState`
+    /// mid-transfer would orphan half-written files.
+    func cancelActiveBrowserDownloads() {
+        for state in browserStates.values {
+            state.cancelActiveDownloads()
+        }
+    }
 }
 
 /// A draggable vertical divider for resizing adjacent views.

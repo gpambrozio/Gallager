@@ -337,8 +337,14 @@ struct TmuxPaneMirrorApp: App {
                 }
                 if let downloadsDirPath {
                     // Start each run with an empty downloads directory so
-                    // collision-naming assertions are deterministic.
-                    try? FileManager.default.removeItem(atPath: downloadsDirPath)
+                    // collision-naming assertions are deterministic. Only
+                    // temp-directory paths (where the E2E orchestrator puts
+                    // them) are wiped — recursively deleting an arbitrary
+                    // caller-supplied directory would destroy real files if
+                    // someone hand-launched with `--downloads-dir ~/Downloads`.
+                    if BrowserDownloadsLocation.isSafeToWipe(downloadsDirPath) {
+                        try? FileManager.default.removeItem(atPath: downloadsDirPath)
+                    }
                     $0[BrowserDownloadsLocation.self] = .fixed(path: downloadsDirPath)
                 }
                 if let deviceNameOverride {

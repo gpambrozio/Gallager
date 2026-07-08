@@ -25,8 +25,10 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
     /// request URL and is replaced by the server's suggested filename once
     /// the response arrives.
     private(set) var filename: String
-    /// Where the file is being written. Set when the destination is decided;
-    /// `nil` until then and for downloads that never got that far.
+    /// Where the finished file lands. Set when the destination is decided;
+    /// `nil` until then and for downloads that never got that far. The
+    /// transfer itself writes to `inProgressURL` and is moved here by
+    /// `downloadDidFinish`.
     private(set) var destinationURL: URL?
     private(set) var phase: Phase = .inProgress
     /// Download progress in `0...1`, or `nil` while the total size is
@@ -37,6 +39,12 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
     /// `nil` only for preview fixtures, which have no live transfer.
     @ObservationIgnored private let download: WKDownload?
     @ObservationIgnored private let destinationDirectory: URL
+    /// The Safari-style `name.ext.download` intermediate the transfer writes
+    /// to before `downloadDidFinish` moves it onto `destinationURL`. Anything
+    /// that tears the download down without finishing it (tab close, app
+    /// quit) leaves at worst a `.download` file that can't be mistaken for a
+    /// completed download.
+    @ObservationIgnored private var inProgressURL: URL?
     @ObservationIgnored private var progressObservation: NSKeyValueObservation?
 
     init(download: WKDownload, destinationDirectory: URL) {
@@ -89,7 +97,7 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
     func cancel() {
         guard phase == .inProgress, let download else { return }
         phase = .cancelled
-        let partialFile = destinationURL
+        let partialFile = inProgressURL
         download.cancel { _ in
             // WKDownload leaves the partially-written file at the
             // destination; a cancelled download shouldn't litter ~/Downloads.
@@ -101,6 +109,12 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
         }
     }
 
+    /// The intermediate path the transfer writes to before being moved onto
+    /// its final name — `report.pdf` downloads as `report.pdf.download`.
+    private static func inProgressURL(for destination: URL) -> URL {
+        destination.appendingPathExtension("download")
+    }
+
     /// Picks a path in `directory` that doesn't collide with an existing
     /// file, Safari-style: `name.ext`, then `name-2.ext`, `name-3.ext`, …
     /// `WKDownload` fails outright when handed a path that already exists,
@@ -110,7 +124,16 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
         in directory: URL,
         fileExists: (URL) -> Bool
     ) -> URL {
-        let fallback = preferredFilename.isEmpty ? "Download" : preferredFilename
+        // Defense-in-depth: the suggested name is server-controlled
+        // (Content-Disposition / URL path), and `appendingPathComponent`
+        // would follow a crafted "../../evil" out of the downloads
+        // directory. WebKit sanitizes `suggestedFilename` today, but that's
+        // undocumented upstream behavior — strip directory components here
+        // too, and reject names that are nothing but path dots.
+        let sanitized = (preferredFilename as NSString).lastPathComponent
+        let fallback = sanitized.isEmpty || sanitized == "/" || sanitized.allSatisfy { $0 == "." }
+            ? "Download"
+            : sanitized
         let base = (fallback as NSString).deletingPathExtension
         let ext = (fallback as NSString).pathExtension
         var candidate = directory.appendingPathComponent(fallback)
@@ -139,18 +162,46 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
             try? FileManager.default.createDirectory(
                 at: destinationDirectory, withIntermediateDirectories: true
             )
+            // A name is taken when either the final file or another
+            // transfer's `.download` intermediate already claims it, so two
+            // concurrent downloads of the same name dedup correctly.
             let destination = Self.uniqueDestinationURL(
                 preferredFilename: suggestedFilename,
                 in: destinationDirectory
-            ) { FileManager.default.fileExists(atPath: $0.path) }
+            ) { candidate in
+                FileManager.default.fileExists(atPath: candidate.path)
+                    || FileManager.default.fileExists(atPath: Self.inProgressURL(for: candidate).path)
+            }
             filename = destination.lastPathComponent
             destinationURL = destination
-            completionHandler(destination)
+            let intermediate = Self.inProgressURL(for: destination)
+            inProgressURL = intermediate
+            completionHandler(intermediate)
         }
     }
 
     nonisolated func downloadDidFinish(_ download: WKDownload) {
         MainActor.assumeIsolated {
+            if let inProgressURL, let reserved = destinationURL {
+                do {
+                    // The final name was reserved when the destination was
+                    // decided, but a file may have appeared there since —
+                    // re-unique rather than fail the finished download.
+                    let target = FileManager.default.fileExists(atPath: reserved.path)
+                        ? Self.uniqueDestinationURL(
+                            preferredFilename: reserved.lastPathComponent,
+                            in: destinationDirectory
+                        ) { FileManager.default.fileExists(atPath: $0.path) }
+                        : reserved
+                    try FileManager.default.moveItem(at: inProgressURL, to: target)
+                    destinationURL = target
+                    filename = target.lastPathComponent
+                } catch {
+                    phase = .failed(error.localizedDescription)
+                    try? FileManager.default.removeItem(at: inProgressURL)
+                    return
+                }
+            }
             phase = .completed
             fractionCompleted = 1
         }
@@ -171,8 +222,8 @@ final class BrowserDownload: NSObject, Identifiable, WKDownloadDelegate {
             }
             // Failed and cancelled downloads shouldn't leave a partial file
             // behind at the destination.
-            if let destinationURL {
-                try? FileManager.default.removeItem(at: destinationURL)
+            if let inProgressURL {
+                try? FileManager.default.removeItem(at: inProgressURL)
             }
         }
     }

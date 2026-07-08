@@ -119,4 +119,59 @@ struct BrowserDownloadDestinationTests {
         ) { existing.contains($0.path) }
         #expect(url.path == "/tmp/downloads/.gitignore-2")
     }
+
+    @Test("Directory components in the suggested name cannot escape the downloads directory")
+    func pathTraversalIsStripped() {
+        let relative = BrowserDownload.uniqueDestinationURL(
+            preferredFilename: "../../evil.sh",
+            in: directory
+        ) { _ in false }
+        #expect(relative.path == "/tmp/downloads/evil.sh")
+
+        let absolute = BrowserDownload.uniqueDestinationURL(
+            preferredFilename: "/etc/passwd",
+            in: directory
+        ) { _ in false }
+        #expect(absolute.path == "/tmp/downloads/passwd")
+    }
+
+    @Test("Names that are only path dots fall back to a generic name", arguments: [".", "..", "..."])
+    func dotOnlyNamesFallBack(name: String) {
+        let url = BrowserDownload.uniqueDestinationURL(
+            preferredFilename: name,
+            in: directory
+        ) { _ in false }
+        #expect(url.path == "/tmp/downloads/Download")
+    }
+}
+
+@Suite("BrowserDownloadsLocation wipe safety")
+struct BrowserDownloadsLocationWipeTests {
+    private let tempRoot = "/private/var/folders/ab/T/"
+
+    @Test("Paths inside the temp directory may be wiped")
+    func tempPathsAreSafe() {
+        #expect(BrowserDownloadsLocation.isSafeToWipe(
+            "/private/var/folders/ab/T/claudespy-e2e-downloads-0",
+            temporaryDirectory: tempRoot
+        ))
+    }
+
+    @Test("Paths outside the temp directory are refused")
+    func outsidePathsAreRefused() {
+        #expect(!BrowserDownloadsLocation.isSafeToWipe(
+            NSHomeDirectory() + "/Downloads",
+            temporaryDirectory: tempRoot
+        ))
+        // A sibling whose name merely extends the temp root must not match.
+        #expect(!BrowserDownloadsLocation.isSafeToWipe(
+            "/private/var/folders/ab/T-evil/x",
+            temporaryDirectory: tempRoot
+        ))
+        // Traversal back out of the temp root must not match either.
+        #expect(!BrowserDownloadsLocation.isSafeToWipe(
+            "/private/var/folders/ab/T/../../escape",
+            temporaryDirectory: tempRoot
+        ))
+    }
 }
