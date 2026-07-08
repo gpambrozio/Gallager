@@ -33,7 +33,7 @@ import Foundation
 ///    element still containing `9877` proves the typed text *replaced* the
 ///    old URL rather than appending to it.
 /// 4. "Try Again" re-attempts the failed URL (still refused → error page
-///    persists). "Dismiss" closes the browser tab entirely — the page behind
+///    persists). "Close" closes the browser tab entirely — the page behind
 ///    a failed navigation is often blank — returning to the origin terminal.
 /// 5. Re-open the fixture page via the terminal link, then click the giant
 ///    download link → a downloads bar row appears with a completed
@@ -129,14 +129,18 @@ public enum BrowserDownloadsAndErrorsScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-error-page-connection-refused")
 
-        // ── 4. Try Again keeps failing; Dismiss closes the tab ────
-        TestStep.log("Phase 4: Try Again re-fails (port still dead); Dismiss closes the tab")
+        // ── 4. Try Again keeps failing; Close closes the tab ──────
+        TestStep.log("Phase 4: Try Again re-fails (port still dead); Close closes the tab")
         TestStep.macClickButton(titled: "Try Again")
         TestStep.macWaitForElement(titled: "This page could not be loaded", timeout: 10)
 
-        TestStep.macClickButton(titled: "Dismiss")
+        // The button's visible title is "Close", but that substring also
+        // matches the tab strip's "Close browser tab: …" / "Close window: …"
+        // buttons (hidden ones are opacity-0, still in the AX tree) — target
+        // the error page button by its exact `.help(...)` string instead.
+        TestStep.macClickButton(titled: "Close this browser tab")
         TestStep.macWaitForElementToDisappear(titled: "This page could not be loaded", timeout: 5)
-        // Dismiss closes the whole tab; the tab came from a terminal link, so
+        // Close closes the whole tab; the tab came from a terminal link, so
         // the origin terminal window becomes selected again.
         TestStep.macWaitForElementQuery(
             .allOf([.identifier("terminal-${downloadsPane}"), .valueContains("OPEN-LINK-1")]),

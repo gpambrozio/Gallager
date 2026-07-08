@@ -97,7 +97,7 @@ final class BrowserTabState {
     var pendingNewTabURL: URL?
     /// Most recent main-frame navigation failure. Non-nil renders the error
     /// page overlay; cleared when the next navigation starts. The error
-    /// page's Dismiss button closes the whole tab instead of clearing this —
+    /// page's Close button closes the whole tab instead of clearing this —
     /// the page behind a failed navigation is often blank, so "reveal it"
     /// isn't a useful escape hatch.
     var navigationError: BrowserNavigationError?
@@ -355,7 +355,7 @@ struct BrowserTabContentView: View {
     /// `target="_blank"` link click or a `window.open()` call. The parent
     /// routes the URL into a fresh browser tab on the same session.
     let onRequestNewTab: (URL) -> Void
-    /// Called when this tab wants to close itself — the error page's Dismiss
+    /// Called when this tab wants to close itself — the error page's Close
     /// button. The parent owns the tab list, so the close (and its
     /// return-to-origin selection behavior) happens there.
     let onRequestClose: () -> Void
@@ -383,7 +383,7 @@ struct BrowserTabContentView: View {
                         // Close the tab rather than just hiding the overlay —
                         // the page underneath is usually blank (failed first
                         // load), which would leave a dead-looking browser.
-                        onDismiss: { onRequestClose() }
+                        onClose: { onRequestClose() }
                     )
                 }
             }
@@ -733,11 +733,11 @@ final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDele
 /// Full-content error page shown over the web view when a navigation fails —
 /// DNS failures, refused connections, TLS errors, offline, etc. Opaque so the
 /// stale previous page doesn't bleed through. "Try Again" retries the failed
-/// URL; "Dismiss" closes the tab (via `onDismiss`).
+/// URL; "Close" closes the tab (via `onClose`).
 struct BrowserNavigationErrorView: View {
     let error: BrowserNavigationError
     let onRetry: () -> Void
-    let onDismiss: () -> Void
+    let onClose: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -765,7 +765,12 @@ struct BrowserNavigationErrorView: View {
                 Button("Try Again", action: onRetry)
                     .keyboardShortcut(.defaultAction)
 
-                Button("Dismiss", action: onDismiss)
+                // The unique help string doubles as the E2E hook: "Close"
+                // alone substring-collides with the tab strip's
+                // "Close browser tab: …" buttons and the window's own close
+                // button, but AXHelp is matched exactly.
+                Button("Close", action: onClose)
+                    .help("Close this browser tab")
             }
             .padding(.top, 4)
         }
@@ -991,7 +996,7 @@ private enum BrowserPreviewSample {
             failedURL: URL(string: "https://nonexistent.example.invalid/some/path")
         ),
         onRetry: { },
-        onDismiss: { }
+        onClose: { }
     )
     .frame(width: 720, height: 480)
 }
