@@ -287,16 +287,16 @@ private struct BrowserDownloadRow: View {
                     }
                 }
                 .buttonStyle(.link)
-                .font(.callout)
+                .font(.body)
             case let .failed(message):
                 Text(message)
-                    .font(.callout)
+                    .font(.body)
                     .foregroundStyle(.red)
                     .lineLimit(1)
                     .truncationMode(.tail)
             case .cancelled:
                 Text("Cancelled")
-                    .font(.callout)
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
 
@@ -312,7 +312,7 @@ private struct BrowserDownloadRow: View {
             .help(download.phase == .inProgress ? "Cancel download" : "Clear")
             .accessibilityLabel(download.phase == .inProgress ? "Cancel download" : "Clear download")
         }
-        .font(.callout)
+        .font(.body)
     }
 
     @ViewBuilder

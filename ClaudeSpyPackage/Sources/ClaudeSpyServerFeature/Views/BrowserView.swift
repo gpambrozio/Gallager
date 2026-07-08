@@ -96,8 +96,10 @@ final class BrowserTabState {
     /// for the same URL still fire `.onChange`.
     var pendingNewTabURL: URL?
     /// Most recent main-frame navigation failure. Non-nil renders the error
-    /// page overlay; cleared when the next navigation starts or the user
-    /// dismisses it.
+    /// page overlay; cleared when the next navigation starts. The error
+    /// page's Dismiss button closes the whole tab instead of clearing this —
+    /// the page behind a failed navigation is often blank, so "reveal it"
+    /// isn't a useful escape hatch.
     var navigationError: BrowserNavigationError?
     /// Bumped whenever `urlFieldText` is replaced programmatically (URL KVO
     /// sync, failed-URL restore, submit normalization) rather than by the
@@ -353,6 +355,10 @@ struct BrowserTabContentView: View {
     /// `target="_blank"` link click or a `window.open()` call. The parent
     /// routes the URL into a fresh browser tab on the same session.
     let onRequestNewTab: (URL) -> Void
+    /// Called when this tab wants to close itself — the error page's Dismiss
+    /// button. The parent owns the tab list, so the close (and its
+    /// return-to-origin selection behavior) happens there.
+    let onRequestClose: () -> Void
 
     @FocusState private var isURLFieldFocused: Bool
     /// Selection of the URL field's text, so gaining focus can select the
@@ -374,7 +380,10 @@ struct BrowserTabContentView: View {
                     BrowserNavigationErrorView(
                         error: error,
                         onRetry: { state.retryAfterNavigationError() },
-                        onDismiss: { state.navigationError = nil }
+                        // Close the tab rather than just hiding the overlay —
+                        // the page underneath is usually blank (failed first
+                        // load), which would leave a dead-looking browser.
+                        onDismiss: { onRequestClose() }
                     )
                 }
             }
@@ -723,7 +732,8 @@ final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDele
 
 /// Full-content error page shown over the web view when a navigation fails —
 /// DNS failures, refused connections, TLS errors, offline, etc. Opaque so the
-/// stale previous page doesn't bleed through.
+/// stale previous page doesn't bleed through. "Try Again" retries the failed
+/// URL; "Dismiss" closes the tab (via `onDismiss`).
 struct BrowserNavigationErrorView: View {
     let error: BrowserNavigationError
     let onRetry: () -> Void
@@ -968,7 +978,8 @@ private enum BrowserPreviewSample {
         state: BrowserTabState(initialURL: BrowserPreviewSample.inlineHTMLURL),
         onTitleChange: { _ in },
         onURLChange: { _ in },
-        onRequestNewTab: { _ in }
+        onRequestNewTab: { _ in },
+        onRequestClose: { }
     )
     .frame(width: 720, height: 480)
 }

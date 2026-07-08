@@ -1282,6 +1282,13 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeRemoteBrowserTab(
+                        selectedBrowserTab.id,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName
+                    )
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1363,6 +1370,13 @@ public struct MainView: View {
                             sessionName: remote.sessionName,
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
+                        )
+                    },
+                    onRequestClose: {
+                        closeRemoteBrowserTab(
+                            tab.id,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName
                         )
                     }
                 )
@@ -1473,6 +1487,9 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeBrowserTab(selectedBrowserTab.id, sessionName: session.sessionName)
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1700,6 +1717,9 @@ public struct MainView: View {
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
                         )
+                    },
+                    onRequestClose: {
+                        closeBrowserTab(tab.id, sessionName: sessionName)
                     }
                 )
                 .id("right-\(tab.id)")

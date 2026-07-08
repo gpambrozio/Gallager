@@ -33,9 +33,10 @@ import Foundation
 ///    element still containing `9877` proves the typed text *replaced* the
 ///    old URL rather than appending to it.
 /// 4. "Try Again" re-attempts the failed URL (still refused → error page
-///    persists). "Dismiss" clears the overlay, revealing the still-rendered
-///    fixture page.
-/// 5. Click the giant link → a downloads bar row appears with a completed
+///    persists). "Dismiss" closes the browser tab entirely — the page behind
+///    a failed navigation is often blank — returning to the origin terminal.
+/// 5. Re-open the fixture page via the terminal link, then click the giant
+///    download link → a downloads bar row appears with a completed
 ///    `report.txt` and a "Show in Finder" action; the saved file's contents
 ///    are asserted via `readFile` on `${downloadsDirPath}`.
 /// 6. Click the link again → the second download dedupes to `report-2.txt`
@@ -128,18 +129,29 @@ public enum BrowserDownloadsAndErrorsScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-error-page-connection-refused")
 
-        // ── 4. Try Again keeps failing; Dismiss reveals the old page ─
-        TestStep.log("Phase 4: Try Again re-fails (port still dead); Dismiss reveals the page")
+        // ── 4. Try Again keeps failing; Dismiss closes the tab ────
+        TestStep.log("Phase 4: Try Again re-fails (port still dead); Dismiss closes the tab")
         TestStep.macClickButton(titled: "Try Again")
         TestStep.macWaitForElement(titled: "This page could not be loaded", timeout: 10)
 
         TestStep.macClickButton(titled: "Dismiss")
         TestStep.macWaitForElementToDisappear(titled: "This page could not be loaded", timeout: 5)
+        // Dismiss closes the whole tab; the tab came from a terminal link, so
+        // the origin terminal window becomes selected again.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-${downloadsPane}"), .valueContains("OPEN-LINK-1")]),
+            timeout: 10
+        )
         TestStep.wait(seconds: 1)
-        TestStep.macScreenshot(label: "mac-error-dismissed-page-back")
+        TestStep.macScreenshot(label: "mac-error-dismissed-tab-closed")
 
-        // ── 5. Download via the attachment response ───────────────
-        TestStep.log("Phase 5: Click the download link → completed row in the downloads bar")
+        // ── 5. Re-open the page; download via the attachment response ─
+        TestStep.log("Phase 5: Reopen the fixture page, click the download link → completed row")
+        TestStep.macClickAtPoint(x: terminalLinkX, y: terminalLinkY)
+        TestStep.macWaitForElement(titled: "Open this link?", timeout: 5)
+        TestStep.macClickButton(titled: "In App")
+        TestStep.macWaitForElementQuery(.labelContains("Browser tab: Download Test"), timeout: 10)
+        TestStep.wait(seconds: 1)
         TestStep.macClickAtPoint(x: downloadLinkX, y: downloadLinkY)
         TestStep.macWaitForElement(titled: "Show in Finder", timeout: 10)
         TestStep.macWaitForElement(titled: "report.txt", timeout: 5)
