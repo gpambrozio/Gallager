@@ -151,6 +151,15 @@ function summarize(messages: any[] | undefined): string | undefined {
 // which is what the host uses to stamp the pane's telemetry join key. pi has no
 // separate reasoning-token count: thinking output is already inside
 // `usage.output` (Claude's convention — thinking bills as output).
+//
+// Dedup by message id: pi fires `message_end` once per finalized message today,
+// but if it ever re-fired for the same message (retry/edit/re-render) the meter
+// would double-count its tokens (additive per-session semantics). A bounded FIFO
+// Set of seen ids guards against that, matching the opencode bridge's guarantee.
+// A message with no id can't be deduped — emit it rather than drop telemetry.
+const OTLP_EMITTED = new Set<string>()
+const OTLP_EMITTED_CAP = 512
+
 function emitTelemetry(
   message: any,
   sessionID: string,
@@ -159,6 +168,14 @@ function emitTelemetry(
 ) {
   if (!OTLP_ENDPOINT || !paneID) return
   if (!message || message.role !== "assistant") return
+  const id = typeof message.id === "string" ? message.id : undefined
+  if (id) {
+    if (OTLP_EMITTED.has(id)) return
+    OTLP_EMITTED.add(id)
+    if (OTLP_EMITTED.size > OTLP_EMITTED_CAP) {
+      OTLP_EMITTED.delete(OTLP_EMITTED.values().next().value as string)
+    }
+  }
   const usage = message.usage || {}
   const cost = usage.cost || {}
   const int = (v: unknown) =>

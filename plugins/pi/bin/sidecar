@@ -123,6 +123,17 @@ OTLP_ENDPOINT = ""
 # ---------------------------------------------------------------------------
 # pi bridge frame → PluginEvent mapping.
 # ---------------------------------------------------------------------------
+# session_shutdown reasons that DON'T end the Gallager session: pi replaces the
+# session runtime (a fresh session_start re-stamps the same pane immediately, so
+# ending here would flicker the sidebar row out and back). Everything else —
+# "quit" today, plus any signal-driven reason a future pi might name differently
+# (SIGHUP → "hangup", say) — is treated as terminal. Inverting the test this way
+# keeps the finite, well-known set on the safe side: a renamed quit path clears
+# the row instead of stranding it (there's no process-scan fallback to reconcile
+# a missed teardown — pi's `comm` is `node`, so process_names never matches).
+_REPLACEMENT_SHUTDOWN_REASONS = frozenset({"new", "resume", "fork", "reload"})
+
+
 def _project_name(project_path):
     if not project_path:
         return None
@@ -174,11 +185,13 @@ def handle_translate_event(req_id, params):
 
     elif etype == "session_shutdown":
         # pi tears a session runtime down for quit AND for session replacement
-        # (/new, /resume, /fork, /reload). Only a quit ends the Gallager session
-        # — replacements are immediately followed by a session_start that
+        # (/new, /resume, /fork, /reload). Only a real quit ends the Gallager
+        # session — replacements are immediately followed by a session_start that
         # re-stamps the same pane with the new session id, and ending here would
-        # make the sidebar row flicker out and back.
-        if payload.get("reason") == "quit" and tmux_pane:
+        # make the sidebar row flicker out and back. Test the finite replacement
+        # set (see _REPLACEMENT_SHUTDOWN_REASONS) rather than matching "quit"
+        # literally, so any other/unknown reason still clears the row.
+        if payload.get("reason") not in _REPLACEMENT_SHUTDOWN_REASONS and tmux_pane:
             close_eligible = bool(SETTINGS.get("close_pane_on_session_end", False))
             app_actions.append({
                 "sessionEnded": {"sessionID": tmux_pane, "closePaneEligible": close_eligible},
@@ -232,9 +245,16 @@ def handle_install(req_id, params):
     try:
         with open(template, "r", encoding="utf-8") as f:
             content = f.read()
-        content = content.replace("__GALLAGER_INGRESS_SOCK__", sock)
-        content = content.replace("__GALLAGER_PLUGIN_ID__", plugin_id)
-        content = content.replace("__GALLAGER_OTLP_ENDPOINT__", OTLP_ENDPOINT)
+        # Substitute each placeholder as a JSON string literal so a value holding
+        # a quote/backslash/newline (most plausibly a $HOME-derived socket path)
+        # can't break out of the TS string and make pi silently fail to load the
+        # extension. Replace the QUOTED token and let json.dumps re-supply the
+        # quotes: that keeps the repo template itself valid TS (its un-substituted
+        # `"__GALLAGER…"` literal is what the bridge's startsWith() smoke-test
+        # fallback keys on).
+        content = content.replace('"__GALLAGER_INGRESS_SOCK__"', json.dumps(sock))
+        content = content.replace('"__GALLAGER_PLUGIN_ID__"', json.dumps(plugin_id))
+        content = content.replace('"__GALLAGER_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         tmp = dest + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -275,6 +295,13 @@ def handle_install_status(req_id, params):
 # munging of the cwd, but every session file's FIRST line is a SessionHeader
 # carrying the exact `cwd`, so read that from the newest file per directory.
 # Works offline (no running pi needed); best-effort, never raises.
+#
+# On-disk shape confirmed against pi v0.80.3 (same pin as the README event
+# names): session files are `*.jsonl`, and the header line has `type == "session"`
+# with a `cwd`. Both are load-bearing (see the two notes below) — if a future pi
+# changes either, the "+" menu just shows zero pi projects with no error. The
+# ProjectScanTests fabricate these shapes, so they can't catch such drift;
+# re-verify against a real ~/.pi/agent/sessions/*/ file when bumping the pin.
 # ---------------------------------------------------------------------------
 # Seconds between 1970-01-01 and 2001-01-01 — JSONValue.decode uses a default
 # JSONDecoder (`.deferredToDate`), so AgentProject.lastUsed is seconds since the
@@ -291,7 +318,7 @@ def _newest_session_file(dir_path):
     newest, newest_mtime = None, 0.0
     try:
         for name in os.listdir(dir_path):
-            if not name.endswith(".jsonl"):
+            if not name.endswith(".jsonl"):  # pi v0.80.3 session-file extension
                 continue
             full = os.path.join(dir_path, name)
             try:
@@ -310,7 +337,7 @@ def _session_header_cwd(session_file):
     try:
         with open(session_file, "r", encoding="utf-8") as f:
             header = json.loads(f.readline())
-        if header.get("type") == "session":
+        if header.get("type") == "session":  # pi v0.80.3 SessionHeader discriminator
             cwd = header.get("cwd")
             if isinstance(cwd, str) and cwd:
                 return cwd

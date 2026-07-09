@@ -193,6 +193,17 @@ class TranslateEventTests(unittest.TestCase):
         for reason in ("new", "resume", "fork", "reload"):
             self.assertIsNone(self.evt("session_shutdown", {"reason": reason}))
 
+    def test_shutdown_unknown_reason_still_ends_session(self):
+        # Anything outside the finite replacement set is terminal — a signal path
+        # a future pi might rename (SIGHUP → "hangup", say), or a missing reason,
+        # still clears the sidebar row instead of stranding it.
+        for reason in ("hangup", "terminated", None):
+            r = self.evt("session_shutdown", {"reason": reason} if reason else {})
+            self.assertIsNone(r["state"])
+            self.assertEqual(r["appActions"], [
+                {"sessionEnded": {"sessionID": PANE, "closePaneEligible": False}},
+            ])
+
     def test_shutdown_quit_without_pane_is_ignored(self):
         r = self.evt("session_shutdown", {"reason": "quit"}, ctx={})
         self.assertIsNone(r)
@@ -306,6 +317,31 @@ class InstallTests(unittest.TestCase):
     def test_uninstall_missing_bridge_is_fine(self):
         r = self.sc.request("uninstall", {"configRoot": None})
         self.assertEqual(r["result"], {})
+
+    def test_install_json_escapes_special_chars_in_socket_path(self):
+        # A socket path holding a quote/backslash must be JSON-escaped into the
+        # TS string literal, not spliced raw (which would break out of the string
+        # and make pi fail to load the extension).
+        home = tempfile.mkdtemp(prefix="pi-sidecar-test-")
+        nasty = '/tmp/a"b\\c'
+        sc = Sidecar(env={
+            "HOME": home,
+            "GALLAGER_INGRESS_SOCK": nasty,
+            "GALLAGER_PLUGIN_ID": "pi",
+            "GALLAGER_PLUGIN_ROOT": ROOT,
+        })
+        try:
+            sc.request("initialize", {})
+            self.assertIn("installed", sc.request("install", {"configRoot": None})["result"])
+            bridge = os.path.join(home, ".pi", "agent", "extensions", "gallager.ts")
+            with open(bridge, "r", encoding="utf-8") as f:
+                content = f.read()
+            # The RAW_SOCK assignment is a single balanced, escaped string literal.
+            self.assertIn("const RAW_SOCK = %s" % json.dumps(nasty), content)
+        finally:
+            sc.close()
+            import shutil
+            shutil.rmtree(home, ignore_errors=True)
 
 
 class ProjectScanTests(unittest.TestCase):
