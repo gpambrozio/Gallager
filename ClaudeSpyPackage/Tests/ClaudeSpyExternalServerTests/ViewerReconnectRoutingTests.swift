@@ -225,9 +225,7 @@ struct ViewerReconnectRoutingTests {
     /// that don't decode (none are expected, but this keeps the helper total).
     private func count(of type: String, in texts: [String]) -> Int {
         texts.reduce(into: 0) { total, text in
-            guard
-                let data = text.data(using: .utf8),
-                let envelope = try? JSONDecoder().decode(Envelope.self, from: data)
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: Data(text.utf8))
             else { return }
             if envelope.type == type { total += 1 }
         }
