@@ -310,6 +310,49 @@ flowchart LR
 - `ClaudeSpyFeature/Views/LiveTerminalView.swift`
 - `ClaudeSpyFeature/Views/TerminalStreamContainerView.swift`
 
+### 8. Connection Liveness & Reconnection
+
+A network switch (Wi-Fi↔Wi-Fi, Wi-Fi↔cellular, VPN toggle) leaves a
+`URLSessionWebSocketTask` **half-open**: the old TCP connection is dead but
+neither `send()` nor a blocked `receive()` errors promptly. Two mechanisms keep
+this from turning into a stuck "green dot but nothing flows" state (issue #642):
+
+**Client-side liveness watchdog** — `ViewerRelayClient` (viewer) and
+`ConnectedViewer` (host) run a keep-alive ping loop that now *verifies* a reply.
+Each cycle sets an `awaitingPong` flag before sending `.ping`; **any** inbound
+frame (the `.pong`, terminal data, session state…) clears it. If the flag is
+still set after the pong timeout, the socket is treated as half-open and
+`cancel()`led, which makes `receiveMessages()` observe the failure and run the
+normal disconnection → exponential-backoff reconnection path exactly once.
+Without this, a half-open socket stays `.connected` indefinitely and only
+`receive()` erroring (which a network switch does not reliably cause) or an app
+restart would recover it.
+
+**Server-side identity-aware unregister** — when a device reconnects it opens a
+*new* socket that replaces the old entry in `ConnectionHub` (keyed by
+`(pairId, deviceType)`). The old half-open socket's `onClose` can fire
+seconds-to-minutes later. `ConnectionHub.unregisterIfCurrent(...)` only removes
+the entry (and only then notifies the peer of a disconnect) when the closing
+socket is *still the registered one*, so a stale close — or a `send` that fails
+on a socket that was concurrently replaced — is a no-op. This prevents a late
+close from evicting the live replacement and falsely flipping the peer's
+`isViewerConnected`/`isHostConnected` to false. That flag gates
+`pushSessionState()` (but not `sendTerminalStream()`), so the bug it caused was
+specifically "live terminal keeps streaming, but new-session/new-tab/switch-window
+updates never reach the viewer."
+
+> **Server-initiated teardown must notify the peer itself.** `notifyConnection`
+> for a disconnect only fires from `WebSocketController`'s `onClose` (which owns
+> `RelayService`). A server-initiated teardown — the E2E `blockDevice` /
+> `disconnectDevice` helpers, which close the socket *and* remove the
+> `ConnectionHub` entry directly (so `isViewerConnected` / `isHostConnected` flip
+> to false immediately) — makes that later `onClose` a deliberate no-op under
+> `unregisterIfCurrent`, since the entry is already gone. So those helpers take
+> the pair IDs returned by `disconnectAll(deviceType:)` and drive
+> `notifyConnection(..., connected: false)` themselves; otherwise a viewer whose
+> host was disconnected would never learn to clear its sessions (regression that
+> surfaced in the *Host Disconnect Clears Sessions* E2E scenario).
+
 ## Complete Data Flow
 
 ```mermaid
@@ -404,6 +447,8 @@ sequenceDiagram
 | **Per-device E2EE** | Each DeviceConnection has its own E2EE session; server cannot decrypt |
 | **Session ID validation** | Prevents stale callbacks from old sessions affecting new ones |
 | **Fail-closed E2EE** | Refuses to send sensitive data if encryption session not established |
+| **Ping/pong liveness watchdog** | Verifies keep-alive pongs so a half-open socket after a network switch is detected and reconnected within one ping cycle instead of staying `.connected` forever (§8) |
+| **Identity-aware unregister** | The relay only unregisters a connection when the closing socket is still the registered one, so a stale socket's late close can't evict the reconnected replacement (§8) |
 
 ## Key Types Reference
 
