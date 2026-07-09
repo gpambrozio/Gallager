@@ -341,6 +341,18 @@ close from evicting the live replacement and falsely flipping the peer's
 specifically "live terminal keeps streaming, but new-session/new-tab/switch-window
 updates never reach the viewer."
 
+> **Server-initiated teardown must notify the peer itself.** `notifyConnection`
+> for a disconnect only fires from `WebSocketController`'s `onClose` (which owns
+> `RelayService`). A server-initiated teardown — the E2E `blockDevice` /
+> `disconnectDevice` helpers, which close the socket *and* remove the
+> `ConnectionHub` entry directly (so `isViewerConnected` / `isHostConnected` flip
+> to false immediately) — makes that later `onClose` a deliberate no-op under
+> `unregisterIfCurrent`, since the entry is already gone. So those helpers take
+> the pair IDs returned by `disconnectAll(deviceType:)` and drive
+> `notifyConnection(..., connected: false)` themselves; otherwise a viewer whose
+> host was disconnected would never learn to clear its sessions (regression that
+> surfaced in the *Host Disconnect Clears Sessions* E2E scenario).
+
 ## Complete Data Flow
 
 ```mermaid

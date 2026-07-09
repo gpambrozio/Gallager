@@ -90,10 +90,14 @@ actor ConnectionHub {
 
     /// Block a device type from connecting (for E2E testing).
     /// Existing connections are disconnected and new connections are rejected.
-    func blockDeviceType(_ deviceType: DeviceType) async {
+    ///
+    /// - Returns: the pair IDs whose connection was removed (see `disconnectAll(deviceType:)`).
+    @discardableResult
+    func blockDeviceType(_ deviceType: DeviceType) async -> [String] {
         blockedDeviceTypes.insert(deviceType)
-        await disconnectAll(deviceType: deviceType)
+        let affectedPairIds = await disconnectAll(deviceType: deviceType)
         logger.info("Blocked device type: \(deviceType)")
+        return affectedPairIds
     }
 
     /// Unblock a device type, allowing connections again (for E2E testing)
@@ -107,8 +111,19 @@ actor ConnectionHub {
         blockedDeviceTypes.removeAll()
     }
 
-    /// Disconnect all connections of a given device type across all pairs (for E2E testing)
-    func disconnectAll(deviceType: DeviceType) async {
+    /// Disconnect all connections of a given device type across all pairs (for E2E testing).
+    ///
+    /// This is a server-initiated teardown: unlike a real socket close — handled by
+    /// `WebSocketController`'s `onClose`, which owns `RelayService` and notifies the peer —
+    /// this removes the entry directly. The `onClose` that fires later for each closed
+    /// socket therefore finds nothing current and, by design (`unregisterIfCurrent`), stays
+    /// silent. Returning the affected pair IDs lets the caller drive the same
+    /// `notifyConnection` a real disconnect would, so peers still learn the device left.
+    ///
+    /// - Returns: the pair IDs whose connection of this type was removed.
+    @discardableResult
+    func disconnectAll(deviceType: DeviceType) async -> [String] {
+        var affectedPairIds: [String] = []
         for (pairId, pairConnections) in connections {
             guard let connection = pairConnections[deviceType] else { continue }
             try? await connection.webSocket.close()
@@ -116,7 +131,9 @@ actor ConnectionHub {
             if connections[pairId]?.isEmpty == true {
                 connections.removeValue(forKey: pairId)
             }
+            affectedPairIds.append(pairId)
         }
+        return affectedPairIds
     }
 
     // MARK: - Connection Status
