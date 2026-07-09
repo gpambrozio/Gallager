@@ -143,6 +143,18 @@ struct TmuxPaneMirrorApp: App {
                 defaultBrowserLogPath = nil
             }
 
+            // E2E test support: redirect browser downloads away from the real
+            // ~/Downloads — writing there triggers a TCC consent prompt the
+            // unattended test app can never answer, wedging the download.
+            let downloadsDirPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--downloads-dir"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                downloadsDirPath = CommandLine.arguments[idx + 1]
+            } else {
+                downloadsDirPath = nil
+            }
+
             // E2E test support: pin the advertised device name. The system
             // `ComputerName` varies per machine (e.g. "Managed's Virtual Machine"
             // on a CI box vs "MacMini"), and the iOS/Mac viewer renders it in its
@@ -322,6 +334,18 @@ struct TmuxPaneMirrorApp: App {
                 if let defaultBrowserLogPath {
                     try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
                     $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
+                if let downloadsDirPath {
+                    // Start each run with an empty downloads directory so
+                    // collision-naming assertions are deterministic. Only
+                    // temp-directory paths (where the E2E orchestrator puts
+                    // them) are wiped — recursively deleting an arbitrary
+                    // caller-supplied directory would destroy real files if
+                    // someone hand-launched with `--downloads-dir ~/Downloads`.
+                    if BrowserDownloadsLocation.isSafeToWipe(downloadsDirPath) {
+                        try? FileManager.default.removeItem(atPath: downloadsDirPath)
+                    }
+                    $0[BrowserDownloadsLocation.self] = .fixed(path: downloadsDirPath)
                 }
                 if let deviceNameOverride {
                     $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
