@@ -500,6 +500,8 @@ let targets: [Target] = [
             .dependenciesTestSupport,
             .clocks,
             .concurrencyExtras,
+            // Stands up a mute WebSocket server for the half-open liveness watchdog test.
+            .vapor,
         ]
     ),
     .testTarget(

@@ -105,12 +105,13 @@ final public class ViewerRelayClient {
     /// Maximum backoff delay in seconds
     private let maxBackoffDelay = 60
 
-    /// Seconds between keep-alive pings.
-    private let pingIntervalSeconds = 20
+    /// Seconds between keep-alive pings. Injectable so tests can exercise the
+    /// half-open watchdog without waiting the production interval.
+    private let pingIntervalSeconds: Int
 
     /// Seconds to wait for a pong (or any other inbound frame) after a keep-alive
-    /// ping before treating the socket as half-open.
-    private let pongTimeoutSeconds = 10
+    /// ping before treating the socket as half-open. Injectable (see above).
+    private let pongTimeoutSeconds: Int
 
     /// Set right before a keep-alive ping is sent, cleared on ANY inbound frame.
     /// If it is still set when the pong deadline elapses, the socket produced no
@@ -195,7 +196,13 @@ final public class ViewerRelayClient {
 
     // MARK: - Initialization
 
-    public init() { }
+    /// - Parameters:
+    ///   - pingIntervalSeconds: Seconds between keep-alive pings (default matches production).
+    ///   - pongTimeoutSeconds: Seconds to await a pong before declaring the socket half-open.
+    public init(pingIntervalSeconds: Int = 20, pongTimeoutSeconds: Int = 10) {
+        self.pingIntervalSeconds = pingIntervalSeconds
+        self.pongTimeoutSeconds = pongTimeoutSeconds
+    }
 
     private func setState(_ newState: ConnectionState) {
         state = newState
