@@ -109,6 +109,20 @@ final public class ConnectedViewer: Identifiable {
     /// Maximum backoff delay in seconds (capped exponential backoff)
     private let maxBackoffDelay = 60
 
+    /// Seconds between keep-alive pings.
+    private let pingIntervalSeconds = 20
+
+    /// Seconds to wait for a pong (or any other inbound frame) after a keep-alive
+    /// ping before treating the socket as half-open.
+    private let pongTimeoutSeconds = 10
+
+    /// Set right before a keep-alive ping is sent, cleared on ANY inbound frame.
+    /// If it is still set when the pong deadline elapses, the socket produced no
+    /// traffic for a full cycle and is treated as dead. This catches half-open
+    /// sockets after a network switch, which `URLSession` does not surface as a
+    /// `receive()` error — without it the host stays `.connected` while nothing flows.
+    private var awaitingPong = false
+
     /// Task for delayed reconnection
     private var reconnectionDelayTask: Task<Void, Never>?
 
@@ -579,6 +593,9 @@ final public class ConnectedViewer: Identifiable {
     }
 
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) async {
+        // Any inbound frame proves the socket is alive; clear the keep-alive watchdog.
+        awaitingPong = false
+
         let data: Data
         switch message {
         case let .string(text):
@@ -868,9 +885,25 @@ final public class ConnectedViewer: Identifiable {
 
     private func pingLoop() async {
         while !Task.isCancelled, state.isConnected {
-            try? await Task.sleep(for: .seconds(30))
-            if state.isConnected {
-                await send(.ping)
+            // Idle period between keep-alive pings.
+            try? await Task.sleep(for: .seconds(pingIntervalSeconds))
+            guard !Task.isCancelled, state.isConnected else { break }
+
+            awaitingPong = true
+            await send(.ping)
+
+            // Wait for the server's pong (or any other inbound frame) to clear the flag.
+            try? await Task.sleep(for: .seconds(pongTimeoutSeconds))
+            guard !Task.isCancelled, state.isConnected else { break }
+
+            if awaitingPong {
+                logger.warning("No pong within \(pongTimeoutSeconds)s for \(viewerName) — connection is half-open, forcing reconnect")
+                // Cancel the socket so receiveMessages() observes the failure and runs
+                // the standard disconnection/backoff path exactly once. Calling
+                // handleDisconnection() directly would race that loop and could spawn a
+                // second reconnect task.
+                webSocketTask?.cancel(with: .goingAway, reason: nil)
+                break
             }
         }
     }
@@ -906,6 +939,8 @@ final public class ConnectedViewer: Identifiable {
     }
 
     private func cleanupConnection() async {
+        awaitingPong = false
+
         receiveTask?.cancel()
         receiveTask = nil
 

@@ -105,6 +105,22 @@ final public class ViewerRelayClient {
     /// Maximum backoff delay in seconds
     private let maxBackoffDelay = 60
 
+    /// Seconds between keep-alive pings. Injectable so tests can exercise the
+    /// half-open watchdog without waiting the production interval.
+    private let pingIntervalSeconds: Int
+
+    /// Seconds to wait for a pong (or any other inbound frame) after a keep-alive
+    /// ping before treating the socket as half-open. Injectable (see above).
+    private let pongTimeoutSeconds: Int
+
+    /// Set right before a keep-alive ping is sent, cleared on ANY inbound frame.
+    /// If it is still set when the pong deadline elapses, the socket produced no
+    /// traffic for a full cycle and is treated as dead. This catches half-open
+    /// sockets after a network switch, which `URLSession` does not surface as a
+    /// `receive()` error — without it the client stays `.connected` (green dot)
+    /// while nothing actually flows.
+    private var awaitingPong = false
+
     /// Task for receiving messages
     private var receiveTask: Task<Void, Never>?
 
@@ -180,7 +196,13 @@ final public class ViewerRelayClient {
 
     // MARK: - Initialization
 
-    public init() { }
+    /// - Parameters:
+    ///   - pingIntervalSeconds: Seconds between keep-alive pings (default matches production).
+    ///   - pongTimeoutSeconds: Seconds to await a pong before declaring the socket half-open.
+    public init(pingIntervalSeconds: Int = 20, pongTimeoutSeconds: Int = 10) {
+        self.pingIntervalSeconds = pingIntervalSeconds
+        self.pongTimeoutSeconds = pongTimeoutSeconds
+    }
 
     private func setState(_ newState: ConnectionState) {
         state = newState
@@ -598,6 +620,9 @@ final public class ViewerRelayClient {
     }
 
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) async {
+        // Any inbound frame proves the socket is alive; clear the keep-alive watchdog.
+        awaitingPong = false
+
         let data: Data
         switch message {
         case let .string(text):
@@ -875,9 +900,25 @@ final public class ViewerRelayClient {
 
     private func pingLoop() async {
         while !Task.isCancelled, state.isConnected {
-            try? await Task.sleep(for: .seconds(30))
-            if state.isConnected {
-                await send(.ping)
+            // Idle period between keep-alive pings.
+            try? await Task.sleep(for: .seconds(pingIntervalSeconds))
+            guard !Task.isCancelled, state.isConnected else { break }
+
+            awaitingPong = true
+            await send(.ping)
+
+            // Wait for the server's pong (or any other inbound frame) to clear the flag.
+            try? await Task.sleep(for: .seconds(pongTimeoutSeconds))
+            guard !Task.isCancelled, state.isConnected else { break }
+
+            if awaitingPong {
+                logger.warning("No pong within \(pongTimeoutSeconds)s — connection is half-open, forcing reconnect")
+                // Cancel the socket so receiveMessages() observes the failure and runs
+                // the standard disconnection/backoff path exactly once. Calling
+                // handleDisconnection() directly would race that loop and could spawn a
+                // second reconnect task.
+                webSocketTask?.cancel(with: .goingAway, reason: nil)
+                break
             }
         }
     }
@@ -918,6 +959,8 @@ final public class ViewerRelayClient {
     }
 
     private func cleanupConnection() async {
+        awaitingPong = false
+
         receiveTask?.cancel()
         receiveTask = nil
 

@@ -82,9 +82,22 @@ struct WebSocketController: RouteCollection {
 
         ws.onClose.whenComplete { _ in
             Task {
-                await connectionHub.unregister(pairId: pairId, deviceType: deviceType)
-                await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: false)
-                req.logger.info("WebSocket disconnected: \(deviceType) for pair \(pairId)")
+                // Only tear down if THIS socket is still the registered one. After a
+                // network switch the device reconnects with a new socket that replaces
+                // this entry; this (old) socket's close can arrive seconds-to-minutes
+                // later. Unregistering unconditionally would evict the live replacement
+                // and falsely notify the peer that the device disconnected.
+                let removed = await connectionHub.unregisterIfCurrent(
+                    pairId: pairId,
+                    deviceType: deviceType,
+                    webSocket: ws
+                )
+                if removed {
+                    await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: false)
+                    req.logger.info("WebSocket disconnected: \(deviceType) for pair \(pairId)")
+                } else {
+                    req.logger.info("Stale \(deviceType) WebSocket closed for pair \(pairId); newer connection retained")
+                }
             }
         }
 

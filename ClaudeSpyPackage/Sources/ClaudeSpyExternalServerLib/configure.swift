@@ -187,13 +187,27 @@ public extension Application {
     /// Disconnect all WebSocket connections for a given device type (for E2E testing)
     func disconnectDevice(deviceType: String) async {
         guard let type = DeviceType(rawValue: deviceType) else { return }
-        await connectionHub.disconnectAll(deviceType: type)
+        let affectedPairIds = await connectionHub.disconnectAll(deviceType: type)
+        await notifyPeersOfDisconnect(pairIds: affectedPairIds, deviceType: type)
     }
 
     /// Block a device type from connecting and disconnect existing connections (for E2E testing)
     func blockDevice(deviceType: String) async {
         guard let type = DeviceType(rawValue: deviceType) else { return }
-        await connectionHub.blockDeviceType(type)
+        let affectedPairIds = await connectionHub.blockDeviceType(type)
+        await notifyPeersOfDisconnect(pairIds: affectedPairIds, deviceType: type)
+    }
+
+    /// Tell each affected pair's surviving peer that `deviceType` disconnected.
+    ///
+    /// A server-initiated teardown (`disconnectAll(deviceType:)`) removes the connection
+    /// directly, so the socket's `onClose` finds nothing current and stays silent by design.
+    /// This drives the same peer notification a real disconnect would — e.g. so a viewer
+    /// clears its sessions when its host is disconnected.
+    private func notifyPeersOfDisconnect(pairIds: [String], deviceType: DeviceType) async {
+        for pairId in pairIds {
+            await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: false)
+        }
     }
 
     /// Unblock a device type, allowing connections again (for E2E testing)
