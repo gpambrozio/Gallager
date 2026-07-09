@@ -272,6 +272,7 @@ public struct MainView: View {
                 fileBrowserStates.removeValue(forKey: key)
             }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
+                sessionFileTabsStates[key]?.cancelActiveBrowserDownloads()
                 sessionFileTabsStates.removeValue(forKey: key)
             }
             // Forget seed/persist bookkeeping for removed sessions so a recycled
@@ -354,6 +355,7 @@ public struct MainView: View {
             // this host-level pass covers full unpair.
             let currentHostIdsSet = Set(currentHostIds)
             for key in remoteSessionTabsStates.keys where !currentHostIdsSet.contains(key.hostId) {
+                remoteSessionTabsStates[key]?.cancelActiveBrowserDownloads()
                 remoteSessionTabsStates.removeValue(forKey: key)
             }
             // Drop the per-session layout bookkeeping for unpaired hosts in
@@ -1280,6 +1282,13 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeRemoteBrowserTab(
+                        selectedBrowserTab.id,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName
+                    )
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1361,6 +1370,13 @@ public struct MainView: View {
                             sessionName: remote.sessionName,
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
+                        )
+                    },
+                    onRequestClose: {
+                        closeRemoteBrowserTab(
+                            tab.id,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName
                         )
                     }
                 )
@@ -1471,6 +1487,9 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeBrowserTab(selectedBrowserTab.id, sessionName: session.sessionName)
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1698,6 +1717,9 @@ public struct MainView: View {
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
                         )
+                    },
+                    onRequestClose: {
+                        closeBrowserTab(tab.id, sessionName: sessionName)
                     }
                 )
                 .id("right-\(tab.id)")
@@ -3162,6 +3184,9 @@ public struct MainView: View {
         let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
+        // Cancel in-flight downloads before dropping the state — a
+        // deallocated `BrowserTabState` can't clean up its partial files.
+        tabs.browserStates[tabId]?.cancelActiveDownloads()
         tabs.browserStates.removeValue(forKey: tabId)
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
@@ -3337,6 +3362,9 @@ public struct MainView: View {
         let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
+        // Cancel in-flight downloads before dropping the state — a
+        // deallocated `BrowserTabState` can't clean up its partial files.
+        tabs.browserStates[tabId]?.cancelActiveDownloads()
         tabs.browserStates.removeValue(forKey: tabId)
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
@@ -3529,6 +3557,7 @@ public struct MainView: View {
         // recreate starts clean — the analogue of the local
         // `sessionFileTabsStates` removal.
         for key in remoteSessionTabsStates.keys where isStale(key) {
+            remoteSessionTabsStates[key]?.cancelActiveBrowserDownloads()
             remoteSessionTabsStates.removeValue(forKey: key)
         }
     }

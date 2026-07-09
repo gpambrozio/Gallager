@@ -95,6 +95,21 @@ final class BrowserTabState {
     /// observer resets it back to `nil` after handling so subsequent requests
     /// for the same URL still fire `.onChange`.
     var pendingNewTabURL: URL?
+    /// Most recent main-frame navigation failure. Non-nil renders the error
+    /// page overlay; cleared when the next navigation starts. The error
+    /// page's Close button closes the whole tab instead of clearing this —
+    /// the page behind a failed navigation is often blank, so "reveal it"
+    /// isn't a useful escape hatch.
+    var navigationError: BrowserNavigationError?
+    /// Bumped whenever `urlFieldText` is replaced programmatically (URL KVO
+    /// sync, failed-URL restore, submit normalization) rather than by the
+    /// user typing. The content view watches this to drop its live
+    /// `TextSelection` — selection indices built for the previous string
+    /// are out of bounds for the new one and crash `TextField`.
+    private(set) var urlFieldTextReplacements = 0
+    /// Downloads started from this tab, oldest first. Rows stay in the
+    /// downloads bar until dismissed; dismissing an in-flight row cancels it.
+    var downloads: [BrowserDownload] = []
 
     let webView: WKWebView
 
@@ -105,6 +120,9 @@ final class BrowserTabState {
     /// `…Delegate` so SwiftLint's `weak_delegate` rule doesn't flag the
     /// strong storage that's intentional here.
     private var retainedUIDelegateAdapter: BrowserUIDelegateAdapter?
+    /// Retained strongly for the same reason as the UI delegate adapter —
+    /// `WKWebView.navigationDelegate` is a weak reference.
+    private var retainedNavigationDelegateAdapter: BrowserNavigationDelegateAdapter?
 
     init(initialURL: URL) {
         let configuration = WKWebViewConfiguration()
@@ -151,12 +169,44 @@ final class BrowserTabState {
         webView.uiDelegate = adapter
         self.retainedUIDelegateAdapter = adapter
 
+        // Routes navigation failures to the error page overlay and converts
+        // download-shaped navigations (anchor `download` attributes,
+        // attachments, MIME types WebKit can't display inline) into
+        // `WKDownload`s surfaced in the downloads bar.
+        let navigationAdapter = BrowserNavigationDelegateAdapter(
+            onNavigationStart: { [weak self] in
+                self?.navigationError = nil
+            },
+            onNavigationError: { [weak self] error in
+                self?.navigationError = error
+                // Keep the failed URL in the address bar (Safari-like) so
+                // the user can correct a typo — without this, the `\.url`
+                // KVO observer reverts the field to the last committed
+                // page's URL when a provisional load fails.
+                if let failedURL = error.failedURL {
+                    self?.replaceURLFieldText(with: failedURL.absoluteString)
+                }
+            },
+            onDownloadStart: { [weak self] download in
+                self?.register(download)
+            },
+            onExternalURL: { url in
+                // Schemes WebKit can't load itself (mailto:, tel:, custom
+                // app schemes) go to the system's registered handler,
+                // matching Safari.
+                @Dependency(URLOpener.self) var urlOpener
+                urlOpener.openInDefaultBrowser(url)
+            }
+        )
+        webView.navigationDelegate = navigationAdapter
+        self.retainedNavigationDelegateAdapter = navigationAdapter
+
         observers.append(webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.currentURL = webView.url
                 if let newURL = webView.url {
-                    self.urlFieldText = newURL.absoluteString
+                    self.replaceURLFieldText(with: newURL.absoluteString)
                 }
             }
         })
@@ -193,8 +243,57 @@ final class BrowserTabState {
     /// URL when the user typed something incomplete (no scheme, plain host).
     func loadFromURLField() {
         guard let url = Self.normalizedURL(from: urlFieldText) else { return }
-        urlFieldText = url.absoluteString
+        replaceURLFieldText(with: url.absoluteString)
+        navigationError = nil
         webView.load(URLRequest(url: url))
+    }
+
+    /// Replaces the URL field's text from code (as opposed to the user
+    /// typing into the bound `TextField`) and signals the content view to
+    /// discard any live text selection built for the old string.
+    private func replaceURLFieldText(with text: String) {
+        urlFieldText = text
+        urlFieldTextReplacements += 1
+    }
+
+    /// Retries the navigation that produced `navigationError`, preferring the
+    /// URL that actually failed (the web view may still be on the previous
+    /// page, so a plain `reload()` would re-render that instead).
+    func retryAfterNavigationError() {
+        guard let error = navigationError else { return }
+        navigationError = nil
+        if let url = error.failedURL {
+            webView.load(URLRequest(url: url))
+        } else {
+            webView.reload()
+        }
+    }
+
+    /// Wraps a `WKDownload` handed over by the navigation delegate in a
+    /// `BrowserDownload` (which becomes the download's delegate) and adds it
+    /// to the downloads bar.
+    private func register(_ download: WKDownload) {
+        @Dependency(BrowserDownloadsLocation.self) var downloadsLocation
+        downloads.append(
+            BrowserDownload(download: download, destinationDirectory: downloadsLocation.directory())
+        )
+    }
+
+    /// Removes a download row from the bar, cancelling the transfer first if
+    /// it is still running.
+    func removeDownload(_ download: BrowserDownload) {
+        download.cancel()
+        downloads.removeAll { $0.id == download.id }
+    }
+
+    /// Cancels every in-flight download, deleting their partial files.
+    /// Called when the owning tab (or its whole session) is torn down —
+    /// letting the state deallocate mid-transfer would orphan half-written
+    /// files with nothing left in the UI to manage them.
+    func cancelActiveDownloads() {
+        for download in downloads {
+            download.cancel()
+        }
     }
 
     /// Coerces user input into a usable URL. Adds an `https://` scheme when
@@ -256,8 +355,15 @@ struct BrowserTabContentView: View {
     /// `target="_blank"` link click or a `window.open()` call. The parent
     /// routes the URL into a fresh browser tab on the same session.
     let onRequestNewTab: (URL) -> Void
+    /// Called when this tab wants to close itself — the error page's Close
+    /// button. The parent owns the tab list, so the close (and its
+    /// return-to-origin selection behavior) happens there.
+    let onRequestClose: () -> Void
 
     @FocusState private var isURLFieldFocused: Bool
+    /// Selection of the URL field's text, so gaining focus can select the
+    /// whole URL (Safari-style) and typing replaces it.
+    @State private var urlSelection: TextSelection?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -268,11 +374,49 @@ struct BrowserTabContentView: View {
                     .progressViewStyle(.linear)
                     .frame(height: 2)
             }
-            BrowserWebViewRepresentable(webView: state.webView)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                BrowserWebViewRepresentable(webView: state.webView)
+                if let error = state.navigationError {
+                    BrowserNavigationErrorView(
+                        error: error,
+                        onRetry: { state.retryAfterNavigationError() },
+                        // Close the tab rather than just hiding the overlay —
+                        // the page underneath is usually blank (failed first
+                        // load), which would leave a dead-looking browser.
+                        onClose: { onRequestClose() }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if !state.downloads.isEmpty {
+                Divider()
+                BrowserDownloadsBar(downloads: state.downloads) { download in
+                    state.removeDownload(download)
+                }
+            }
         }
         .onChange(of: state.pageTitle) { _, newValue in
             onTitleChange(newValue)
+        }
+        .onChange(of: isURLFieldFocused) { _, focused in
+            // Select the whole URL when the field gains focus (Safari-style)
+            // so typing replaces it. Deferred a runloop turn: on click focus
+            // the caret placement for the click lands after the focus change,
+            // and selecting synchronously would be undone by it.
+            guard focused else { return }
+            Task { @MainActor in
+                guard isURLFieldFocused else { return }
+                let text = state.urlFieldText
+                guard !text.isEmpty else { return }
+                urlSelection = TextSelection(range: text.startIndex..<text.endIndex)
+            }
+        }
+        .onChange(of: state.urlFieldTextReplacements) {
+            // A programmatic rewrite of `urlFieldText` (redirect landing
+            // while the field is focused, failed-URL restore) invalidates a
+            // selection whose indices were built for the old string —
+            // applying stale indices to the new text crashes `TextField`.
+            urlSelection = nil
         }
         .onChange(of: state.currentURL) { _, newValue in
             if let newValue {
@@ -356,7 +500,7 @@ struct BrowserTabContentView: View {
             .help("Open in default browser")
             .accessibilityLabel("Open in default browser")
 
-            TextField("Enter URL", text: $state.urlFieldText)
+            TextField("Enter URL", text: $state.urlFieldText, selection: $urlSelection)
                 .textFieldStyle(.roundedBorder)
                 .focused($isURLFieldFocused)
                 .onSubmit {
@@ -411,6 +555,228 @@ final private class BrowserUIDelegateAdapter: NSObject, WKUIDelegate {
             }
         }
         return nil
+    }
+}
+
+// MARK: - Navigation Delegate
+
+/// A main-frame navigation failure, rendered by `BrowserNavigationErrorView`.
+struct BrowserNavigationError: Equatable {
+    let message: String
+    /// The URL that failed to load, recovered from the error's userInfo.
+    /// Kept separately from `WKWebView.url` because a failed *provisional*
+    /// navigation leaves the web view on its previous page.
+    let failedURL: URL?
+}
+
+/// Pure decision helpers for the navigation delegate, split out so they can
+/// be unit tested without a live `WKWebView`.
+enum BrowserNavigationPolicy {
+    /// WebKit's "frame load interrupted" code, reported when a committed
+    /// navigation is intentionally abandoned — most notably when a policy
+    /// decision converts the navigation into a download. Not exposed as a
+    /// Swift constant by the SDK.
+    private static let webKitFrameLoadInterrupted = 102
+
+    /// Errors that are part of normal operation and must not surface on the
+    /// error page: explicit stop/cancel (`NSURLErrorCancelled`, also fired
+    /// when a new navigation replaces an in-flight one) and download
+    /// handoffs (`WebKitErrorDomain` 102).
+    static func isIgnorableNavigationError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        if nsError.domain == "WebKitErrorDomain", nsError.code == webKitFrameLoadInterrupted {
+            return true
+        }
+        return false
+    }
+
+    /// Whether the server marked the response as a file to save rather than
+    /// a page to display (`Content-Disposition: attachment`). WebKit can
+    /// often render these inline (PDFs, images), but the server's intent —
+    /// and Safari's behavior — is to download them.
+    static func isAttachment(_ response: URLResponse) -> Bool {
+        guard
+            let httpResponse = response as? HTTPURLResponse,
+            let disposition = httpResponse.value(forHTTPHeaderField: "Content-Disposition")
+        else { return false }
+        return disposition
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+            .hasPrefix("attachment")
+    }
+}
+
+/// `WKNavigationDelegate` adapter owned by `BrowserTabState`. Four jobs:
+///
+/// - Convert download-shaped navigations into `WKDownload`s: anchor
+///   `download` attributes (`shouldPerformDownload`), responses WebKit can't
+///   display inline, and `Content-Disposition: attachment` responses.
+/// - Hand navigations to schemes WebKit can't load (`mailto:`, `tel:`, app
+///   schemes) to the system's registered handler instead of letting the
+///   provisional navigation fail onto the error page.
+/// - Report main-frame load failures so the tab can show an error page.
+/// - Clear a stale error when a new navigation starts.
+///
+/// Same isolation story as `BrowserUIDelegateAdapter`: WebKit calls these on
+/// the main thread, so `assumeIsolated` hops onto MainActor without a Task.
+@MainActor
+final private class BrowserNavigationDelegateAdapter: NSObject, WKNavigationDelegate {
+    private let onNavigationStart: () -> Void
+    private let onNavigationError: (BrowserNavigationError) -> Void
+    private let onDownloadStart: (WKDownload) -> Void
+    private let onExternalURL: (URL) -> Void
+
+    init(
+        onNavigationStart: @escaping () -> Void,
+        onNavigationError: @escaping (BrowserNavigationError) -> Void,
+        onDownloadStart: @escaping (WKDownload) -> Void,
+        onExternalURL: @escaping (URL) -> Void
+    ) {
+        self.onNavigationStart = onNavigationStart
+        self.onNavigationError = onNavigationError
+        self.onDownloadStart = onDownloadStart
+        self.onExternalURL = onExternalURL
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download)
+            } else if
+                let url = navigationAction.request.url,
+                let scheme = url.scheme,
+                !WKWebView.handlesURLScheme(scheme) {
+                decisionHandler(.cancel)
+                onExternalURL(url)
+            } else {
+                decisionHandler(.allow)
+            }
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            let shouldDownload = !navigationResponse.canShowMIMEType
+                || (
+                    navigationResponse.isForMainFrame
+                        && BrowserNavigationPolicy.isAttachment(navigationResponse.response)
+                )
+            decisionHandler(shouldDownload ? .download : .allow)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        navigationAction: WKNavigationAction,
+        didBecome download: WKDownload
+    ) {
+        MainActor.assumeIsolated {
+            onDownloadStart(download)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        navigationResponse: WKNavigationResponse,
+        didBecome download: WKDownload
+    ) {
+        MainActor.assumeIsolated {
+            onDownloadStart(download)
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            onNavigationStart()
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        MainActor.assumeIsolated {
+            handle(error)
+        }
+    }
+
+    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        MainActor.assumeIsolated {
+            handle(error)
+        }
+    }
+
+    private func handle(_ error: Error) {
+        guard !BrowserNavigationPolicy.isIgnorableNavigationError(error) else { return }
+        let nsError = error as NSError
+        let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+            ?? (nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String)
+            .flatMap(URL.init(string:))
+        onNavigationError(
+            BrowserNavigationError(message: error.localizedDescription, failedURL: failedURL)
+        )
+    }
+}
+
+/// Full-content error page shown over the web view when a navigation fails —
+/// DNS failures, refused connections, TLS errors, offline, etc. Opaque so the
+/// stale previous page doesn't bleed through. "Try Again" retries the failed
+/// URL; "Close" closes the tab (via `onClose`).
+struct BrowserNavigationErrorView: View {
+    let error: BrowserNavigationError
+    let onRetry: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Symbols.exclamationmarkTriangle.image
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+
+            Text("This page could not be loaded")
+                .font(.title3.weight(.semibold))
+
+            Text(error.message)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            if let url = error.failedURL {
+                Text(url.absoluteString)
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
+
+            HStack {
+                Button("Try Again", action: onRetry)
+                    .keyboardShortcut(.defaultAction)
+
+                // The unique help string doubles as the E2E hook: "Close"
+                // alone substring-collides with the tab strip's
+                // "Close browser tab: …" buttons and the window's own close
+                // button, but AXHelp is matched exactly.
+                Button("Close", action: onClose)
+                    .help("Close this browser tab")
+            }
+            .padding(.top, 4)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background()
     }
 }
 
@@ -617,7 +983,20 @@ private enum BrowserPreviewSample {
         state: BrowserTabState(initialURL: BrowserPreviewSample.inlineHTMLURL),
         onTitleChange: { _ in },
         onURLChange: { _ in },
-        onRequestNewTab: { _ in }
+        onRequestNewTab: { _ in },
+        onRequestClose: { }
+    )
+    .frame(width: 720, height: 480)
+}
+
+#Preview("BrowserNavigationErrorView") {
+    BrowserNavigationErrorView(
+        error: BrowserNavigationError(
+            message: "A server with the specified hostname could not be found.",
+            failedURL: URL(string: "https://nonexistent.example.invalid/some/path")
+        ),
+        onRetry: { },
+        onClose: { }
     )
     .frame(width: 720, height: 480)
 }

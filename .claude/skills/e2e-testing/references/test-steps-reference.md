@@ -291,6 +291,8 @@ Store a literal string value in the execution context for use in assertions or i
 ### `readFile(path: String, storeAs: String)`
 Read a file's contents and store them in the execution context. Path supports `${var}` interpolation. Returns an empty string if the file is missing (does not fail the step). Pair with `assertStoredContains` to verify file content.
 
+Browser-download scenarios read saved files from `${downloadsDirPath}` — instance 0's `--downloads-dir`, a temp directory the app wipes on launch. Downloads are redirected there in E2E runs because writing to the real `~/Downloads` triggers a TCC consent prompt the unattended app can't answer (see `BrowserDownloadsAndErrorsScenario`).
+
 ### `writeFile(path: String, content: String)`
 Write a file (creating intermediate directories), replacing any existing content. Both `path` and `content` support `${var}` interpolation. Use to seed on-disk fixtures the app reads — e.g. a plugin `settings.json` under `${gallagerStateRoot}/plugins/<id>/` *before* `launchMacApp`, or a fixture file the app re-reads on demand (`CodexGuardianSuppressionScenario` rewrites a codex `config.toml` mid-scenario to flip the guardian posture). `${gallagerStateRoot}` resolves to instance 0's `--gallager-state-root`, which the orchestrator cleans up after each scenario.
 
