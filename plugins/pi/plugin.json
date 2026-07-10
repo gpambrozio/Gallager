@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "pi",
+  "display_name": "pi",
+  "short_name": "pi",
+  "version": "0.1.0",
+  "process_names": ["pi"],
+  "runtime": "sidecar",
+  "sidecar": {
+    "executable": "bin/sidecar",
+    "default_config_root": "~/.pi/agent"
+  },
+  "otlp": {
+    "namespace": "pi",
+    "token_event": "api_request"
+  },
+  "ui": {
+    "color": "#8B5CF6"
+  },
+  "publisher": "Gustavo Ambrozio"
+}

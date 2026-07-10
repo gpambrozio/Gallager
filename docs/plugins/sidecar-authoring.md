@@ -425,7 +425,9 @@ Two steps:
 The `plugins/opencode/` bundled plugin is the reference consumer: its bridge
 (`opencode-bridge/gallager.js`) POSTs one record per completed assistant message
 with a plain `fetch`, and its sidecar bakes the endpoint into the bridge at
-`install` time (the agent process does not inherit Gallager's env). If your
+`install` time (the agent process does not inherit Gallager's env).
+`plugins/pi/` follows the same pattern from a pi extension
+(`pi-bridge/gallager.ts` — one record per assistant `message_end`). If your
 agent has a native OTLP exporter you can instead point that exporter at the
 endpoint — provided you can make its event names and attribute keys match your
 declaration.
