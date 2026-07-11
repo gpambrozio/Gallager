@@ -2,8 +2,9 @@ import Foundation
 
 /// E2E: the **Agents** settings tab (renamed from "Plugin") — a segmented
 /// per-agent settings form (command / auto-run / log level / per-agent
-/// close-pane), a per-folder install list with an Install/Uninstall button, and
-/// proof that the General tab no longer carries the old per-agent sections.
+/// close-pane / Claude-only "Verify completion with Apple Intelligence" — #644),
+/// a per-folder install list with an Install/Uninstall button, and proof that the
+/// General tab no longer carries the old per-agent sections.
 ///
 /// Install status is **deterministic** in e2e: under `--e2e-test`,
 /// `AppCoordinator` short-circuits `pluginInstallStatus`/`installPlugin`/
@@ -25,6 +26,11 @@ public enum AgentsSettingsTabScenario {
         TestStep.wait(seconds: 0.5)
 
         // 2. Claude Code form + default folder row offering Install (notInstalled).
+        //    The Claude-only Apple-Intelligence completion-check toggle (#644) is
+        //    present in the Behaviour section — assert it before screenshotting so
+        //    the form baseline actively proves the toggle ships (matched by its
+        //    accessibility identifier; title/AXPress is unreliable on SwiftUI toggles).
+        TestStep.macWaitForElementQuery(.identifier("agentDetectFalseStops-claude-code"), timeout: 5)
         TestStep.macScreenshot(label: "mac-agents-claude-notinstalled")
 
         // 3. Install the default folder → the row flips to the Installed state.
