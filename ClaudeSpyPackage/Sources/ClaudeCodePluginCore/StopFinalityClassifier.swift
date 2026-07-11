@@ -37,8 +37,21 @@ public struct StopFinalityClassifier: Sendable {
 }
 
 extension StopFinalityClassifier: DependencyKey {
+    /// E2E seam: scenarios embed this marker in `last_assistant_message` to get
+    /// a deterministic `.stillWaiting` verdict — CI has no Apple Intelligence,
+    /// so the real model can't drive the drop path there (mirrors the
+    /// `--e2e-test` stubs in `AppCoordinator`). Ignored outside e2e-test mode.
+    public static let e2eStillWaitingMarker = "[e2e-still-waiting]"
+
     public static var liveValue: StopFinalityClassifier {
-        StopFinalityClassifier(
+        if CommandLine.arguments.contains("--e2e-test") {
+            return StopFinalityClassifier(
+                classify: { message, _ in
+                    message.contains(e2eStillWaitingMarker) ? .stillWaiting : .final
+                }
+            )
+        }
+        return StopFinalityClassifier(
             classify: { message, pendingWork in
                 #if canImport(FoundationModels)
                     guard #available(macOS 26, iOS 26, *) else { return .final }

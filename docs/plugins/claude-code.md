@@ -61,7 +61,10 @@ waiting-for-background-work. Waiting → the frame is dropped (session stays
 "Working", no notification); the real final `Stop` drives the state later. The
 classifier fails open to "final" on every failure path (no SDK, pre-26 OS, model
 unavailable/disabled, generation error, empty message), so the worst case is the
-pre-#644 behavior — never a session stuck on "Working".
+pre-#644 behavior — never a session stuck on "Working". In `--e2e-test` mode the
+verdict is deterministic — a message containing `[e2e-still-waiting]` classifies as
+still-waiting (CI has no Apple Intelligence) — exercised by the "Paused Stop
+Ignored" scenario.
 
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,

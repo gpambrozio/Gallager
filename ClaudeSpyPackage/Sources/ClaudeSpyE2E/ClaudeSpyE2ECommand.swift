@@ -387,6 +387,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PluginOTLPTelemetryScenario.scenario,
         SubagentStopIgnoredScenario.scenario,
         BrowserDownloadsAndErrorsScenario.scenario,
+        PausedStopIgnoredScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
