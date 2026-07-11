@@ -190,6 +190,8 @@
         @State private var additionalConfigFolders: [String] = []
         // Codex-only: point Codex's OTLP export at the loopback receiver (#602).
         @State private var exportTelemetry = true
+        // Claude-only: verify Stop hooks with Apple Intelligence (#644).
+        @State private var detectFalseStops = true
 
         /// Whether the agent binary was not found
         @State private var agentUnavailable = false
@@ -252,6 +254,17 @@
                     Toggle("Close pane when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
                         .onChange(of: closePaneOnSessionEnd) { _, _ in persist() }
                         .accessibilityIdentifier("agentClosePane-\(pluginID)")
+
+                    // Claude-only: Claude can fire a Stop hook while a background task
+                    // or cron is still running. When on, on-device Apple Intelligence
+                    // judges whether the last message really reads as finished, and
+                    // keeps the session "working" if it doesn't (#644).
+                    if pluginID == "claude-code" {
+                        Toggle("Verify completion with Apple Intelligence", isOn: $detectFalseStops)
+                            .onChange(of: detectFalseStops) { _, _ in persist() }
+                            .accessibilityIdentifier("agentDetectFalseStops-\(pluginID)")
+                            .help(detectFalseStopsHelp)
+                    }
 
                     // Codex configures OTEL through its own config (it doesn't read
                     // `OTEL_*` env vars like Claude), so the export is opt-out-able
@@ -341,6 +354,16 @@
             coordinator.agentPluginList().first { $0.id == pluginID }?.name ?? pluginID
         }
 
+        /// Help text for the Apple-Intelligence completion-check toggle. Built here
+        /// (not inline) so the `Form` view body stays within the type-checker's reach.
+        private var detectFalseStopsHelp: String {
+            "When \(agentDisplayName) stops while a background task or cron is still "
+                + "running, use on-device Apple Intelligence to check whether the last "
+                + "message really reads as finished — and keep the session marked as "
+                + "working if it doesn't. Runs entirely on your Mac. Requires Apple "
+                + "Intelligence (macOS 26+); otherwise ignored."
+        }
+
         private var defaultConfigRoot: String {
             switch pluginID {
             case "claude-code": return "~/.claude"
@@ -368,6 +391,7 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = true
+                detectFalseStops = s.detectFalseStops
             case "codex":
                 let s = CodexSettings.decode(from: data)
                 commandPath = s.commandPath
@@ -376,6 +400,7 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = s.exportTelemetry
+                detectFalseStops = true
             default:
                 // Any non-bundled sidecar: generic settings that persist + reach
                 // the sidecar via apply_settings.
@@ -386,6 +411,7 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = true
+                detectFalseStops = true
             }
 
             // Check agent availability for the default root
@@ -418,7 +444,8 @@
                     autoRun: autoRun,
                     logLevel: logLevel,
                     additionalConfigFolders: additionalConfigFolders,
-                    closePaneOnSessionEnd: closePaneOnSessionEnd
+                    closePaneOnSessionEnd: closePaneOnSessionEnd,
+                    detectFalseStops: detectFalseStops
                 )
                 return (try? encoder.encode(s)) ?? Data()
             case "codex":

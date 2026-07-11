@@ -123,7 +123,9 @@ public protocol HookBodyProtocol: Codable, Sendable {
 public extension HookBodyProtocol {
     /// Most hook bodies don't carry a permission mode; the four that do override
     /// this with a stored property.
-    var permissionMode: String? { nil }
+    var permissionMode: String? {
+        nil
+    }
 }
 
 // MARK: - Common Hook Fields
@@ -636,6 +638,26 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
     }
 }
 
+/// A single entry in a Stop hook's `background_tasks` / `session_crons` array.
+///
+/// Presence-only: we only need to know whether the arrays are non-empty (the
+/// "session paused, waiting on background work" signal), never the element's
+/// fields. Decoding reads no keys, so an upstream schema change to these
+/// elements can never break Stop parsing (§13 defensive mandate).
+public struct StopBackgroundItem: Codable, Sendable, Equatable {
+    public init() { }
+    /// Reads no keys, so it decodes any element shape (object, or even a bare id)
+    /// without failing when Claude changes the element schema.
+    public init(from _: Decoder) throws { }
+    /// Re-encodes as an empty object so a forwarded Stop keeps its array counts —
+    /// the only thing we consume (`hasInFlightBackgroundWork`).
+    public func encode(to encoder: Encoder) throws {
+        _ = encoder.container(keyedBy: EmptyCodingKey.self)
+    }
+
+    private enum EmptyCodingKey: CodingKey { }
+}
+
 public struct StopBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
@@ -645,8 +667,20 @@ public struct StopBody: HookBodyProtocol {
     public let permissionMode: String?
     public let stopHookActive: Bool?
     public let lastAssistantMessage: String?
+    /// Background tasks still in flight when the agent stopped. Present (possibly
+    /// empty) when Claude's task registry is reachable; absent on older Claude.
+    public let backgroundTasks: [StopBackgroundItem]?
+    /// Scheduled crons that may still wake the session. See `backgroundTasks`.
+    public let sessionCrons: [StopBackgroundItem]?
     public var shouldSendToServer: Bool {
         true
+    }
+
+    /// True when the Stop payload reports any in-flight background task or
+    /// scheduled cron — the signal that this Stop *might* be premature (the agent
+    /// is paused waiting on background work rather than genuinely done).
+    public var hasInFlightBackgroundWork: Bool {
+        !(backgroundTasks?.isEmpty ?? true) || !(sessionCrons?.isEmpty ?? true)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -658,6 +692,8 @@ public struct StopBody: HookBodyProtocol {
         case permissionMode = "permission_mode"
         case stopHookActive = "stop_hook_active"
         case lastAssistantMessage = "last_assistant_message"
+        case backgroundTasks = "background_tasks"
+        case sessionCrons = "session_crons"
     }
 
     public init(
@@ -668,7 +704,9 @@ public struct StopBody: HookBodyProtocol {
         timestamp: String? = nil,
         permissionMode: String? = nil,
         stopHookActive: Bool? = nil,
-        lastAssistantMessage: String? = nil
+        lastAssistantMessage: String? = nil,
+        backgroundTasks: [StopBackgroundItem]? = nil,
+        sessionCrons: [StopBackgroundItem]? = nil
     ) {
         self.sessionId = sessionId
         self.transcriptPath = transcriptPath
@@ -678,6 +716,8 @@ public struct StopBody: HookBodyProtocol {
         self.permissionMode = permissionMode
         self.stopHookActive = stopHookActive
         self.lastAssistantMessage = lastAssistantMessage
+        self.backgroundTasks = backgroundTasks
+        self.sessionCrons = sessionCrons
     }
 }
 

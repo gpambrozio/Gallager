@@ -25,6 +25,7 @@ public actor ClaudeCodePluginCore: PluginCore {
     private let scanner = ClaudeCodeScanner()
 
     @Dependency(ProcessRunner.self) private var processRunner
+    @Dependency(StopCompletionClassifier.self) private var stopClassifier
 
     private var marketplaceSource = URL(fileURLWithPath: "/")
     private var command = "claude"
@@ -99,6 +100,26 @@ public actor ClaudeCodePluginCore: PluginCore {
             return nil
         }
 
+        // A Stop can arrive while a background task or cron is still in flight —
+        // Claude pauses waiting on it rather than genuinely finishing (issue #644).
+        // When that happens (and the setting is on), ask the on-device Apple
+        // Intelligence model whether the last message actually reads like a wrap-up.
+        // If it reads as "still waiting", suppress the premature Done and keep the
+        // session working; the real final Stop (empty arrays) marks it done later.
+        // Any unavailability/error → `.finished` → normal doneWorking (fail-safe).
+        if
+            settings.detectFalseStops,
+            case let .stop(stopBody) = action,
+            stopBody.hasInFlightBackgroundWork,
+            let message = stopBody.lastAssistantMessage,
+            await stopClassifier.classify(message: message) == .stillWaiting {
+            await log(
+                .info,
+                "Suppressing premature Stop — message reads as still waiting on background work"
+            )
+            return workingEvent(for: stopBody, frame: frame)
+        }
+
         guard
             let output = ClaudeCodeTranslator.translate(
                 action: action,
@@ -126,6 +147,24 @@ public actor ClaudeCodePluginCore: PluginCore {
         }
 
         return output.event
+    }
+
+    /// Builds a bare `.working` event for a suppressed premature Stop: keeps the
+    /// session's spinner without firing the "Done" notification or any app action.
+    /// Emitting `.working` explicitly (rather than dropping the frame) guarantees
+    /// the spinner regardless of the session's prior state. Mirrors the translator's
+    /// project-path resolution (harvested `CLAUDE_PROJECT_DIR`, else the payload cwd).
+    private func workingEvent(for body: StopBody, frame: IngressFrame) -> PluginEvent {
+        PluginEvent(
+            pluginID: frame.pluginID,
+            sessionID: body.sessionId,
+            state: .working,
+            notification: nil,
+            appActions: [],
+            tmuxPane: frame.tmuxPane,
+            projectPath: frame.context["CLAUDE_PROJECT_DIR"] ?? body.cwd,
+            permissionMode: body.permissionMode
+        )
     }
 
     // MARK: - Response delivery

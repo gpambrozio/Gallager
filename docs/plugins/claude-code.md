@@ -49,6 +49,25 @@ not always with an `agent_id` for the pre-parse drop to see. Only main-agent sto
 carry `last_assistant_message`, so a `Stop` without it is dropped entirely — applying
 one would flip a mid-task session to doneWorking and fire a bogus notification.
 
+**Premature-`Stop` suppression (Apple Intelligence, #644):** Claude can fire a `Stop`
+while it is merely *paused* waiting on a background task or scheduled cron — the Stop
+payload then carries a non-empty `background_tasks` / `session_crons` array
+([hook docs](https://code.claude.com/docs/en/hooks#stop-input); modeled on `StopBody`
+as presence-only `hasInFlightBackgroundWork`). Non-empty arrays alone don't prove
+Claude is still running (a task may just be pending termination), so when the
+per-agent **Verify completion with Apple Intelligence** setting is on
+(`detect_false_stops`, default on) and such a Stop arrives, `handleIngress` runs
+`last_assistant_message` through the on-device `StopCompletionClassifier`
+(Foundation Models). A `.stillWaiting` verdict makes it emit a bare `.working` event
+(no notification, no app action) so the spinner persists until Claude's *real* final
+Stop (empty arrays) marks it done; a `.finished` verdict falls through to the normal
+`.doneWorking`. The classifier returns `.finished` on any unavailability (macOS < 26,
+Apple Intelligence off/not downloaded, inference error), so the worst case is the
+pre-existing premature-Done — it can never strand a session. No safety-net timeout:
+if the verdict is wrong and no further Stop arrives, the pane-scan idle detection
+still recovers. The classify call runs inside the serial ingress FIFO, so a suppressed
+Stop briefly stalls other sessions' hook processing (acceptable given its rarity).
+
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,
   `nil` (no opinion) for neutral events.
