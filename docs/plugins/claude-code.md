@@ -49,6 +49,20 @@ not always with an `agent_id` for the pre-parse drop to see. Only main-agent sto
 carry `last_assistant_message`, so a `Stop` without it is dropped entirely — applying
 one would flip a mid-task session to doneWorking and fire a bogus notification.
 
+**Paused-`Stop` drop (issue #644):** Claude also fires `Stop` when it *parks* the
+turn waiting on background tasks / session crons to wake it back up. The payload's
+`background_tasks`/`session_crons` arrays alone can't distinguish a pause from a
+finish (a task pending termination lingers after a genuinely final message), so when
+the arrays still hold pending work (task status not terminal; cron not
+paused/disabled — `StopBody.pendingBackgroundWork`), `handleIngress` asks the
+`StopFinalityClassifier` — Apple Intelligence's on-device model (FoundationModels,
+macOS 26+) — whether `last_assistant_message` reads as final or as
+waiting-for-background-work. Waiting → the frame is dropped (session stays
+"Working", no notification); the real final `Stop` drives the state later. The
+classifier fails open to "final" on every failure path (no SDK, pre-26 OS, model
+unavailable/disabled, generation error, empty message), so the worst case is the
+pre-#644 behavior — never a session stuck on "Working".
+
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,
   `nil` (no opinion) for neutral events.

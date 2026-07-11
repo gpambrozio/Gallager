@@ -123,7 +123,9 @@ public protocol HookBodyProtocol: Codable, Sendable {
 public extension HookBodyProtocol {
     /// Most hook bodies don't carry a permission mode; the four that do override
     /// this with a stored property.
-    var permissionMode: String? { nil }
+    var permissionMode: String? {
+        nil
+    }
 }
 
 // MARK: - Common Hook Fields
@@ -636,6 +638,59 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
     }
 }
 
+/// A background task listed on a `Stop` hook payload. Fields are optional
+/// (defensive: a malformed element must not fail the whole `StopBody` decode
+/// and drop the stop entirely — spec §13).
+public struct StopBackgroundTask: Codable, Sendable, Equatable {
+    public let id: String?
+    public let name: String?
+    /// `running` / `paused` / `completed` / `failed` / `cancelled`.
+    public let status: String?
+
+    public init(id: String? = nil, name: String? = nil, status: String? = nil) {
+        self.id = id
+        self.name = name
+        self.status = status
+    }
+
+    /// Whether this task could still wake the session back up. Terminal states
+    /// linger in the array until cleanup, so only they are excluded; an unknown
+    /// status is treated as pending (the classifier fails open anyway).
+    public var isPending: Bool {
+        switch status {
+        case "completed",
+             "failed",
+             "cancelled": false
+        default: true
+        }
+    }
+}
+
+/// A scheduled cron task listed on a `Stop` hook payload. Same defensive
+/// optionality as `StopBackgroundTask`.
+public struct StopSessionCron: Codable, Sendable, Equatable {
+    public let id: String?
+    public let name: String?
+    /// `active` / `paused` / `disabled`.
+    public let status: String?
+
+    public init(id: String? = nil, name: String? = nil, status: String? = nil) {
+        self.id = id
+        self.name = name
+        self.status = status
+    }
+
+    /// Whether this cron could still wake the session back up (`paused` /
+    /// `disabled` crons never fire; unknown statuses count as pending).
+    public var isPending: Bool {
+        switch status {
+        case "paused",
+             "disabled": false
+        default: true
+        }
+    }
+}
+
 public struct StopBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
@@ -645,6 +700,12 @@ public struct StopBody: HookBodyProtocol {
     public let permissionMode: String?
     public let stopHookActive: Bool?
     public let lastAssistantMessage: String?
+    /// Background tasks in flight when the stop fired. Present when Claude's
+    /// task registry is reachable; empty when nothing is running (hooks docs,
+    /// "Stop input"). `nil` on older CLIs that don't send the field.
+    public let backgroundTasks: [StopBackgroundTask]?
+    /// Scheduled cron tasks for the session; same presence semantics.
+    public let sessionCrons: [StopSessionCron]?
     public var shouldSendToServer: Bool {
         true
     }
@@ -658,6 +719,8 @@ public struct StopBody: HookBodyProtocol {
         case permissionMode = "permission_mode"
         case stopHookActive = "stop_hook_active"
         case lastAssistantMessage = "last_assistant_message"
+        case backgroundTasks = "background_tasks"
+        case sessionCrons = "session_crons"
     }
 
     public init(
@@ -668,7 +731,9 @@ public struct StopBody: HookBodyProtocol {
         timestamp: String? = nil,
         permissionMode: String? = nil,
         stopHookActive: Bool? = nil,
-        lastAssistantMessage: String? = nil
+        lastAssistantMessage: String? = nil,
+        backgroundTasks: [StopBackgroundTask]? = nil,
+        sessionCrons: [StopSessionCron]? = nil
     ) {
         self.sessionId = sessionId
         self.transcriptPath = transcriptPath
@@ -678,6 +743,23 @@ public struct StopBody: HookBodyProtocol {
         self.permissionMode = permissionMode
         self.stopHookActive = stopHookActive
         self.lastAssistantMessage = lastAssistantMessage
+        self.backgroundTasks = backgroundTasks
+        self.sessionCrons = sessionCrons
+    }
+
+    /// Names of the background tasks / crons that could still wake this session
+    /// back up. Non-empty means the stop may be a pause, not a finish — but not
+    /// reliably (a task pending termination lingers after a genuinely final
+    /// message), which is why the finality classifier gets the last word
+    /// (issue #644). Falls back to the id when an element has no name.
+    public var pendingBackgroundWork: [String] {
+        let tasks = (backgroundTasks ?? [])
+            .filter(\.isPending)
+            .map { $0.name ?? $0.id ?? "background task" }
+        let crons = (sessionCrons ?? [])
+            .filter(\.isPending)
+            .map { $0.name ?? $0.id ?? "scheduled task" }
+        return tasks + crons
     }
 }
 

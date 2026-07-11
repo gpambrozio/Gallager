@@ -25,6 +25,7 @@ public actor ClaudeCodePluginCore: PluginCore {
     private let scanner = ClaudeCodeScanner()
 
     @Dependency(ProcessRunner.self) private var processRunner
+    @Dependency(StopFinalityClassifier.self) private var stopFinalityClassifier
 
     private var marketplaceSource = URL(fileURLWithPath: "/")
     private var command = "claude"
@@ -97,6 +98,33 @@ public actor ClaudeCodePluginCore: PluginCore {
         if case let .stop(stopBody) = action, stopBody.lastAssistantMessage == nil {
             await log(.debug, "Ignoring message-less Stop hook (subagent stop)")
             return nil
+        }
+
+        // Drop Stops that are a pause, not a finish (issue #644): Claude also
+        // fires Stop when it parks the turn waiting on background tasks / session
+        // crons to wake it back up. The payload's arrays alone can't distinguish
+        // the two (a task pending termination lingers after a genuinely final
+        // message), so when background work is in flight, Apple Intelligence gets
+        // the last word on whether the message reads as final. Dropping the frame
+        // keeps the session "Working" and suppresses the done notification; the
+        // real final Stop drives the state later. The classifier fails open to
+        // `.final`, so a wrong drop can't happen on classifier failure — and a
+        // wrong keep is just today's behavior.
+        if
+            case let .stop(stopBody) = action,
+            let message = stopBody.lastAssistantMessage,
+            !message.isEmpty {
+            let pendingWork = stopBody.pendingBackgroundWork
+            if
+                !pendingWork.isEmpty,
+                await stopFinalityClassifier.classify(message: message, pendingWork: pendingWork) == .stillWaiting {
+                await log(
+                    .info,
+                    "Ignoring Stop hook — background work in flight (\(pendingWork.joined(separator: ", "))) "
+                        + "and the last assistant message doesn't read as final"
+                )
+                return nil
+            }
         }
 
         guard
