@@ -29,3 +29,5 @@ Use the Task tool to work through these items before stopping:
     * If e2e scenarios are added or updated do not push any baseline screenshots created on this machine. Only ci runs must update baselines. Removing baselines that need to be updated is OK.
 8. Add #Preview to new views
     * If new SwiftUI views were created add a #Preview so that the user can use XCode to tweak its designs easily. If the view can have many states create a preview for every state.
+
+This machine — including CI VMs — has an active GUI session with Accessibility and Screen Recording pre-granted. Never skip e2e/recording based on assumed environment limits; the preflight in e2e-test.sh verifies them in seconds, so run it and only skip if it actually fails.
