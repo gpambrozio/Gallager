@@ -100,17 +100,19 @@ public actor ClaudeCodePluginCore: PluginCore {
             return nil
         }
 
-        // Drop Stops that are a pause, not a finish (issue #644): Claude also
-        // fires Stop when it parks the turn waiting on background tasks / session
-        // crons to wake it back up. The payload's arrays alone can't distinguish
-        // the two (a task pending termination lingers after a genuinely final
-        // message), so when background work is in flight, Apple Intelligence gets
-        // the last word on whether the message reads as final. Dropping the frame
-        // keeps the session "Working" and suppresses the done notification; the
-        // real final Stop drives the state later. The classifier fails open to
-        // `.final`, so a wrong drop can't happen on classifier failure — and a
-        // wrong keep is just today's behavior. Opt-out per agent via the
-        // `detect_false_stops` setting (Settings → Agents → Claude Code).
+        // Downgrade Stops that are a pause, not a finish (issue #644): Claude
+        // also fires Stop when it parks the turn waiting on background tasks /
+        // session crons to wake it back up. The payload's arrays alone can't
+        // distinguish the two (a task pending termination lingers after a
+        // genuinely final message), so when background work is in flight, Apple
+        // Intelligence gets the last word on whether the message reads as final.
+        // A still-waiting Stop keeps the session "Working" but still surfaces the
+        // interim summary as a notification — flavored "still working", not done;
+        // the real final Stop drives the done state (and its notification) later.
+        // The classifier fails open to `.final`, so a wrong downgrade can't
+        // happen on classifier failure — and a wrong keep is just today's
+        // behavior. Opt-out per agent via the `detect_false_stops` setting
+        // (Settings → Agents → Claude Code).
         if
             settings.detectFalseStops,
             case let .stop(stopBody) = action,
@@ -122,10 +124,11 @@ public actor ClaudeCodePluginCore: PluginCore {
                 await stopFinalityClassifier.classify(message: message, pendingWork: pendingWork) == .stillWaiting {
                 await log(
                     .info,
-                    "Ignoring Stop hook — background work in flight (\(pendingWork.joined(separator: ", "))) "
-                        + "and the last assistant message doesn't read as final"
+                    "Stop hook downgraded to still-working — background work in flight "
+                        + "(\(pendingWork.joined(separator: ", "))) and the last assistant "
+                        + "message doesn't read as final"
                 )
-                return nil
+                return stillWorkingEvent(for: stopBody, frame: frame, summary: message)
             }
         }
 
@@ -156,6 +159,41 @@ public actor ClaudeCodePluginCore: PluginCore {
         }
 
         return output.event
+    }
+
+    /// Builds the event for a Stop downgraded to still-working (issue #644):
+    /// the session keeps its spinner (`.working` emitted explicitly, so the
+    /// state is guaranteed regardless of what preceded it) while the user still
+    /// gets the turn's summary as a notification — flavored as an interim
+    /// update, not a finish. No app actions: a pause must not trigger anything
+    /// a real finish can (pane close, markdown-open suggestions). The copy
+    /// mirrors the translator's Stop notification (project-name prefix, 256-char
+    /// truncation) so the two read as siblings.
+    private func stillWorkingEvent(
+        for body: StopBody,
+        frame: IngressFrame,
+        summary: String
+    ) -> PluginEvent {
+        let projectPath = frame.context["CLAUDE_PROJECT_DIR"] ?? body.cwd
+        let projectName = projectPath.flatMap { path in
+            path.isEmpty ? nil : URL(fileURLWithPath: path).lastPathComponent
+        } ?? ClaudeCodeTranslator.agentDisplayName
+        let truncated = summary.count > 256
+            ? String(summary.prefix(256)) + "..."
+            : summary
+        return PluginEvent(
+            pluginID: frame.pluginID,
+            sessionID: body.sessionId,
+            state: .working,
+            notification: NotificationSpec(
+                title: "Still Working",
+                body: "\(projectName): \(truncated)"
+            ),
+            appActions: [],
+            tmuxPane: frame.tmuxPane,
+            projectPath: projectPath,
+            permissionMode: body.permissionMode
+        )
     }
 
     // MARK: - Response delivery

@@ -360,9 +360,10 @@
         private var detectFalseStopsHelp: String {
             "When \(agentDisplayName) stops while a background task or cron is still "
                 + "pending, use on-device Apple Intelligence to check whether the last "
-                + "message really reads as finished — and keep the session marked as "
-                + "working if it doesn't. Runs entirely on your Mac. Requires Apple "
-                + "Intelligence (macOS 26+); otherwise ignored."
+                + "message really reads as finished. If it doesn't, the session stays "
+                + "marked as working and the summary arrives as a \"Still Working\" "
+                + "notification instead of a done one. Runs entirely on your Mac. "
+                + "Requires Apple Intelligence (macOS 26+); otherwise ignored."
         }
 
         private var defaultConfigRoot: String {

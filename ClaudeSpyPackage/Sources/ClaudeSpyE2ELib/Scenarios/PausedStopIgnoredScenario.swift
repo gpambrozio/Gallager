@@ -2,7 +2,9 @@ import Foundation
 
 /// E2E scenario: a `Stop` hook that fires while background tasks are still in
 /// flight — and whose message reads as "waiting", per the finality classifier —
-/// must not flip the session to "Done" (issue #644).
+/// must not flip the session to "Done" (issue #644). It is *downgraded*: the
+/// session keeps "Working" and the turn's summary still surfaces as a
+/// "Still Working" notification instead of a done one.
 ///
 /// Claude Code fires `Stop` when it *parks* a turn waiting on background tasks
 /// / session crons, not only when it finishes. The payload's `background_tasks`
@@ -16,11 +18,13 @@ import Foundation
 /// 1. A tmux pane is bound to a Claude session (`SessionStart`) and put to
 ///    work (`UserPromptSubmit` → "Working").
 /// 2. A `Stop` with a running background task and a waiting-sounding message
-///    arrives — the session must STAY "Working". Without the fix this phase
-///    shows "Done" (and fires a premature done notification).
+///    arrives — a "Still Working" notification carries the summary and the
+///    session STAYS "Working". Without the fix this phase shows "Done" (and
+///    fires a premature done notification).
 /// 3. A `Stop` with the same running background task but a final-sounding
-///    message arrives — the session goes to "Done", proving lingering
-///    background work can't wedge a genuinely finished session on "Working".
+///    message arrives — the session goes to "Done" with the normal
+///    "Session Idle" notification, proving lingering background work can't
+///    wedge a genuinely finished session on "Working".
 public enum PausedStopIgnoredScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Paused Stop Ignored",
@@ -63,8 +67,9 @@ public enum PausedStopIgnoredScenario {
         TestStep.macScreenshot(label: "mac-working")
 
         // 4. THE PAUSE — a Stop with a running background task and a message the
-        //    classifier reads as still-waiting. It must be dropped, leaving the
-        //    session "Working".
+        //    classifier reads as still-waiting. It must be downgraded: the
+        //    session stays "Working" while the summary rides a "Still Working"
+        //    notification (not the done copy).
         TestStep.macSendHookEvent(
             json: """
             {
@@ -87,11 +92,18 @@ public enum PausedStopIgnoredScenario {
             tmuxPane: "${paneId}",
             projectPath: "/Users/test/PausedStopProject"
         )
-        // Deliberate fixed wait: a *dropped* frame produces no observable
-        // signal, so give the ingress pipeline time to have applied the state
-        // flip if it were (wrongly) going to. Only then assert the row still
-        // says "Working" — with one session, "Working" present ⇒ not "Done".
-        TestStep.wait(seconds: 3)
+        // The downgrade is observable: the "Still Working" notification lands in
+        // the e2e notification log once the frame is fully processed (the
+        // dispatcher applies the state BEFORE the notification sink fires), so
+        // waiting for it proves the working state was re-applied — only then
+        // assert the row still says "Working". With one session, "Working"
+        // present ⇒ not "Done".
+        TestStep.waitForFileContains(
+            path: "${notificationLogPath}",
+            substring: "Still Working|PausedStopProject: [e2e-still-waiting] The build is running",
+            storeAs: "stillWorkingNotification",
+            timeout: 10
+        )
         TestStep.macWaitForElement(titled: "Working", timeout: 5)
         TestStep.macScreenshot(label: "mac-still-working-after-paused-stop")
 
@@ -121,6 +133,14 @@ public enum PausedStopIgnoredScenario {
             projectPath: "/Users/test/PausedStopProject"
         )
         TestStep.macWaitForElement(titled: "Done", timeout: 10)
+        // The genuine finish keeps its normal done notification ("Session
+        // Idle" title) — the downgrade path must not have eaten it.
+        TestStep.waitForFileContains(
+            path: "${notificationLogPath}",
+            substring: "Session Idle|PausedStopProject: The build succeeded",
+            storeAs: "doneNotification",
+            timeout: 10
+        )
         TestStep.macScreenshot(label: "mac-done-after-final-stop")
     }
 }

@@ -1,3 +1,4 @@
+import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 import GallagerPluginProtocol
@@ -8,7 +9,9 @@ import Testing
 /// are in flight may be a pause (Claude parked the turn waiting for the work to
 /// wake it back up), not a finish. The core asks the `StopFinalityClassifier`
 /// (Apple Intelligence live, overridden here) whether the last assistant
-/// message reads as final, and drops the frame when it doesn't.
+/// message reads as final, and downgrades the stop to a still-working event
+/// (spinner kept, summary notification flavored "Still Working") when it
+/// doesn't.
 @Suite("Stop finality (issue #644)")
 struct StopFinalityTests {
     // MARK: - Helpers
@@ -257,8 +260,8 @@ struct StopFinalityTests {
 
     // MARK: - handleIngress gating
 
-    @Test("a paused Stop (pending work, message not final) is dropped")
-    func pausedStopDropped() async throws {
+    @Test("a paused Stop (pending work, message not final) is downgraded to still-working")
+    func pausedStopDowngraded() async throws {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
@@ -272,8 +275,18 @@ struct StopFinalityTests {
             return await core.handleIngress(frame(pausedStop))
         }
 
-        // Dropped: no state change, no notification — the session stays Working.
-        #expect(event == nil)
+        // Downgraded: the session keeps its Working spinner, the summary still
+        // rides a notification — flavored still-working, not done — and no app
+        // actions fire (a pause must not close panes or suggest opens).
+        let downgraded = try #require(event)
+        #expect(downgraded.state == .working)
+        #expect(downgraded.notification == NotificationSpec(
+            title: "Still Working",
+            body: "MyProject: The build is running; I'll report back when it finishes."
+        ))
+        #expect(downgraded.appActions.isEmpty)
+        #expect(downgraded.tmuxPane == "%1")
+        #expect(downgraded.projectPath == "/Users/test/MyProject")
 
         // The classifier saw the message and only the still-pending work (the
         // lingering completed task is filtered out).
@@ -281,6 +294,33 @@ struct StopFinalityTests {
         #expect(calls.count == 1)
         #expect(calls.first?.message == "The build is running; I'll report back when it finishes.")
         #expect(calls.first?.pendingWork == ["Build service"])
+    }
+
+    @Test("the still-working notification truncates long summaries")
+    func stillWorkingNotificationTruncates() async throws {
+        let longSummary = "Waiting on the build. " + String(repeating: "x", count: 300)
+        let json = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": "\(longSummary)",
+            "background_tasks": [
+                {"id": "t1", "type": "shell", "status": "running", "description": "build"}
+            ]
+        }
+        """
+        let event = try await withDependencies {
+            $0[StopFinalityClassifier.self] = StopFinalityClassifier(
+                classify: { _, _ in .stillWaiting }
+            )
+        } operation: {
+            let core = try await makeCore()
+            return await core.handleIngress(frame(json))
+        }
+
+        // Mirrors the translator's done-notification copy: 256 chars + ellipsis.
+        let body = try #require(event?.notification?.body)
+        #expect(body == "MyProject: " + longSummary.prefix(256) + "...")
     }
 
     @Test("a final-sounding Stop is applied even with pending work")
@@ -324,7 +364,9 @@ struct StopFinalityTests {
             """))
         }
 
-        #expect(event == nil)
+        let downgraded = try #require(event)
+        #expect(downgraded.state == .working)
+        #expect(downgraded.notification?.title == "Still Working")
         let calls = await recorder.calls
         #expect(calls.count == 1)
         #expect(calls.first?.pendingWork == ["check the build"])

@@ -59,8 +59,11 @@ listed cron counts, since cron entries carry no status field
 (`StopBody.pendingBackgroundWork`) — `handleIngress` asks the
 `StopFinalityClassifier` — Apple Intelligence's on-device model (FoundationModels,
 macOS 26+) — whether `last_assistant_message` reads as final or as
-waiting-for-background-work. Waiting → the frame is dropped (session stays
-"Working", no notification); the real final `Stop` drives the state later. The two
+waiting-for-background-work. Waiting → the stop is *downgraded*: an explicit
+`.working` event keeps the spinner and the turn's summary still surfaces as a
+notification titled "Still Working" (same project-prefix/256-char copy as the done
+notification, no app actions — a pause can't close panes or suggest opens); the
+real final `Stop` drives the done state and its normal notification later. The two
 arrays decode leniently (a malformed element, field, or non-array value degrades to
 `nil` instead of failing the whole `StopBody` decode), so no payload shape can drop
 a Stop outright. The classifier fails open to "final" on every *failure* path (no

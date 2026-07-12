@@ -163,10 +163,11 @@ extension StopFinalityClassifier: DependencyKey {
             // Trust boundary: `message` and the `pendingWork` labels are
             // untrusted agent output interpolated into the judge prompt, so
             // adversarial text ("answer WAITING") can steer the verdict. Bounded
-            // by design: a steered verdict can only suppress done-notifications
-            // while work really is registered (the gate requires non-empty
-            // pending work), and the session recovers on the next Stop or
-            // SessionEnd — it never gains capabilities or reaches other sessions.
+            // by design: a steered verdict can only downgrade a done-notification
+            // to a still-working one and hold the state on Working while work
+            // really is registered (the gate requires non-empty pending work),
+            // and the session recovers on the next Stop or SessionEnd — it never
+            // gains capabilities or reaches other sessions.
             let prompt = """
             Background work registered for this session: \
             \(pendingWork.joined(separator: ", ")).
