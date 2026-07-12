@@ -192,6 +192,9 @@
         @State private var exportTelemetry = true
         // Claude-only: verify Stop hooks with Apple Intelligence (#644).
         @State private var detectFalseStops = true
+        /// Whether the "what does this do?" popover for the completion-check
+        /// toggle is showing.
+        @State private var showDetectFalseStopsInfo = false
 
         /// Whether the agent binary was not found
         @State private var agentUnavailable = false
@@ -259,11 +262,42 @@
                     // task or cron is still pending. When on, on-device Apple
                     // Intelligence judges whether the last message really reads as
                     // finished, and keeps the session "working" if it doesn't (#644).
+                    // The ⓘ button (right of the label, not the switch) opens a
+                    // popover with the full explanation; the hover tooltip carries
+                    // the same copy for mouse users. Explicit row layout — text +
+                    // button siblings, switch pushed trailing via `labelsHidden` —
+                    // so the button's clicks can't be swallowed by a toggle label.
                     if pluginID == "claude-code" {
-                        Toggle("Verify completion with Apple Intelligence", isOn: $detectFalseStops)
-                            .onChange(of: detectFalseStops) { _, _ in persist() }
-                            .accessibilityIdentifier("agentDetectFalseStops-\(pluginID)")
-                            .help(detectFalseStopsHelp)
+                        HStack(spacing: 6) {
+                            Text("Verify completion with Apple Intelligence")
+                            Button {
+                                showDetectFalseStopsInfo = true
+                            } label: {
+                                Symbols.infoCircle.image
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("About completion verification")
+                            .accessibilityIdentifier("agentDetectFalseStopsInfo-\(pluginID)")
+                            .popover(isPresented: $showDetectFalseStopsInfo, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Verify completion with Apple Intelligence")
+                                        .font(.headline)
+                                    Text(detectFalseStopsHelp)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(16)
+                                .frame(width: 340)
+                            }
+                            Spacer()
+                            Toggle("Verify completion with Apple Intelligence", isOn: $detectFalseStops)
+                                .labelsHidden()
+                                .onChange(of: detectFalseStops) { _, _ in persist() }
+                                .accessibilityIdentifier("agentDetectFalseStops-\(pluginID)")
+                                .help(detectFalseStopsHelp)
+                        }
                     }
 
                     // Codex configures OTEL through its own config (it doesn't read

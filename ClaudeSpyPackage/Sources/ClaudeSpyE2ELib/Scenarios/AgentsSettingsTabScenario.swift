@@ -32,6 +32,17 @@ public enum AgentsSettingsTabScenario {
         TestStep.macWaitForElementQuery(.identifier("agentDetectFalseStops-claude-code"), timeout: 5)
         TestStep.macScreenshot(label: "mac-agents-claude-notinstalled")
 
+        // 2b. The toggle's ⓘ button opens an explanation popover. Assert on a
+        //     body-only phrase ("Runs entirely on your Mac") — the headline
+        //     duplicates the toggle's label, so waiting on it would pass even
+        //     with the popover closed (title waits match siblings too).
+        TestStep.macClickButton(titled: "About completion verification")
+        TestStep.macWaitForElement(titled: "Runs entirely on your Mac", timeout: 5)
+        TestStep.wait(seconds: 0.5)
+        TestStep.macScreenshot(label: "mac-agents-claude-info-popover")
+        TestStep.macPressKey(.escape)
+        TestStep.macWaitForElementToDisappear(titled: "Runs entirely on your Mac", timeout: 5)
+
         // 3. Install the default folder → the row flips to the Installed state.
         TestStep.macClickButton(titled: "Install")
         TestStep.macWaitForElement(titled: "Uninstall", timeout: 5)
