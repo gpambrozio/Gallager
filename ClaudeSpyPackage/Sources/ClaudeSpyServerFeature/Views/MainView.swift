@@ -517,15 +517,23 @@ public struct MainView: View {
         }
     }
 
+    /// The local session that owns `selectedWindow`, or nil when the current
+    /// selection is remote or empty. Centralizes the "find the session for the
+    /// selected window" lookup shared by the navigation title, ⌘` / ⌘⇧`
+    /// session cycling, and ⌘⇧F content search so they all resolve it the same
+    /// way.
+    private func currentLocalSession() -> LocalTmuxSession? {
+        guard let window = selectedWindow else { return nil }
+        return tmuxService.sessions.first { $0.windows.contains { $0.id == window.id } }
+    }
+
     /// Primary label for the currently selected session, used as the navigation title.
     /// Returns nil when nothing is selected so the default fallback can be shown.
     private var selectedSessionTitle: String? {
         if let remote = selectedRemoteSession {
             return remoteSessionPrimaryLabel(hostId: remote.hostId, sessionName: remote.sessionName)
         }
-        if
-            let window = selectedWindow,
-            let session = tmuxService.sessions.first(where: { $0.windows.contains { $0.id == window.id } }) {
+        if let session = currentLocalSession() {
             return localSessionSortData(session).primaryLabel
         }
         return nil
@@ -2674,6 +2682,13 @@ public struct MainView: View {
 
         if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
             for host in settings.pairedHosts {
+                // Mirror RemoteHostSidebarSection: a version-mismatched host
+                // renders a placeholder row instead of its session buttons, yet
+                // the store can still hold sessions cached from before the
+                // mismatch. Skip them so cycling never lands on a session that
+                // isn't actually on screen.
+                let connection = coordinator.viewerConnectionManager?.connection(for: host.id)
+                if connection?.versionMismatch != nil { continue }
                 let sorted = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
                     SessionSortData.forRemoteSession(
                         session,
@@ -2701,10 +2716,7 @@ public struct MainView: View {
                 return false
             }
         }
-        if
-            let window = selectedWindow,
-            let session = tmuxService.sessions
-                .first(where: { $0.windows.contains { $0.id == window.id } }) {
+        if let session = currentLocalSession() {
             return entries.firstIndex { entry in
                 if case let .local(localSession) = entry {
                     return localSession.sessionName == session.sessionName
@@ -2732,6 +2744,10 @@ public struct MainView: View {
         switch entries[nextIndex] {
         case let .local(session):
             selectLocalSession(session)
+            // Keep the newly-selected row visible: with many sessions the
+            // pick can land outside the sidebar's scroll region. Both local
+            // and remote rows are keyed by `sessionName` in the ScrollViewReader.
+            scrollToWindowId = session.sessionName
         case let .remote(hostId, hostName, session):
             selectedRemoteSession = RemoteSessionSelection(
                 hostId: hostId,
@@ -2740,6 +2756,7 @@ public struct MainView: View {
             )
             selectedRemoteWindowId = nil
             selectedWindow = nil
+            scrollToWindowId = session.sessionName
         }
     }
 
@@ -2750,9 +2767,7 @@ public struct MainView: View {
     private func handleOpenContentSearch() {
         guard selectedRemoteSession == nil else { return }
         guard let window = selectedWindow else { return }
-        guard
-            let session = tmuxService.sessions
-                .first(where: { $0.windows.contains(where: { $0.id == window.id }) }) else { return }
+        guard let session = currentLocalSession() else { return }
 
         fileBrowserActiveWindowIds.insert(window.id)
         gitActiveWindowIds.remove(window.id)
