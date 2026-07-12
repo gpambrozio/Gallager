@@ -18,6 +18,13 @@ import Foundation
 /// presses. The symmetric restore leaves the *persisted* font size untouched
 /// so later scenarios' baselines are unaffected.
 ///
+/// The font-demo session (`hkalpha`) is deliberately filled with many lines of
+/// text so a font-size change moves a large fraction of the on-screen pixels.
+/// That keeps the baseline comparison sensitive: if the ⌘+/⌘- hotkeys silently
+/// stopped changing the font, the "increased" shot would look like the default
+/// one and the comparison would fail loudly. A single line of output would only
+/// nudge a handful of pixels and could slip under the comparison tolerance.
+///
 /// Note: `⌘+` is physically `⌘⇧=` (the `=`/`+` key), matching how the menu item
 /// is bound and displayed; the driver's US key table gained `` ` `` (backtick,
 /// key code 50) so this scenario can press it.
@@ -35,7 +42,13 @@ public enum SessionAndFontHotkeysScenario {
         TestStep.tmuxCreateSession(name: "hkalpha", width: 100, height: 30)
         TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkalpha:", "@gallager-description", "Alpha"])
         Shortcut.tmuxClearAndSetPrompt(target: "hkalpha:0")
-        Shortcut.tmuxRunCommand(target: "hkalpha:0", command: "echo SESSION-ALPHA")
+        // Fill hkalpha (the font-demo session) with many deterministic lines so a
+        // font-size change repaints a large fraction of the pane — see the type
+        // doc. Fixed line count + fixed text keeps the output stable across runs.
+        Shortcut.tmuxRunCommand(
+            target: "hkalpha:0",
+            command: #"for i in $(seq 1 15); do echo "SESSION-ALPHA line $i: the quick brown fox jumps over"; done"#
+        )
 
         TestStep.tmuxCreateSession(name: "hkbeta", width: 100, height: 30)
         TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkbeta:", "@gallager-description", "Beta"])
