@@ -368,6 +368,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PermissionSuggestionDenyScenario.scenario,
         AgentsSettingsTabScenario.scenario,
         TabCycleReorderScenario.scenario,
+        SessionAndFontHotkeysScenario.scenario,
         BadgeClearsOnAgentResumeScenario.scenario,
         GitTabFileActionsScenario.scenario,
         ComposerBandRecaptureScenario.scenario,

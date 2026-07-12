@@ -502,6 +502,7 @@ enum MacOSAccessibility {
         case "]": return 30
         case "-": return 27
         case "=": return 24
+        case "`": return 50
         case "/": return 44
         case ",": return 43
         case ".": return 47
