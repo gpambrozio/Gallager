@@ -196,7 +196,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -268,7 +269,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -311,7 +313,8 @@ struct StopFinalityTests {
         """
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { _, _ in .stillWaiting }
+                classify: { _, _ in .stillWaiting },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -327,7 +330,8 @@ struct StopFinalityTests {
     func finalStopKept() async throws {
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { _, _ in .final }
+                classify: { _, _ in .final },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -347,7 +351,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -394,7 +399,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -426,7 +432,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore()
@@ -445,7 +452,8 @@ struct StopFinalityTests {
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
                     return .stillWaiting
-                }
+                },
+                availability: { .available }
             )
         } operation: {
             let core = try await makeCore(settings: Data(#"{"detect_false_stops": false}"#.utf8))
@@ -456,6 +464,28 @@ struct StopFinalityTests {
             summary: "The build is running; I'll report back when it finishes."
         ))
         #expect(await recorder.calls.isEmpty)
+    }
+
+    // MARK: - Availability presentation
+
+    @Test("only permanent unavailability disables the settings toggle")
+    func availabilityDisablesToggle() {
+        #expect(StopFinalityAvailability.available.disablesToggle == false)
+        // Transient: the stored setting stays editable while the model arrives.
+        #expect(StopFinalityAvailability.modelDownloading.disablesToggle == false)
+        #expect(StopFinalityAvailability.unsupported.disablesToggle == true)
+        #expect(StopFinalityAvailability.appleIntelligenceDisabled.disablesToggle == true)
+    }
+
+    @Test("every unavailable state explains itself in the settings caption")
+    func availabilityCaptions() {
+        #expect(StopFinalityAvailability.available.settingsCaption == nil)
+        #expect(StopFinalityAvailability.unsupported.settingsCaption?.contains("macOS 26+") == true)
+        #expect(
+            StopFinalityAvailability.appleIntelligenceDisabled.settingsCaption?
+                .contains("System Settings") == true
+        )
+        #expect(StopFinalityAvailability.modelDownloading.settingsCaption?.contains("downloading") == true)
     }
 
     // MARK: - Deadline race

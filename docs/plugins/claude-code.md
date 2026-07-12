@@ -73,7 +73,13 @@ ingress FIFO) — classifier failure can never wedge a session on "Working". The
 residual risk is a systematic *misclassification* of final messages while work stays
 registered (e.g. an always-firing cron), which would hold the session on "Working"
 until the next Stop or SessionEnd; the per-agent toggle (Settings → Agents → Claude
-Code → "Verify completion with Apple Intelligence") turns the check off entirely. In `--e2e-test` mode the
+Code → "Verify completion with Apple Intelligence") turns the check off entirely.
+The settings row probes `StopFinalityClassifier.availability` on load and renders
+the toggle's real state (`StopFinalityAvailability`): disabled + caption when the
+check is permanently inert on this Mac (pre-26 OS / device not eligible, or Apple
+Intelligence switched off), enabled + caption while the model is still downloading
+(transient), plain when available. Under `--e2e-test` the probe always reports
+available so the form renders identically on every CI machine. In `--e2e-test` mode the
 verdict is deterministic — a message containing `[e2e-still-waiting]` classifies as
 still-waiting (CI has no Apple Intelligence) — exercised by the "Paused Stop
 Ignored" scenario.

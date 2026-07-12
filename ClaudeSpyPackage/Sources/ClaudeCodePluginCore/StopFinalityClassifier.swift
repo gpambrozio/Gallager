@@ -18,6 +18,52 @@ public enum StopFinalityVerdict: Sendable, Equatable {
     case stillWaiting
 }
 
+// MARK: - StopFinalityAvailability
+
+/// Whether the on-device model can classify right now — drives how the
+/// settings row presents the `detect_false_stops` toggle. The classifier
+/// itself never needs this (it fails open internally); this exists so the UI
+/// can tell the user *why* the check is inert instead of showing a live-looking
+/// toggle that silently does nothing.
+public enum StopFinalityAvailability: Sendable, Equatable {
+    /// The model is ready; classification runs.
+    case available
+    /// Permanent on this machine: pre-26 OS, no FoundationModels SDK, or the
+    /// device is not eligible for Apple Intelligence.
+    case unsupported
+    /// Apple Intelligence is switched off in System Settings.
+    case appleIntelligenceDisabled
+    /// The model is still downloading — transient; checks resume when ready.
+    case modelDownloading
+
+    /// Whether the settings toggle should render disabled. `modelDownloading`
+    /// keeps it enabled: the state is transient and the stored setting should
+    /// stay editable while the model arrives.
+    public var disablesToggle: Bool {
+        switch self {
+        case .unsupported,
+             .appleIntelligenceDisabled: true
+        case .available,
+             .modelDownloading: false
+        }
+    }
+
+    /// Settings-row caption explaining why the check is inert; `nil` when
+    /// nothing needs explaining.
+    public var settingsCaption: String? {
+        switch self {
+        case .available:
+            nil
+        case .unsupported:
+            "Requires Apple Intelligence (macOS 26+), which isn't available on this Mac."
+        case .appleIntelligenceDisabled:
+            "Turn on Apple Intelligence in System Settings to enable this check."
+        case .modelDownloading:
+            "The Apple Intelligence model is still downloading — checks resume once it's ready."
+        }
+    }
+}
+
 // MARK: - StopFinalityClassifier
 
 /// Judges whether a `Stop` hook's last assistant message is a real finish or a
@@ -34,6 +80,10 @@ public struct StopFinalityClassifier: Sendable {
     /// Classifies `message` (the stop's `last_assistant_message`), given the
     /// user-facing names of the background tasks / crons still in flight.
     public var classify: @Sendable (_ message: String, _ pendingWork: [String]) async -> StopFinalityVerdict = { _, _ in .final }
+    /// Probes whether the on-device model could classify right now. Purely
+    /// informational — `classify` re-guards internally — so the settings UI can
+    /// render the toggle's real state.
+    public var availability: @Sendable () -> StopFinalityAvailability = { .unsupported }
 }
 
 extension StopFinalityClassifier: DependencyKey {
@@ -48,7 +98,11 @@ extension StopFinalityClassifier: DependencyKey {
             return StopFinalityClassifier(
                 classify: { message, _ in
                     message.contains(e2eStillWaitingMarker) ? .stillWaiting : .final
-                }
+                },
+                // Deterministic in e2e: CI machines vary in OS / Apple
+                // Intelligence state, and the settings form must render the
+                // same everywhere (toggle enabled, no caption).
+                availability: { .available }
             )
         }
         return StopFinalityClassifier(
@@ -65,6 +119,28 @@ extension StopFinalityClassifier: DependencyKey {
                     }
                 #else
                     return .final
+                #endif
+            },
+            availability: {
+                #if canImport(FoundationModels)
+                    guard #available(macOS 26, iOS 26, *) else { return .unsupported }
+                    switch SystemLanguageModel.default.availability {
+                    case .available:
+                        return .available
+                    case let .unavailable(reason):
+                        switch reason {
+                        case .appleIntelligenceNotEnabled:
+                            return .appleIntelligenceDisabled
+                        case .modelNotReady:
+                            return .modelDownloading
+                        // deviceNotEligible + any reason added by a future SDK:
+                        // nothing the user can flip on this machine today.
+                        default:
+                            return .unsupported
+                        }
+                    }
+                #else
+                    return .unsupported
                 #endif
             }
         )
