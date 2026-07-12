@@ -23,14 +23,14 @@ struct StopFinalityTests {
         }
     }
 
-    private func makeCore() async throws -> ClaudeCodePluginCore {
+    private func makeCore(settings: Data = Data()) async throws -> ClaudeCodePluginCore {
         let core = ClaudeCodePluginCore()
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("gallager-cc-stop-finality-\(UUID().uuidString)"),
             appVersion: "1.0",
-            settings: Data(),
+            settings: settings,
             marketplaceSource: URL(fileURLWithPath: "/")
         )
         try await core.initialize(env, host: MockPluginHost())
@@ -45,6 +45,15 @@ struct StopFinalityTests {
         )
     }
 
+    private func stopBody(_ json: String) throws -> StopBody {
+        let action = try HookAction.from(jsonData: Data(json.utf8))
+        guard case let .stop(body) = action else {
+            Issue.record("expected .stop, got \(action)")
+            throw CancellationError()
+        }
+        return body
+    }
+
     /// A realistic Stop payload (hooks docs, "Stop input") with one running
     /// background task and one lingering completed one.
     private let pausedStop = """
@@ -55,17 +64,17 @@ struct StopFinalityTests {
         "background_tasks": [
             {
                 "id": "task-001",
+                "type": "workflow",
                 "name": "Build service",
                 "status": "running",
-                "created_at": "2024-01-15T10:30:00Z",
-                "last_updated_at": "2024-01-15T10:45:00Z"
+                "description": "Build the service and run smoke tests"
             },
             {
                 "id": "task-002",
-                "name": "Old lint run",
+                "type": "shell",
                 "status": "completed",
-                "created_at": "2024-01-15T10:00:00Z",
-                "last_updated_at": "2024-01-15T10:10:00Z"
+                "description": "swiftlint lint",
+                "command": "swiftlint lint"
             }
         ],
         "session_crons": []
@@ -76,7 +85,7 @@ struct StopFinalityTests {
 
     @Test("Stop decodes background_tasks and session_crons")
     func decodesBackgroundArrays() throws {
-        let json = """
+        let body = try stopBody("""
         {
             "hook_event_name": "Stop",
             "session_id": "sess-1",
@@ -84,90 +93,102 @@ struct StopFinalityTests {
             "background_tasks": [
                 {
                     "id": "task-001",
-                    "name": "Build service",
+                    "type": "shell",
                     "status": "running",
-                    "created_at": "2024-01-15T10:30:00Z",
-                    "last_updated_at": "2024-01-15T10:45:00Z"
+                    "description": "tail logs",
+                    "command": "tail -f /var/log/syslog"
                 }
             ],
             "session_crons": [
                 {
                     "id": "cron-001",
-                    "name": "Daily backup",
                     "schedule": "0 2 * * *",
-                    "last_run_at": null,
-                    "next_run_at": "2024-01-16T02:00:00Z",
-                    "status": "active",
-                    "created_at": "2024-01-10T14:20:00Z",
-                    "last_updated_at": "2024-01-15T02:00:00Z"
+                    "recurring": true,
+                    "prompt": "check the build"
                 }
             ]
         }
-        """
-        let action = try HookAction.from(jsonData: Data(json.utf8))
-        guard case let .stop(body) = action else {
-            Issue.record("expected .stop, got \(action)")
-            return
-        }
+        """)
         #expect(body.backgroundTasks == [
-            StopBackgroundTask(id: "task-001", name: "Build service", status: "running"),
+            StopBackgroundTask(id: "task-001", type: "shell", status: "running", description: "tail logs"),
         ])
         #expect(body.sessionCrons == [
-            StopSessionCron(id: "cron-001", name: "Daily backup", status: "active"),
+            StopSessionCron(id: "cron-001", schedule: "0 2 * * *", recurring: true, prompt: "check the build"),
         ])
     }
 
     @Test("a Stop without the arrays still decodes (older CLIs)")
     func decodesWithoutArrays() throws {
-        let json = """
+        let body = try stopBody("""
         {
             "hook_event_name": "Stop",
             "session_id": "sess-1",
             "last_assistant_message": "done"
         }
-        """
-        let action = try HookAction.from(jsonData: Data(json.utf8))
-        guard case let .stop(body) = action else {
-            Issue.record("expected .stop, got \(action)")
-            return
-        }
+        """)
         #expect(body.backgroundTasks == nil)
         #expect(body.sessionCrons == nil)
         #expect(body.pendingBackgroundWork.isEmpty)
     }
 
-    // MARK: - pendingBackgroundWork filtering
+    // MARK: - Lenient decoding (no payload shape may drop the Stop)
 
-    @Test("terminal tasks and paused/disabled crons are not pending")
-    func pendingFiltering() {
-        let body = StopBody(
-            sessionId: "s",
-            hookEventName: "Stop",
-            backgroundTasks: [
-                StopBackgroundTask(id: "t1", name: "Build", status: "running"),
-                StopBackgroundTask(id: "t2", name: "Paused agent", status: "paused"),
-                StopBackgroundTask(id: "t3", name: "Done", status: "completed"),
-                StopBackgroundTask(id: "t4", name: "Broken", status: "failed"),
-                StopBackgroundTask(id: "t5", name: "Killed", status: "cancelled"),
-                // Unknown status counts as pending — the classifier fails open.
-                StopBackgroundTask(id: "t6", name: nil, status: "someday-new-status"),
+    @Test("type-mismatched element fields degrade to nil, not a decode failure")
+    func lenientElementFields() throws {
+        let body = try stopBody("""
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": "waiting",
+            "background_tasks": [
+                {"id": 123, "type": "shell", "status": "running", "description": false}
             ],
-            sessionCrons: [
-                StopSessionCron(id: "c1", name: "Daily backup", status: "active"),
-                StopSessionCron(id: "c2", name: "Paused cron", status: "paused"),
-                StopSessionCron(id: "c3", name: "Disabled cron", status: "disabled"),
+            "session_crons": [
+                {"id": "c1", "schedule": 5, "recurring": "yes", "prompt": ["x"]}
             ]
-        )
-        // Nameless elements fall back to their id.
-        #expect(body.pendingBackgroundWork == ["Build", "Paused agent", "t6", "Daily backup"])
+        }
+        """)
+        // The malformed fields are nil; the well-formed ones survive.
+        #expect(body.backgroundTasks == [StopBackgroundTask(type: "shell", status: "running")])
+        #expect(body.sessionCrons == [StopSessionCron(id: "c1")])
+        #expect(body.pendingBackgroundWork == ["shell", "c1"])
     }
 
-    // MARK: - handleIngress gating
+    @Test("a non-object element decodes as all-nil and counts as pending")
+    func lenientNonObjectElement() throws {
+        let body = try stopBody("""
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": "waiting",
+            "background_tasks": ["bare-string", 42]
+        }
+        """)
+        #expect(body.backgroundTasks == [StopBackgroundTask(), StopBackgroundTask()])
+        // Unknown shape → unknown status → pending; the classifier fails open.
+        #expect(body.pendingBackgroundWork == ["background task", "background task"])
+    }
 
-    @Test("a paused Stop (pending work, message not final) is dropped")
-    func pausedStopDropped() async {
+    @Test("non-array background fields degrade to nil, not a decode failure")
+    func lenientNonArrayFields() throws {
+        let body = try stopBody("""
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": "done",
+            "background_tasks": "unexpected",
+            "session_crons": 42
+        }
+        """)
+        #expect(body.backgroundTasks == nil)
+        #expect(body.sessionCrons == nil)
+        #expect(body.pendingBackgroundWork.isEmpty)
+    }
+
+    @Test("a Stop with malformed background arrays still lands (no wedged session)")
+    func malformedArraysStopStillApplies() async throws {
         let recorder = ClassifierRecorder()
-        let event = await withDependencies {
+        let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
@@ -175,8 +196,80 @@ struct StopFinalityTests {
                 }
             )
         } operation: {
-            let core = try? await makeCore()
-            return await core?.handleIngress(frame(pausedStop)) ?? nil
+            let core = try await makeCore()
+            return await core.handleIngress(frame("""
+            {
+                "hook_event_name": "Stop",
+                "session_id": "sess-1",
+                "last_assistant_message": "All done.",
+                "background_tasks": {"not": "an array"}
+            }
+            """))
+        }
+
+        #expect(event?.state == .doneWorking(summary: "All done."))
+        #expect(await recorder.calls.isEmpty)
+    }
+
+    // MARK: - pendingBackgroundWork filtering
+
+    @Test("terminal tasks are not pending; every listed cron is")
+    func pendingFiltering() {
+        let body = StopBody(
+            sessionId: "s",
+            hookEventName: "Stop",
+            backgroundTasks: [
+                StopBackgroundTask(id: "t1", type: "workflow", status: "running", name: "Build"),
+                StopBackgroundTask(id: "t2", type: "shell", status: "running", description: "tail -f logs"),
+                StopBackgroundTask(id: "t3", type: "subagent", status: "running"),
+                StopBackgroundTask(id: "t4", status: "completed"),
+                StopBackgroundTask(id: "t5", status: "failed"),
+                StopBackgroundTask(id: "t6", status: "cancelled"),
+                StopBackgroundTask(id: "t7", status: "killed"),
+                // Unknown status counts as pending — the classifier fails open.
+                StopBackgroundTask(id: "t8", status: "someday-new-status"),
+            ],
+            sessionCrons: [
+                // Cron entries carry no status — any listed cron can fire.
+                StopSessionCron(id: "c1", schedule: "0 9 * * *", recurring: true, prompt: "check the build"),
+                StopSessionCron(id: "c2"),
+            ]
+        )
+        // Labels prefer name, then description, then type, then id.
+        #expect(body.pendingBackgroundWork == [
+            "Build", "tail -f logs", "subagent", "t8", "check the build", "c2",
+        ])
+    }
+
+    @Test("labels clip 1000-char upstream descriptions")
+    func labelsClipLongDescriptions() throws {
+        let body = StopBody(
+            sessionId: "s",
+            hookEventName: "Stop",
+            backgroundTasks: [
+                StopBackgroundTask(id: "t1", status: "running", description: String(repeating: "x", count: 500)),
+            ]
+        )
+        let label = try #require(body.pendingBackgroundWork.first)
+        #expect(label.count == 80)
+        #expect(label.hasSuffix("…"))
+    }
+
+    // MARK: - handleIngress gating
+
+    @Test("a paused Stop (pending work, message not final) is dropped")
+    func pausedStopDropped() async throws {
+        let recorder = ClassifierRecorder()
+        let event = try await withDependencies {
+            $0[StopFinalityClassifier.self] = StopFinalityClassifier(
+                classify: { message, pendingWork in
+                    await recorder.record(message: message, pendingWork: pendingWork)
+                    return .stillWaiting
+                }
+            )
+        } operation: {
+            let core = try await makeCore()
+            return await core.handleIngress(frame(pausedStop))
         }
 
         // Dropped: no state change, no notification — the session stays Working.
@@ -191,14 +284,14 @@ struct StopFinalityTests {
     }
 
     @Test("a final-sounding Stop is applied even with pending work")
-    func finalStopKept() async {
-        let event = await withDependencies {
+    func finalStopKept() async throws {
+        let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
                 classify: { _, _ in .final }
             )
         } operation: {
-            let core = try? await makeCore()
-            return await core?.handleIngress(frame(pausedStop)) ?? nil
+            let core = try await makeCore()
+            return await core.handleIngress(frame(pausedStop))
         }
 
         #expect(event?.state == .doneWorking(
@@ -206,26 +299,10 @@ struct StopFinalityTests {
         ))
     }
 
-    @Test("the classifier is not consulted when no work is actually pending")
-    func classifierSkippedWithoutPendingWork() async {
-        // Only terminal tasks / non-firing crons linger in the arrays — the stop
-        // is unambiguous, so no Apple Intelligence round-trip.
-        let json = """
-        {
-            "hook_event_name": "Stop",
-            "session_id": "sess-1",
-            "last_assistant_message": "All done.",
-            "background_tasks": [
-                {"id": "t1", "name": "Old build", "status": "completed"},
-                {"id": "t2", "name": "Aborted", "status": "cancelled"}
-            ],
-            "session_crons": [
-                {"id": "c1", "name": "Disabled cron", "status": "disabled"}
-            ]
-        }
-        """
+    @Test("an active cron alone (no background tasks) triggers classification")
+    func cronOnlyTriggersClassification() async throws {
         let recorder = ClassifierRecorder()
-        let event = await withDependencies {
+        let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
@@ -233,8 +310,53 @@ struct StopFinalityTests {
                 }
             )
         } operation: {
-            let core = try? await makeCore()
-            return await core?.handleIngress(frame(json)) ?? nil
+            let core = try await makeCore()
+            return await core.handleIngress(frame("""
+            {
+                "hook_event_name": "Stop",
+                "session_id": "sess-1",
+                "last_assistant_message": "I'll check the build on the next wakeup.",
+                "background_tasks": [],
+                "session_crons": [
+                    {"id": "cron-001", "schedule": "0 9 * * *", "recurring": true, "prompt": "check the build"}
+                ]
+            }
+            """))
+        }
+
+        #expect(event == nil)
+        let calls = await recorder.calls
+        #expect(calls.count == 1)
+        #expect(calls.first?.pendingWork == ["check the build"])
+    }
+
+    @Test("the classifier is not consulted when no work is actually pending")
+    func classifierSkippedWithoutPendingWork() async throws {
+        // Only terminal tasks linger in the arrays — the stop is unambiguous,
+        // so no Apple Intelligence round-trip.
+        let json = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": "All done.",
+            "background_tasks": [
+                {"id": "t1", "type": "shell", "status": "completed"},
+                {"id": "t2", "type": "shell", "status": "cancelled"}
+            ],
+            "session_crons": []
+        }
+        """
+        let recorder = ClassifierRecorder()
+        let event = try await withDependencies {
+            $0[StopFinalityClassifier.self] = StopFinalityClassifier(
+                classify: { message, pendingWork in
+                    await recorder.record(message: message, pendingWork: pendingWork)
+                    return .stillWaiting
+                }
+            )
+        } operation: {
+            let core = try await makeCore()
+            return await core.handleIngress(frame(json))
         }
 
         #expect(event?.state == .doneWorking(summary: "All done."))
@@ -242,7 +364,7 @@ struct StopFinalityTests {
     }
 
     @Test("an empty-message Stop with pending work is kept without classifying")
-    func emptyMessageStopKept() async {
+    func emptyMessageStopKept() async throws {
         // An empty message gives the model nothing to judge — fail open (keep the
         // stop) rather than guessing, mirroring the empty-message boundary pinned
         // in ClaudeCodeTranslatorTests.
@@ -252,12 +374,12 @@ struct StopFinalityTests {
             "session_id": "sess-1",
             "last_assistant_message": "",
             "background_tasks": [
-                {"id": "t1", "name": "Build service", "status": "running"}
+                {"id": "t1", "type": "shell", "status": "running", "description": "build"}
             ]
         }
         """
         let recorder = ClassifierRecorder()
-        let event = await withDependencies {
+        let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
                 classify: { message, pendingWork in
                     await recorder.record(message: message, pendingWork: pendingWork)
@@ -265,11 +387,54 @@ struct StopFinalityTests {
                 }
             )
         } operation: {
-            let core = try? await makeCore()
-            return await core?.handleIngress(frame(json)) ?? nil
+            let core = try await makeCore()
+            return await core.handleIngress(frame(json))
         }
 
         #expect(event?.state == .doneWorking(summary: ""))
         #expect(await recorder.calls.isEmpty)
+    }
+
+    @Test("detect_false_stops off → Stop honored, classifier untouched")
+    func settingOffSkipsClassifier() async throws {
+        let recorder = ClassifierRecorder()
+        let event = try await withDependencies {
+            $0[StopFinalityClassifier.self] = StopFinalityClassifier(
+                classify: { message, pendingWork in
+                    await recorder.record(message: message, pendingWork: pendingWork)
+                    return .stillWaiting
+                }
+            )
+        } operation: {
+            let core = try await makeCore(settings: Data(#"{"detect_false_stops": false}"#.utf8))
+            return await core.handleIngress(frame(pausedStop))
+        }
+
+        #expect(event?.state == .doneWorking(
+            summary: "The build is running; I'll report back when it finishes."
+        ))
+        #expect(await recorder.calls.isEmpty)
+    }
+
+    // MARK: - Deadline race
+
+    @Test("the deadline race fails open when inference outlasts the deadline")
+    func deadlineFailsOpen() async {
+        let verdict = await StopFinalityClassifier.raceAgainstDeadline(.milliseconds(50)) {
+            // Simulates a wedged model daemon: nowhere near answering within the
+            // deadline. Cancellation (via the race losing) unblocks the sleep, so
+            // the test doesn't linger.
+            try? await Task.sleep(for: .seconds(30))
+            return .stillWaiting
+        }
+        #expect(verdict == .final)
+    }
+
+    @Test("the deadline race returns the verdict when inference wins")
+    func deadlineReturnsInferenceVerdict() async {
+        let verdict = await StopFinalityClassifier.raceAgainstDeadline(.seconds(30)) {
+            .stillWaiting
+        }
+        #expect(verdict == .stillWaiting)
     }
 }

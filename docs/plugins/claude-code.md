@@ -49,19 +49,28 @@ not always with an `agent_id` for the pre-parse drop to see. Only main-agent sto
 carry `last_assistant_message`, so a `Stop` without it is dropped entirely — applying
 one would flip a mid-task session to doneWorking and fire a bogus notification.
 
-**Paused-`Stop` drop (issue #644):** Claude also fires `Stop` when it *parks* the
-turn waiting on background tasks / session crons to wake it back up. The payload's
-`background_tasks`/`session_crons` arrays alone can't distinguish a pause from a
-finish (a task pending termination lingers after a genuinely final message), so when
-the arrays still hold pending work (task status not terminal; cron not
-paused/disabled — `StopBody.pendingBackgroundWork`), `handleIngress` asks the
+**Paused-`Stop` drop (issue #644, per-agent setting `detect_false_stops`, default
+on):** Claude also fires `Stop` when it *parks* the turn waiting on background tasks
+/ session crons to wake it back up. The payload's `background_tasks`/`session_crons`
+arrays (hooks reference "Stop input", v2.1.145+) alone can't distinguish a pause from
+a finish (a task pending termination lingers after a genuinely final message), so
+when the arrays still hold pending work — task `status` not known-terminal; every
+listed cron counts, since cron entries carry no status field
+(`StopBody.pendingBackgroundWork`) — `handleIngress` asks the
 `StopFinalityClassifier` — Apple Intelligence's on-device model (FoundationModels,
 macOS 26+) — whether `last_assistant_message` reads as final or as
 waiting-for-background-work. Waiting → the frame is dropped (session stays
-"Working", no notification); the real final `Stop` drives the state later. The
-classifier fails open to "final" on every failure path (no SDK, pre-26 OS, model
-unavailable/disabled, generation error, empty message), so the worst case is the
-pre-#644 behavior — never a session stuck on "Working". In `--e2e-test` mode the
+"Working", no notification); the real final `Stop` drives the state later. The two
+arrays decode leniently (a malformed element, field, or non-array value degrades to
+`nil` instead of failing the whole `StopBody` decode), so no payload shape can drop
+a Stop outright. The classifier fails open to "final" on every *failure* path (no
+SDK, pre-26 OS, model unavailable/disabled, generation error, empty message, and a
+10s inference deadline so a wedged model daemon can't head-of-line-block the serial
+ingress FIFO) — classifier failure can never wedge a session on "Working". The
+residual risk is a systematic *misclassification* of final messages while work stays
+registered (e.g. an always-firing cron), which would hold the session on "Working"
+until the next Stop or SessionEnd; the per-agent toggle (Settings → Agents → Claude
+Code → "Verify completion with Apple Intelligence") turns the check off entirely. In `--e2e-test` mode the
 verdict is deterministic — a message containing `[e2e-still-waiting]` classifies as
 still-waiting (CI has no Apple Intelligence) — exercised by the "Paused Stop
 Ignored" scenario.

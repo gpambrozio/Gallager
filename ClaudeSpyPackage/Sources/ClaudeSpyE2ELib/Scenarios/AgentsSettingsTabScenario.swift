@@ -25,6 +25,11 @@ public enum AgentsSettingsTabScenario {
         TestStep.wait(seconds: 0.5)
 
         // 2. Claude Code form + default folder row offering Install (notInstalled).
+        //    The Claude-only Apple-Intelligence completion-check toggle (#644) is
+        //    asserted before screenshotting so the form baseline actively proves
+        //    the toggle ships (matched by accessibility identifier; title/AXPress
+        //    is unreliable on SwiftUI toggles).
+        TestStep.macWaitForElementQuery(.identifier("agentDetectFalseStops-claude-code"), timeout: 5)
         TestStep.macScreenshot(label: "mac-agents-claude-notinstalled")
 
         // 3. Install the default folder → the row flips to the Installed state.

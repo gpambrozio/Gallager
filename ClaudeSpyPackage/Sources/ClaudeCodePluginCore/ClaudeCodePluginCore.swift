@@ -109,8 +109,10 @@ public actor ClaudeCodePluginCore: PluginCore {
         // keeps the session "Working" and suppresses the done notification; the
         // real final Stop drives the state later. The classifier fails open to
         // `.final`, so a wrong drop can't happen on classifier failure — and a
-        // wrong keep is just today's behavior.
+        // wrong keep is just today's behavior. Opt-out per agent via the
+        // `detect_false_stops` setting (Settings → Agents → Claude Code).
         if
+            settings.detectFalseStops,
             case let .stop(stopBody) = action,
             let message = stopBody.lastAssistantMessage,
             !message.isEmpty {

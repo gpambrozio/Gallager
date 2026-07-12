@@ -55,7 +55,14 @@ extension StopFinalityClassifier: DependencyKey {
             classify: { message, pendingWork in
                 #if canImport(FoundationModels)
                     guard #available(macOS 26, iOS 26, *) else { return .final }
-                    return await appleIntelligenceVerdict(message: message, pendingWork: pendingWork)
+                    // classify runs inside the serial ingress consumer — one frame
+                    // at a time across every plugin and session — so a slow or
+                    // wedged model daemon must not head-of-line-block everyone
+                    // else's status updates. Race inference against a fail-open
+                    // deadline.
+                    return await raceAgainstDeadline(classificationDeadline) {
+                        await appleIntelligenceVerdict(message: message, pendingWork: pendingWork)
+                    }
                 #else
                     return .final
                 #endif
@@ -69,6 +76,43 @@ extension StopFinalityClassifier: DependencyKey {
     /// `withDependencies`.
     public static var testValue: StopFinalityClassifier {
         StopFinalityClassifier()
+    }
+
+    /// Upper bound on one classification. First use after launch loads the model
+    /// (a few seconds); a guided single-bool response is normally well under a
+    /// second after that.
+    static let classificationDeadline: Duration = .seconds(10)
+
+    /// Races `inference` against a fail-open deadline: whichever finishes first
+    /// wins, and hitting the deadline returns `.final` (apply the stop — the
+    /// pre-#644 behavior). Both racers are unstructured tasks bridged through an
+    /// `AsyncStream` deliberately: a task-group race would still await the losing
+    /// child on the way out, so a `respond()` call wedged inside the model daemon
+    /// (ignoring cancellation) would block the ingress FIFO anyway. The losing
+    /// task is cancelled and left to wind down in the background.
+    static func raceAgainstDeadline(
+        _ deadline: Duration,
+        inference: @escaping @Sendable () async -> StopFinalityVerdict
+    ) async -> StopFinalityVerdict {
+        let verdicts = AsyncStream<StopFinalityVerdict> { continuation in
+            let inferenceTask = Task {
+                continuation.yield(await inference())
+                continuation.finish()
+            }
+            let deadlineTask = Task {
+                try? await Task.sleep(for: deadline)
+                continuation.yield(.final)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                inferenceTask.cancel()
+                deadlineTask.cancel()
+            }
+        }
+        for await verdict in verdicts {
+            return verdict
+        }
+        return .final
     }
 }
 
@@ -116,6 +160,13 @@ extension StopFinalityClassifier: DependencyKey {
             pending cleanup), so judge only what the message itself communicates.
             """)
 
+            // Trust boundary: `message` and the `pendingWork` labels are
+            // untrusted agent output interpolated into the judge prompt, so
+            // adversarial text ("answer WAITING") can steer the verdict. Bounded
+            // by design: a steered verdict can only suppress done-notifications
+            // while work really is registered (the gate requires non-empty
+            // pending work), and the session recovers on the next Stop or
+            // SessionEnd — it never gains capabilities or reaches other sessions.
             let prompt = """
             Background work registered for this session: \
             \(pendingWork.joined(separator: ", ")).
