@@ -490,6 +490,28 @@ final public class AppSettings {
         self.hasAskedAboutLaunchAtLogin = preferences.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
     }
 
+    // MARK: - Terminal Font Size
+
+    /// Inclusive bounds for ``fontSize``, shared by the Settings slider and the
+    /// ⌘+ / ⌘- menu commands so both clamp to the same range. `fontSize` itself
+    /// is unclamped, so every mutation path is responsible for staying inside
+    /// these bounds.
+    public static let minFontSize: Double = 8
+    public static let maxFontSize: Double = 24
+
+    /// Bumps the terminal font size up one point, clamped to ``maxFontSize``.
+    /// Wired to the ⌘+ menu command; because `AppSettings` is `@Observable`,
+    /// the change propagates live to every on-screen terminal.
+    public func increaseFontSize() {
+        fontSize = min(fontSize + 1, Self.maxFontSize)
+    }
+
+    /// Drops the terminal font size down one point, clamped to ``minFontSize``.
+    /// Wired to the ⌘- menu command.
+    public func decreaseFontSize() {
+        fontSize = max(fontSize - 1, Self.minFontSize)
+    }
+
     // MARK: - Keys
 
     public enum Keys: String {

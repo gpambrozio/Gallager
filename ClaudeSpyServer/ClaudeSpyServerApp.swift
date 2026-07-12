@@ -464,6 +464,16 @@ struct TmuxPaneMirrorApp: App {
                 }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
 
+                Button("Previous Session") {
+                    NotificationCenter.default.post(name: .selectPreviousSession, object: nil)
+                }
+                .keyboardShortcut("`", modifiers: [.command, .shift])
+
+                Button("Next Session") {
+                    NotificationCenter.default.post(name: .selectNextSession, object: nil)
+                }
+                .keyboardShortcut("`", modifiers: .command)
+
                 Divider()
             }
 
@@ -484,6 +494,18 @@ struct TmuxPaneMirrorApp: App {
 
             // View menu - replace default toolbar items (removes Enter Full Screen)
             CommandGroup(replacing: .toolbar) {
+                Button("Increase Font Size") {
+                    coordinator.settings.increaseFontSize()
+                }
+                .keyboardShortcut("+", modifiers: .command)
+
+                Button("Decrease Font Size") {
+                    coordinator.settings.decreaseFontSize()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+
+                Divider()
+
                 Button("Refresh Pane List") {
                     NotificationCenter.default.post(name: .refreshPaneList, object: nil)
                 }

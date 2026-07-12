@@ -2,14 +2,16 @@ import ClaudeSpyCommon
 import SwiftUI
 
 /// Bundles the global menu-driven notification observers used by the panes
-/// scene (Cmd-N, Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-]) so the main `body`
-/// chain stays under the Swift type checker's complexity threshold. Cmd-W
-/// routes through the scene-scoped `closeCurrentTabAction` focused value
-/// instead — see `MenuCommandFocusedValues.swift`.
+/// scene (Cmd-N, Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-], Cmd-`, Cmd-Shift-`) so
+/// the main `body` chain stays under the Swift type checker's complexity
+/// threshold. Cmd-W routes through the scene-scoped `closeCurrentTabAction`
+/// focused value instead — see `MenuCommandFocusedValues.swift`.
 struct MenuCommandsModifier: ViewModifier {
     let onOpenContentSearch: () -> Void
     let onSelectPreviousTab: () -> Void
     let onSelectNextTab: () -> Void
+    let onSelectPreviousSession: () -> Void
+    let onSelectNextSession: () -> Void
     let onNewLocalSession: () -> Void
 
     func body(content: Content) -> some View {
@@ -22,6 +24,12 @@ struct MenuCommandsModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectNextTab)) { _ in
                 onSelectNextTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectPreviousSession)) { _ in
+                onSelectPreviousSession()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectNextSession)) { _ in
+                onSelectNextSession()
             }
             .onReceive(NotificationCenter.default.publisher(for: .newLocalSession)) { _ in
                 onNewLocalSession()

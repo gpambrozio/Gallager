@@ -400,6 +400,8 @@ public struct MainView: View {
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
             onSelectNextTab: { selectAdjacentTab(direction: 1) },
+            onSelectPreviousSession: { selectAdjacentSession(direction: -1) },
+            onSelectNextSession: { selectAdjacentSession(direction: 1) },
             onNewLocalSession: { localNewSessionTrigger += 1 }
         ))
         .onChange(of: windowManager.pendingSessionCount) {
@@ -670,20 +672,7 @@ public struct MainView: View {
             .first
 
         return Button {
-            // Select the session's active window for the left pane — but
-            // skip any window the user has parked on the right side, so the
-            // left and right panes don't end up showing the same terminal
-            // after a session round-trip.
-            let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
-            let leftCandidates = session.windows.filter { !rightSideIds.contains($0.id) }
-            let pick = leftCandidates.first(where: \.isWindowActive)
-                ?? leftCandidates.first
-                ?? activeWindow
-            if let pick {
-                selectedWindow = pick
-            }
-            selectedRemoteSession = nil
-            selectedRemoteWindowId = nil
+            selectLocalSession(session)
         } label: {
             SessionSidebarRow(session: session)
         }
@@ -2644,6 +2633,113 @@ public struct MainView: View {
              .git,
              .file:
             break
+        }
+    }
+
+    // MARK: - Session Navigation
+
+    /// Selects a local session for the left pane, skipping any window the user
+    /// has parked on the right side so the two panes don't end up showing the
+    /// same terminal after a session round-trip. Shared by the sidebar row
+    /// button and ⌘` / ⌘⇧` session cycling.
+    private func selectLocalSession(_ session: LocalTmuxSession) {
+        let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
+        let leftCandidates = session.windows.filter { !rightSideIds.contains($0.id) }
+        let pick = leftCandidates.first(where: \.isWindowActive)
+            ?? leftCandidates.first
+            ?? session.activeWindow
+        if let pick {
+            selectedWindow = pick
+        }
+        selectedRemoteSession = nil
+        selectedRemoteWindowId = nil
+    }
+
+    /// One entry in the sidebar's combined, ordered session list — a local
+    /// session or a remote host's session — used by ⌘` / ⌘⇧` cycling.
+    private enum SidebarSessionEntry {
+        case local(LocalTmuxSession)
+        case remote(hostId: String, hostName: String, session: TmuxSession)
+    }
+
+    /// Rebuilds the sidebar's visible session order: local sessions first (in
+    /// `sidebarSortMode` order), then each paired host's sessions in
+    /// `pairedHosts` order, each independently sorted the same way its
+    /// `RemoteHostSidebarSection` sorts them. Kept in lockstep with `windowList`
+    /// and `RemoteHostSidebarSection` so keyboard cycling matches what's on
+    /// screen.
+    private func orderedSidebarSessions() -> [SidebarSessionEntry] {
+        let localSorted = settings.sidebarSortMode.sorted(tmuxService.sessions) { localSessionSortData($0) }
+        var entries: [SidebarSessionEntry] = localSorted.map { SidebarSessionEntry.local($0) }
+
+        if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
+            for host in settings.pairedHosts {
+                let sorted = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
+                    SessionSortData.forRemoteSession(
+                        session,
+                        sidebarFields: settings.sidebarFields,
+                        sidebarTerminalFields: settings.sidebarTerminalFields,
+                        homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                    )
+                }
+                entries.append(contentsOf: sorted.map { session in
+                    SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
+                })
+            }
+        }
+        return entries
+    }
+
+    /// Index of the currently-selected session within `entries`, or nil when
+    /// nothing is selected (or the selection isn't present in the list).
+    private func currentSidebarSessionIndex(in entries: [SidebarSessionEntry]) -> Int? {
+        if let remote = selectedRemoteSession {
+            return entries.firstIndex { entry in
+                if case let .remote(hostId, _, session) = entry {
+                    return hostId == remote.hostId && session.sessionName == remote.sessionName
+                }
+                return false
+            }
+        }
+        if
+            let window = selectedWindow,
+            let session = tmuxService.sessions
+                .first(where: { $0.windows.contains { $0.id == window.id } }) {
+            return entries.firstIndex { entry in
+                if case let .local(localSession) = entry {
+                    return localSession.sessionName == session.sessionName
+                }
+                return false
+            }
+        }
+        return nil
+    }
+
+    /// Cmd-` / Cmd-Shift-` handler. Selects the session `direction` steps away
+    /// from the current one in the sidebar's combined local+remote order,
+    /// wrapping around the ends. When nothing is selected yet it steps in from
+    /// the leading edge (forward) or trailing edge (backward). No-op when there
+    /// are no sessions.
+    private func selectAdjacentSession(direction: Int) {
+        let entries = orderedSidebarSessions()
+        guard !entries.isEmpty else { return }
+        let nextIndex: Int
+        if let currentIndex = currentSidebarSessionIndex(in: entries) {
+            nextIndex = (currentIndex + direction + entries.count) % entries.count
+        } else {
+            nextIndex = direction >= 0 ? 0 : entries.count - 1
+        }
+        switch entries[nextIndex] {
+        case let .local(session):
+            selectLocalSession(session)
+        case let .remote(hostId, hostName, session):
+            selectedRemoteSession = RemoteSessionSelection(
+                hostId: hostId,
+                hostName: hostName,
+                sessionName: session.sessionName
+            )
+            selectedRemoteWindowId = nil
+            selectedWindow = nil
         }
     }
 
