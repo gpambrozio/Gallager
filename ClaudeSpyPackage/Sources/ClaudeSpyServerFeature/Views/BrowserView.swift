@@ -587,39 +587,53 @@ private struct BrowserURLField: NSViewRepresentable {
 ///
 /// The mouse case is the whole reason this subclass exists (issue #651). The
 /// field editor sets the caret from the click on mouse-up, so any selection
-/// applied *before* mouse-up is discarded. `super.mouseDown(with:)` doesn't
-/// return until that tracking loop ends, so selecting all right after it lands
-/// the selection *after* the caret placement and it sticks.
+/// applied *before* mouse-up is discarded — and inside this SwiftUI hosting
+/// hierarchy, `becomeFirstResponder` runs *before* `mouseDown` is delivered
+/// (the hosting view transfers focus first, then forwards the event), so a
+/// selection applied on focus change is exactly such a doomed early selection:
+/// its deferred task can fire during the field editor's mouse-tracking loop
+/// (WebKit activity from a loaded page drains the main queue mid-track) and
+/// the mouse-up caret placement then wipes it. `mouseDown` therefore treats
+/// "focus arrived in this same event cycle" as the click-focus signal
+/// (`pendingFocusSelectAll`), cancels the racing deferred select-all, and
+/// selects after `super.mouseDown(with:)` returns — which is after the
+/// tracking loop ends and the caret has been placed, so the selection sticks.
 ///
 /// - Warning: The mouse fix relies on an *undocumented* AppKit detail —
 ///   `super.mouseDown(with:)` not returning until the field editor's tracking
-///   loop has placed the caret. The e2e scenario can't reproduce the original
-///   race, so CI won't catch a regression here; spot-check click-to-select
-///   manually on future macOS betas.
+///   loop has placed the caret. The `Browser Address Bar Refocus` e2e scenario
+///   reproduces the race against a loaded page, so CI guards this; still worth
+///   a manual click-to-select spot-check on future macOS betas.
 final private class AddressBarTextField: NSTextField {
-    /// True only while inside our own `mouseDown`, so the `becomeFirstResponder`
-    /// override can tell a click-driven focus (handled after the tracking loop)
-    /// apart from keyboard/AX/programmatic focus (handled immediately). More
-    /// reliable than sniffing `NSApp.currentEvent`, which can hold a stale mouse
-    /// event when focus is set via accessibility.
-    private var isHandlingMouseDown = false
+    /// Set by `becomeFirstResponder`, consumed by the `mouseDown` delivered in
+    /// the same event cycle (click-driven focus) or cleared by the deferred
+    /// select-all task (keyboard/AX/programmatic focus, where no `mouseDown`
+    /// follows). This is how the two focus flavors are told apart:
+    /// `becomeFirstResponder` runs before `mouseDown`, so a flag set *inside*
+    /// `mouseDown` — or `currentEditor()`, which the pre-`mouseDown` focus
+    /// change already installed — can't discriminate, and `NSApp.currentEvent`
+    /// can hold a stale mouse event when focus is set via accessibility.
+    private var pendingFocusSelectAll = false
 
-    /// Pending deferred select-all, tracked so a superseding focus change can
-    /// cancel it (restoring the `.task(id:)` cancellation semantics).
+    /// Pending deferred select-all, tracked so a superseding focus change or
+    /// the focusing click's `mouseDown` can cancel it.
     private var selectAllTask: Task<Void, Never>?
 
     override func mouseDown(with event: NSEvent) {
-        // `currentEditor()` is non-nil only while this field is already being
-        // edited. Capture it before `super` installs the field editor to tell
-        // the focus-gaining click apart from a click in an already-focused field.
-        let wasEditing = currentEditor() != nil
-        isHandlingMouseDown = true
+        // If focus arrived in this same event cycle, this is the click that
+        // focused the field: take over from the deferred select-all (which
+        // would race the mouse-up caret placement) and select after the
+        // tracking loop instead.
+        let focusCameFromThisClick = pendingFocusSelectAll
+        pendingFocusSelectAll = false
+        if focusCameFromThisClick {
+            selectAllTask?.cancel()
+        }
         // Runs the field editor's mouse-tracking loop; returns after mouse-up,
         // by which point the caret has been placed.
         super.mouseDown(with: event)
-        isHandlingMouseDown = false
 
-        guard !wasEditing, let editor = currentEditor() else { return }
+        guard focusCameFromThisClick, let editor = currentEditor() else { return }
         // Only auto-select-all for a plain click. If the user dragged to select
         // a substring on the focusing click, honor that selection instead of
         // overriding it (matches Safari/Chrome).
@@ -630,16 +644,17 @@ final private class AddressBarTextField: NSTextField {
 
     override func becomeFirstResponder() -> Bool {
         let didBecome = super.becomeFirstResponder()
-        // Select all on keyboard (Tab), AX, and programmatic focus. Skip the
-        // mouse case — `mouseDown` handles it after its tracking loop, and
-        // selecting here would be undone when the caret lands on mouse-up.
-        if didBecome, !isHandlingMouseDown {
+        if didBecome {
+            pendingFocusSelectAll = true
             // Deferred: right after `becomeFirstResponder` returns the field
             // editor may not be fully installed, so selecting would no-op.
-            // Uses `editor.selectAll(nil)` to match the `mouseDown` path.
+            // For click-driven focus the `mouseDown` that follows in this same
+            // event cycle cancels this task and handles selection itself.
             selectAllTask?.cancel()
             selectAllTask = Task { @MainActor [weak self] in
-                guard !Task.isCancelled, let self, let editor = self.currentEditor() else { return }
+                guard !Task.isCancelled, let self else { return }
+                self.pendingFocusSelectAll = false
+                guard let editor = self.currentEditor() else { return }
                 editor.selectAll(nil)
             }
         }

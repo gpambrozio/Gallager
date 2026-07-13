@@ -15,16 +15,17 @@ import Foundation
 ///
 /// **Scope — this is a positive end-to-end test, not a strict bug-gate.** The
 /// original defect is a race between the deferred selection and the field
-/// editor's mouse-up caret placement, and it does *not* reproduce under the
-/// harness's synthesized click: `macCGClickElement` posts mouse-down, sleeps
-/// ~50 ms, then mouse-up, and that gap lets the old deferred `Task` land the
-/// selection *after* the caret, so the pre-fix build passes this same scenario
-/// (verified by running it against the reverted `TextField` implementation).
-/// The fix is correct by construction — it selects all *after*
-/// `super.mouseDown` returns (i.e. after the tracking loop and caret
-/// placement), independent of timing — so this scenario's value is proving the
-/// mouse-driven select-all path works end to end, and guarding against gross
-/// regressions of it.
+/// editor's mouse-up caret placement, and with this scenario's dead-port setup
+/// it does *not* reproduce under the harness's synthesized click: with no page
+/// loaded the main queue stays quiet during the ~50 ms between mouse-down and
+/// mouse-up, so the deferred `Task` lands the selection *after* the caret and
+/// the pre-fix build passes this same scenario (verified by running it against
+/// the reverted `TextField` implementation). `BrowserAddressBarRefocusScenario`
+/// is the strict bug-gate: with a *loaded* page, WebKit's main-thread activity
+/// drains the main queue during the tracking loop and the race reproduces
+/// under the harness (verified failing before the `pendingFocusSelectAll`
+/// fix). This scenario's remaining value is proving the mouse-driven
+/// select-all path works end to end against the error-page layout.
 ///
 /// No page server is needed: the tab opens to a dead port, the navigation
 /// fails, and the browser keeps the failed URL in the bar (Safari-like). The

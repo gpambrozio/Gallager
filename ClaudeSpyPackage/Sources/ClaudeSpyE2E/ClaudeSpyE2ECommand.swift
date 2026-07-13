@@ -388,6 +388,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         SubagentStopIgnoredScenario.scenario,
         BrowserDownloadsAndErrorsScenario.scenario,
         BrowserAddressBarSelectAllScenario.scenario,
+        BrowserAddressBarRefocusScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
