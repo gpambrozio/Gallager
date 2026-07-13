@@ -376,6 +376,8 @@ public struct MainView: View {
         .modifier(AutoResizeObserversModifier(
             alwaysAutoResize: settings.alwaysAutoResize,
             splitSignal: currentSessionSplitSignal,
+            fontName: settings.fontName,
+            fontSize: settings.fontSize,
             onPreferenceChanged: {
                 // Global toggle flipped — drop per-session opt-outs and
                 // cached dimensions so the new state is re-evaluated from scratch.
@@ -389,6 +391,13 @@ public struct MainView: View {
                 // `onGeometryChange` on the detail pane doesn't fire for these
                 // because the overall pane size is unchanged — re-run the
                 // auto-resize so tmux knows about the new pane width.
+                handleAutoResize()
+            },
+            onFontChanged: {
+                // A font change (⌘+ / ⌘- or the Settings pane) alters the cell
+                // size, so a different number of columns/rows now fits the same
+                // detail-pane pixels. Re-run auto-resize so tmux is re-fit and
+                // the agent in the pane re-renders at the new size.
                 handleAutoResize()
             }
         ))
