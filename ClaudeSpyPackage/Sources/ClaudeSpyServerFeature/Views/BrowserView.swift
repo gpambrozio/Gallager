@@ -515,8 +515,10 @@ private struct BrowserURLField: NSViewRepresentable {
         context.coordinator.onSubmit = onSubmit
         // Push SwiftUI's text in only when it actually diverges (URL KVO sync,
         // failed-URL restore). Rewriting on every keystroke round-trip would
-        // stomp the user's caret and selection.
-        if nsView.stringValue != text {
+        // stomp the user's caret and selection. Skip entirely while the field is
+        // being edited so a background KVO update (redirect, `pushState`) can't
+        // clobber a URL the user is mid-typing.
+        if nsView.currentEditor() == nil, nsView.stringValue != text {
             nsView.stringValue = text
         }
         // Honor a fresh external focus request. Comparing against the last
@@ -525,10 +527,13 @@ private struct BrowserURLField: NSViewRepresentable {
             context.coordinator.lastFocusRequest = focusRequest
             // Deferred so a freshly-opened tab's field is inserted into the
             // window's responder chain before we ask it to become first
-            // responder (mirrors the old `.task` 50 ms warm-up).
-            Task { @MainActor [weak nsView] in
+            // responder (mirrors the old `.task` 50 ms warm-up). Tracked so a
+            // superseding request cancels the pending one, restoring the
+            // `.task(id:)` cancellation semantics.
+            context.coordinator.focusTask?.cancel()
+            context.coordinator.focusTask = Task { @MainActor [weak nsView] in
                 try? await Task.sleep(for: .milliseconds(50))
-                guard let nsView, let window = nsView.window else { return }
+                guard !Task.isCancelled, let nsView, let window = nsView.window else { return }
                 window.makeFirstResponder(nsView)
             }
         }
@@ -544,6 +549,9 @@ private struct BrowserURLField: NSViewRepresentable {
         var onSubmit: () -> Void
         /// Last `focusRequest` acted on, so each bump focuses exactly once.
         var lastFocusRequest = 0
+        /// Pending deferred focus request, tracked so a superseding request can
+        /// cancel it (restoring the `.task(id:)` cancellation semantics).
+        var focusTask: Task<Void, Never>?
 
         init(text: Binding<String>, onSubmit: @escaping () -> Void) {
             self._text = text
@@ -582,6 +590,12 @@ private struct BrowserURLField: NSViewRepresentable {
 /// applied *before* mouse-up is discarded. `super.mouseDown(with:)` doesn't
 /// return until that tracking loop ends, so selecting all right after it lands
 /// the selection *after* the caret placement and it sticks.
+///
+/// - Warning: The mouse fix relies on an *undocumented* AppKit detail —
+///   `super.mouseDown(with:)` not returning until the field editor's tracking
+///   loop has placed the caret. The e2e scenario can't reproduce the original
+///   race, so CI won't catch a regression here; spot-check click-to-select
+///   manually on future macOS betas.
 final private class AddressBarTextField: NSTextField {
     /// True only while inside our own `mouseDown`, so the `becomeFirstResponder`
     /// override can tell a click-driven focus (handled after the tracking loop)
@@ -589,6 +603,10 @@ final private class AddressBarTextField: NSTextField {
     /// reliable than sniffing `NSApp.currentEvent`, which can hold a stale mouse
     /// event when focus is set via accessibility.
     private var isHandlingMouseDown = false
+
+    /// Pending deferred select-all, tracked so a superseding focus change can
+    /// cancel it (restoring the `.task(id:)` cancellation semantics).
+    private var selectAllTask: Task<Void, Never>?
 
     override func mouseDown(with event: NSEvent) {
         // `currentEditor()` is non-nil only while this field is already being
@@ -617,10 +635,12 @@ final private class AddressBarTextField: NSTextField {
         // selecting here would be undone when the caret lands on mouse-up.
         if didBecome, !isHandlingMouseDown {
             // Deferred: right after `becomeFirstResponder` returns the field
-            // editor may not be fully installed, so `selectText` would no-op.
-            Task { @MainActor [weak self] in
-                guard let self, self.currentEditor() != nil else { return }
-                self.selectText(nil)
+            // editor may not be fully installed, so selecting would no-op.
+            // Uses `editor.selectAll(nil)` to match the `mouseDown` path.
+            selectAllTask?.cancel()
+            selectAllTask = Task { @MainActor [weak self] in
+                guard !Task.isCancelled, let self, let editor = self.currentEditor() else { return }
+                editor.selectAll(nil)
             }
         }
         return didBecome
