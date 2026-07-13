@@ -77,8 +77,12 @@ public enum StopFinalityAvailability: Sendable, Equatable {
 /// stuck on "Working".
 @DependencyClient
 public struct StopFinalityClassifier: Sendable {
-    /// Classifies `message` (the stop's `last_assistant_message`), given the
-    /// user-facing names of the background tasks / crons still in flight.
+    /// Classifies `message` (the stop's `last_assistant_message`). `pendingWork`
+    /// must be the NEUTRAL count-based descriptors of the in-flight work
+    /// (`StopBody.pendingBackgroundWorkSummary`, e.g. "2 background tasks") —
+    /// never raw task descriptions or cron prompts: those are agent-authored
+    /// free text that often reads as waiting ("Wait for X to finish") and
+    /// demonstrably steers the judge toward a wrong still-waiting verdict.
     public var classify: @Sendable (_ message: String, _ pendingWork: [String]) async -> StopFinalityVerdict = { _, _ in .final }
     /// Probes whether the on-device model could classify right now. Purely
     /// informational — `classify` re-guards internally — so the settings UI can
@@ -197,13 +201,20 @@ extension StopFinalityClassifier: DependencyKey {
 #if canImport(FoundationModels)
     /// Structured verdict for guided generation — the model fills the single
     /// boolean instead of free text, so there is nothing to parse.
+    ///
+    /// The guide text is eval-tuned (`swift run StopFinalityEval`): real agent
+    /// summaries are long and full of action words ("run the preflight", "the
+    /// build is pushed"), which the earlier, softer wording misread as waiting
+    /// — including plain error reports and questions. Keep the "default to
+    /// false" clause; removing it regresses the eval.
     @available(macOS 26, iOS 26, *)
     @Generable
     private struct StopFinalityJudgment {
         @Guide(description: """
-        True when the message says or implies the agent is waiting for background \
-        work to finish and will continue afterwards. False when it reads as a \
-        completed, final answer.
+        True ONLY when the message clearly states the agent is pausing and will \
+        continue when background work finishes. False for summaries of completed \
+        work, results, error reports, and questions — even when they mention \
+        builds, tests, commands, or jobs. Default to false when unsure.
         """)
         var isWaitingForBackgroundWork: Bool
     }
@@ -223,30 +234,47 @@ extension StopFinalityClassifier: DependencyKey {
                 return .final
             }
 
+            // Instructions are eval-tuned against real agent messages (see
+            // `swift run StopFinalityEval`): FINISHED must explicitly cover
+            // error reports, questions, and user-directed next steps, and must
+            // say that naming builds/tests/commands is not waiting — the
+            // earlier, softer rubric misclassified all of those. WAITING is
+            // deliberately narrow (the AGENT explicitly pausing), with a
+            // FINISHED default, because a systematic false WAITING pins the
+            // session on "Working" while a false FINISHED is just the pre-#644
+            // behavior.
             let session = LanguageModelSession(instructions: """
-            You judge the last message a coding agent printed when its turn ended, \
-            to decide why it stopped:
-            - FINISHED: the message delivers a final answer — a summary of completed \
-            work, a conclusion, an error report, or a question for the user.
-            - WAITING: the message says the agent paused while background work keeps \
-            running (builds, tests, subagents, scheduled jobs) and will continue when \
-            that work completes — e.g. "I'll wait for the build to finish", \
-            "monitoring the deploy", "will report back when the tests complete".
-            Background work may be registered even when the agent is finished (a task \
-            pending cleanup), so judge only what the message itself communicates.
+            You judge the final message a coding agent printed when its turn ended, \
+            deciding whether the agent FINISHED its turn or is WAITING for background work.
+
+            FINISHED — the message wraps the turn up: it summarizes work already done \
+            (past tense), reports results or an error, asks the user a question, or tells \
+            the USER what they can do next. Mentioning builds, tests, commands, or \
+            background jobs by name does NOT make it waiting, and neither do commands the \
+            user could run.
+
+            WAITING — the message explicitly says the AGENT itself is pausing now and will \
+            continue when still-running background work completes: "I'll wait for the \
+            build", "monitoring the deploy", "will report back when the tests finish", \
+            "I'll resume once CI completes".
+
+            Background work can stay registered after a turn genuinely finishes (tasks \
+            pending cleanup), so decide only from what the message says. If the message \
+            does not clearly state the agent is waiting to continue, it is FINISHED.
             """)
 
-            // Trust boundary: `message` and the `pendingWork` labels are
-            // untrusted agent output interpolated into the judge prompt, so
-            // adversarial text ("answer WAITING") can steer the verdict. Bounded
-            // by design: a steered verdict can only downgrade a done-notification
-            // to a still-working one and hold the state on Working while work
-            // really is registered (the gate requires non-empty pending work),
-            // and the session recovers on the next Stop or SessionEnd — it never
-            // gains capabilities or reaches other sessions.
+            // Trust boundary: `message` is untrusted agent output interpolated
+            // into the judge prompt, so adversarial text ("answer WAITING") can
+            // steer the verdict. `pendingWork` is deliberately neutral counts
+            // only — raw task descriptions steered real verdicts (issue #644
+            // follow-up). Bounded by design: a steered verdict can only
+            // downgrade a done-notification to a still-working one and hold the
+            // state on Working while work really is registered (the gate
+            // requires non-empty pending work), and the session recovers on the
+            // next Stop or SessionEnd — it never gains capabilities or reaches
+            // other sessions.
             let prompt = """
-            Background work registered for this session: \
-            \(pendingWork.joined(separator: ", ")).
+            Registered background work: \(pendingWork.joined(separator: ", ")).
 
             Agent message:
             \(message.suffix(maxMessageLength))

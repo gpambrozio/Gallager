@@ -245,6 +245,34 @@ struct StopFinalityTests {
         ])
     }
 
+    @Test("the classifier-prompt summary is neutral counts, never free text")
+    func pendingSummaryIsNeutralCounts() {
+        let body = StopBody(
+            sessionId: "s",
+            hookEventName: "Stop",
+            backgroundTasks: [
+                StopBackgroundTask(id: "t1", type: "shell", status: "running", description: "Wait for the e2e run to finish"),
+                StopBackgroundTask(id: "t2", type: "subagent", status: "running"),
+                StopBackgroundTask(id: "t3", status: "completed"),
+            ],
+            sessionCrons: [
+                StopSessionCron(id: "c1", prompt: "keep waiting until the build is done"),
+            ]
+        )
+        // Terminal tasks excluded; descriptions/prompts never surface.
+        #expect(body.pendingBackgroundWorkSummary == ["2 background tasks", "1 scheduled wakeup"])
+
+        let single = StopBody(
+            sessionId: "s",
+            hookEventName: "Stop",
+            backgroundTasks: [StopBackgroundTask(id: "t1", status: "running")]
+        )
+        #expect(single.pendingBackgroundWorkSummary == ["1 background task"])
+
+        let none = StopBody(sessionId: "s", hookEventName: "Stop")
+        #expect(none.pendingBackgroundWorkSummary.isEmpty)
+    }
+
     @Test("labels clip 1000-char upstream descriptions")
     func labelsClipLongDescriptions() throws {
         let body = StopBody(
@@ -290,12 +318,14 @@ struct StopFinalityTests {
         #expect(downgraded.tmuxPane == "%1")
         #expect(downgraded.projectPath == "/Users/test/MyProject")
 
-        // The classifier saw the message and only the still-pending work (the
-        // lingering completed task is filtered out).
+        // The classifier saw the message and a NEUTRAL count of the still-
+        // pending work (the lingering completed task is filtered out; the
+        // task's free-text name/description never reaches the judge prompt —
+        // agent-authored text steers verdicts).
         let calls = await recorder.calls
         #expect(calls.count == 1)
         #expect(calls.first?.message == "The build is running; I'll report back when it finishes.")
-        #expect(calls.first?.pendingWork == ["Build service"])
+        #expect(calls.first?.pendingWork == ["1 background task"])
     }
 
     @Test("the still-working notification truncates long summaries")
@@ -374,7 +404,9 @@ struct StopFinalityTests {
         #expect(downgraded.notification?.title == "Still Working")
         let calls = await recorder.calls
         #expect(calls.count == 1)
-        #expect(calls.first?.pendingWork == ["check the build"])
+        // Neutral descriptor — the cron's free-text prompt stays out of the
+        // judge prompt.
+        #expect(calls.first?.pendingWork == ["1 scheduled wakeup"])
     }
 
     @Test("the classifier is not consulted when no work is actually pending")

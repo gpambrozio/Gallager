@@ -838,7 +838,8 @@ public struct StopBody: HookBodyProtocol {
     /// session back up. Non-empty means the stop may be a pause, not a finish —
     /// but not reliably (a task pending termination lingers after a genuinely
     /// final message), which is why the finality classifier gets the last word
-    /// (issue #644).
+    /// (issue #644). For the DROP LOG only — never for the classifier prompt
+    /// (see `pendingBackgroundWorkSummary`).
     public var pendingBackgroundWork: [String] {
         let tasks = (backgroundTasks ?? [])
             .filter(\.isPending)
@@ -848,6 +849,26 @@ public struct StopBody: HookBodyProtocol {
         // counts as pending.
         let crons = (sessionCrons ?? []).map(\.label)
         return tasks + crons
+    }
+
+    /// Neutral count-based descriptors of the same pending work, for
+    /// interpolation into the classifier prompt — e.g. `["2 background tasks",
+    /// "1 scheduled wakeup"]`. Task descriptions and cron prompts are
+    /// agent-authored free text that often reads as waiting ("Wait for the e2e
+    /// run to finish") and demonstrably steers the judge, so only counts cross
+    /// into the prompt; the human-readable labels stay in
+    /// `pendingBackgroundWork` for the log line.
+    public var pendingBackgroundWorkSummary: [String] {
+        let taskCount = (backgroundTasks ?? []).count(where: \.isPending)
+        let cronCount = (sessionCrons ?? []).count
+        var parts: [String] = []
+        if taskCount > 0 {
+            parts.append("\(taskCount) background task\(taskCount == 1 ? "" : "s")")
+        }
+        if cronCount > 0 {
+            parts.append("\(cronCount) scheduled wakeup\(cronCount == 1 ? "" : "s")")
+        }
+        return parts
     }
 }
 

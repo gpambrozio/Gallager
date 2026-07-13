@@ -267,6 +267,10 @@ let products: [Product] = [
         name: "EchoPluginSidecar",
         targets: ["EchoPluginSidecar"]
     ),
+    .executable(
+        name: "StopFinalityEval",
+        targets: ["StopFinalityEval"]
+    ),
 ]
 
 let packageDependencies: [Package.Dependency] = [
@@ -456,6 +460,14 @@ let targets: [Target] = [
         name: "EchoPluginSidecar",
         dependencies: [.gallagerPluginProtocol, .claudeSpyNetworking, .logging],
         path: "Sources/EchoPluginSidecar"
+    ),
+    // Eval harness for the issue-#644 stop-finality judge: drives the REAL
+    // `StopFinalityClassifier.liveValue` over a fixed case set so prompt
+    // changes are measurable. Run manually on a Mac with Apple Intelligence
+    // (`swift run StopFinalityEval`); CI only compiles it.
+    .executableTarget(
+        name: "StopFinalityEval",
+        dependencies: [.claudeCodePluginCore]
     ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",

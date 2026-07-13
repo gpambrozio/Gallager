@@ -59,7 +59,14 @@ listed cron counts, since cron entries carry no status field
 (`StopBody.pendingBackgroundWork`) — `handleIngress` asks the
 `StopFinalityClassifier` — Apple Intelligence's on-device model (FoundationModels,
 macOS 26+) — whether `last_assistant_message` reads as final or as
-waiting-for-background-work. Waiting → the stop is *downgraded*: an explicit
+waiting-for-background-work. The judge prompt receives only NEUTRAL counts of the
+pending work (`StopBody.pendingBackgroundWorkSummary`, "2 background tasks, 1
+scheduled wakeup") — task descriptions/cron prompts are agent-authored free text
+("Wait for the e2e run to finish") that demonstrably steered verdicts; the
+human-readable labels go to the info log instead. The judge instructions are
+eval-tuned: run `swift run StopFinalityEval` (a package executable driving the real
+`liveValue` over a fixed case set of realistic final/waiting messages; needs a Mac
+with Apple Intelligence — CI only compiles it) before and after any prompt change. Waiting → the stop is *downgraded*: an explicit
 `.working` event keeps the spinner and the turn's summary still surfaces as a
 notification titled "Still Working" (same project-prefix/256-char copy as the done
 notification, no app actions — a pause can't close panes or suggest opens); the
