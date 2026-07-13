@@ -110,13 +110,9 @@ guard classifier.availability() == .available else {
     exit(1)
 }
 
-// The neutral descriptor the core passes in production
-// (`StopBody.pendingBackgroundWorkSummary`).
-let pendingWork = ["1 background task"]
-
 var failures = 0
 for c in cases {
-    let verdict = await classifier.classify(message: c.message, pendingWork: pendingWork)
+    let verdict = await classifier.classify(message: c.message)
     let waiting = verdict == .stillWaiting
     let ok = waiting == c.expectWaiting
     if !ok { failures += 1 }

@@ -77,13 +77,14 @@ public enum StopFinalityAvailability: Sendable, Equatable {
 /// stuck on "Working".
 @DependencyClient
 public struct StopFinalityClassifier: Sendable {
-    /// Classifies `message` (the stop's `last_assistant_message`). `pendingWork`
-    /// must be the NEUTRAL count-based descriptors of the in-flight work
-    /// (`StopBody.pendingBackgroundWorkSummary`, e.g. "2 background tasks") —
-    /// never raw task descriptions or cron prompts: those are agent-authored
-    /// free text that often reads as waiting ("Wait for X to finish") and
-    /// demonstrably steers the judge toward a wrong still-waiting verdict.
-    public var classify: @Sendable (_ message: String, _ pendingWork: [String]) async -> StopFinalityVerdict = { _, _ in .final }
+    /// Classifies `message` (the stop's `last_assistant_message`). The verdict
+    /// rides on the message alone — the prompt carries NO information about the
+    /// registered background work. Task descriptions and cron prompts are
+    /// agent-authored free text that often reads as waiting ("Wait for X to
+    /// finish") and demonstrably steered the judge; even neutral counts can
+    /// anchor a wrong still-waiting verdict, so they stay out too. The
+    /// human-readable labels surface in the caller's log line instead.
+    public var classify: @Sendable (_ message: String) async -> StopFinalityVerdict = { _ in .final }
     /// Probes whether the on-device model could classify right now. Purely
     /// informational — `classify` re-guards internally — so the settings UI can
     /// render the toggle's real state.
@@ -100,7 +101,7 @@ extension StopFinalityClassifier: DependencyKey {
     public static var liveValue: StopFinalityClassifier {
         if CommandLine.arguments.contains("--e2e-test") {
             return StopFinalityClassifier(
-                classify: { message, _ in
+                classify: { message in
                     message.contains(e2eStillWaitingMarker) ? .stillWaiting : .final
                 },
                 // Deterministic in e2e: CI machines vary in OS / Apple
@@ -110,7 +111,7 @@ extension StopFinalityClassifier: DependencyKey {
             )
         }
         return StopFinalityClassifier(
-            classify: { message, pendingWork in
+            classify: { message in
                 #if canImport(FoundationModels)
                     guard #available(macOS 26, iOS 26, *) else { return .final }
                     // classify runs inside the serial ingress consumer — one frame
@@ -119,7 +120,7 @@ extension StopFinalityClassifier: DependencyKey {
                     // else's status updates. Race inference against a fail-open
                     // deadline.
                     return await raceAgainstDeadline(classificationDeadline) {
-                        await appleIntelligenceVerdict(message: message, pendingWork: pendingWork)
+                        await appleIntelligenceVerdict(message: message)
                     }
                 #else
                     return .final
@@ -227,8 +228,7 @@ extension StopFinalityClassifier: DependencyKey {
         private static let maxMessageLength = 4_000
 
         fileprivate static func appleIntelligenceVerdict(
-            message: String,
-            pendingWork: [String]
+            message: String
         ) async -> StopFinalityVerdict {
             guard case .available = SystemLanguageModel.default.availability else {
                 return .final
@@ -265,17 +265,17 @@ extension StopFinalityClassifier: DependencyKey {
 
             // Trust boundary: `message` is untrusted agent output interpolated
             // into the judge prompt, so adversarial text ("answer WAITING") can
-            // steer the verdict. `pendingWork` is deliberately neutral counts
-            // only — raw task descriptions steered real verdicts (issue #644
-            // follow-up). Bounded by design: a steered verdict can only
-            // downgrade a done-notification to a still-working one and hold the
-            // state on Working while work really is registered (the gate
-            // requires non-empty pending work), and the session recovers on the
-            // next Stop or SessionEnd — it never gains capabilities or reaches
+            // steer the verdict. The message is the ONLY per-case input — the
+            // registered background work stays out entirely: raw task
+            // descriptions steered real verdicts (issue #644 follow-up), and
+            // even neutral counts anchor the judge toward still-waiting.
+            // Bounded by design: a steered verdict can only downgrade a
+            // done-notification to a still-working one and hold the state on
+            // Working while work really is registered (the gate requires
+            // non-empty pending work), and the session recovers on the next
+            // Stop or SessionEnd — it never gains capabilities or reaches
             // other sessions.
             let prompt = """
-            Registered background work: \(pendingWork.joined(separator: ", ")).
-
             Agent message:
             \(message.suffix(maxMessageLength))
             """

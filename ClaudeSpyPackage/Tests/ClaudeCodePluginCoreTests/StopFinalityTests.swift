@@ -19,10 +19,10 @@ struct StopFinalityTests {
     /// Records classifier invocations so tests can assert it is only consulted
     /// when background work is actually pending.
     private actor ClassifierRecorder {
-        private(set) var calls: [(message: String, pendingWork: [String])] = []
+        private(set) var calls: [String] = []
 
-        func record(message: String, pendingWork: [String]) {
-            calls.append((message, pendingWork))
+        func record(message: String) {
+            calls.append(message)
         }
     }
 
@@ -193,8 +193,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }
@@ -245,34 +245,6 @@ struct StopFinalityTests {
         ])
     }
 
-    @Test("the classifier-prompt summary is neutral counts, never free text")
-    func pendingSummaryIsNeutralCounts() {
-        let body = StopBody(
-            sessionId: "s",
-            hookEventName: "Stop",
-            backgroundTasks: [
-                StopBackgroundTask(id: "t1", type: "shell", status: "running", description: "Wait for the e2e run to finish"),
-                StopBackgroundTask(id: "t2", type: "subagent", status: "running"),
-                StopBackgroundTask(id: "t3", status: "completed"),
-            ],
-            sessionCrons: [
-                StopSessionCron(id: "c1", prompt: "keep waiting until the build is done"),
-            ]
-        )
-        // Terminal tasks excluded; descriptions/prompts never surface.
-        #expect(body.pendingBackgroundWorkSummary == ["2 background tasks", "1 scheduled wakeup"])
-
-        let single = StopBody(
-            sessionId: "s",
-            hookEventName: "Stop",
-            backgroundTasks: [StopBackgroundTask(id: "t1", status: "running")]
-        )
-        #expect(single.pendingBackgroundWorkSummary == ["1 background task"])
-
-        let none = StopBody(sessionId: "s", hookEventName: "Stop")
-        #expect(none.pendingBackgroundWorkSummary.isEmpty)
-    }
-
     @Test("labels clip 1000-char upstream descriptions")
     func labelsClipLongDescriptions() throws {
         let body = StopBody(
@@ -294,8 +266,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }
@@ -318,14 +290,11 @@ struct StopFinalityTests {
         #expect(downgraded.tmuxPane == "%1")
         #expect(downgraded.projectPath == "/Users/test/MyProject")
 
-        // The classifier saw the message and a NEUTRAL count of the still-
-        // pending work (the lingering completed task is filtered out; the
-        // task's free-text name/description never reaches the judge prompt —
-        // agent-authored text steers verdicts).
+        // The classifier saw the message and nothing else — no pending-work
+        // info (labels or counts) crosses into the judge prompt; agent-authored
+        // text steers verdicts and counts anchor them.
         let calls = await recorder.calls
-        #expect(calls.count == 1)
-        #expect(calls.first?.message == "The build is running; I'll report back when it finishes.")
-        #expect(calls.first?.pendingWork == ["1 background task"])
+        #expect(calls == ["The build is running; I'll report back when it finishes."])
     }
 
     @Test("the still-working notification truncates long summaries")
@@ -343,7 +312,7 @@ struct StopFinalityTests {
         """
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { _, _ in .stillWaiting },
+                classify: { _ in .stillWaiting },
                 availability: { .available }
             )
         } operation: {
@@ -360,7 +329,7 @@ struct StopFinalityTests {
     func finalStopKept() async throws {
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { _, _ in .final },
+                classify: { _ in .final },
                 availability: { .available }
             )
         } operation: {
@@ -378,8 +347,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }
@@ -402,11 +371,10 @@ struct StopFinalityTests {
         let downgraded = try #require(event)
         #expect(downgraded.state == .working)
         #expect(downgraded.notification?.title == "Still Working")
+        // The cron's free-text prompt stays out of the judge prompt — the
+        // classifier gets the message alone.
         let calls = await recorder.calls
-        #expect(calls.count == 1)
-        // Neutral descriptor — the cron's free-text prompt stays out of the
-        // judge prompt.
-        #expect(calls.first?.pendingWork == ["1 scheduled wakeup"])
+        #expect(calls == ["I'll check the build on the next wakeup."])
     }
 
     @Test("the classifier is not consulted when no work is actually pending")
@@ -428,8 +396,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }
@@ -461,8 +429,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }
@@ -481,8 +449,8 @@ struct StopFinalityTests {
         let recorder = ClassifierRecorder()
         let event = try await withDependencies {
             $0[StopFinalityClassifier.self] = StopFinalityClassifier(
-                classify: { message, pendingWork in
-                    await recorder.record(message: message, pendingWork: pendingWork)
+                classify: { message in
+                    await recorder.record(message: message)
                     return .stillWaiting
                 },
                 availability: { .available }

@@ -121,13 +121,11 @@ public actor ClaudeCodePluginCore: PluginCore {
             let pendingWork = stopBody.pendingBackgroundWork
             if
                 !pendingWork.isEmpty,
-                // The classifier gets neutral counts, not the labels: task
-                // descriptions are agent-authored free text that can read as
-                // waiting and steer the verdict. The labels go to the log below.
-                await stopFinalityClassifier.classify(
-                    message: message,
-                    pendingWork: stopBody.pendingBackgroundWorkSummary
-                ) == .stillWaiting {
+                // The classifier judges the message alone — no pending-work
+                // info reaches the prompt (task descriptions are agent-authored
+                // free text that steers the verdict, and even neutral counts
+                // anchor it). The labels go to the log below.
+                await stopFinalityClassifier.classify(message: message) == .stillWaiting {
                 await log(
                     .info,
                     "Stop hook downgraded to still-working — background work in flight "
