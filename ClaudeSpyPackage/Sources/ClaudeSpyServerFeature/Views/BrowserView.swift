@@ -83,8 +83,8 @@ final class BrowserTabState {
     var isLoading = false
     var estimatedProgress: Double = 0
     /// Monotonic counter bumped from outside the view to request the URL
-    /// field take keyboard focus. The browser content view observes the value
-    /// via `.task(id:)` and drives `@FocusState` when it changes. Using a
+    /// field take keyboard focus. `BrowserURLField` observes the value and
+    /// makes its `NSTextField` first responder when it changes. Using a
     /// counter (rather than a Bool) lets a freshly-opened tab focus the field
     /// even when the value was already true earlier in the session.
     var urlFieldFocusRequest = 0
@@ -101,12 +101,6 @@ final class BrowserTabState {
     /// the page behind a failed navigation is often blank, so "reveal it"
     /// isn't a useful escape hatch.
     var navigationError: BrowserNavigationError?
-    /// Bumped whenever `urlFieldText` is replaced programmatically (URL KVO
-    /// sync, failed-URL restore, submit normalization) rather than by the
-    /// user typing. The content view watches this to drop its live
-    /// `TextSelection` — selection indices built for the previous string
-    /// are out of bounds for the new one and crash `TextField`.
-    private(set) var urlFieldTextReplacements = 0
     /// Downloads started from this tab, oldest first. Rows stay in the
     /// downloads bar until dismissed; dismissing an in-flight row cancels it.
     var downloads: [BrowserDownload] = []
@@ -184,7 +178,7 @@ final class BrowserTabState {
                 // KVO observer reverts the field to the last committed
                 // page's URL when a provisional load fails.
                 if let failedURL = error.failedURL {
-                    self?.replaceURLFieldText(with: failedURL.absoluteString)
+                    self?.urlFieldText = failedURL.absoluteString
                 }
             },
             onDownloadStart: { [weak self] download in
@@ -206,7 +200,7 @@ final class BrowserTabState {
                 guard let self else { return }
                 self.currentURL = webView.url
                 if let newURL = webView.url {
-                    self.replaceURLFieldText(with: newURL.absoluteString)
+                    self.urlFieldText = newURL.absoluteString
                 }
             }
         })
@@ -243,17 +237,9 @@ final class BrowserTabState {
     /// URL when the user typed something incomplete (no scheme, plain host).
     func loadFromURLField() {
         guard let url = Self.normalizedURL(from: urlFieldText) else { return }
-        replaceURLFieldText(with: url.absoluteString)
+        urlFieldText = url.absoluteString
         navigationError = nil
         webView.load(URLRequest(url: url))
-    }
-
-    /// Replaces the URL field's text from code (as opposed to the user
-    /// typing into the bound `TextField`) and signals the content view to
-    /// discard any live text selection built for the old string.
-    private func replaceURLFieldText(with text: String) {
-        urlFieldText = text
-        urlFieldTextReplacements += 1
     }
 
     /// Retries the navigation that produced `navigationError`, preferring the
@@ -360,11 +346,6 @@ struct BrowserTabContentView: View {
     /// return-to-origin selection behavior) happens there.
     let onRequestClose: () -> Void
 
-    @FocusState private var isURLFieldFocused: Bool
-    /// Selection of the URL field's text, so gaining focus can select the
-    /// whole URL (Safari-style) and typing replaces it.
-    @State private var urlSelection: TextSelection?
-
     var body: some View {
         VStack(spacing: 0) {
             navigationBar
@@ -398,26 +379,6 @@ struct BrowserTabContentView: View {
         .onChange(of: state.pageTitle) { _, newValue in
             onTitleChange(newValue)
         }
-        .onChange(of: isURLFieldFocused) { _, focused in
-            // Select the whole URL when the field gains focus (Safari-style)
-            // so typing replaces it. Deferred a runloop turn: on click focus
-            // the caret placement for the click lands after the focus change,
-            // and selecting synchronously would be undone by it.
-            guard focused else { return }
-            Task { @MainActor in
-                guard isURLFieldFocused else { return }
-                let text = state.urlFieldText
-                guard !text.isEmpty else { return }
-                urlSelection = TextSelection(range: text.startIndex..<text.endIndex)
-            }
-        }
-        .onChange(of: state.urlFieldTextReplacements) {
-            // A programmatic rewrite of `urlFieldText` (redirect landing
-            // while the field is focused, failed-URL restore) invalidates a
-            // selection whose indices were built for the old string —
-            // applying stale indices to the new text crashes `TextField`.
-            urlSelection = nil
-        }
         .onChange(of: state.currentURL) { _, newValue in
             if let newValue {
                 onURLChange(newValue)
@@ -430,16 +391,6 @@ struct BrowserTabContentView: View {
             guard let newValue else { return }
             state.pendingNewTabURL = nil
             onRequestNewTab(newValue)
-        }
-        .task(id: state.urlFieldFocusRequest) {
-            // Skip the initial .task fire — only steal focus when an external
-            // caller bumps the counter. The brief sleep gives SwiftUI a tick
-            // to insert the freshly-mounted TextField into the responder chain
-            // before we ask it to become first responder.
-            guard state.urlFieldFocusRequest > 0 else { return }
-            try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled else { return }
-            isURLFieldFocused = true
         }
     }
 
@@ -500,19 +451,179 @@ struct BrowserTabContentView: View {
             .help("Open in default browser")
             .accessibilityLabel("Open in default browser")
 
-            TextField("Enter URL", text: $state.urlFieldText, selection: $urlSelection)
-                .textFieldStyle(.roundedBorder)
-                .focused($isURLFieldFocused)
-                .onSubmit {
-                    state.loadFromURLField()
-                    isURLFieldFocused = false
-                }
-                .accessibilityLabel("URL")
+            BrowserURLField(
+                text: $state.urlFieldText,
+                focusRequest: state.urlFieldFocusRequest,
+                onSubmit: { state.loadFromURLField() }
+            )
+            .frame(minWidth: 0, maxWidth: .infinity)
         }
         .padding(.trailing, 8)
         .padding(.leading, 16)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+}
+
+// MARK: - Address Bar Field
+
+/// AppKit-backed address-bar text field.
+///
+/// SwiftUI's `TextField` can't reproduce a browser address bar's "first click
+/// selects the whole URL, a later click positions the caret" behavior. On the
+/// click that moves focus into the field, AppKit's field editor sets the caret
+/// from the click location on *mouse-up*, which discards any selection applied
+/// earlier in the same event — so a `TextField` + `TextSelection` binding
+/// flashes the selection and immediately loses it on a real mouse click
+/// (issue #651). It only appeared to work under keyboard/AX focus, where no
+/// mouse tracking overrides the selection.
+///
+/// `AddressBarTextField` fixes this by selecting all *after* the field editor's
+/// mouse-tracking loop returns (see its `mouseDown`), so the selection sticks.
+private struct BrowserURLField: NSViewRepresentable {
+    @Binding var text: String
+    /// Monotonic counter mirroring `BrowserTabState.urlFieldFocusRequest`. When
+    /// it changes to a fresh value the field takes keyboard focus (and, via
+    /// `becomeFirstResponder`, selects all).
+    let focusRequest: Int
+    /// Called when the user presses Return to load the typed URL.
+    let onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> AddressBarTextField {
+        let field = AddressBarTextField()
+        field.delegate = context.coordinator
+        field.placeholderString = "Enter URL"
+        field.isEditable = true
+        field.isSelectable = true
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = true
+        field.focusRingType = .default
+        // Single-line, horizontally scrollable while editing; when it isn't
+        // focused a long URL keeps its head (scheme + host) visible.
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        // Let the field stretch to fill the navigation bar rather than hug its
+        // text, matching the old `.frame(maxWidth: .infinity)` TextField.
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setAccessibilityLabel("URL")
+        return field
+    }
+
+    func updateNSView(_ nsView: AddressBarTextField, context: Context) {
+        context.coordinator.onSubmit = onSubmit
+        // Push SwiftUI's text in only when it actually diverges (URL KVO sync,
+        // failed-URL restore). Rewriting on every keystroke round-trip would
+        // stomp the user's caret and selection.
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        // Honor a fresh external focus request. Comparing against the last
+        // handled value keeps unrelated re-renders from re-stealing focus.
+        if focusRequest > 0, focusRequest != context.coordinator.lastFocusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            // Deferred so a freshly-opened tab's field is inserted into the
+            // window's responder chain before we ask it to become first
+            // responder (mirrors the old `.task` 50 ms warm-up).
+            Task { @MainActor [weak nsView] in
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let nsView, let window = nsView.window else { return }
+                window.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onSubmit: onSubmit)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        @Binding private var text: String
+        var onSubmit: () -> Void
+        /// Last `focusRequest` acted on, so each bump focuses exactly once.
+        var lastFocusRequest = 0
+
+        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+            self._text = text
+            self.onSubmit = onSubmit
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            text = field.stringValue
+        }
+
+        func control(
+            _ control: NSControl,
+            textView: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
+                return false
+            }
+            onSubmit()
+            // Blur after submit (Safari-like): keeping the field first responder
+            // would leave the just-loaded page unable to receive keystrokes.
+            control.window?.makeFirstResponder(nil)
+            return true
+        }
+    }
+}
+
+/// `NSTextField` that behaves like a browser address bar: the interaction that
+/// moves keyboard focus into the field selects the whole URL; a later click
+/// (while the field is already focused) positions the caret where clicked.
+/// Keyboard, AX, and programmatic focus select all too.
+///
+/// The mouse case is the whole reason this subclass exists (issue #651). The
+/// field editor sets the caret from the click on mouse-up, so any selection
+/// applied *before* mouse-up is discarded. `super.mouseDown(with:)` doesn't
+/// return until that tracking loop ends, so selecting all right after it lands
+/// the selection *after* the caret placement and it sticks.
+final private class AddressBarTextField: NSTextField {
+    /// True only while inside our own `mouseDown`, so the `becomeFirstResponder`
+    /// override can tell a click-driven focus (handled after the tracking loop)
+    /// apart from keyboard/AX/programmatic focus (handled immediately). More
+    /// reliable than sniffing `NSApp.currentEvent`, which can hold a stale mouse
+    /// event when focus is set via accessibility.
+    private var isHandlingMouseDown = false
+
+    override func mouseDown(with event: NSEvent) {
+        // `currentEditor()` is non-nil only while this field is already being
+        // edited. Capture it before `super` installs the field editor to tell
+        // the focus-gaining click apart from a click in an already-focused field.
+        let wasEditing = currentEditor() != nil
+        isHandlingMouseDown = true
+        // Runs the field editor's mouse-tracking loop; returns after mouse-up,
+        // by which point the caret has been placed.
+        super.mouseDown(with: event)
+        isHandlingMouseDown = false
+
+        guard !wasEditing, let editor = currentEditor() else { return }
+        // Only auto-select-all for a plain click. If the user dragged to select
+        // a substring on the focusing click, honor that selection instead of
+        // overriding it (matches Safari/Chrome).
+        if editor.selectedRange.length == 0 {
+            editor.selectAll(nil)
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        // Select all on keyboard (Tab), AX, and programmatic focus. Skip the
+        // mouse case — `mouseDown` handles it after its tracking loop, and
+        // selecting here would be undone when the caret lands on mouse-up.
+        if didBecome, !isHandlingMouseDown {
+            // Deferred: right after `becomeFirstResponder` returns the field
+            // editor may not be fully installed, so `selectText` would no-op.
+            Task { @MainActor [weak self] in
+                guard let self, self.currentEditor() != nil else { return }
+                self.selectText(nil)
+            }
+        }
+        return didBecome
     }
 }
 
@@ -987,6 +1098,15 @@ private enum BrowserPreviewSample {
         onRequestClose: { }
     )
     .frame(width: 720, height: 480)
+}
+
+#Preview("BrowserURLField") {
+    // Interactive: click the field to see the whole URL select (issue #651),
+    // click again to position the caret, type to replace the selection.
+    @Previewable @State var url = "https://github.com/gpambrozio/ClaudeSpy"
+    BrowserURLField(text: $url, focusRequest: 0, onSubmit: { })
+        .frame(width: 420)
+        .padding()
 }
 
 #Preview("BrowserNavigationErrorView") {
