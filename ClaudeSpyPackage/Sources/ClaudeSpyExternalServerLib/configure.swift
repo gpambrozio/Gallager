@@ -23,6 +23,25 @@ public func configure(_ app: Application) async throws {
     let connectionHub = ConnectionHub()
     let metricsService = MetricsService()
 
+    // Licensing: enabled only when LEMONSQUEEZY_STORE_ID + LEMONSQUEEZY_PRODUCT_ID
+    // are both set. Self-hosted relays leave them unset and run unrestricted.
+    // Misconfiguration (half-set / non-integer) throws here — fail-loud at boot.
+    let licensingConfig = try LicensingConfiguration.fromEnvironment()
+    let licenseAPIClient: any LicenseAPIClient
+    if let licensingConfig {
+        licenseAPIClient = LemonSqueezyAPIClient(baseURL: licensingConfig.apiBaseURL)
+    } else {
+        licenseAPIClient = DisabledLicenseAPIClient()
+    }
+    let licensingService = LicensingService(
+        config: licensingConfig,
+        apiClient: licenseAPIClient,
+        metricsService: metricsService
+    )
+    if licensingConfig != nil {
+        app.logger.info("Licensing ENABLED — hosted-relay hosts require a trial or license")
+    }
+
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
     let apnsEnvString = ProcessInfo.processInfo.environment["APNS_ENVIRONMENT"] ?? "development"
@@ -58,6 +77,7 @@ public func configure(_ app: Application) async throws {
     app.storage[APNsServiceKey.self] = apnsService
     app.storage[RelayServiceKey.self] = relayService
     app.storage[MetricsServiceKey.self] = metricsService
+    app.storage[LicensingServiceKey.self] = licensingService
     // Use ContinuousClock so /metrics uptime is monotonic (immune to wall-clock jumps).
     app.storage[ProcessStartTimeKey.self] = ContinuousClock.now
 
@@ -107,6 +127,10 @@ struct MetricsServiceKey: StorageKey {
     typealias Value = MetricsService
 }
 
+struct LicensingServiceKey: StorageKey {
+    typealias Value = LicensingService
+}
+
 struct ProcessStartTimeKey: StorageKey {
     typealias Value = ContinuousClock.Instant
 }
@@ -151,6 +175,13 @@ extension Application {
         return service
     }
 
+    var licensingService: LicensingService {
+        guard let service = storage[LicensingServiceKey.self] else {
+            fatalError("LicensingService not configured. Call configure(_:) first.")
+        }
+        return service
+    }
+
     /// `nil` when the `/metrics` endpoint is disabled (no `METRICS_TOKEN` in env).
     var metricsToken: String? {
         storage[MetricsTokenKey.self] ?? nil
@@ -171,6 +202,11 @@ public extension Application {
     func resetPairingState() async {
         await pairingService.resetState()
         await connectionHub.clearBlockedDeviceTypes()
+    }
+
+    /// Reset all licensing state (for testing)
+    func resetLicensingState() async {
+        await licensingService.resetState()
     }
 
     /// Check if a host is connected via WebSocket for any active pair

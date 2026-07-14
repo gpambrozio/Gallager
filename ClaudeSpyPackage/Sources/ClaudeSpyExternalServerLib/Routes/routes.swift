@@ -16,6 +16,7 @@ func routes(_ app: Application) throws {
 
     // Register controllers
     try api.register(collection: PairingController())
+    try api.register(collection: LicenseController())
     try api.register(collection: WebSocketController())
 }
 
