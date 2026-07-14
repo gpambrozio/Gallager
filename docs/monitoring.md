@@ -105,6 +105,11 @@ Grafana Cloud free: 10k active series, 14-day retention, 1 user. Current usage: 
 |--------|------|-------------|
 | `claudespy_messages_relayed_total` | counter | Encrypted messages relayed since process start |
 | `claudespy_push_notifications_total` | counter | Push notifications sent to APNs since process start |
+| `claudespy_trial_starts_total` | counter | Trial licenses started; 0 if licensing is disabled |
+| `claudespy_license_activations_total` | counter | License keys activated; 0 if licensing is disabled |
+| `claudespy_license_deactivations_total` | counter | License keys deactivated; 0 if licensing is disabled |
+| `claudespy_license_validation_failures_total` | counter | License validation failures from Lemon Squeezy; 0 if licensing is disabled |
+| `claudespy_blocked_host_attempts_total` | counter | Connection attempts blocked due to licensing; 0 if licensing is disabled |
 | `claudespy_active_pairs` | gauge | Currently-paired devices |
 | `claudespy_ws_connections{device_type="host\|viewer"}` | gauge | Active WebSocket connections per device type |
 | `claudespy_uptime_seconds` | gauge | Process uptime |
