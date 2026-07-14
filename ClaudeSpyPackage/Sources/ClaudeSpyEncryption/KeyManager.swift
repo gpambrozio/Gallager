@@ -392,6 +392,74 @@ import Foundation
             return status == errSecSuccess
         }
 
+        // MARK: - Generic Secrets
+
+        /// Stores an arbitrary secret string under `account` (upsert).
+        ///
+        /// - Parameters:
+        ///   - value: The secret string to store.
+        ///   - account: The keychain account to store the secret under.
+        /// - Throws: `CryptoError.keychainError` on Keychain access failure
+        public func storeSecret(_ value: String, account: String) throws {
+            let data = Data(value.utf8)
+            let query = baseKeychainAttributes(account: account)
+
+            // Try to update existing item first (upsert pattern)
+            let updateAttrs: [String: Any] = [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            ]
+
+            let updateStatus = SecItemUpdate(query as CFDictionary, updateAttrs as CFDictionary)
+
+            if updateStatus == errSecItemNotFound {
+                // No existing item — add new one
+                let attributes = storeAttributes(account: account, data: data)
+                let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+                guard addStatus == errSecSuccess else {
+                    throw CryptoError.keychainError(status: addStatus)
+                }
+            } else if updateStatus != errSecSuccess {
+                throw CryptoError.keychainError(status: updateStatus)
+            }
+        }
+
+        /// Loads a secret stored via `storeSecret`.
+        ///
+        /// - Parameter account: The keychain account to load the secret from.
+        /// - Returns: The secret string, or nil if not found
+        /// - Throws: `CryptoError.keychainError` on Keychain access failure
+        public func loadSecret(account: String) throws -> String? {
+            var query = baseKeychainAttributes(account: account)
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+            var result: AnyObject?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+            if status == errSecItemNotFound {
+                return nil
+            }
+
+            guard status == errSecSuccess, let data = result as? Data else {
+                throw CryptoError.keychainError(status: status)
+            }
+
+            return String(decoding: data, as: UTF8.self)
+        }
+
+        /// Deletes a secret stored via `storeSecret` (missing item is not an error).
+        ///
+        /// - Parameter account: The keychain account to delete the secret from.
+        /// - Throws: `CryptoError.keychainError` on Keychain access failure
+        public func deleteSecret(account: String) throws {
+            let query = baseKeychainAttributes(account: account)
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+                throw CryptoError.keychainError(status: status)
+            }
+        }
+
         // MARK: - Private Key Storage
 
         private func storeInKeychain(_ keyPair: StoredKeyPair) throws {
@@ -430,6 +498,7 @@ import Foundation
 public actor InMemoryKeyManager {
     private var storedKeyPair: StoredKeyPair?
     private var storedSessionKeys: [String: Data] = [:]
+    private var storedSecrets: [String: String] = [:]
 
     public init(accessGroup _: String? = nil) { }
 
@@ -483,5 +552,19 @@ public actor InMemoryKeyManager {
 
     public func deleteAllSessionKeys() {
         storedSessionKeys.removeAll()
+    }
+
+    // MARK: - Generic Secrets
+
+    public func storeSecret(_ value: String, account: String) {
+        storedSecrets[account] = value
+    }
+
+    public func loadSecret(account: String) -> String? {
+        storedSecrets[account]
+    }
+
+    public func deleteSecret(account: String) {
+        storedSecrets.removeValue(forKey: account)
     }
 }
