@@ -675,11 +675,7 @@ public struct MainView: View {
             // left and right panes don't end up showing the same terminal
             // after a session round-trip.
             let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
-            let leftCandidates = session.windows.filter { !rightSideIds.contains($0.id) }
-            let pick = leftCandidates.first(where: \.isWindowActive)
-                ?? leftCandidates.first
-                ?? activeWindow
-            if let pick {
+            if let pick = session.leftPaneWindow(excludingRightSide: rightSideIds) {
                 selectedWindow = pick
             }
             selectedRemoteSession = nil
@@ -2251,10 +2247,17 @@ public struct MainView: View {
         } else if
             selectedWindow == nil, selectedRemoteSession == nil, newSessionPaneIds.count == 1,
             let newPaneId = newSessionPaneIds.first,
-            let window = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == newPaneId } }) {
-            // Nothing selected and a single new session appeared - auto-select the containing window
-            selectedWindow = window
-            scrollToWindowId = window.sessionName
+            let containingWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == newPaneId } }),
+            let session = tmuxService.sessions.first(where: { $0.sessionName == containingWindow.sessionName }) {
+            // Nothing selected and a single new session appeared - auto-select its
+            // tmux-active window, mirroring the sidebar-click behavior. Selecting the
+            // window that merely *contains* the agent pane would show the wrong window
+            // whenever tmux's active window differs from the agent's window (issue #653).
+            let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
+            if let pick = session.leftPaneWindow(excludingRightSide: rightSideIds) {
+                selectedWindow = pick
+                scrollToWindowId = pick.sessionName
+            }
         }
 
         trackedActiveSessionPaneIds = currentIds
