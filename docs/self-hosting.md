@@ -14,7 +14,9 @@ All communication is end-to-end encrypted. The server only relays encrypted blob
 Self-hosted relays are free and require no license configuration: the hosted-relay
 licensing gate is entirely disabled unless `LEMONSQUEEZY_STORE_ID` and
 `LEMONSQUEEZY_PRODUCT_ID` are set in the environment. Leave them unset (the
-default) and the relay behaves exactly as before licensing existed.
+default) and the relay behaves exactly as before licensing existed. A present but
+malformed (non-integer) value in any licensing variable fails the boot rather
+than silently falling back.
 
 ## Requirements
 
@@ -79,7 +81,7 @@ Create a `.env` file based on `.env.example`:
 LOG_LEVEL=warning              # debug, info, notice, warning, error, critical
 PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
 
-# Licensing (leave unset for self-hosting; official relay only)
+# Licensing (leave unset for self-hosting; malformed values fail boot)
 LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
 LEMONSQUEEZY_PRODUCT_ID=       # From Lemon Squeezy dashboard
 TRIAL_DAYS=7                   # Trial length (default 7)

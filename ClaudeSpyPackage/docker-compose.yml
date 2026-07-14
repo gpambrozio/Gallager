@@ -11,6 +11,7 @@ services:
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       # Licensing (hosted-relay monetization) — leave BOTH unset for self-hosting.
       # Setting only one of the two ids fails the boot on purpose.
+      # A present but non-integer value in any licensing var also fails boot.
       - LEMONSQUEEZY_STORE_ID=${LEMONSQUEEZY_STORE_ID:-}
       - LEMONSQUEEZY_PRODUCT_ID=${LEMONSQUEEZY_PRODUCT_ID:-}
       - TRIAL_DAYS=${TRIAL_DAYS:-7}
