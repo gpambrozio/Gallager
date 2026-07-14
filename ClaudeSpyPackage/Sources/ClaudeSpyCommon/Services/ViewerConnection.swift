@@ -49,6 +49,11 @@ final public class ViewerConnection: Identifiable {
         relayClient.versionMismatch
     }
 
+    /// Relay reported the host's hosted-relay subscription lapsed.
+    public var hostSubscriptionInactive: Bool {
+        relayClient.hostSubscriptionInactive
+    }
+
     // MARK: - Initialization
 
     /// Creates a new connection to a paired host.

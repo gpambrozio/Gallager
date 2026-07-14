@@ -72,6 +72,10 @@ final public class ViewerRelayClient {
     /// update-required affordances without string parsing.
     public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
 
+    /// True when the relay reported this host is blocked for lack of an
+    /// active subscription. Cleared when the host connects again.
+    public private(set) var hostSubscriptionInactive = false
+
     /// The WebSocket task
     private var webSocketTask: URLSessionWebSocketTask?
 
@@ -741,6 +745,7 @@ final public class ViewerRelayClient {
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
+            hostSubscriptionInactive = false
 
             // `isHostConnected` is NOT flipped to true here — it is set only after
             // the host's peerHello arrives and passes the compatibility check.
@@ -802,6 +807,11 @@ final public class ViewerRelayClient {
             isHostConnected = false
             connectedHostName = nil
             await onHostDisconnected?()
+
+        case .hostSubscriptionInactive:
+            logger.info("Host blocked: subscription inactive")
+            hostSubscriptionInactive = true
+            isHostConnected = false
 
         case .unpaired:
             logger.info("Pairing removed by the other side")
@@ -960,6 +970,7 @@ final public class ViewerRelayClient {
 
     private func cleanupConnection() async {
         awaitingPong = false
+        hostSubscriptionInactive = false
 
         receiveTask?.cancel()
         receiveTask = nil

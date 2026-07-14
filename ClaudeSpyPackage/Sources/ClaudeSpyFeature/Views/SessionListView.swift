@@ -282,7 +282,10 @@
                     }
                 } else {
                     // Empty state for this host
-                    if connection?.isHostConnected == true {
+                    if connection?.hostSubscriptionInactive == true {
+                        Label("Host's subscription expired", symbol: .exclamationmarkTriangle)
+                            .foregroundStyle(.orange)
+                    } else if connection?.isHostConnected == true {
                         Text("No active sessions")
                             .foregroundStyle(.secondary)
                     } else {
