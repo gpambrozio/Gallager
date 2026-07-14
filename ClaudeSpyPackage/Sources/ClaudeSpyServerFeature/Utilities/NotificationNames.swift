@@ -18,6 +18,16 @@ public extension Notification.Name {
     /// session's tab strip and selects the tab to the right of the
     /// currently-selected one, wrapping at the trailing edge.
     static let selectNextTab = Notification.Name("selectNextTab")
+    /// Posted by the "Previous Session" menu item (⌘⇧`). `MainView` walks the
+    /// sidebar's combined session order — local sessions then each remote
+    /// host's — and selects the one before the current selection, wrapping at
+    /// the leading edge.
+    static let selectPreviousSession = Notification.Name("selectPreviousSession")
+    /// Posted by the "Next Session" menu item (⌘`). `MainView` walks the
+    /// sidebar's combined session order — local sessions then each remote
+    /// host's — and selects the one after the current selection, wrapping at
+    /// the trailing edge.
+    static let selectNextSession = Notification.Name("selectNextSession")
     /// Posted by the "New Session" menu item (⌘N). `MainView` opens the Local
     /// section's new-session popover, which auto-focuses its search field.
     static let newLocalSession = Notification.Name("newLocalSession")

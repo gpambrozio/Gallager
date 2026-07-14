@@ -376,6 +376,8 @@ public struct MainView: View {
         .modifier(AutoResizeObserversModifier(
             alwaysAutoResize: settings.alwaysAutoResize,
             splitSignal: currentSessionSplitSignal,
+            fontName: settings.fontName,
+            fontSize: settings.fontSize,
             onPreferenceChanged: {
                 // Global toggle flipped — drop per-session opt-outs and
                 // cached dimensions so the new state is re-evaluated from scratch.
@@ -390,6 +392,13 @@ public struct MainView: View {
                 // because the overall pane size is unchanged — re-run the
                 // auto-resize so tmux knows about the new pane width.
                 handleAutoResize()
+            },
+            onFontChanged: {
+                // A font change (⌘+ / ⌘- or the Settings pane) alters the cell
+                // size, so a different number of columns/rows now fits the same
+                // detail-pane pixels. Re-run auto-resize so tmux is re-fit and
+                // the agent in the pane re-renders at the new size.
+                handleAutoResize()
             }
         ))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -400,6 +409,8 @@ public struct MainView: View {
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
             onSelectNextTab: { selectAdjacentTab(direction: 1) },
+            onSelectPreviousSession: { selectAdjacentSession(direction: -1) },
+            onSelectNextSession: { selectAdjacentSession(direction: 1) },
             onNewLocalSession: { localNewSessionTrigger += 1 }
         ))
         .onChange(of: windowManager.pendingSessionCount) {
@@ -515,15 +526,23 @@ public struct MainView: View {
         }
     }
 
+    /// The local session that owns `selectedWindow`, or nil when the current
+    /// selection is remote or empty. Centralizes the "find the session for the
+    /// selected window" lookup shared by the navigation title, ⌘` / ⌘⇧`
+    /// session cycling, and ⌘⇧F content search so they all resolve it the same
+    /// way.
+    private func currentLocalSession() -> LocalTmuxSession? {
+        guard let window = selectedWindow else { return nil }
+        return tmuxService.sessions.first { $0.windows.contains { $0.id == window.id } }
+    }
+
     /// Primary label for the currently selected session, used as the navigation title.
     /// Returns nil when nothing is selected so the default fallback can be shown.
     private var selectedSessionTitle: String? {
         if let remote = selectedRemoteSession {
             return remoteSessionPrimaryLabel(hostId: remote.hostId, sessionName: remote.sessionName)
         }
-        if
-            let window = selectedWindow,
-            let session = tmuxService.sessions.first(where: { $0.windows.contains { $0.id == window.id } }) {
+        if let session = currentLocalSession() {
             return localSessionSortData(session).primaryLabel
         }
         return nil
@@ -670,16 +689,7 @@ public struct MainView: View {
             .first
 
         return Button {
-            // Select the session's active window for the left pane — but
-            // skip any window the user has parked on the right side, so the
-            // left and right panes don't end up showing the same terminal
-            // after a session round-trip.
-            let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
-            if let pick = session.leftPaneWindow(excludingRightSide: rightSideIds) {
-                selectedWindow = pick
-            }
-            selectedRemoteSession = nil
-            selectedRemoteWindowId = nil
+            selectLocalSession(session)
         } label: {
             SessionSidebarRow(session: session)
         }
@@ -2650,6 +2660,118 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - Session Navigation
+
+    /// Selects a local session for the left pane, skipping any window the user
+    /// has parked on the right side so the two panes don't end up showing the
+    /// same terminal after a session round-trip. Shared by the sidebar row
+    /// button and ⌘` / ⌘⇧` session cycling.
+    private func selectLocalSession(_ session: LocalTmuxSession) {
+        let rightSideIds = sessionFileTabsStates[session.sessionName]?.rightSideWindowIds ?? []
+        if let pick = session.leftPaneWindow(excludingRightSide: rightSideIds) {
+            selectedWindow = pick
+        }
+        selectedRemoteSession = nil
+        selectedRemoteWindowId = nil
+    }
+
+    /// One entry in the sidebar's combined, ordered session list — a local
+    /// session or a remote host's session — used by ⌘` / ⌘⇧` cycling.
+    private enum SidebarSessionEntry {
+        case local(LocalTmuxSession)
+        case remote(hostId: String, hostName: String, session: TmuxSession)
+    }
+
+    /// Rebuilds the sidebar's visible session order: local sessions first (in
+    /// `sidebarSortMode` order), then each paired host's sessions in
+    /// `pairedHosts` order, each independently sorted the same way its
+    /// `RemoteHostSidebarSection` sorts them. Kept in lockstep with `windowList`
+    /// and `RemoteHostSidebarSection` so keyboard cycling matches what's on
+    /// screen.
+    private func orderedSidebarSessions() -> [SidebarSessionEntry] {
+        let localSorted = settings.sidebarSortMode.sorted(tmuxService.sessions) { localSessionSortData($0) }
+        var entries: [SidebarSessionEntry] = localSorted.map { SidebarSessionEntry.local($0) }
+
+        if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
+            for host in settings.pairedHosts {
+                // Mirror RemoteHostSidebarSection: a version-mismatched host
+                // renders a placeholder row instead of its session buttons, yet
+                // the store can still hold sessions cached from before the
+                // mismatch. Skip them so cycling never lands on a session that
+                // isn't actually on screen.
+                let connection = coordinator.viewerConnectionManager?.connection(for: host.id)
+                if connection?.versionMismatch != nil { continue }
+                let sorted = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
+                    SessionSortData.forRemoteSession(
+                        session,
+                        sidebarFields: settings.sidebarFields,
+                        sidebarTerminalFields: settings.sidebarTerminalFields,
+                        homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                    )
+                }
+                entries.append(contentsOf: sorted.map { session in
+                    SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
+                })
+            }
+        }
+        return entries
+    }
+
+    /// Index of the currently-selected session within `entries`, or nil when
+    /// nothing is selected (or the selection isn't present in the list).
+    private func currentSidebarSessionIndex(in entries: [SidebarSessionEntry]) -> Int? {
+        if let remote = selectedRemoteSession {
+            return entries.firstIndex { entry in
+                if case let .remote(hostId, _, session) = entry {
+                    return hostId == remote.hostId && session.sessionName == remote.sessionName
+                }
+                return false
+            }
+        }
+        if let session = currentLocalSession() {
+            return entries.firstIndex { entry in
+                if case let .local(localSession) = entry {
+                    return localSession.sessionName == session.sessionName
+                }
+                return false
+            }
+        }
+        return nil
+    }
+
+    /// Cmd-` / Cmd-Shift-` handler. Selects the session `direction` steps away
+    /// from the current one in the sidebar's combined local+remote order,
+    /// wrapping around the ends. When nothing is selected yet it steps in from
+    /// the leading edge (forward) or trailing edge (backward). No-op when there
+    /// are no sessions.
+    private func selectAdjacentSession(direction: Int) {
+        let entries = orderedSidebarSessions()
+        guard !entries.isEmpty else { return }
+        let nextIndex: Int
+        if let currentIndex = currentSidebarSessionIndex(in: entries) {
+            nextIndex = (currentIndex + direction + entries.count) % entries.count
+        } else {
+            nextIndex = direction >= 0 ? 0 : entries.count - 1
+        }
+        switch entries[nextIndex] {
+        case let .local(session):
+            selectLocalSession(session)
+            // Keep the newly-selected row visible: with many sessions the
+            // pick can land outside the sidebar's scroll region. Both local
+            // and remote rows are keyed by `sessionName` in the ScrollViewReader.
+            scrollToWindowId = session.sessionName
+        case let .remote(hostId, hostName, session):
+            selectedRemoteSession = RemoteSessionSelection(
+                hostId: hostId,
+                hostName: hostName,
+                sessionName: session.sessionName
+            )
+            selectedRemoteWindowId = nil
+            selectedWindow = nil
+            scrollToWindowId = session.sessionName
+        }
+    }
+
     /// Cmd-Shift-F handler. Switches the currently-selected local session to
     /// the file explorer tab, flips its search mode to content, and asks the
     /// search field to take focus. Bails on remote sessions because remote
@@ -2657,9 +2779,7 @@ public struct MainView: View {
     private func handleOpenContentSearch() {
         guard selectedRemoteSession == nil else { return }
         guard let window = selectedWindow else { return }
-        guard
-            let session = tmuxService.sessions
-                .first(where: { $0.windows.contains(where: { $0.id == window.id }) }) else { return }
+        guard let session = currentLocalSession() else { return }
 
         fileBrowserActiveWindowIds.insert(window.id)
         gitActiveWindowIds.remove(window.id)

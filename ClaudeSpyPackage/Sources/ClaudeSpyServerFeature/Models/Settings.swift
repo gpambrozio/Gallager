@@ -423,7 +423,13 @@ final public class AppSettings {
 
     public init() {
         self.fontName = preferences.string(Keys.fontName) ?? Defaults.fontName
-        self.fontSize = preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize
+        // Clamp on load so a persisted/synced value that predates these
+        // bounds (or otherwise lands outside them) is corrected immediately
+        // instead of lingering until the user touches the slider or ⌘+/⌘-.
+        self.fontSize = min(
+            max(preferences.optionalDouble(Keys.fontSize) ?? Defaults.fontSize, Self.minFontSize),
+            Self.maxFontSize
+        )
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
         self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? Defaults.appearanceMode
@@ -488,6 +494,27 @@ final public class AppSettings {
         // Launch at Login
         self.launchAtLogin = preferences.optionalBool(Keys.launchAtLogin) ?? Defaults.launchAtLogin
         self.hasAskedAboutLaunchAtLogin = preferences.optionalBool(Keys.hasAskedAboutLaunchAtLogin) ?? Defaults.hasAskedAboutLaunchAtLogin
+    }
+
+    // MARK: - Terminal Font Size
+
+    /// Inclusive bounds for ``fontSize``, enforced by every write path — the
+    /// Settings slider, the ⌘+ / ⌘- menu commands, and the loader in `init` —
+    /// so a persisted or synced value can't leave `fontSize` out of range.
+    public static let minFontSize: Double = 8
+    public static let maxFontSize: Double = 24
+
+    /// Bumps the terminal font size up one point, clamped to ``maxFontSize``.
+    /// Wired to the ⌘+ menu command; because `AppSettings` is `@Observable`,
+    /// the change propagates live to every on-screen terminal.
+    public func increaseFontSize() {
+        fontSize = min(fontSize + 1, Self.maxFontSize)
+    }
+
+    /// Drops the terminal font size down one point, clamped to ``minFontSize``.
+    /// Wired to the ⌘- menu command.
+    public func decreaseFontSize() {
+        fontSize = max(fontSize - 1, Self.minFontSize)
     }
 
     // MARK: - Keys
