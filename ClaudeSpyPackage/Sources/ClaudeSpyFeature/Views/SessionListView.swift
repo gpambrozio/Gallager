@@ -258,7 +258,13 @@
 
         var body: some View {
             Section {
-                if let mismatch = connection?.versionMismatch {
+                if connection?.hostSubscriptionInactive == true {
+                    // Takes precedence over any cached session rows so a lapsed
+                    // subscription can't be masked by stale content (mirrors
+                    // RemoteHostSidebarSection.swift and the versionMismatch check below).
+                    Label("Host's subscription expired", symbol: .exclamationmarkTriangle)
+                        .foregroundStyle(.orange)
+                } else if let mismatch = connection?.versionMismatch {
                     HostVersionMismatchRow(host: host, mismatch: mismatch) {
                         Task { await connection?.enableReconnectAndRetry() }
                     }
@@ -282,10 +288,7 @@
                     }
                 } else {
                     // Empty state for this host
-                    if connection?.hostSubscriptionInactive == true {
-                        Label("Host's subscription expired", symbol: .exclamationmarkTriangle)
-                            .foregroundStyle(.orange)
-                    } else if connection?.isHostConnected == true {
+                    if connection?.isHostConnected == true {
                         Text("No active sessions")
                             .foregroundStyle(.secondary)
                     } else {
@@ -424,6 +427,9 @@
         private var statusColor: Color {
             guard let connection else { return .gray }
 
+            if connection.hostSubscriptionInactive {
+                return .orange
+            }
             if connection.versionMismatch != nil {
                 return .orange
             }
