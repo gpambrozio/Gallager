@@ -2751,6 +2751,19 @@
                 }
             }
 
+            // A successful activation (or `refreshStatus()` observing
+            // expired→active) must resume any pairs the relay blocked while
+            // this host had no active subscription — see
+            // `LicenseManager.onActivationSuccess`. `ConnectedViewer.disconnect()`
+            // sets `shouldReconnect = false` on a relay-initiated block and
+            // nothing else re-enables it, so without this a resubscribed host
+            // would stay disconnected until the app relaunches.
+            licenseManager.onActivationSuccess = { [weak self] in
+                Task { [weak self] in
+                    await self?.connectedViewerManager?.enableReconnectAndRetryAll()
+                }
+            }
+
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
                 connectionManager: connectionManager,

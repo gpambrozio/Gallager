@@ -27,6 +27,15 @@
         public private(set) var actionState: ActionState = .idle
         public var licenseKeyField = ""
 
+        /// Called after a successful `activate()` (and after `refreshStatus()`
+        /// observes an expired→active transition, e.g. the user resubscribed via
+        /// the Lemon Squeezy customer portal). `AppCoordinator` wires this to
+        /// `ConnectedViewerManager.enableReconnectAndRetryAll()` so a host the
+        /// relay previously blocked (which sets `shouldReconnect = false` on
+        /// each `ConnectedViewer`) resumes its existing pairs immediately
+        /// instead of waiting for a relaunch.
+        public var onActivationSuccess: (@MainActor () -> Void)?
+
         @ObservationIgnored
         @Dependency(LicensingClient.self) private var client
         @ObservationIgnored
@@ -59,12 +68,22 @@
 
         public func refreshStatus() async {
             guard let settings else { return }
+            let previousState = status?.state
             do {
                 status = try await client.status(settings.externalServerURL, settings.deviceId)
             } catch {
                 // Status refresh is best-effort background work; existing
                 // status (possibly nil) stays and connection errors surface
                 // through the relay client's own state.
+                return
+            }
+            // The relay blocks a host's viewer pairs (`shouldReconnect = false`)
+            // the moment its subscription lapses. A poll that observes
+            // expired→active (e.g. the user resubscribed via the Lemon Squeezy
+            // customer portal, outside `activate()`) must resume them the same
+            // way a successful `activate()` does.
+            if previousState == .expired, status?.state == .active {
+                onActivationSuccess?()
             }
         }
 
@@ -83,6 +102,9 @@
                 try? await secrets.storeSecret(key, LicenseKeychainAccounts.licenseKey)
                 licenseKeyField = key
                 actionState = .idle
+                // Resume any pairs the relay blocked while this host had no
+                // active subscription — see `onActivationSuccess` doc comment.
+                onActivationSuccess?()
             } catch {
                 actionState = .error(error.localizedDescription)
             }
