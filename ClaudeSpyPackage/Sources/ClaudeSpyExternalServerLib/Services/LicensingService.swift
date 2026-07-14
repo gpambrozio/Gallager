@@ -233,6 +233,11 @@ actor LicensingService {
                 "storeId": "\(response.meta?.storeId.map(String.init) ?? "nil")",
                 "productId": "\(response.meta?.productId.map(String.init) ?? "nil")",
             ])
+            // Best-effort: LS already consumed an activation slot for this key —
+            // release it so the user's real product key isn't left short.
+            if let instanceId = response.instance?.id {
+                _ = try? await apiClient.deactivate(licenseKey: licenseKey, instanceId: instanceId)
+            }
             throw LicensingError.wrongProduct
         }
         guard let instanceId = response.instance?.id else {
@@ -266,6 +271,9 @@ actor LicensingService {
         } catch {
             logger.warning("LS deactivate failed; removing local activation anyway: \(error)")
         }
+        // Reentrancy: a concurrent activate() may have replaced the record while
+        // we awaited — only remove the activation we actually deactivated.
+        guard state.activations[deviceId]?.instanceId == activation.instanceId else { return }
         state.activations.removeValue(forKey: deviceId)
         saveState()
         logger.info("Deactivated license", metadata: ["deviceId": "\(deviceId)"])

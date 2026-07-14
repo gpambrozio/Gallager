@@ -11,6 +11,7 @@ final class StubLicenseAPIClient: LicenseAPIClient, @unchecked Sendable {
     private var _validateResult: Result<LSLicenseResponse, Error>
     private var _deactivateResult: Result<LSDeactivateResponse, Error>
     private(set) var validateCallCount = 0
+    private(set) var deactivateCallCount = 0
 
     init(
         activate: Result<LSLicenseResponse, Error> = .failure(DisabledLicenseAPIClient.LicensingDisabledError()),
@@ -40,7 +41,10 @@ final class StubLicenseAPIClient: LicenseAPIClient, @unchecked Sendable {
     }
 
     func deactivate(licenseKey: String, instanceId: String) async throws -> LSDeactivateResponse {
-        try lock.withLock { try _deactivateResult.get() }
+        try lock.withLock {
+            deactivateCallCount += 1
+            return try _deactivateResult.get()
+        }
     }
 }
 
@@ -251,6 +255,8 @@ struct LicensingServiceActivationTests {
         }
         // No activation recorded, and no trial burned by activation attempts.
         #expect(await service.status(deviceId: "host-1") == LicenseStatus(state: .none))
+        // LS already consumed a slot for this key — it must be released.
+        #expect(stub.deactivateCallCount == 1)
     }
 
     @Test("Stale verdicts revalidate after revalidateHours; fresh ones don't")
