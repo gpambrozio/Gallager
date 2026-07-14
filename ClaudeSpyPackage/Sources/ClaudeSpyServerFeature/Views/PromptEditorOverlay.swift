@@ -187,8 +187,14 @@
         /// below the content height sticks (the text scrolls) until the next
         /// edit re-runs the fit check.
         private func growToFitContent(parent: CGSize) {
+            // The measurement callbacks fire in no guaranteed order on the
+            // first layout pass; requiring every measurement (not just a
+            // positive chrome) keeps a missing editorHeight from inflating
+            // `required` and permanently over-growing the grow-only height.
             let chrome = cardHeight - editorHeight
-            guard dragStartSize == nil, parent.height > 0, chrome > 0, textIdealHeight > 0 else { return }
+            guard
+                dragStartSize == nil, parent.height > 0, editorHeight > 0, chrome > 0,
+                textIdealHeight > 0 else { return }
             let required = chrome + textIdealHeight + Self.growSlack
             let grown = PromptEditorSizing.heightFraction(
                 growing: PromptEditorSizing.clampedHeightFraction(heightFraction),
