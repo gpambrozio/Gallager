@@ -37,6 +37,8 @@
             await manager.refreshStatus()
             #expect(manager.status?.state == .trial)
             #expect(manager.trialDaysLeft == 1)
+            // Keeps AppSettings alive past the awaits above — LicenseManager holds it weakly.
+            withExtendedLifetime(settings) { }
         }
 
         @Test("activate stores the key in secrets and updates status")
@@ -59,6 +61,7 @@
             #expect(manager.actionState == .idle)
             let stored = try await secrets.loadSecret(LicenseKeychainAccounts.licenseKey)
             #expect(stored == "KEY-42")
+            withExtendedLifetime(settings) { }
         }
 
         @Test("activation failure surfaces the server message")
@@ -74,6 +77,7 @@
             await manager.activate()
             #expect(manager.actionState
                 == .error("This license key has reached the activation limit."))
+            withExtendedLifetime(settings) { }
         }
 
         @Test("deactivate clears the stored key and refreshes")
@@ -92,6 +96,7 @@
             #expect(manager.status?.state == LicenseStatus.State.none)
             let stored = try await secrets.loadSecret(LicenseKeychainAccounts.licenseKey)
             #expect(stored == nil)
+            withExtendedLifetime(settings) { }
         }
     }
 #endif
