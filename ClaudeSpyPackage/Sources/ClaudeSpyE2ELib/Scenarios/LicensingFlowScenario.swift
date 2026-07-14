@@ -57,7 +57,10 @@ public enum LicensingFlowScenario {
         TestStep.macWaitForElement(titled: "7 days left", timeout: 10)
         TestStep.macScrollWheel(deltaY: -10, count: 10)
         TestStep.wait(seconds: 0.5)
-        TestStep.macScreenshot(label: "mac-license-trial-countdown")
+        // tolerance: 5 matches the VersionMismatch scenarios' Settings-window
+        // screenshots — recording (ScreenCaptureKit) shifts rendering ~3.3%
+        // on these shots.
+        TestStep.macScreenshot(label: "mac-license-trial-countdown", tolerance: 5)
 
         // 5. Restart the relay with TRIAL_DAYS=0. Relay state is wiped on
         //    stop, so the host's next pairing attempt auto-starts a trial
@@ -86,7 +89,9 @@ public enum LicensingFlowScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScrollWheel(deltaY: -10, count: 10)
         TestStep.wait(seconds: 0.5)
-        TestStep.macScreenshot(label: "mac-license-blocked")
+        // tolerance: 5 — recording (ScreenCaptureKit) shifts rendering ~3.3%
+        // on Settings-window shots.
+        TestStep.macScreenshot(label: "mac-license-blocked", tolerance: 5)
 
         // 8. Activate the stub-accepted key. The relay validates it against
         //    the stub LS API (meta store/product ids must match) and the
@@ -104,7 +109,9 @@ public enum LicensingFlowScenario {
         TestStep.macWaitForElement(titled: "1 of 3 Macs", timeout: 10)
         TestStep.macScrollWheel(deltaY: -10, count: 10)
         TestStep.wait(seconds: 0.5)
-        TestStep.macScreenshot(label: "mac-license-active")
+        // tolerance: 5 — recording (ScreenCaptureKit) shifts rendering ~3.3%
+        // on Settings-window shots.
+        TestStep.macScreenshot(label: "mac-license-active", tolerance: 5)
 
         // 9. Pairing now succeeds — TRIAL_DAYS is still 0, so it's the
         //    license (not a trial) unblocking it. "Try Again" re-runs the
