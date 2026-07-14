@@ -2,6 +2,24 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
+/// User-facing licensing failures, mapped to HTTP 400 by LicenseController.
+enum LicensingError: Error, Equatable {
+    case licensingDisabled
+    case activationFailed(String)
+    case wrongProduct
+
+    var userMessage: String {
+        switch self {
+        case .licensingDisabled:
+            "This relay does not require a license"
+        case let .activationFailed(message):
+            message
+        case .wrongProduct:
+            "This license key is not valid for this product"
+        }
+    }
+}
+
 /// Computes hosted-relay entitlements per host deviceId: auto-started trials,
 /// Lemon Squeezy license activations with cached verdicts, and blocked states.
 /// Follows the PairingService pattern: JSON file persistence under the data
@@ -128,7 +146,10 @@ actor LicensingService {
         if state.activations[hostDeviceId] != nil {
             await revalidateIfStale(deviceId: hostDeviceId, config: config)
             guard let activation = state.activations[hostDeviceId] else {
-                // Deactivated while we awaited revalidation — treat as no license.
+                // Activation removed while we awaited (explicit deactivation) — the
+                // device deliberately re-enters ordinary trial rules: deactivating
+                // frees the LS slot and resets this device to as-new (status .none /
+                // existing trial), matching the deactivate tests.
                 return trialEntitlement(deviceId: hostDeviceId, config: config)
             }
             switch activation.verdict {
@@ -197,10 +218,103 @@ actor LicensingService {
         try? FileManager.default.removeItem(at: stateFileURL)
     }
 
-    // MARK: - Revalidation (implemented in Task 6)
+    // MARK: - Activation lifecycle
 
+    func activate(licenseKey: String, deviceId: String, deviceName: String) async throws -> LicenseStatus {
+        guard let config else { throw LicensingError.licensingDisabled }
+
+        let response = try await apiClient.activate(licenseKey: licenseKey, instanceName: deviceName)
+        guard response.activated == true else {
+            Task { await metricsService?.incrementLicenseValidationFailures() }
+            throw LicensingError.activationFailed(response.error ?? "Activation failed")
+        }
+        guard Self.matchesConfiguredProduct(response.meta, config: config) else {
+            logger.warning("Rejected key from foreign store/product", metadata: [
+                "storeId": "\(response.meta?.storeId.map(String.init) ?? "nil")",
+                "productId": "\(response.meta?.productId.map(String.init) ?? "nil")",
+            ])
+            throw LicensingError.wrongProduct
+        }
+        guard let instanceId = response.instance?.id else {
+            throw LicensingError.activationFailed("Activation response missing instance id")
+        }
+
+        state.activations[deviceId] = ActivationRecord(
+            licenseKey: licenseKey,
+            instanceId: instanceId,
+            verdict: .active,
+            lastValidatedAt: now(),
+            expiresAt: LemonSqueezyAPIClient.parseLSDate(response.licenseKey?.expiresAt),
+            activationLimit: response.licenseKey?.activationLimit,
+            activationUsage: response.licenseKey?.activationUsage
+        )
+        saveState()
+        logger.info("Activated license", metadata: ["deviceId": "\(deviceId)"])
+        Task { await metricsService?.incrementLicenseActivations() }
+        return status(deviceId: deviceId)
+    }
+
+    /// Frees one of the key's activation slots. Removes the local record even
+    /// when LS errors so a user can always unstick a Mac; the slot leak (if
+    /// any) is LS-side and recoverable via a fresh validate/deactivate cycle.
+    func deactivate(deviceId: String) async {
+        guard config != nil, let activation = state.activations[deviceId] else { return }
+        do {
+            _ = try await apiClient.deactivate(
+                licenseKey: activation.licenseKey, instanceId: activation.instanceId
+            )
+        } catch {
+            logger.warning("LS deactivate failed; removing local activation anyway: \(error)")
+        }
+        state.activations.removeValue(forKey: deviceId)
+        saveState()
+        logger.info("Deactivated license", metadata: ["deviceId": "\(deviceId)"])
+    }
+
+    private static func matchesConfiguredProduct(_ meta: LSMeta?, config: LicensingConfiguration) -> Bool {
+        meta?.storeId == config.storeId && meta?.productId == config.productId
+    }
+
+    // MARK: - Revalidation
+
+    /// Revalidates a cached verdict older than `revalidateHours` against LS.
+    /// Network failures keep the previous verdict (grace is enforced by the
+    /// caller from `lastValidatedAt`); hard LS answers update the verdict.
+    ///
+    /// Actor reentrancy note: the `await` on the API call can interleave with
+    /// other checks for the same device — worst case is a duplicate validate
+    /// call, never inconsistent state, because mutations happen after the
+    /// await on the single actor executor.
     private func revalidateIfStale(deviceId: String, config: LicensingConfiguration) async {
-        // Task 6 fills this in. Until then, cached verdicts are used as-is.
+        guard let activation = state.activations[deviceId] else { return }
+        let age = now().timeIntervalSince(activation.lastValidatedAt)
+        guard age > TimeInterval(config.revalidateHours) * 3_600 else { return }
+
+        do {
+            let response = try await apiClient.validate(
+                licenseKey: activation.licenseKey, instanceId: activation.instanceId
+            )
+            guard var current = state.activations[deviceId] else { return }
+
+            if !Self.matchesConfiguredProduct(response.meta, config: config) {
+                current.verdict = .disabled
+            } else if response.valid == true {
+                current.verdict = .active
+            } else if response.licenseKey?.status == "disabled" {
+                current.verdict = .disabled
+            } else {
+                current.verdict = .expired
+            }
+            current.lastValidatedAt = now()
+            current.expiresAt = LemonSqueezyAPIClient.parseLSDate(response.licenseKey?.expiresAt)
+            current.activationLimit = response.licenseKey?.activationLimit
+            current.activationUsage = response.licenseKey?.activationUsage
+            state.activations[deviceId] = current
+            saveState()
+        } catch {
+            Task { await metricsService?.incrementLicenseValidationFailures() }
+            logger.warning("License revalidation failed (LS unreachable), keeping cached verdict: \(error)")
+        }
     }
 
     // MARK: - Persistence

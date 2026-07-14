@@ -191,3 +191,197 @@ struct LicensingServiceCoreTests {
         #expect(reloaded == original)
     }
 }
+
+@Suite("LicensingService activation and validation")
+struct LicensingServiceActivationTests {
+    @Test("Successful activation → licensed; status carries activation info")
+    func activateSuccess() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+
+        let status = try await service.activate(
+            licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac"
+        )
+        #expect(status.state == .active)
+        #expect(status.activationLimit == 3)
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .licensed)
+    }
+
+    @Test("Activation-limit failure surfaces LS's message")
+    func activateLimitReached() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(
+                activated: false, error: "This license key has reached the activation limit."
+            ))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+
+        await #expect(throws: LicensingError.activationFailed(
+            "This license key has reached the activation limit."
+        )) {
+            try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+        }
+    }
+
+    @Test("Foreign store/product keys are rejected")
+    func activateWrongProduct() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(
+                storeId: 999, productId: 888, activated: true
+            ))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+
+        await #expect(throws: LicensingError.wrongProduct) {
+            try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+        }
+        // No activation recorded, and no trial burned by activation attempts.
+        #expect(await service.status(deviceId: "host-1") == LicenseStatus(state: .none))
+    }
+
+    @Test("Stale verdicts revalidate after revalidateHours; fresh ones don't")
+    func revalidationCadence() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            validate: .success(LicensingTestSupport.activeResponse(valid: true))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub,
+            dataDirectory: dir, now: { clock.value }
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        #expect(stub.validateCallCount == 0) // fresh — no validate call
+
+        clock.advance(bySeconds: 25 * 3_600) // past 24h
+        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        #expect(stub.validateCallCount == 1)
+
+        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        #expect(stub.validateCallCount == 1) // fresh again after successful revalidation
+    }
+
+    @Test("Hard expired verdict blocks immediately")
+    func expiredBlocksImmediately() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            validate: .success(LicensingTestSupport.activeResponse(
+                status: "expired", valid: false, error: "license_key expired"
+            ))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub,
+            dataDirectory: dir, now: { clock.value }
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        clock.advance(bySeconds: 25 * 3_600)
+        let entitlement = await service.checkEntitlement(hostDeviceId: "host-1")
+        #expect(entitlement == .blocked(reason: .licenseExpired))
+        // No trial fallback once a key was activated.
+        #expect(await service.status(deviceId: "host-1").state == .expired)
+    }
+
+    @Test("LS unreachable keeps a valid key within grace, blocks after grace")
+    func unreachableGrace() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        struct NetworkDown: Error { }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            validate: .failure(NetworkDown())
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub,
+            dataDirectory: dir, now: { clock.value }
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        clock.advance(bySeconds: 2 * 86_400) // day 2: stale, revalidation fails → still licensed
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .licensed)
+
+        clock.advance(bySeconds: 6 * 86_400) // day 8: past 7-day grace from lastValidatedAt
+        let entitlement = await service.checkEntitlement(hostDeviceId: "host-1")
+        #expect(entitlement == .blocked(reason: .graceExpired))
+    }
+
+    @Test("Disabled verdict from revalidation blocks with licenseDisabled")
+    func disabledVerdict() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            validate: .success(LicensingTestSupport.activeResponse(
+                status: "disabled", valid: false, error: "license_key disabled"
+            ))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub,
+            dataDirectory: dir, now: { clock.value }
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        clock.advance(bySeconds: 25 * 3_600)
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1")
+            == .blocked(reason: .licenseDisabled))
+    }
+
+    @Test("Deactivate removes the activation locally even if LS errors")
+    func deactivateAlwaysRemovesLocally() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        struct NetworkDown: Error { }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            deactivate: .failure(NetworkDown())
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        await service.deactivate(deviceId: "host-1")
+        #expect(await service.status(deviceId: "host-1") == LicenseStatus(state: .none))
+    }
+
+    @Test("Activations persist across restarts")
+    func activationPersistence() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true))
+        )
+        let first = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+        _ = try await first.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+
+        let second = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+        #expect(await second.checkEntitlement(hostDeviceId: "host-1") == .licensed)
+    }
+}

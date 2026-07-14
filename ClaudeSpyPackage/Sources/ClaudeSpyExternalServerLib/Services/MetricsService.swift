@@ -15,6 +15,8 @@ actor MetricsService {
     private(set) var messagesRelayedTotal = 0
     private(set) var pushNotificationsTotal = 0
     private(set) var trialStartsTotal = 0
+    private(set) var licenseActivationsTotal = 0
+    private(set) var licenseValidationFailuresTotal = 0
 
     func incrementMessagesRelayed() {
         messagesRelayedTotal &+= 1
@@ -26,6 +28,14 @@ actor MetricsService {
 
     func incrementTrialStarts() {
         trialStartsTotal &+= 1
+    }
+
+    func incrementLicenseActivations() {
+        licenseActivationsTotal &+= 1
+    }
+
+    func incrementLicenseValidationFailures() {
+        licenseValidationFailuresTotal &+= 1
     }
 
     /// Render the full Prometheus text exposition for a scrape.
