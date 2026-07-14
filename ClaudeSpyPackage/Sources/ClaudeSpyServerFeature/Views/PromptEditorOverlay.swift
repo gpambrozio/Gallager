@@ -285,12 +285,26 @@
         }
     }
 
-    #Preview {
+    #Preview("Short content (default size)") {
         @Previewable @State var content = """
         Refactor the prompt editor overlay to use a custom syntax-highlighted
         editor instead of TextEditor. Make sure Cmd+Return still submits and
         Escape still cancels.
         """
+        PromptEditorOverlay(
+            content: $content,
+            onSubmit: { _ in },
+            onCancel: { }
+        )
+        .padding()
+        .frame(width: 800, height: 600)
+        .background(.black)
+    }
+
+    #Preview("Long content (grown to fit)") {
+        @Previewable @State var content = (1...20)
+            .map { "Line \($0): the quick brown fox jumps over the lazy dog." }
+            .joined(separator: "\n")
         PromptEditorOverlay(
             content: $content,
             onSubmit: { _ in },
