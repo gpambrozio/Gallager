@@ -14,6 +14,7 @@ struct MetricsSnapshot: Sendable {
 actor MetricsService {
     private(set) var messagesRelayedTotal = 0
     private(set) var pushNotificationsTotal = 0
+    private(set) var trialStartsTotal = 0
 
     func incrementMessagesRelayed() {
         messagesRelayedTotal &+= 1
@@ -21,6 +22,10 @@ actor MetricsService {
 
     func incrementPushNotifications() {
         pushNotificationsTotal &+= 1
+    }
+
+    func incrementTrialStarts() {
+        trialStartsTotal &+= 1
     }
 
     /// Render the full Prometheus text exposition for a scrape.
