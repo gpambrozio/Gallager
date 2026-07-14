@@ -273,12 +273,14 @@ struct SetEmojiCommand: ParsableCommand {
 
         Accepts either:
           • An emoji character directly (e.g. "🚀", "🐛")
-          • A Unicode name or description (e.g. "rocket", "bug",
+          • A name or keyword (e.g. "rocket", "bug", "trash",
             "smiling face with heart-eyes")
 
-        When a name matches multiple emoji the candidates are listed so you
-        can rerun with a more specific query. Use `gallager find-emoji <query>`
-        to browse matches without committing.
+        Names match CLDR keyword synonyms too, so "trash" resolves 🗑️ even
+        though its Unicode name is WASTEBASKET. When a query matches multiple
+        emoji the candidates are listed so you can rerun with a more specific
+        one. Use `gallager find-emoji <query>` to browse matches without
+        committing.
 
         Targeting:
           --session SESSION  the session to update
@@ -379,13 +381,16 @@ struct SetEmojiCommand: ParsableCommand {
 struct FindEmojiCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "find-emoji",
-        abstract: "Search for emoji by Unicode name or description",
+        abstract: "Search for emoji by name or keyword",
         discussion: """
-        Looks up emoji by their official Unicode name. Every whitespace-separated
-        word in the query must appear in the candidate's name (case-insensitive).
+        Looks up emoji by their display name or CLDR keyword synonyms, so common
+        words work even when they aren't the formal Unicode name — e.g. "trash"
+        finds 🗑️ (named WASTEBASKET). Every whitespace-separated word in the
+        query must appear in the candidate's name or keywords (case-insensitive).
 
         Examples:
           gallager find-emoji rocket
+          gallager find-emoji trash
           gallager find-emoji "smiling face"
           gallager find-emoji heart
         """

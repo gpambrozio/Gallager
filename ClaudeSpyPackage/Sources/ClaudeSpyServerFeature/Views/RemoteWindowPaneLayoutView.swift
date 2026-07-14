@@ -229,6 +229,14 @@ struct RemoteWindowPaneLayoutView: View {
                 Text("\(activePane.width)x\(activePane.height)")
             }
 
+            // Live OTEL meter + model tag + permission-mode chip for the window's
+            // focused session (issue #597, surface C) — mirrors the host's
+            // `WindowPaneLayoutView` so a Mac viewer sees what the host does.
+            SessionTelemetryStatusBar(
+                telemetry: focusedAgentPane?.telemetry,
+                permissionMode: focusedAgentPane?.permissionMode
+            )
+
             Spacer()
         }
         .font(.caption)
@@ -236,6 +244,13 @@ struct RemoteWindowPaneLayoutView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    /// The window's agent-session pane (first pane carrying an `AgentSession`) —
+    /// the source of the status-bar meter / model / permission chip. Read straight
+    /// off the relay-delivered `PaneState`s.
+    private var focusedAgentPane: PaneState? {
+        window.panes.first { $0.agentSession != nil }
     }
 }
 

@@ -175,6 +175,63 @@ public enum Shortcut {
         }
     }
 
+    /// Marker line printed by the deterministic `claude` stub that
+    /// `installClaudeStub` installs. Scenarios can assert on this.
+    public static let claudeStubMarker = "E2E_CLAUDE_STUB_READY"
+
+    /// Install a deterministic `claude` stub so launching a Claude project in
+    /// E2E produces stable terminal output instead of the real CLI's
+    /// machine-dependent first-run onboarding (theme picker vs. "trust this
+    /// folder" prompt, which differ per machine and break screenshots).
+    ///
+    /// Implemented as a `claude` *shell function*: a `claude` on PATH can't win
+    /// because the pane's login shell rebuilds PATH from the user's rc
+    /// (rbenv/homebrew/…), but a function overrides command lookup.
+    ///
+    /// The function is delivered by writing it to a file and pointing the tmux
+    /// *global* environment variable `GALLAGER_E2E_EXTRA_ZSHRC` at it. The E2E
+    /// ZDOTDIR shim's `.zshrc` (see `TestOrchestrator.ensureZDotDirShim`) sources
+    /// that file last — after the user's rc — so `claude()` wins. We can't set a
+    /// competing `ZDOTDIR` here: the app forces `ZDOTDIR=<shim>` per-pane
+    /// (`-e ZDOTDIR=…`), which overrides the tmux global environment. A separate
+    /// global env var the shim voluntarily sources survives that override and is
+    /// still inherited into every session Gallager creates afterwards.
+    ///
+    /// Run against an idle pane *before* opening a Claude project, and call
+    /// `uninstallClaudeStub` afterwards so later plain terminals are unaffected.
+    ///
+    /// **Example:**
+    /// ```swift
+    /// Shortcut.installClaudeStub(target: "picker-nav:0.0")
+    /// ```
+    public static func installClaudeStub(target: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "Install Claude Stub",
+            tags: ["shortcut"]
+        ) {
+            // Marker in the function body must stay in sync with `claudeStubMarker`.
+            // The shim already sources the user's real `~/.zshrc`, so this file
+            // only needs to define `claude()`.
+            Shortcut.tmuxRunCommand(
+                target: target,
+                command: #"F="$TMPDIR/e2e-claude-stub.zshrc"; printf 'claude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$F"; tmux set-environment -g GALLAGER_E2E_EXTRA_ZSHRC "$F""#
+            )
+            TestStep.wait(seconds: 1)
+        }
+    }
+
+    /// Remove the `claude` stub installed by `installClaudeStub` so sessions
+    /// created afterwards use the normal shell environment again.
+    public static func uninstallClaudeStub(target: String) -> TestScenario {
+        ClaudeSpyE2ELib.scenario(
+            "Uninstall Claude Stub",
+            tags: ["shortcut"]
+        ) {
+            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u GALLAGER_E2E_EXTRA_ZSHRC")
+            TestStep.wait(seconds: 1)
+        }
+    }
+
     // MARK: - iOS Navigation
 
     /// Wait for an iOS session to appear, tap it, and wait for the terminal to connect.

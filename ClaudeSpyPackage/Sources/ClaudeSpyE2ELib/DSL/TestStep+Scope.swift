@@ -66,7 +66,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)
-        case let .macCGClickElement(_, _, instance):
+        case let .macCGClickElement(_, _, instance, _):
             return .macOS(instance: instance)
         case let .macRightClick(_, instance):
             return .macOS(instance: instance)
@@ -88,11 +88,17 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macClearClipboard(instance):
             return .macOS(instance: instance)
+        case let .setGitMockChanges(_, instance):
+            return .macOS(instance: instance)
         case let .macPaste(instance):
             return .macOS(instance: instance)
         case let .macDropFilesOnPane(_, _, instance):
             return .macOS(instance: instance)
         case let .macWaitForElement(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macWaitForElementVisible(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macWaitForElementNotVisible(_, _, instance):
             return .macOS(instance: instance)
         case let .macWaitForElementToDisappear(_, _, instance):
             return .macOS(instance: instance)
@@ -108,6 +114,8 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macSetSidebarWidth(_, instance):
             return .macOS(instance: instance)
+        case let .macSetSidebarFields(_, instance):
+            return .macOS(instance: instance)
         case let .macFocusElement(_, instance):
             return .macOS(instance: instance)
         case let .macType(_, _, _, instance):
@@ -115,6 +123,8 @@ public extension TestStep {
         case let .macScrollUp(_, instance):
             return .macOS(instance: instance)
         case let .macScrollWheel(_, _, instance):
+            return .macOS(instance: instance)
+        case let .macScrollWheelAtElement(_, _, _, instance):
             return .macOS(instance: instance)
         case let .macClickAtPoint(_, _, instance):
             return .macOS(instance: instance)
@@ -125,6 +135,10 @@ public extension TestStep {
         case let .macScreenshot(_, _, _, _, instance):
             return .macOS(instance: instance)
         case let .macSendHookEvent(_, _, _, _, instance):
+            return .macOS(instance: instance)
+        case let .macStageSidecarFixture(_, instance, _):
+            return .macOS(instance: instance)
+        case let .macStageSidecarZip(_, _, _, instance):
             return .macOS(instance: instance)
         // Server, tmux, assertions, scripts, general — any running platform
         // could be relevant to diagnose the failure.
@@ -144,10 +158,12 @@ public extension TestStep {
              .serverReadFirstViewerIdentity,
              .serverCompletePairingAsViewer,
              .serverInjectPush,
+             .occupyTCPPort,
              .tmuxCreateSession,
              .tmuxStorePaneDimensions,
              .tmuxStorePaneId,
              .tmuxCapturePaneContent,
+             .tmuxWaitForPaneContent,
              .tmuxSendKeys,
              .tmuxCommand,
              .tmuxStoreDisplayMessage,
@@ -162,6 +178,7 @@ public extension TestStep {
              .storeValue,
              .readFile,
              .removeFile,
+             .writeFile,
              .waitForFileContains,
              .log:
             return .universal

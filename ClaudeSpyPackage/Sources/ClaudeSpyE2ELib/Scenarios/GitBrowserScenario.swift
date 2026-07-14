@@ -7,6 +7,10 @@ import Foundation
 /// 1. Activating the Git tab shows the GitWorkbench Changes view backed by the
 ///    stable mock provider (repo "aurora-cli", branch "feat/auto-sync", the
 ///    fixture's changed files).
+/// 0. The repo starts clean (no badge). Introducing changes (`setGitMockChanges`)
+///    makes a changed-file-count badge appear on the Git tab button — read live
+///    from the eagerly-loaded session store's summary — while the terminal, not
+///    the Git tab, is still the active view (issue #573).
 /// 2. Selecting a changed file loads its diff.
 /// 3. Switching the workspace to History shows the fixture commit list.
 /// 4. The Git tab's state is retained across a tab round-trip: after switching to
@@ -17,6 +21,11 @@ import Foundation
 /// 6. The Git tab's state also survives a full session switch: selecting a
 ///    different session in the sidebar and returning restores the History view
 ///    (the per-session store is keyed by session name, not recreated).
+/// 7. The branch rail's folder collapse state survives a session switch too:
+///    expanding the collapsed `fix` folder and switching sessions leaves it
+///    expanded on return (GitWorkbench 1.4.1 keeps that state on the per-session
+///    store, not in view `@State`). This is the regression guard for the reported
+///    "tree resets after a session change" bug.
 ///
 /// The provider is the deterministic `MockGitProvider` (wired in
 /// `ClaudeSpyServerApp` under `--e2e-test` via `GitWorkbenchProviderClient.mock`,
@@ -46,10 +55,24 @@ public enum GitBrowserScenario {
         TestStep.macClickButton(titled: "repobrowse")
         TestStep.wait(seconds: 3)
 
-        // ── Phase 1: Activate the Git tab — Changes view ─────────
-        TestStep.log("Phase 1: Activate the Git tab and verify the mock Changes view")
+        // ── Phase 0: Clean repo → no badge; add changes → badge on load ──
+        //
+        // The displayed session's git status loads eagerly (issue #573), so the
+        // Git tab button reflects the repo without the tab being opened. The mock
+        // starts clean, so there's no badge here.
+        TestStep.log("Phase 0: Clean repo shows no changed-file badge")
         TestStep.macScreenshot(label: "mac-git-terminal-baseline")
 
+        // Introduce changes: the eagerly-loaded store picks them up via the
+        // provider's change stream, and a "7 changed files" badge appears on the
+        // Git tab button while the terminal — not the Git tab — is still showing.
+        TestStep.log("Phase 0: Introduce changes → badge appears on the terminal view")
+        TestStep.setGitMockChanges(true)
+        TestStep.macWaitForElementQuery(.anyTextMatches("7 changed files"), timeout: 15)
+        TestStep.macScreenshot(label: "mac-git-tab-badge")
+
+        // ── Phase 1: Activate the Git tab — Changes view ─────────
+        TestStep.log("Phase 1: Activate the Git tab and verify the mock Changes view")
         // Click the Git tab (branch icon, accessibilityLabel: "Git").
         TestStep.macClickButton(titled: "Git")
 
@@ -82,6 +105,10 @@ public enum GitBrowserScenario {
         TestStep.log("Phase 4: Git state persists across a terminal tab round-trip")
         TestStep.macClickButton(titled: "repobrowse:0")
         TestStep.wait(seconds: 2)
+        // The changed-file badge persists on the Git tab button while the terminal
+        // is the visible view; the count is surfaced on the button's accessibility
+        // value (issue #573).
+        TestStep.macWaitForElementQuery(.anyTextMatches("7 changed files"), timeout: 10)
         TestStep.macScreenshot(label: "mac-git-terminal-restored")
 
         TestStep.macClickButton(titled: "Git")
@@ -118,10 +145,33 @@ public enum GitBrowserScenario {
         // earlier phases' screenshots aren't disturbed by an extra sidebar row.
         // The name avoids the substring "git" for the same reason as above.
         TestStep.tmuxCreateSession(name: "otherproj", width: 160, height: 50)
+        // Put `otherproj` in a different working directory than `repobrowse`.
+        // Folder layout persistence (feat/folder-layout-persistence) seeds an
+        // empty session from its folder's last-known layout, so a sibling in the
+        // *same* cwd would inherit repobrowse's open Git tab — making this
+        // "switch to a fresh session" screenshot show the git workbench instead
+        // of a plain terminal. A distinct cwd keeps `otherproj` genuinely empty.
+        Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "cd /tmp")
         Shortcut.tmuxRunCommand(target: "otherproj:0.0", command: "echo '=== OTHER PROJECT ==='")
 
         // Select the other session — its terminal replaces the Git view.
-        TestStep.macWaitForElement(titled: "otherproj", timeout: 5)
+        // A freshly-created tmux session only surfaces in the sidebar on the
+        // next periodic refresh (~5s), so allow two cycles to avoid racing it.
+        TestStep.macWaitForElement(titled: "otherproj", timeout: 12)
+        // Wait until the app has actually observed otherproj's `cd /tmp` before
+        // selecting it. `otherproj` is born in `$HOME` (tmux `new-session -c
+        // $HOME`) — the same folder as `repobrowse` — and only moves to `/tmp`
+        // once the typed `cd /tmp` executes and a pane refresh picks it up.
+        // Seed-on-birth (`MainView.seedLayoutIfNeeded`) reads the pane's cwd
+        // exactly ONCE, when the session is first selected, and never re-seeds.
+        // If we click while the cached cwd is still `$HOME`, this "fresh"
+        // session gets seeded from `repobrowse`'s persisted git-split layout
+        // instead of `/private/tmp`'s empty one, and the Git tab leaks into the
+        // screenshot below. The sidebar renders each session's `currentPath`
+        // (shown verbatim since `/private/tmp` isn't under `$HOME`), so gating on
+        // it appearing guarantees the seed reads the settled cwd, not the stale
+        // birth dir.
+        TestStep.macWaitForElementQuery(.anyTextMatches("/private/tmp"), timeout: 15)
         TestStep.macClickButton(titled: "otherproj")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-git-other-session")
@@ -133,6 +183,31 @@ public enum GitBrowserScenario {
         TestStep.wait(seconds: 2)
         TestStep.macWaitForElementQuery(.anyTextMatches("Add structured Logger"), timeout: 5)
         TestStep.macScreenshot(label: "mac-git-session-preserved")
+
+        // ── Phase 7: Branch-tree expansion survives a session switch ──
+        //
+        // The rail's folder collapse state lives on the per-session GitWorkbench
+        // store (GitWorkbench 1.4.1), so expanding a folder and switching sessions
+        // must leave it expanded on return — the regression guard for the reported
+        // "tree resets after a session change" bug. By default `feat` (the current
+        // branch's folder) is expanded and `fix` is collapsed, so its child
+        // "log-levels" is hidden until we expand it.
+        TestStep.log("Phase 7: Expand the 'fix' branch folder; it must stay expanded across a session switch")
+        // The folder button carries GitWorkbench's branch-folder-<key> identifier.
+        TestStep.macCGClickElement(query: .identifier("branch-folder-L:fix"), timeout: 5)
+        // The fix/log-levels leaf only renders while the fix folder is expanded.
+        TestStep.macWaitForElementQuery(.anyTextMatches("log-levels"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-branch-folder-expanded")
+
+        // Switch to the other session and back; the fix folder must still be open.
+        TestStep.macClickButton(titled: "otherproj")
+        TestStep.wait(seconds: 2)
+        TestStep.macClickButton(titled: "repobrowse")
+        TestStep.wait(seconds: 2)
+        // "log-levels" still present ⇒ the fix folder survived the session switch
+        // expanded (a view-local @State would have reset it to collapsed).
+        TestStep.macWaitForElementQuery(.anyTextMatches("log-levels"), timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-branch-expansion-preserved")
 
         // ── Tear down ────────────────────────────────────────────
         Shortcut.tmuxRunCommand(target: "repobrowse:0.0", command: "exit")

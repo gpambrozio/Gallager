@@ -20,12 +20,33 @@ public actor MacOSDriver {
     /// Default port for the in-app TestAccessibilityServer HTTP endpoint.
     public static let defaultTestAccessibilityPort: UInt16 = 18_081
 
+    /// Default base port for the in-app OTLP telemetry receiver, passed via
+    /// `--otlp-port`. Deliberately distinct from production's `24318` (see
+    /// `OTLPReceiver.defaultPort`) so an E2E instance never shares a receiver
+    /// with a developer's real app, and each instance gets
+    /// `defaultOTLPPort + instance` so concurrent instances don't collide
+    /// either (the OTEL channel's counterpart to the per-instance accessibility
+    /// port / ingress socket / tmux socket). This is only the port the app
+    /// tries FIRST: when it's taken the app probes fallback candidates at +100
+    /// strides — spacing that keeps a fallen-back instance off every sibling's
+    /// preferred port — and the orchestrator re-reads the actually-bound port
+    /// via `/otlp-port` after launch.
+    public static let defaultOTLPPort: UInt16 = 14_318
+
     /// Port for the in-app TestAccessibilityServer HTTP endpoint.
     let testAccessibilityPort: UInt16
 
-    public init(label: String = "e2e.macos-driver", testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort) {
+    /// Port the in-app OTLP receiver binds and advertises (via `--otlp-port`).
+    let otlpPort: UInt16
+
+    public init(
+        label: String = "e2e.macos-driver",
+        testAccessibilityPort: UInt16 = MacOSDriver.defaultTestAccessibilityPort,
+        otlpPort: UInt16 = MacOSDriver.defaultOTLPPort
+    ) {
         self.logger = Logger(label: label)
         self.testAccessibilityPort = testAccessibilityPort
+        self.otlpPort = otlpPort
     }
 
     /// Whether the app instance launched by `launchApp` is still running.
@@ -274,19 +295,30 @@ public actor MacOSDriver {
     /// when the matched element is a wider container.
     public func cgClick(
         matching query: ElementQuery,
-        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+        pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        timeout: TimeInterval = 5
     ) async throws {
         let pid = try requirePID()
         logger.info("CGEvent clicking element matching query")
-        _ = try await Polling.waitFor(
+        // Poll the click itself instead of a separate find gate. The old form
+        // gated on `findElement` → `describeUI(maxDepth: 15)` and then clicked via
+        // `cgClick` → `findAllRawElements(maxDepth: 20)` — two different traversals
+        // (different depth horizons, and the click path also excludes the menu
+        // bar). They could disagree: an element nested past depth 15, or briefly
+        // absent from the AX tree during a re-render, satisfied neither the gate
+        // (so it timed out — "macOS UI element for cg-click") nor benefited from a
+        // bigger timeout, since the gate was looking at a shallower tree than the
+        // click. `MacOSAccessibility.cgClick` only posts the mouse event when it
+        // actually resolves a frame (otherwise it returns false without clicking),
+        // so polling it makes the find and the click a single depth-20 source of
+        // truth — no TOCTOU gap — and re-samples each interval so a pane briefly
+        // missing during a focus-change re-render is caught when it reappears.
+        try await Polling.waitUntil(
             description: "macOS UI element for cg-click",
-            timeout: 5,
+            timeout: timeout,
             pollInterval: 0.5
         ) {
-            MacOSAccessibility.findElement(appPID: pid, matching: query)
-        }
-        if !MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect) {
-            throw MacOSDriverError.elementNotFound("query for cg-click")
+            MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect)
         }
     }
 
@@ -324,19 +356,52 @@ public actor MacOSDriver {
         let pid = try requirePID()
         logger.info("Context menu click: '\(elementTitle)' → '\(menuItem)'")
 
-        // Step 1: Right-click to open context menu
+        // Retry the whole right-click → find-menu-item sequence, because a
+        // session row is a moving target and a single attempt is racy:
+        //   • A "working" row re-renders continuously (animated busy spinner)
+        //     and its title is exposed only through a 1pt / opacity-0 AX
+        //     overlay leaf, so that leaf can momentarily lack a resolvable
+        //     frame — `rightClick` then finds no clickable frame and returns
+        //     false without clicking.
+        //   • An unselected row swallows the first right-click into row
+        //     selection: selecting a session reloads the detail pane's
+        //     terminal mirror, and that re-layout dismisses the just-opened
+        //     context menu, so the menu item never appears on that attempt.
+        // Retrying covers both — the row becomes clickable, and a second
+        // right-click on the now-selected, settled row opens the menu cleanly.
+        // Escape between attempts closes any half-open menu so the next
+        // right-click starts clean and never lands inside an open menu. The
+        // fast path (row already clickable, menu opens) returns on the first
+        // attempt without ever pressing Escape, so existing scenarios are
+        // unaffected.
         try await waitForAXElement(pid: pid, titled: elementTitle, timeout: 5)
-        if !MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) {
-            throw MacOSDriverError.elementNotFound(elementTitle)
-        }
 
-        // Step 2: Poll for the menu item (context menu needs time to appear)
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-            try await Task.sleep(for: .milliseconds(300))
-            if MacOSAccessibility.press(appPID: pid, titled: menuItem) {
-                return
+        let overallDeadline = Date().addingTimeInterval(10)
+        while Date() < overallDeadline {
+            // Right-click to open the context menu. A false return means the
+            // matched leaf had no resolvable frame yet (no click performed) —
+            // wait and retry rather than treating it as fatal.
+            guard MacOSAccessibility.rightClick(appPID: pid, titled: elementTitle) else {
+                try await Task.sleep(for: .milliseconds(300))
+                continue
             }
+
+            // Poll for the menu item (context menu needs time to appear).
+            let menuItemDeadline = Date().addingTimeInterval(2)
+            while Date() < menuItemDeadline {
+                try await Task.sleep(for: .milliseconds(300))
+                if MacOSAccessibility.press(appPID: pid, titled: menuItem) {
+                    return
+                }
+            }
+
+            // The menu never yielded the item (it didn't open, or a
+            // row-selection re-layout dismissed it). Close anything half-open
+            // with Escape and try the whole sequence again.
+            if let escape = MacOSAccessibility.virtualKeyCode(for: .escape) {
+                MacOSAccessibility.pressKey(code: escape)
+            }
+            try await Task.sleep(for: .milliseconds(300))
         }
 
         throw MacOSDriverError.elementNotFound("\(elementTitle) context menu → \(menuItem)")
@@ -455,6 +520,16 @@ public actor MacOSDriver {
         let success = try await MacAppHTTPClient.setSidebarWidth(width, port: testAccessibilityPort)
         if !success {
             throw MacOSDriverError.elementNotFound("NSSplitView for sidebar width")
+        }
+    }
+
+    /// Set the configured Claude-session sidebar fields via the in-app HTTP
+    /// server (mutating live `AppSettings` requires in-process access).
+    public func setSidebarFields(_ fields: [String]) async throws {
+        logger.info("Setting sidebar fields to \(fields)")
+        let success = try await MacAppHTTPClient.setSidebarFields(fields, port: testAccessibilityPort)
+        if !success {
+            throw MacOSDriverError.elementNotFound("AppSettings for sidebar fields")
         }
     }
 
@@ -587,6 +662,43 @@ public actor MacOSDriver {
             throw MacOSDriverError.windowNotFound(appName)
         }
 
+        for _ in 0..<count {
+            MacOSAccessibility.scrollWheel(at: center, deltaY: deltaY)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    /// Send scroll wheel events at the center of the first element matching
+    /// `titled` instead of the window center, so scenarios can scroll a
+    /// specific scrollable region (e.g. the file-tree sidebar) rather than
+    /// whatever sits mid-window. The frame is resolved once, before the
+    /// first event — all events land on the same screen point even as the
+    /// matched row scrolls away beneath it.
+    public func scrollWheel(atElementTitled titled: String, deltaY: Int32, count: Int = 1) async throws {
+        let pid = try requirePID()
+        logger.info("Scroll wheel at element '\(titled)': deltaY=\(deltaY), count=\(count)")
+        // Gate on the element being *visible*, not merely present in the AX
+        // tree: NSTableView-backed Lists keep off-screen rows alive with
+        // frames outside the window, and anchoring on one of those would
+        // post the CGEvents at whatever happens to sit under that point.
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to be visible to anchor the scroll",
+            timeout: 5,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
+        }
+        guard
+            let frame = MacOSAccessibility.visibleFrameOfElement(
+                appPID: pid,
+                matching: .anyTextMatches(titled)
+            )
+        else {
+            throw MacOSDriverError.elementNotFound(titled)
+        }
+        MacOSAccessibility.focusApp(appPID: pid)
+        try await Task.sleep(for: .milliseconds(200))
+        let center = CGPoint(x: frame.midX, y: frame.midY)
         for _ in 0..<count {
             MacOSAccessibility.scrollWheel(at: center, deltaY: deltaY)
             try await Task.sleep(for: .milliseconds(50))
@@ -795,6 +907,38 @@ public actor MacOSDriver {
         }
     }
 
+    /// Wait for an element matching `titled` to be scrolled into view — its
+    /// AX frame center inside the app window's frame. A plain
+    /// `waitForElement` only checks AX-tree presence, and NSTableView-backed
+    /// SwiftUI Lists keep off-screen rows in the tree, so presence alone
+    /// can't prove a row is on screen.
+    public func waitForElementVisible(titled: String, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
+        logger.info("Waiting for element to be visible in window: \(titled)")
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to be visible in the window",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
+        }
+    }
+
+    /// Wait until no element matching `titled` is visible inside the window
+    /// frame. Passes both when the element left the AX tree entirely and
+    /// when it is still present but scrolled out of view.
+    public func waitForElementNotVisible(titled: String, timeout: TimeInterval = 10) async throws {
+        let pid = try requirePID()
+        logger.info("Waiting for element to not be visible in window: \(titled)")
+        try await Polling.waitUntil(
+            description: "macOS UI element '\(titled)' to not be visible in the window",
+            timeout: timeout,
+            pollInterval: 0.5
+        ) {
+            !MacOSAccessibility.isElementVisibleInWindow(appPID: pid, matching: .anyTextMatches(titled))
+        }
+    }
+
     /// Wait for an element matching an ElementQuery to disappear from the macOS app
     public func waitForElementToDisappear(matching query: ElementQuery, timeout: TimeInterval = 10) async throws {
         let pid = try requirePID()
@@ -817,10 +961,22 @@ public actor MacOSDriver {
             throw MacOSDriverError.windowNotFound(appName)
         }
 
-        // Ensure the app is focused so the window chrome renders
-        // consistently (active title bar, focused controls, etc.)
-        MacOSAccessibility.focusApp(appPID: pid)
-        try await Task.sleep(for: .milliseconds(200))
+        // Ensure the app is the *active* app before capturing. `screencapture
+        // -l` includes the window's drop shadow, and macOS draws a smaller
+        // shadow (and gray window controls) on an inactive window — capturing an
+        // inactive window yields a slightly smaller image that fails the
+        // baseline size check (an intermittent ~44px shrink seen on a CI box
+        // that didn't keep the app frontmost). `focusApp`
+        // (NSRunningApplication.activate) alone can be slow/unreliable to take
+        // effect, so when the app isn't already active, escalate to the
+        // AppleScript `activate()` which reliably makes the key window active.
+        // When the app is already frontmost — e.g. a screenshot of an open
+        // popover/menu — skip activation so we don't disturb it.
+        if NSRunningApplication(processIdentifier: pid)?.isActive == true {
+            try await Task.sleep(for: .milliseconds(200))
+        } else {
+            try await activate()
+        }
 
         guard let windowID = getWindowID() else {
             throw MacOSDriverError.windowNotFound(appName)

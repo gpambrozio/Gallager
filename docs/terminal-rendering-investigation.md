@@ -537,6 +537,18 @@ Two bugs caused typed text to appear one row above the correct position after re
 
 **Bug 2: Mirror terminal rows derived from window height instead of tmux pane height.** The mirror's SwiftTerm terminal had rows calculated from the container's physical height (e.g., 24 rows in a small window), while the tmux pane had 37 rows. Absolute cursor positioning in live `%output` events (e.g., `\e[33;1H`) referenced row numbers that didn't exist in the smaller mirror, getting clamped to the wrong position. **Fixed** in `TerminalContainerView.swift` by locking mirror rows to the tmux pane height via `updateTerminalDimensions(cols:rows:)`. Also switched the initial capture to use relative cursor positioning (`\e[nA` + `\e[nG`) instead of absolute (`\e[Y;XH`).
 
+#### H12: Multi-row background band loses its background on re-capture → Fixed (#578)
+
+A Codex composer's full-width gray background band rendered correctly on first view but lost the background on its continuation rows after navigating away and back. `tmux capture-pane -e` (without `-N`) **trims trailing spaces**, so a multi-row band — drawn with the `\e[48;5;…m` setter on its first row only and carrying the bg across rows via tmux's cross-line SGR state — captured as a setter followed by *empty* continuation rows, byte-identical to genuinely-blank rows. `processCapturePaneForStreaming` rebuilt each row independently with an SGR reset between rows, so the continuation rows rendered black. (The first view is correct because the band is painted by the live byte stream; re-viewing rebuilds from `capture-pane`.)
+
+**Fixed** by capturing the visible area with `-N` (preserve trailing spaces without `-J`'s wrapped-line joining) so continuation rows keep their real bg spaces, and restoring the SGR state carried into each rebuilt row (`accumulateSGRState`) so those spaces inherit the band's background. Empty rows skip the carry, so genuinely-default rows stay default and the #411 leak does not return. The old pad-to-width heuristic (PR #353/#413, issue #429) is removed — `-N` supplies the real trailing cells, so only genuine band rows are full-width. Proven by the `Composer Band Recapture` E2E scenario (full gray band with the fix; continuation rows black without it).
+
+#### H12 follow-up: same fix extended to the scrollback capture → Fixed (#580)
+
+The #578 fix above applied `-N` + cross-line SGR carry to the **visible-area** capture only; the **scrollback** capture was left on plain `-e` and Part 1 of `processCapturePaneForStreaming` still reset the SGR state per line. A multi-row background band that has *scrolled into history* therefore lost its background on its continuation rows in exactly the same way (band setter on the first row only, continuation rows captured as empty/short and rebuilt with a per-line reset).
+
+**Fixed** by applying `-N` to the scrollback capture too (both `capturePaneWithScrollbackForStreaming` and `capturePaneViaControlMode`) and carrying the SGR state across scrollback rows in Part 1, mirroring Part 2. The one extra concern unique to scrollback is reflow permanence: the visible area is redrawn on the resize SIGWINCH, but scrollback is static history that is never redrawn, so a preserved full-width row of *default*-bg spaces would wrap into **permanent** blank continuation rows on a narrower resize (the #429 class, but permanent). `trimTrailingDefaultBackgroundSpaces` drops the now-preserved default-bg trailing spaces back off plain rows (keeping a band's non-default-bg spaces) so plain rows stay short and SwiftTerm's reflow trims their NULL tail. Proven by the `Scrollback Band Recapture` E2E scenario and unit tests `multiRowBackgroundBandSurvivesInScrollback` (band keeps its bg in the scrollback buffer) and `scrollbackNoBlankRowsAfterReflowNarrower` (no reflow blanks after a narrower resize).
+
 ### Test Results Update
 
 69 tests across 19 suites. **All 69 passing** after fixes.
@@ -550,7 +562,7 @@ New tests added:
 
 ### Remaining Issues
 
-- **H12 (SGR carryover between visible lines)**: Not directly addressed. Visible area lines still lack inter-line resets, unlike scrollback lines. The H17 fix mitigates the re-capture scenario but doesn't solve the general case.
+- **~~H12 (SGR carryover between visible lines)~~**: Resolved (#578, extended to scrollback in #580). The rebuild captures both the visible area and the scrollback with `-N` and restores the cross-line SGR state carried into each row, so multi-row background bands keep their background on continuation rows whether they are on screen or have scrolled into history. See the two H12 fix entries above.
 - **Scrollback corruption after re-capture**: Documented in the E2E scenario (Phase 2). Re-capture replaces the mirror's accumulated scrollback with tmux's captured content, causing duplication/truncation/reordering. This is a separate architectural issue.
 - **~~H6 (octal unescaping)~~**: No longer applicable — pipe-pane delivers raw bytes, no octal unescaping needed.
 - **H7 (private modes)**: Not yet investigated with targeted tests. May contribute to edge cases.

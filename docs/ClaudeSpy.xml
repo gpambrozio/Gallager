@@ -6,6 +6,115 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.4</title>
+         <sparkle:version>37</sparkle:version>
+         <sparkle:shortVersionString>2.4</sparkle:shortVersionString>
+         <pubDate>Sat, 04 Jul 2026 10:00:36 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.4
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>External sidecar plugins (Plugin System v2).</strong> ClaudeSpy can now be extended with standalone plugins that add monitoring support for additional coding agents beyond the built-in Claude Code and Codex integrations. Plugins report session status, raise attention badges, and handle permission and question prompts. An opencode plugin is included as the first example.</li>
+<li><strong>Plugin-provided usage telemetry.</strong> Plugins can now feed the per-session token, cost, and latency meter, so sessions run by plugin-supported agents (starting with opencode) show the same usage statistics as built-in agents.</li>
+<li><strong>Notifications on connected Mac viewers.</strong> Macs connected as remote viewers now receive session notifications, so alerts are no longer limited to the host machine.</li>
+<li><strong>Image and PDF diff viewing.</strong> The Git workbench can now display diffs for images and PDFs, not just text files.</li>
+<li><strong>Commit context-menu actions.</strong> Commits in the Git History view now offer a context menu with common actions.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Better emoji search.</strong> The emoji picker now uses a keyword-aware search index, matching common synonyms and related terms so emoji are easier to find. The same improved search is available from the command line.</li>
+<li><strong>Larger New Session popover.</strong> The New Session popover is now wider and taller, making it easier to browse projects and options.</li>
+<li><strong>Remembered layouts for remote sessions.</strong> When viewing a session remotely, the workbench layout (open browser tabs and split arrangement) is now saved and restored per folder, matching the behavior already available for local sessions.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed the Dock badge disappearing after the app cycled between menu-bar-only and regular Dock modes.</li>
+<li>Fixed the session usage meter showing no data when another OpenTelemetry collector was running on the default port; the app's telemetry receiver now uses its own port and binds only to the local machine.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.4.dmg"
+                    sparkle:edSignature="9lipP3X0NkIiFUoh4NgOzDTwJm5QaMRo6LC4hNGkDrgvGemIzYfWoeMoveiEOwojWlXfDVB7a1XeJSkHSIDRBQ=="
+                    length="33770657"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 2.3</title>
+         <sparkle:version>36</sparkle:version>
+         <sparkle:shortVersionString>2.3</sparkle:shortVersionString>
+         <pubDate>Sat, 20 Jun 2026 22:21:48 -1000</pubDate>
+         <description><![CDATA[
+<h2>Features</h2>
+
+<ul>
+<li><strong>Per-session token and cost telemetry</strong> — Claude Code and Codex sessions now display a per-session token meter along with cost, model, latency, and permission/approval-mode indicators, plus milestones for commits and pull requests.</li>
+<li><strong>End-of-session recap and cost overview</strong> — Each session ends with a recap, and a new cost and usage overview breaks spending down per project and per day, accessible from the menu bar.</li>
+<li><strong>Per-folder workbench layout</strong> — The workbench layout (file and browser tabs, split configuration, and sidebar) is now saved and restored independently for each folder.</li>
+<li><strong>Collapsible Git branch tree</strong> — The Git workbench supports a collapsible branch tree, and its state is preserved between sessions.</li>
+<li><strong>New-session shortcut</strong> — Press ⌘N to start a new local session. The previous ⌘E "Open in Editor" shortcut has been removed.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Higher-fidelity mirrored terminal</strong> — The mirrored terminal now renders with truecolor and 256-color support, a UTF-8 locale, and an accessibility-aware cursor for more accurate output.</li>
+<li><strong>Editor override with consent</strong> — When opening prompts in the in-app editor, the app detects conflicts with an existing editor configuration and asks before applying any change, only enabling the override if you opt in.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Repeated questions are no longer incorrectly shown as already answered.</li>
+<li>Long session titles are now truncated on iOS instead of bleeding behind the toolbar buttons.</li>
+<li>Option-Backspace once again deletes a whole word.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.3.dmg"
+                    sparkle:edSignature="C97Pqex5r2HSD/U5eBvdV7uarpHoJ3Km2WNY/JCmrYvqrA4R1HT0U8vETdwxei0yeTSdsxAgDCqy66Q8ZWAFCA=="
+                    length="33041825"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
+         <title>Version 2.2</title>
+         <sparkle:version>35</sparkle:version>
+         <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
+         <pubDate>Fri, 12 Jun 2026 11:16:49 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.2
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Changed-file badge on the Git tab</strong> — The Git tab now displays a badge showing the number of changed files in a session's repository, so you can see at a glance which sessions have uncommitted work.</li>
+<li><strong>File actions in the Git tab</strong> — Rows in the Git tab's Changes list now support a right-click context menu and double-click actions, making it faster to open and work with modified files directly from the app.</li>
+<li><strong>Question navigation on iOS</strong> — When an agent asks multiple questions at once, the iOS question view now includes navigation arrows so you can move between questions without scrolling.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li><strong>Quieter Codex sessions with auto-review enabled</strong> — When a Codex session's guardian (auto-review) is set to decide on permission requests automatically, the app no longer sends permission notifications or shows approval forms for those requests, reducing unnecessary interruptions.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed terminal rendering so multi-row background highlight bands — both in scrollback history and in the input composer area — are preserved correctly when the mirrored display is re-captured, instead of losing their background color.</li>
+<li>Fixed `gallager select-session` so it now switches the app's foreground session in addition to selecting it, matching the expected behavior.</li>
+<li>Fixed an issue where the macOS app could stall at startup while waiting on a local network hostname lookup, improving launch reliability on some machines and networks.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.2.dmg"
+                    sparkle:edSignature="oNIOVQJBX7ix+vmK3gtTWLhtxKXS00Mtu+dWVCeaRKZFFi164S5iN2MZ25wz98j0f9FtM1BX8xYVMFt7jTGADA=="
+                    length="32437851"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 2.1</title>
          <sparkle:version>34</sparkle:version>
          <sparkle:shortVersionString>2.1</sparkle:shortVersionString>

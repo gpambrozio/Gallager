@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -12,19 +12,21 @@ import PackageDescription
 /// on the relay build.
 ///
 /// (ProjectNavigator 1.7.0 was the canary: it required Swift 6.2 while the
-/// jammy Docker image ships Swift 6.1, blocking `swift package resolve`.)
+/// jammy Docker image then shipped Swift 6.1, blocking `swift package resolve`.
+/// The relay now pins swift:6.3-jammy — bumped so swift-dependencies' package
+/// traits (declared only in its Swift 6.3 manifest) resolve on Linux too — but
+/// the same rule holds: keep Apple-only deps off the Linux graph.)
 func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
             .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
-            .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.13.0"),
-            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2"),
+            .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.14.0"),
+            .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-            .package(url: "https://github.com/mchakravarty/ProjectNavigator", from: "1.8.0"),
-            .package(url: "https://github.com/gonzalezreal/textual", from: "0.3.1"),
+            .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.10.1"),
+            .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0"),
             .package(url: "https://github.com/jpsim/Yams", from: "5.0.0"),
-            .package(url: "https://github.com/sergius-la/SwiftEmojiPicker", from: "2.2.1"),
-            .package(url: "https://github.com/gpambrozio/GitWorkbench", from: "1.0.0"),
+            .package(url: "https://github.com/gpambrozio/GitWorkbench", exact: "1.6.0"),
         ]
     #else
         return []
@@ -39,7 +41,7 @@ func macOnlyTargetDependencies(for target: String) -> [Target.Dependency] {
     #if os(macOS)
         switch target {
         case "ClaudeSpyCommon":
-            return [.sfSymbolsMacro, .swiftEmojiPicker, .swiftTerm]
+            return [.sfSymbolsMacro, .swiftTerm]
         case "ClaudeSpyFeature":
             return [.swiftTerm]
         case "ClaudeSpyServerFeature":
@@ -133,10 +135,6 @@ extension Target.Dependency {
             .product(name: "Files", package: "ProjectNavigator")
         }
 
-        static var swiftEmojiPicker: Self {
-            .product(name: "SwiftEmojiPicker", package: "SwiftEmojiPicker")
-        }
-
         /// GitWorkbench — the dependency-free SwiftUI git-changes component.
         static var gitWorkbench: Self {
             .product(name: "GitWorkbench", package: "GitWorkbench")
@@ -167,6 +165,18 @@ extension Target.Dependency {
 
     static var claudeSpyCommon: Self {
         "ClaudeSpyCommon"
+    }
+
+    /// Foundation-only emoji table + keyword search, shared by the picker UI
+    /// (ClaudeSpyCommon) and the CLI (Gallager). No resources — the data is
+    /// baked into source (no Bundle.module for the bare GallagerCLI copied
+    /// into the app bundle). NOTE: because this target is shared by the app
+    /// and the CLI executable, Xcode links it as a dynamic framework; the
+    /// copy phase adds an rpath so the bundled CLI finds it — see
+    /// docs/superpowers/specs/2026-07-03-emoji-data-shipping-design.md
+    /// before restructuring.
+    static var gallagerEmoji: Self {
+        "GallagerEmoji"
     }
 
     static var claudeSpyEncryption: Self {
@@ -222,6 +232,10 @@ let products: [Product] = [
         targets: ["ClaudeSpyCommon"]
     ),
     .library(
+        name: "GallagerEmoji",
+        targets: ["GallagerEmoji"]
+    ),
+    .library(
         name: "ClaudeSpyEncryption",
         targets: ["ClaudeSpyEncryption"]
     ),
@@ -249,6 +263,10 @@ let products: [Product] = [
         name: "GallagerCLI",
         targets: ["GallagerCLI"]
     ),
+    .executable(
+        name: "EchoPluginSidecar",
+        targets: ["EchoPluginSidecar"]
+    ),
 ]
 
 let packageDependencies: [Package.Dependency] = [
@@ -257,7 +275,13 @@ let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.0.0"),
+    // Only the `Clocks` trait is enabled — the app's sole built-in dependency
+    // value is `\.continuousClock` (Clocks gates that). Dropping the default
+    // `CombineSchedulers`/`Foundation`/`FoundationNetworking` traits removes the
+    // combine-schedulers package from the graph. Requires a Swift 6.3+ toolchain
+    // (the only swift-dependencies manifest that declares traits is its 6.3 one);
+    // the relay Dockerfile is pinned to swift:6.3 to match.
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.14.1", traits: ["Clocks"]),
     .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
     .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
 ] + macOnlyDependencies()
@@ -287,8 +311,15 @@ let targets: [Target] = [
         dependencies: [
             .claudeSpyNetworking,
             .claudeSpyEncryption,
+            .gallagerEmoji,
             .logging,
         ] + macOnlyTargetDependencies(for: "ClaudeSpyCommon")
+    ),
+    // Foundation-only emoji table + keyword search (issue #630). Shared by the
+    // picker UI and the CLI so "trash" → 🗑️ everywhere. Data is generated by
+    // scripts/generate-emoji-data.py into EmojiData.swift (no runtime bundle).
+    .target(
+        name: "GallagerEmoji"
     ),
     // Per-agent plugin cores. Each conforms to PluginCore and owns all
     // agent-specific logic (scanner, installer, translator, keystrokes,
@@ -410,8 +441,21 @@ let targets: [Target] = [
     // Bundled inside the app and invoked via the VISUAL environment variable.
     .executableTarget(
         name: "GallagerCLI",
-        dependencies: macOnlyTargetDependencies(for: "GallagerCLI"),
+        dependencies: [
+            .gallagerEmoji,
+        ] + macOnlyTargetDependencies(for: "GallagerCLI"),
         path: "Sources/Gallager"
+    ),
+    // Real out-of-process echo sidecar for integration tests (spec §17.3).
+    // Reads Content-Length-framed JSON-RPC on stdin; answers each method and
+    // emits notifications to stdout. Not gated by #if DEBUG so it ships in
+    // Release builds (the executable is a separate product, not linked into
+    // the app). Used by EchoPluginSidecarIntegrationTests to prove the full
+    // spawn → transport → RPC pipeline through SidecarSupervisor.
+    .executableTarget(
+        name: "EchoPluginSidecar",
+        dependencies: [.gallagerPluginProtocol, .claudeSpyNetworking, .logging],
+        path: "Sources/EchoPluginSidecar"
     ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
@@ -444,12 +488,20 @@ let targets: [Target] = [
         ]
     ),
     .testTarget(
+        name: "GallagerEmojiTests",
+        dependencies: [
+            .gallagerEmoji,
+        ]
+    ),
+    .testTarget(
         name: "ClaudeSpyCommonTests",
         dependencies: [
             "ClaudeSpyCommon",
             .dependenciesTestSupport,
             .clocks,
             .concurrencyExtras,
+            // Stands up a mute WebSocket server for the half-open liveness watchdog test.
+            .vapor,
         ]
     ),
     .testTarget(

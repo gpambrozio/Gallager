@@ -14,7 +14,10 @@ struct EditCommand: ParsableCommand {
 
     func run() throws {
         guard let paneId = ProcessInfo.processInfo.environment["TMUX_PANE"], !paneId.isEmpty else {
-            throw CleanExit.message("Error: TMUX_PANE not set")
+            // Exit non-zero so $EDITOR-style callers (e.g. git) treat the
+            // aborted edit as a failure — CleanExit would exit 0.
+            FileHandle.standardError.write(Data("Error: TMUX_PANE not set\n".utf8))
+            throw ExitCode.failure
         }
 
         let request = JSONRPCRequest(

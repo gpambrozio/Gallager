@@ -36,6 +36,9 @@ LIST_SCENARIOS=false
 NO_COMPARE=false
 SCENARIO=""
 JSON_OUTPUT=""
+RECORD=false
+RECORD_MODE=""
+RECORD_KEEP_RAW=false
 
 # =====================================================
 # PARSE ARGUMENTS
@@ -90,6 +93,18 @@ while [[ $# -gt 0 ]]; do
             INTERACTIVE=true
             shift
             ;;
+        --record)
+            RECORD=true
+            shift
+            ;;
+        --record-mode)
+            RECORD_MODE="$2"
+            shift 2
+            ;;
+        --record-keep-raw)
+            RECORD_KEEP_RAW=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -103,6 +118,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-compare       Skip all screenshot comparisons (still takes screenshots)"
             echo "  --json-output FILE Write detailed JSON results to a file"
             echo "  --interactive, -i  Start all apps, wait for Enter, then shut down"
+            echo "  --record           Record each scenario as a video (requires ffmpeg)"
+            echo "  --record-mode MODE Dead-time handling: speedup (default) or remove"
+            echo "  --record-keep-raw  Keep raw takes after post-processing"
             echo "  -h, --help       Show this help"
             exit 0
             ;;
@@ -410,6 +428,30 @@ if [ "$LIST_SCENARIOS" != true ]; then
         echo ""
         ok "All permissions granted."
     fi
+
+    if [ "$RECORD" = true ]; then
+        step "Checking video recording prerequisites"
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            fail "ffmpeg/ffprobe not found"
+            echo "       Install the full build — it carries the drawtext/ass filters (keg-only, so put it on PATH):"
+            echo "         brew install ffmpeg-full"
+            echo "         export PATH=\"\$(brew --prefix ffmpeg-full)/bin:\$PATH\"   # add to your shell profile"
+            exit 1
+        fi
+        # Capture the filter list once: piping into `grep -q` under pipefail
+        # falsely fails when grep exits early and ffmpeg dies with SIGPIPE.
+        ffmpeg_filters="$(ffmpeg -hide_banner -filters 2>/dev/null || true)"
+        for filter in freezedetect drawtext ass; do
+            if ! grep -qw "$filter" <<< "$ffmpeg_filters"; then
+                fail "ffmpeg is missing the '$filter' filter — Homebrew's slim 'ffmpeg' formula dropped drawtext/ass"
+                echo "       Install the full build (keg-only, so put it on PATH):"
+                echo "         brew install ffmpeg-full"
+                echo "         export PATH=\"\$(brew --prefix ffmpeg-full)/bin:\$PATH\"   # add to your shell profile"
+                exit 1
+            fi
+        done
+        ok "ffmpeg $(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')"
+    fi
 fi
 
 # =====================================================
@@ -421,6 +463,13 @@ MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
 IOS_APP="$PRODUCTS_SIM/Gallager.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
 E2E_HOST_APP="$PRODUCTS_SIM/ClaudeSpyE2EHost.app"
+
+# The EchoPluginSidecar SPM executable is staged by plugin/sidecar scenarios
+# (macStageSidecarFixture) and resolved from the package's own SwiftPM
+# .build/debug — a path the xcodebuild steps never populate, so it needs its
+# own build step below.
+PACKAGE_ROOT="$PROJECT_ROOT/ClaudeSpyPackage"
+SIDECAR_BIN="$PACKAGE_ROOT/.build/debug/EchoPluginSidecar"
 
 # Assert that an xcodebuild step produced its expected artifact. xcsift
 # reports "status: success" whenever no compile errors were parsed, even
@@ -469,7 +518,7 @@ if [ "$SKIP_BUILD" = true ]; then
 
     # Verify artifacts exist
     missing=false
-    for artifact in "$MACOS_APP" "$IOS_APP" "$E2E_BIN"; do
+    for artifact in "$MACOS_APP" "$IOS_APP" "$E2E_BIN" "$SIDECAR_BIN"; do
         if [ ! -e "$artifact" ]; then
             fail "Missing artifact: $artifact"
             missing=true
@@ -526,6 +575,18 @@ else
         -destination "id=$SIM_UDID" \
         build-for-testing 2>&1 | xcsift --format toon --executable
     verify_artifact "$E2E_HOST_APP"
+
+    # Build the EchoPluginSidecar SPM executable. Plugin/sidecar scenarios stage
+    # it via macStageSidecarFixture, which resolves the binary from the package's
+    # own .build/debug — a plain SwiftPM path none of the xcodebuild steps above
+    # emit. Without this, those scenarios fail at step 1 with "EchoPluginSidecar
+    # binary not found". Built last so its SwiftPM invocation can't interleave
+    # with the macOS PCM/Sparkle module cache (see the contiguous-build note above).
+    step "Building EchoPluginSidecar (plugin fixture)"
+    swift build \
+        --package-path "$PACKAGE_ROOT" \
+        --product EchoPluginSidecar 2>&1 | xcsift --format toon --executable
+    verify_artifact "$SIDECAR_BIN"
 fi
 
 # =====================================================
@@ -607,6 +668,18 @@ fi
 
 if [ -n "$JSON_OUTPUT" ]; then
     E2E_ARGS+=(--json-output "$JSON_OUTPUT")
+fi
+
+if [ "$RECORD" = true ]; then
+    E2E_ARGS+=(--record)
+fi
+
+if [ -n "$RECORD_MODE" ]; then
+    E2E_ARGS+=(--record-mode "$RECORD_MODE")
+fi
+
+if [ "$RECORD_KEEP_RAW" = true ]; then
+    E2E_ARGS+=(--record-keep-raw)
 fi
 
 if [ -n "$DASHBOARD_URL" ]; then

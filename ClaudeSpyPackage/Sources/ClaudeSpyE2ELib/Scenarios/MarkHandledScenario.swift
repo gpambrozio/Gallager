@@ -127,7 +127,8 @@ public enum MarkHandledScenario {
                 "hook_event_name": "Stop",
                 "session_id": "e2e-state-session",
                 "timestamp": "2026-02-14T10:02:00.000000Z",
-                "stop_hook_active": true
+                "stop_hook_active": true,
+                "last_assistant_message": "Task complete"
             }
             """,
             tmuxPane: "${paneId}",

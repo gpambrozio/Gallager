@@ -15,13 +15,6 @@
         case remote(hostId: String, hostName: String, paneId: String)
     }
 
-    /// POSIX-shell single-quote a string so it survives word-splitting and expansion.
-    /// Wraps the value in single quotes and escapes embedded single quotes via `'\''`.
-    @Sendable
-    private func shellQuoteSingle(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// Coordinates app-level services and their interactions for the macOS app.
     ///
     /// This class centralizes all service initialization, event wiring, and state synchronization
@@ -83,6 +76,21 @@
         /// Holds "Claude wrote a markdown file — open it?" prompts per tmux session.
         public let markdownOpenSuggestionStore: MarkdownOpenSuggestionStore
 
+        // MARK: - Editor Override (issue #591)
+
+        /// Result of this launch's `$VISUAL`-survival probe, or nil until it
+        /// finishes. Read by the consent dialog and the Settings status line.
+        public private(set) var editorOverrideProbeResult: VisualProbeResult?
+
+        /// Drives the consent dialog sheet. Set true on the first session creation
+        /// when the probe found a conflict and the mode is still `.ask`.
+        public var isShowingEditorOverrideDialog = false
+
+        /// Latches once the consent dialog has been offered this launch so it
+        /// isn't re-presented on every subsequent session creation.
+        @ObservationIgnored
+        private var hasPresentedEditorOverrideDialogThisLaunch = false
+
         // MARK: - In-Process Plugin Runtime (additive; coexists with HookServerService)
 
         /// On-disk layout for the in-process plugin runtime. Built in
@@ -101,6 +109,19 @@
         @ObservationIgnored
         var pluginRegistry: PluginRegistry?
 
+        /// Bumped whenever the *set* of registered plugins changes (install /
+        /// remove). `PluginRegistry` is `@ObservationIgnored` and not itself
+        /// `@Observable`, so mutating it can't invalidate SwiftUI. Views that show
+        /// the registered-plugin set (the Agents picker) read this via
+        /// `agentPluginList()` so they refresh when it changes.
+        public private(set) var pluginCatalogRevision = 0
+
+        /// The id of the most recently installed plugin, so the Agents picker can
+        /// auto-select it. Set on a successful install; cleared to `nil` on remove
+        /// (so reinstalling the same id after a removal still re-triggers the
+        /// `onChange` selection). Observed.
+        public private(set) var lastInstalledPluginID: String?
+
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
         @ObservationIgnored
@@ -111,6 +132,25 @@
         /// installed to it), so the new path is exercised only by E2E/tests.
         @ObservationIgnored
         private var ingressSocketServer: IngressSocketServer?
+
+        /// Mac-local OTLP/JSON receiver for Claude Code telemetry (issue #597).
+        /// Loopback-only; accumulates per-session token/cost/latency and emits
+        /// milestone / mode-change events. Additive to the hook channel.
+        @ObservationIgnored
+        private var otlpReceiver: OTLPReceiver?
+
+        /// Durable cross-session cost/usage aggregation (issue #598). Persists
+        /// per-(project, day) totals under the gallager state tree so they outlive
+        /// session end and app restarts. Fed from telemetry updates; finalized on
+        /// session end.
+        @ObservationIgnored
+        private var usageStore: UsageAggregationStore?
+
+        /// Latest cross-session usage rollup for the host's own surfaces (the menu
+        /// bar today-total, issue #598). Observable so those views refresh; `nil`
+        /// until there's something worth showing. Viewers get their copy via
+        /// `SessionStateMessage.usageOverview`, not this property.
+        public private(set) var usageOverview: UsageOverview?
 
         /// Per-plugin log sinks (one per active plugin), retained so the host's
         /// `log()` calls keep landing in the right file.
@@ -160,6 +200,15 @@
         @ObservationIgnored
         private var pendingProgressPush: Task<Void, Never>?
 
+        /// Throttle handle for OTEL telemetry pushes to viewers (issue #597). A
+        /// true trailing throttle (not a debounce): the first event opens a 1s
+        /// window and later events fold into a single push at its end (carrying
+        /// the latest pane state), so a sustained burst still flushes ~1/sec
+        /// instead of starving. The host's own sidebar updates synchronously via
+        /// the `paneStates` assignment; only the cross-device push is throttled.
+        @ObservationIgnored
+        private var pendingTelemetryPush: Task<Void, Never>?
+
         @ObservationIgnored
         @Dependency(PreferencesService.self) private var preferences
 
@@ -168,6 +217,9 @@
 
         @ObservationIgnored
         @Dependency(SleepPreventionService.self) private var sleepPreventionService
+
+        @ObservationIgnored
+        @Dependency(DeviceNameClient.self) private var deviceNameClient
 
         private let logger = Logger(label: "com.claudespy.coordinator")
 
@@ -180,6 +232,12 @@
         public init(settings: AppSettings = AppSettings()) {
             self.settings = settings
 
+            #if canImport(AppKit) && DEBUG
+                // Expose live settings to the E2E test server so a scenario can
+                // opt into off-by-default sidebar fields (e.g. Token Usage).
+                TestAccessibilityServer.liveSettings = settings
+            #endif
+
             // Create tmux service
             self.tmuxService = TmuxService(
                 tmuxPath: settings.tmuxPath,
@@ -190,6 +248,19 @@
             // setters it emits. Read live so theme changes take effect for
             // the next-spawned shell without restarting the app.
             tmuxService.setThemeProvider { [settings] in settings.theme }
+
+            // Mirror the persisted editor-override choice onto the tmux service so
+            // injection is active from the first pane if the user already opted in
+            // on a prior launch (issue #591).
+            tmuxService.overrideVisualInShellPanes = settings.editorOverrideMode == .overrideInGallagerSessions
+
+            // E2E: the orchestrator passes a `--zdotdir` shim so shells spawned
+            // in test panes never write to the user's real ~/.zsh_history.
+            if
+                let idx = CommandLine.arguments.firstIndex(of: "--zdotdir"),
+                idx + 1 < CommandLine.arguments.count {
+                tmuxService.zdotDirOverride = CommandLine.arguments[idx + 1]
+            }
 
             // Create control client manager for tmux control mode
             self.controlClientManager = TmuxControlClientManager(
@@ -307,6 +378,24 @@
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
+            // Probe whether the user's rc files clobber Gallager's `$VISUAL`
+            // (issue #591). Detached so the ~1–10s probe never blocks launch; any
+            // dialog it triggers is deferred to the first session anyway.
+            switch settings.editorOverrideMode {
+            case .ask:
+                // Decision still pending: probe so the dialog can offer on a
+                // detected conflict at the first session.
+                Task { await runEditorConflictProbe() }
+            case .overrideInGallagerSessions:
+                // Already injecting. Re-check whether the conflict that justified
+                // it still exists — if the user has since removed `export VISUAL`
+                // from their rc, the injection is now redundant and is dropped.
+                Task { await reconcileOverrideAgainstProbe() }
+            case .useMyEditor:
+                // Never overriding, never asking — nothing to probe for.
+                break
+            }
+
             // Start periodic validation to clean up stale sessions
             windowManager.startPeriodicSessionValidation()
 
@@ -342,6 +431,7 @@
             // Tear down the in-process plugin runtime: stop accepting ingress
             // frames, then `shutdown()` each active core via the registry.
             await ingressSocketServer?.stop()
+            await otlpReceiver?.stop()
             if let registry = pluginRegistry {
                 for id in Array(registry.active.keys) {
                     await registry.disable(id)
@@ -359,6 +449,93 @@
             }
             return tmuxService.panes.first(where: { $0.paneId == paneId })?.sessionName
         }
+
+        // MARK: - Editor Override (issue #591)
+
+        /// Runs the `$VISUAL`-survival probe and caches the result. Invoked once at
+        /// startup and again from the Settings "re-check" affordance.
+        func runEditorConflictProbe() async {
+            let result = await tmuxService.probeVisualConflict()
+            editorOverrideProbeResult = result
+        }
+
+        /// Re-runs the probe on demand (Settings "re-check now"), and — if the
+        /// conflict has since been resolved (e.g. the user edited their rc files
+        /// per Option 1) — clears the latch so a future genuine conflict can ask
+        /// again. Also drops a now-redundant override (see
+        /// `dropRedundantOverrideIfConflictResolved`).
+        public func reprobeEditorConflict() async {
+            await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
+            if editorOverrideProbeResult?.isConflict != true {
+                hasPresentedEditorOverrideDialogThisLaunch = false
+            }
+        }
+
+        /// Startup reconciliation for override mode: probe, then drop the override
+        /// if the conflict it was opted into for is gone (issue #591).
+        private func reconcileOverrideAgainstProbe() async {
+            await runEditorConflictProbe()
+            dropRedundantOverrideIfConflictResolved()
+        }
+
+        /// If we're injecting `export VISUAL=…` (override mode) but the probe
+        /// positively confirmed the rc conflict is gone (`.intact`), the
+        /// injection is redundant — Gallager's `-e VISUAL` already wins — so fall
+        /// back to `.ask` and stop typing it into every pane. A `.skipped` probe
+        /// isn't proof the conflict is gone, so the override is left untouched
+        /// (issue #591).
+        private func dropRedundantOverrideIfConflictResolved() {
+            guard
+                EditorOverride.shouldDropRedundantOverride(
+                    mode: settings.editorOverrideMode,
+                    probe: editorOverrideProbeResult
+                ) else { return }
+            setEditorOverrideMode(.ask)
+        }
+
+        /// Whether the consent dialog should be offered: a conflict was detected
+        /// and the user hasn't yet made a durable choice (still `.ask`), and we
+        /// haven't already asked this launch.
+        public var shouldOfferEditorOverrideDialog: Bool {
+            settings.editorOverrideMode == .ask
+                && editorOverrideProbeResult?.isConflict == true
+                && !hasPresentedEditorOverrideDialogThisLaunch
+        }
+
+        /// Presents the consent dialog if it's warranted. Called whenever a
+        /// session appears or the probe finishes, so it shows on whichever
+        /// happens last — but only once there's a local session, so "Ctrl-G" has
+        /// context (issue #591 §2).
+        public func maybePresentEditorOverrideDialog() {
+            guard shouldOfferEditorOverrideDialog else { return }
+            guard !tmuxService.sessions.isEmpty else { return }
+            hasPresentedEditorOverrideDialogThisLaunch = true
+            isShowingEditorOverrideDialog = true
+        }
+
+        /// Applies a durable editor-override choice (from the dialog or Settings):
+        /// persists it and reflects it onto the tmux service, injecting into
+        /// existing shell panes when turning the override on.
+        public func setEditorOverrideMode(_ mode: EditorOverrideMode) {
+            settings.editorOverrideMode = mode
+            let active = mode == .overrideInGallagerSessions
+            tmuxService.overrideVisualInShellPanes = active
+            if active {
+                Task { await tmuxService.injectVisualOverrideIntoExistingShellPanes() }
+            } else {
+                tmuxService.clearInjectedOverrideTracking()
+            }
+        }
+
+        #if DEBUG
+            /// Preview/test seam: seed the probe result without running the live
+            /// tmux probe, so SwiftUI previews can render the consent dialog
+            /// (`EditorOverrideDialog`) in a realistic conflict state (issue #591).
+            func setEditorOverrideProbeResultForPreview(_ result: VisualProbeResult?) {
+                editorOverrideProbeResult = result
+            }
+        #endif
 
         // MARK: - In-Process Plugin Runtime Setup (additive)
 
@@ -388,15 +565,28 @@
             // settings.json, before cores read them via PluginEnv.settings (§11).
             PluginSettingsMigration.runIfNeeded(paths: paths, preferences: preferences)
 
+            // OTEL telemetry receiver (issue #597): a loopback OTLP/JSON listener
+            // that augments the hook channel with per-session token/cost/latency,
+            // commit/PR milestones, and permission-mode changes. Started BEFORE
+            // any plugin enables (and before any pane can be created) so the
+            // port it actually bound — the preferred port, or a fallback
+            // candidate when that one was taken — is published as
+            // `OTLPReceiver.advertisedPort` by the time `makePluginEnv` and
+            // `TmuxService`'s env injection read it. Failure to bind every
+            // candidate is non-fatal — the hook channel is unaffected, agents
+            // simply get no OTEL config, and the meter stays empty.
+            await setupOTLPReceiver()
+
             // Dispatcher: fan PluginEvents out to local app behavior.
             let dispatcher = PluginEventDispatcher(
-                onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { [weak self] pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await self?.handlePluginState(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     )
                     // (handlePluginState also forwards agent_session_status to iOS;
                     // the open form rides AgentSession.state so it's in the snapshot.)
@@ -430,6 +620,13 @@
             let registry = PluginRegistry()
             pluginRegistry = registry
 
+            // Provide paths to the registry before enabling any sidecar (needed to
+            // build PluginRootLayout for SidecarPluginCore construction).
+            registry.attachPaths(paths)
+
+            // Ensure the folder-drop plugins directory exists.
+            paths.ensurePluginsDir()
+
             var pluginIDs = ["claude-code", "codex"]
             #if DEBUG
                 if CommandLine.arguments.contains("--e2e-test") {
@@ -447,6 +644,66 @@
                     logger.warning("Plugin '\(id)' left disabled: \(failure)")
                 }
             }
+
+            // Load the existing registry BEFORE discovery so url-installed plugins
+            // are not downgraded to folder-source on restart.
+            let loadedRegistry = PluginRegistryStore.load(paths.registryPath)
+
+            // Discover folder-dropped sidecar plugins under ~/.gallager/plugins/.
+            // Each valid sidecar is registered, its state dir is materialized, and
+            // it is enabled. Failures are non-fatal: a bad sidecar is logged and
+            // skipped so it never blocks startup.
+            let folderDropped = PluginInstaller.discoverFolderDropped(pluginsDir: paths.pluginsDir)
+            for (manifest, root) in folderDropped {
+                let id = manifest.id
+                // Preserve url-source metadata when a prior URL-install entry exists.
+                let resolved = PluginInstaller.resolveRegistryEntry(
+                    discoveredID: id,
+                    manifest: manifest,
+                    loaded: loadedRegistry
+                )
+                registry.registerSidecar(manifest: manifest, root: root, source: resolved.source)
+                paths.ensurePluginStateDir(id)
+                let host = makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                let env = makePluginEnv(id: id, registry: registry, paths: paths)
+                await registry.enable(id, host: host, env: env)
+                if let failure = registry.failedInit[id] {
+                    logger.warning("Sidecar plugin '\(id)' left disabled: \(failure)")
+                }
+            }
+
+            // Every plugin (bundled + folder-dropped) is now enabled; hand the
+            // declared OTLP namespaces to the receiver (issue #617). The receiver
+            // started before discovery, so the table is pushed here rather than
+            // injected at its construction.
+            await refreshOTLPPluginNamespaces()
+
+            // Persist registry.json: one entry per known plugin (bundled or folder/url).
+            // Merge so a .url entry is never downgraded to .folder or stripped of urls.
+            // Best-effort — a write failure must never block startup.
+            let cliEntries = registry.listEntries()
+            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+                guard let manifest = registry.manifest(cliEntry.id) else { return nil }
+                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+                let prior = loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
+                let effectiveSource: PluginRegistryEntry.Source =
+                    (prior?.source == .url && source != .bundled) ? .url : source
+                let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
+                let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
+                let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
+                return PluginRegistryEntry(
+                    id: cliEntry.id,
+                    version: cliEntry.version,
+                    source: effectiveSource,
+                    runtime: manifest.runtime,
+                    enabled: cliEntry.enabled,
+                    manifestURL: manifestURL,
+                    bundleURL: bundleURL,
+                    bundleSHA256: bundleSHA256
+                )
+            }
+            let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
+            try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
@@ -558,20 +815,42 @@
         ) -> PluginEnv {
             let pluginRoot = registry.pluginRoot(id) ?? paths.pluginStateDir(id)
             let settingsData = (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
-            // Bundled marketplace dirs live in the app's main bundle Resources:
-            //   plugin/       → Claude marketplace
-            //   plugin/codex/ → Codex marketplace
-            let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
-            let marketplaceSource: URL = switch id {
-            case "codex": resources.appendingPathComponent("plugin/codex")
-            default: resources.appendingPathComponent("plugin")
+            // Marketplace source resolution:
+            //   • Sidecar (folder-drop): check for a `marketplace/` subdir inside the
+            //     plugin root; fall back to the root itself when absent.
+            //   • Bundled in-process: marketplace dirs live in the app's main bundle
+            //     Resources (plugin/ for Claude, plugin/codex/ for Codex).
+            let marketplaceSource: URL
+            if registry.manifests[id]?.runtime == .sidecar {
+                let candidate = pluginRoot.appendingPathComponent("marketplace", isDirectory: true)
+                marketplaceSource = FileManager.default.fileExists(atPath: candidate.path)
+                    ? candidate
+                    : pluginRoot
+            } else {
+                let resources = Bundle.main.resourceURL ?? URL(fileURLWithPath: ".")
+                marketplaceSource = switch id {
+                case "codex": resources.appendingPathComponent("plugin/codex")
+                default: resources.appendingPathComponent("plugin")
+                }
             }
             return PluginEnv(
                 pluginRoot: pluginRoot,
                 stateDir: paths.pluginStateDir(id),
                 appVersion: VersionCompatibility.currentAppVersion,
                 settings: settingsData,
-                marketplaceSource: marketplaceSource
+                marketplaceSource: marketplaceSource,
+                // The port the receiver ACTUALLY bound (shared with the env
+                // injection in `TmuxService`), so a core that configures OTEL
+                // through its agent's own config (Codex) targets the same loopback
+                // receiver Claude's `OTEL_*` env vars point at (issue #602) — even
+                // when the preferred port was taken and a fallback candidate won.
+                // `setupOTLPReceiver()` runs at the top of `setupPluginRuntime()`,
+                // ahead of every `registry.enable`, so the bind has settled by the
+                // time any plugin env is built. `nil` when every candidate port was
+                // taken: the core then skips OTEL config entirely instead of
+                // pointing its agent at a dead (or foreign) endpoint.
+                otlpReceiverEndpoint: OTLPReceiver.advertisedPort
+                    .flatMap { URL(string: "http://127.0.0.1:\($0)") }
             )
         }
 
@@ -595,8 +874,10 @@
             let env = makePluginEnv(id: id, registry: registry, paths: paths)
             await registry.enable(id, host: host, env: env)
             // The enabled-plugin set changed; re-push the complete presentation
-            // set to all connected viewers (spec §7.2/§7.3).
+            // set to all connected viewers (spec §7.2/§7.3) and refresh the
+            // OTLP namespace table (issue #617).
             await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
+            await refreshOTLPPluginNamespaces()
             return registry.isEnabled(id)
         }
 
@@ -616,7 +897,135 @@
             // state so viewers see the now-removed projects immediately.
             await connectedViewerManager?.pushPluginPresentationsToAll(registry.presentations())
             await connectedViewerManager?.pushSessionStateToAll()
+            // A disabled plugin's OTLP records must stop classifying (issue #617).
+            await refreshOTLPPluginNamespaces()
             return registry.isEnabled(id)
+        }
+
+        // MARK: - URL install / remove / update-check (Task 14 — thin wrappers)
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.install` and
+        /// supplies the registry, paths, session, and host/env factories from
+        /// coordinator state. Not unit-tested directly — integration / E2E covered.
+        public func installPluginFromURL(
+            _ url: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            let result = await PluginInstaller.install(
+                manifestURL: url,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                session: URLSession.shared,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+                // The installer enabled the new plugin; refresh the OTLP
+                // namespace table so its declared telemetry classifies (issue #617).
+                await refreshOTLPPluginNamespaces()
+            }
+            return result
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.installFromZip`.
+        /// Mirrors `installPluginFromURL` but installs from a local `.zip` bundle the
+        /// user chose (no network fetch, no SHA-256 pin). Not unit-tested directly.
+        public func installPluginFromZip(
+            _ zip: URL,
+            trustConfirmed: Bool
+        ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
+            guard
+                let registry = pluginRegistry, let paths = gallagerPaths,
+                let dispatcher = pluginDispatcher else {
+                return .failure(.invalidSchema)
+            }
+            let result = await PluginInstaller.installFromZip(
+                zip: zip,
+                trustConfirmed: trustConfirmed,
+                registry: registry,
+                paths: paths,
+                makeHost: { [weak self] id -> any PluginHost in
+                    guard let self else {
+                        return LivePluginHost(pluginID: id, dispatcher: dispatcher, logSink: PluginLogSink(logFileURL: paths.pluginLogPath(id)))
+                    }
+                    return self.makePluginHost(id: id, dispatcher: dispatcher, paths: paths)
+                },
+                makeEnv: { [weak self] id in
+                    guard let self else {
+                        return PluginEnv(
+                            pluginRoot: paths.pluginInstallDir(id),
+                            stateDir: paths.pluginStateDir(id),
+                            appVersion: VersionCompatibility.currentAppVersion,
+                            settings: Data(),
+                            marketplaceSource: paths.pluginInstallDir(id)
+                        )
+                    }
+                    return self.makePluginEnv(id: id, registry: registry, paths: paths)
+                }
+            )
+            if case let .success(.installed(installedID)) = result {
+                pluginCatalogRevision += 1
+                lastInstalledPluginID = installedID
+                await refreshOTLPPluginNamespaces()
+            }
+            return result
+        }
+
+        /// Thin wrapper: delegates all logic to `PluginInstaller.remove`.
+        /// Not unit-tested directly — integration / E2E covered.
+        public func removePlugin(
+            id: String,
+            deleteState: Bool
+        ) async -> Result<Void, InstallError> {
+            guard let registry = pluginRegistry, let paths = gallagerPaths else {
+                return .failure(.notInstalled)
+            }
+            let result = await PluginInstaller.remove(
+                id: id,
+                deleteState: deleteState,
+                registry: registry,
+                paths: paths
+            )
+            if case .success = result {
+                pluginCatalogRevision += 1
+                // Clear so a later reinstall of the same id re-fires onChange.
+                lastInstalledPluginID = nil
+                // The removed plugin's namespace must stop classifying (issue #617).
+                await refreshOTLPPluginNamespaces()
+            }
+            return result
+        }
+
+        /// Thin wrapper: reads the registry file from disk and delegates to
+        /// `PluginUpdateChecker.check`. Not unit-tested directly.
+        public func checkPluginUpdates() async -> [PluginUpdate] {
+            guard let paths = gallagerPaths else { return [] }
+            let registryFile = PluginRegistryStore.load(paths.registryPath)
+            return await PluginUpdateChecker.check(registryFile.plugins, session: URLSession.shared)
         }
 
         /// Build the `plugin.info` envelope for `id` (CLI `plugin info`). Returns
@@ -681,7 +1090,7 @@
         func pluginCallViaCLI(
             _ id: String,
             method: String,
-            json _: String?,
+            json: String?,
             configRoot: String? = nil
         ) async -> LiveAPIRequestRouter.PluginCallResult {
             guard let registry = pluginRegistry, registry.isRegistered(id) else {
@@ -695,7 +1104,7 @@
                 _ = await disablePluginViaCLI(id)
                 return .ok(result: "disabled")
             default:
-                switch await registry.callCore(id, method: method, configRoot: configRoot) {
+                switch await registry.callCore(id, method: method, json: json, configRoot: configRoot) {
                 case let .ok(result): return .ok(result: result)
                 case .notEnabled: return .notEnabled
                 case let .unknownMethod(name): return .unknownMethod(name)
@@ -781,9 +1190,9 @@
             }
         }
 
-        /// The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
-        /// behind `#if DEBUG`, so its id is mirrored as a literal for Release where
-        /// echo is never registered anyway (the filter is then a harmless no-op).
+        // The id of the test-only `echo` reference plugin. `EchoPluginCore` lives
+        // behind `#if DEBUG`, so its id is mirrored as a literal for Release where
+        // echo is never registered anyway (the filter is then a harmless no-op).
         #if DEBUG
             private static let echoPluginID = EchoPluginCore.pluginID
         #else
@@ -793,10 +1202,29 @@
         /// Display rows for the segmented agent picker, sorted by id. Excludes
         /// `echo`, the test-only reference plugin (DEBUG/E2E builds only).
         public func agentPluginList() -> [AgentPluginEntry] {
+            // Register an observation dependency so a view body that calls this
+            // re-renders when a plugin is installed/removed (the registry the list
+            // is derived from is @ObservationIgnored — see pluginCatalogRevision).
+            _ = pluginCatalogRevision
             guard let registry = pluginRegistry else { return [] }
             return registry.registeredIDs
                 .filter { $0 != Self.echoPluginID }
                 .map { AgentPluginEntry(id: $0, name: registry.manifest($0)?.displayName ?? $0) }
+        }
+
+        /// Returns `true` when `id` was registered via the factory table (i.e. ships
+        /// with the app). URL-installed and folder-dropped plugins return `false`.
+        public func isBundledPlugin(id: String) -> Bool {
+            guard let registry = pluginRegistry else { return true }
+            let entry = registry.listEntries().first { $0.id == id }
+            return entry?.source == "bundled"
+        }
+
+        /// The default config-root a sidecar plugin declares in its manifest
+        /// (`sidecar.default_config_root`), shown as the non-removable root row in
+        /// the Agents settings tab. `nil` for plugins that don't declare one.
+        public func pluginDefaultConfigRoot(id: String) -> String? {
+            pluginRegistry?.manifest(id)?.sidecar?.defaultConfigRoot
         }
 
         /// Raw settings.json bytes for a plugin (empty Data if none yet).
@@ -903,15 +1331,34 @@
             sessionID: String,
             state: AgentState,
             tmuxPane: String?,
-            projectPath: String?
+            projectPath: String?,
+            permissionMode: String?
         ) async {
             windowManager.applyState(
                 pluginID: pluginID,
                 sessionID: sessionID,
                 state: state,
                 tmuxPane: tmuxPane,
-                projectPath: projectPath
+                projectPath: projectPath,
+                permissionMode: permissionMode
             )
+            // Issue #598: when the agent finishes a turn, snapshot a recap card
+            // from the accumulated telemetry. Only when there's real telemetry to
+            // show; `applyState` already cleared any prior recap if a new turn
+            // started instead.
+            if
+                let paneId = tmuxPane, !paneId.isEmpty,
+                case let .doneWorking(summary) = state,
+                let telemetry = windowManager.paneStates[paneId]?.telemetry,
+                telemetry.tokensUsed > 0 {
+                let recap = SessionRecap(
+                    telemetry: telemetry,
+                    projectName: windowManager.paneStates[paneId]?.agentSession?.displayName,
+                    summary: summary,
+                    isFinal: false
+                )
+                windowManager.applyRecap(recap, forPane: paneId)
+            }
             updateSleepPrevention()
 
             // High-frequency per-session update to iOS (spec §7.2). Keyed by the
@@ -954,12 +1401,240 @@
             // Stamp the real pane id so tapping the banner navigates to the
             // originating session; fall back to "system" only when the event
             // carries no pane (e.g. a gallager-cli notify with no target).
-            terminalNotificationService.showNotification(paneId ?? "system", macNotification)
+            terminalNotificationService.showNotification(paneId ?? "system", macNotification, nil)
             await connectedViewerManager?.sendCustomPushNotificationToAll(
                 title: notification.title,
                 body: notification.body,
                 paneId: paneId
             )
+        }
+
+        // MARK: - OTEL Telemetry (issue #597)
+
+        /// Builds the Mac-local OTLP receiver and starts it, wiring its three
+        /// content-free signals into the app: telemetry → stamp the joined pane,
+        /// milestones → one-shot notifications, mode changes → stamp the pane.
+        private func setupOTLPReceiver() async {
+            // Durable cross-session usage store (issue #598). Lives in the gallager
+            // state tree so it shares the E2E redirect and survives restarts.
+            let stateRoot = (gallagerPaths ?? GallagerPaths()).stateRoot
+            let store = UsageAggregationStore(
+                fileURL: stateRoot.appendingPathComponent("usage-aggregates.json")
+            )
+            usageStore = store
+            usageOverview = await currentUsageOverview()
+
+            let receiver = OTLPReceiver(
+                port: OTLPReceiver.preferredPort,
+                onTelemetry: { [weak self] sessionID, telemetry in
+                    await self?.handleTelemetry(sessionID: sessionID, telemetry: telemetry)
+                },
+                onMilestone: { [weak self] milestone in
+                    await self?.handleTelemetryMilestone(milestone)
+                },
+                onModeChange: { [weak self] change in
+                    await self?.handleTelemetryModeChange(change)
+                }
+            )
+            otlpReceiver = receiver
+            do {
+                // Publish the port the bind actually landed on — possibly a
+                // fallback candidate — as the one value every advertisement
+                // (TmuxService env injection, PluginEnv endpoint, E2E
+                // `/otlp-port`) reads. Left `nil` on total failure so those
+                // consumers skip OTEL config instead of advertising a dead
+                // (or foreign) endpoint.
+                OTLPReceiver.advertisedPort = try await receiver.start()
+            } catch {
+                logger.error("Failed to start OTLP telemetry receiver: \(error)")
+            }
+        }
+
+        /// Pushes the enabled plugins' OTLP namespace declarations (manifest
+        /// `otlp` field, issue #617) to the receiver, replacing the previous
+        /// table. Must run whenever the enabled-plugin set changes — startup
+        /// enable, CLI enable/disable, URL/zip install, remove — so a declared
+        /// namespace classifies exactly while its plugin is enabled. Resolved
+        /// here once per change; the accumulator never queries the registry.
+        ///
+        /// Declarations are sorted by plugin id: the accumulator's table is
+        /// first-write-wins, so a duplicate namespace resolves to the
+        /// lexicographically-first plugin id on every launch (never Dictionary
+        /// iteration order), and the loser is logged rather than silently
+        /// swallowed.
+        private func refreshOTLPPluginNamespaces() async {
+            guard let registry = pluginRegistry, let receiver = otlpReceiver else { return }
+            let declaring: [(id: String, otlp: PluginManifest.OTLP)] = registry.manifests
+                .compactMap { id, manifest in
+                    guard registry.isEnabled(id), let otlp = manifest.otlp else { return nil }
+                    return (id: id, otlp: otlp)
+                }
+                .sorted { $0.id < $1.id }
+            var namespaceOwners: [String: String] = [:]
+            for (id, otlp) in declaring {
+                let namespace = otlp.namespace.hasSuffix(".")
+                    ? String(otlp.namespace.dropLast())
+                    : otlp.namespace
+                if let owner = namespaceOwners[namespace] {
+                    logger.warning(
+                        "Plugins '\(owner)' and '\(id)' both declare OTLP namespace '\(namespace)'; '\(owner)' wins"
+                    )
+                } else {
+                    namespaceOwners[namespace] = id
+                }
+            }
+            await receiver.updatePluginNamespaces(declaring.map(\.otlp))
+        }
+
+        /// Stamps accumulated telemetry onto the joined pane (the host sidebar
+        /// updates synchronously), then throttles the cross-device push to at
+        /// most once per second.
+        private func handleTelemetry(sessionID: String, telemetry: SessionTelemetry) async {
+            guard windowManager.applyTelemetry(telemetry, forClaudeSessionID: sessionID) != nil else {
+                return // no pane bound to this session id yet
+            }
+            // Fold this snapshot into the durable per-project/day store (issue
+            // #598) and refresh the host's own overview surfaces. Keyed by the
+            // pane's detected project; skipped when none is known (can't attribute).
+            if let usageStore, let projectPath = windowManager.detectedProjectPath(forClaudeSessionID: sessionID) {
+                await usageStore.record(
+                    projectPath: projectPath,
+                    sessionID: sessionID,
+                    telemetry: telemetry,
+                    date: Date()
+                )
+                usageOverview = await currentUsageOverview()
+            }
+            guard let connectionManager = connectedViewerManager else { return }
+            // Trailing throttle, not a debounce: if a push is already scheduled
+            // this window, fold into it (it reads the latest pane state when it
+            // fires). A debounce would cancel-and-reschedule on every event and
+            // starve viewers during a sustained burst; this guarantees a flush
+            // every ~1s while telemetry keeps arriving.
+            guard pendingTelemetryPush == nil else { return }
+            pendingTelemetryPush = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                self?.pendingTelemetryPush = nil
+                await connectionManager.pushSessionStateToAll()
+            }
+        }
+
+        /// Turns a commit / PR milestone into exactly one notification per export
+        /// tick, routed to the originating pane. Skipped when no pane is bound
+        /// (the milestone can't be attributed to a visible session).
+        private func handleTelemetryMilestone(_ milestone: TelemetryMilestone) async {
+            guard let paneId = windowManager.paneId(forClaudeSessionID: milestone.sessionID) else { return }
+            let project = windowManager.projectName(forClaudeSessionID: milestone.sessionID) ?? "your project"
+            // Agent-aware copy (issue #602): milestone counters are Claude-only
+            // today (`claude_code.commit.count` etc.), but resolve the owning
+            // agent's short name from its manifest so the notification stays
+            // correct if a Codex commit/PR source ever lands. Falls back to
+            // "Claude" when the pane's plugin id can't be resolved.
+            let pluginID = windowManager.paneStates[paneId]?.agentSession?.pluginID
+            let agent = pluginID.flatMap { pluginRegistry?.manifest($0)?.shortName } ?? "Claude"
+            let spec = Self.milestoneNotification(milestone, agent: agent, project: project)
+            await handlePluginNotification(spec, paneId: paneId)
+        }
+
+        /// Formats a milestone notification. The body adapts when more than one
+        /// occurred within a single export window.
+        private static func milestoneNotification(
+            _ milestone: TelemetryMilestone,
+            agent: String,
+            project: String
+        ) -> NotificationSpec {
+            switch milestone.kind {
+            case .commit:
+                let title = "Committed"
+                let body = milestone.count > 1
+                    ? "\(agent) made \(milestone.count) commits in \(project)"
+                    : "\(agent) committed in \(project)"
+                return NotificationSpec(title: title, body: body)
+            case .pullRequest:
+                let title = "Pull Request"
+                let body = milestone.count > 1
+                    ? "\(agent) opened \(milestone.count) pull requests in \(project)"
+                    : "\(agent) opened a pull request in \(project)"
+                return NotificationSpec(title: title, body: body)
+            }
+        }
+
+        /// Formats the one-shot end-of-session recap notification (issue #598).
+        /// The body reuses the shared recap formatter so the push reads identically
+        /// to the recap card.
+        private static func recapNotification(_ recap: SessionRecap) -> NotificationSpec {
+            let title = recap.projectName.map { "Done — \($0)" } ?? "Session complete"
+            return NotificationSpec(title: title, body: recapDetailLine(recap))
+        }
+
+        /// The current durable usage rollup, or `nil` when nothing has accrued yet
+        /// (so a host with no usage doesn't push an empty overview or render an
+        /// empty header). Recomputed from the store on demand.
+        private func currentUsageOverview() async -> UsageOverview? {
+            guard let usageStore else { return nil }
+            let overview = await usageStore.overview(asOf: Date())
+            return overview.isEmpty ? nil : overview
+        }
+
+        /// On session end (issue #598): fold the pane's final telemetry into the
+        /// durable usage store, push a one-shot end-of-session recap, then evict the
+        /// session's live state from both the store baselines and the OTLP receiver
+        /// (#597). Reads the pane state before `endAgentSession` clears it. No-op
+        /// when the pane never carried a Claude session id.
+        private func finalizeEndedSession(paneId: String) async {
+            // Snapshot everything needed off the pane *before* the first `await`:
+            // `AppCoordinator` is `@MainActor`, so an interleaved event could mutate
+            // (or clear) `paneStates[paneId]` across the actor hops below. Reading
+            // immutable locals keeps the logic from silently picking up replaced state.
+            guard let claudeSessionID = windowManager.paneStates[paneId]?.claudeSessionID else { return }
+            let pane = windowManager.paneStates[paneId]
+            let agentSession = pane?.agentSession
+            let projectPath = agentSession?.detectedProjectPath
+            let projectName = agentSession?.displayName
+            let agentState = agentSession?.state
+            if let telemetry = pane?.telemetry {
+                if let usageStore {
+                    if let projectPath, !projectPath.isEmpty {
+                        await usageStore.record(
+                            projectPath: projectPath,
+                            sessionID: claudeSessionID,
+                            telemetry: telemetry,
+                            date: Date()
+                        )
+                        usageOverview = await currentUsageOverview()
+                    }
+                    // Always evict the baseline — even for a session that never
+                    // resolved a project path (path arrived after `SessionEnd`, plain
+                    // terminal, etc.) — so it can't leak toward `maxBaselines`.
+                    await usageStore.evictSession(claudeSessionID)
+                }
+                if telemetry.tokensUsed > 0 {
+                    var summary: String?
+                    if case let .doneWorking(lastMessage) = agentState {
+                        summary = lastMessage
+                    }
+                    let recap = SessionRecap(
+                        telemetry: telemetry,
+                        projectName: projectName,
+                        summary: summary,
+                        isFinal: true
+                    )
+                    await handlePluginNotification(Self.recapNotification(recap), paneId: paneId)
+                }
+            }
+            await otlpReceiver?.evictSession(claudeSessionID)
+        }
+
+        /// Records a permission-mode change on the joined pane and pushes it (mode
+        /// flips are rare, so this isn't throttled).
+        private func handleTelemetryModeChange(_ change: TelemetryModeChange) async {
+            let stamped = windowManager.applyPermissionMode(
+                change.toMode,
+                trigger: change.trigger,
+                forClaudeSessionID: change.sessionID
+            )
+            guard stamped != nil else { return }
+            await connectedViewerManager?.pushSessionStateToAll()
         }
 
         /// AppActionSink → drive the matching agent-blind Mac feature (spec §6).
@@ -1001,6 +1676,11 @@
                     windowManager.setYoloMode(enabled: false, for: sessionID)
                     sessionStateChanged = true
                 }
+                // Snapshot the final recap and fold the session's last telemetry
+                // into the durable store (issue #598), then evict its live state
+                // from the store and the OTLP receiver (issue #597) — all before
+                // `endAgentSession` clears the pane's join key and telemetry.
+                await finalizeEndedSession(paneId: sessionID)
                 // Remove the agent session so the pane reverts from the idle moon
                 // glyph to a plain terminal (the legacy `claudeSession = nil` on
                 // SessionEnd). The status path set working=false earlier in this
@@ -1109,9 +1789,14 @@
             guard let launch = await pluginRegistry?.core(pluginID)?.commandForLaunch(projectPath: projectPath) else {
                 return (nil, [])
             }
+            // POSIX-quote the args (the command stays bare so the caller's first-
+            // token window-name derivation still reads "codex"/"claude"), matching
+            // the `handleCreateSession` / `onProjectStart` launch paths. Without
+            // this, a Codex `-c 'otel.…="…"'` override's embedded quotes would be
+            // eaten by the shell when the command is typed into the pane (#602).
             let runCommand = launch.args.isEmpty
                 ? launch.command
-                : ([launch.command] + launch.args).joined(separator: " ")
+                : ([launch.command] + launch.args.map(\.posixSingleQuoted)).joined(separator: " ")
             let env = launch.env.map { "\($0.key)=\($0.value)" }
             return (runCommand, env)
         }
@@ -1240,11 +1925,24 @@
                         created: true
                     )
                 },
-                onSessionSelect: { [tmux] sessionId in
-                    // Trailing `:` resolves to the session's current window;
-                    // `:!` would fail with "can't find window: !" on sessions
-                    // without prior window-switch history.
-                    try await tmux.selectWindow("\(sessionId):")
+                onSessionSelect: { [tmux, weak self] sessionId in
+                    // Point tmux's current window at the session. This also
+                    // validates the id — a bad session throws and surfaces as a
+                    // CLI error. `=` forces exact session-name matching;
+                    // without it tmux prefix-matches, so a nonexistent
+                    // "foo" would silently resolve to a session named
+                    // "foo-bar". Trailing `:` resolves to the session's
+                    // current window; `:!` would fail with "can't find
+                    // window: !" on sessions without prior window-switch
+                    // history.
+                    try await tmux.selectWindow("=\(sessionId):")
+                    // Drive the app's sidebar/detail selection so the UI
+                    // actually switches to the requested session. `select-window`
+                    // alone only moves tmux's active window *within* a session;
+                    // MainView's follow-active-window logic is scoped to the
+                    // already-selected session and never crosses to a different
+                    // one, so without this the app stays on the old session.
+                    await self?.revealLocalSession(sessionId)
                 },
                 onSessionCurrent: { [tmux] in
                     await MainActor.run {
@@ -1445,9 +2143,36 @@
                         workingDirectory: workingDirectory,
                         shellCommand: shellCommand
                     )
-                    let panes = await tmux.refreshPanes()
-                    await MainActor.run { winManager.updatePaneStates(from: panes) }
-                    guard let newPane = panes.first(where: { $0.paneId == newPaneId }) else {
+                    // `refreshPanes()` early-returns the stale cached list when a
+                    // periodic refresh is already in flight, so the freshly-split
+                    // pane can be missing on the first try (more likely on a slow
+                    // machine). The pane definitely exists — `split-window` just
+                    // returned its id — so retry the refresh until it shows up.
+                    var newPane: PaneInfo?
+                    for attempt in 0..<PaneSurfaceRetry.attempts {
+                        let panes = await tmux.refreshPanes()
+                        await MainActor.run { winManager.updatePaneStates(from: panes) }
+                        if let found = panes.first(where: { $0.paneId == newPaneId }) {
+                            // Keep the latest snapshot even if it's still settling,
+                            // so we return the pane rather than throwing if the cwd
+                            // never resolves.
+                            newPane = found
+                            // The pane can surface mid-spawn: while its
+                            // `default-command` wrapper is still running the
+                            // `printf` OSC-color preamble before `exec zsh`, tmux
+                            // reports `pane_current_command=printf` and an empty
+                            // `pane_current_path`. Poll on until the shell settles
+                            // so the returned JSON carries the real cwd (e.g. the
+                            // `--path` the caller asked for), not a spawn-time blank.
+                            if !found.currentPath.isEmpty {
+                                break
+                            }
+                        }
+                        if attempt < PaneSurfaceRetry.attempts - 1 {
+                            try await Task.sleep(for: PaneSurfaceRetry.delay)
+                        }
+                    }
+                    guard let newPane else {
                         throw APIError.notFound("New pane not found after split")
                     }
                     return APIPaneInfo(
@@ -1531,7 +2256,7 @@
                         body: body
                     )
                     let targetPane = paneId ?? "system"
-                    notificationService.showNotification(targetPane, notification)
+                    notificationService.showNotification(targetPane, notification, nil)
 
                     // Forward to paired iOS viewers when --push is requested.
                     // Reuses the encrypted-push path that hook events go through,
@@ -1611,10 +2336,10 @@
                     let launchArgs = args.isEmpty ? (launch?.args ?? []) : args
                     let runCommand: String
                     if launchArgs.isEmpty {
-                        runCommand = shellQuoteSingle(commandPath)
+                        runCommand = commandPath.posixSingleQuoted
                     } else {
-                        let quoted = launchArgs.map(shellQuoteSingle).joined(separator: " ")
-                        runCommand = "\(shellQuoteSingle(commandPath)) \(quoted)"
+                        let quoted = launchArgs.map(\.posixSingleQuoted).joined(separator: " ")
+                        runCommand = "\(commandPath.posixSingleQuoted) \(quoted)"
                     }
                     let (sessionName, _) = try await tmux.createSession(
                         baseName: url.lastPathComponent,
@@ -1735,6 +2460,150 @@
                         json: json,
                         configRoot: configRoot
                     )
+                },
+                onPluginInstall: { [weak self] urlString, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    guard let url = URL(string: urlString) else {
+                        return .failed("Invalid URL: \(urlString)")
+                    }
+                    let result = await self.installPluginFromURL(url, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.absoluteString),
+                                "bundleURL": trust.bundleURL.map { .string($0.absoluteString) } ?? .null,
+                                "bundleSHA256": trust.bundleSHA256.map { .string($0) } ?? .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
+                onPluginInstallZip: { [weak self] path, trustConfirmed in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    let zip = URL(fileURLWithPath: path)
+                    let result = await self.installPluginFromZip(zip, trustConfirmed: trustConfirmed)
+                    switch result {
+                    case let .success(outcome):
+                        switch outcome {
+                        case let .needsTrust(trust):
+                            // Local file: surface the path (no remote URL / SHA-256).
+                            let details: [String: JSONValue] = [
+                                "id": .string(trust.id),
+                                "displayName": .string(trust.displayName),
+                                "version": .string(trust.version),
+                                "publisher": trust.publisher.map { .string($0) } ?? .null,
+                                "sourceURL": .string(trust.sourceURL.path),
+                                "bundleURL": .null,
+                                "bundleSHA256": .null,
+                                "bundleSizeBytes": trust.bundleSizeBytes.map { .int($0) } ?? .null,
+                            ]
+                            return .needsTrust(details)
+                        case let .installed(id):
+                            return .installed(id: id)
+                        }
+                    case let .failure(error):
+                        return .failed(String(describing: error))
+                    }
+                },
+                onPluginRemove: { [weak self] pluginId, deleteState in
+                    guard let self else { return .failed("Coordinator deallocated") }
+                    // Bundled plugins refuse removal.
+                    if await self.isBundledPlugin(id: pluginId) {
+                        return .bundledRefusal
+                    }
+                    let result = await self.removePlugin(id: pluginId, deleteState: deleteState)
+                    switch result {
+                    case .success: return .ok
+                    case let .failure(error): return .failed(String(describing: error))
+                    }
+                },
+                onPluginUpdate: { [weak self] pluginId, apply in
+                    guard let self else { return [] }
+                    let updates = await self.checkPluginUpdates()
+                    let filtered = pluginId.map { id in updates.filter { $0.id == id } } ?? updates
+
+                    guard apply else {
+                        // List-only path (no changes)
+                        return filtered.map { update in
+                            [
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(update.sourceChanged),
+                            ]
+                        }
+                    }
+
+                    // Apply path: for each update, look up its manifestURL from the registry file
+                    // and re-invoke installPluginFromURL.
+                    guard let paths = await self.gallagerPaths else { return [] }
+                    let registryFile = PluginRegistryStore.load(paths.registryPath)
+                    var results: [[String: JSONValue]] = []
+
+                    for update in filtered {
+                        // Source-changed means a new host — we can't auto-trust silently.
+                        // Skip it and report with applied:false + a note.
+                        if update.sourceChanged {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(true),
+                                "applied": .bool(false),
+                                "note": .string("source-changed: needs manual re-install to trust new source"),
+                            ])
+                            continue
+                        }
+
+                        // Look up the manifestURL from the registry file (PluginRegistryEntry).
+                        guard
+                            let entry = registryFile.plugins.first(where: { $0.id == update.id }),
+                            let manifestURL = entry.manifestURL else {
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string("no manifestURL in registry"),
+                            ])
+                            continue
+                        }
+
+                        // Re-run install (trustConfirmed: true — same source, previously trusted).
+                        let outcome = await self.installPluginFromURL(manifestURL, trustConfirmed: true)
+                        switch outcome {
+                        case .success:
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(true),
+                            ])
+                        case let .failure(error):
+                            results.append([
+                                "id": .string(update.id),
+                                "currentVersion": .string(update.currentVersion),
+                                "newVersion": .string(update.newVersion),
+                                "sourceChanged": .bool(false),
+                                "applied": .bool(false),
+                                "note": .string(String(describing: error)),
+                            ])
+                        }
+                    }
+                    return results
                 }
             )
             liveRouter = router
@@ -1862,7 +2731,7 @@
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
             let notificationService = terminalNotificationService
             paneStreamManager.onNotification = { paneId, notification in
-                notificationService.showNotification(paneId, notification)
+                notificationService.showNotification(paneId, notification, nil)
             }
 
             // Wire title changes from background notification readers to window manager
@@ -2190,6 +3059,11 @@
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []
 
+                // Cross-session cost/usage rollup (issue #598). Computed fresh so a
+                // viewer connecting or refreshing gets current totals; `nil` when
+                // empty, so an older viewer sees no field at all (graceful skew).
+                let usageOverview = await self?.currentUsageOverview()
+
                 // Open response forms ride `AgentSession.state` in `paneStates`, so a
                 // viewer connecting after a form opened still renders it from the
                 // snapshot — no separate form field is needed.
@@ -2198,7 +3072,8 @@
                     pairId: "",
                     paneStates: paneStates,
                     agentProjects: agentProjects,
-                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+                    usageOverview: usageOverview
                 )
             }
 
@@ -2288,20 +3163,53 @@
         }
 
         /// Wires the notification tap handler on the delegate directly.
-        /// Always opens the panes view with the tapped session selected.
+        /// Always opens the panes view with the tapped session selected —
+        /// a local pane, or a remote host's session when the banner carried a
+        /// `hostId` (viewer-mode agent notification).
         private func setupNotificationTapHandler() {
-            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId in
+            ForegroundNotificationDelegate.shared.onTapped = { [weak self] paneId, hostId in
                 guard let self else { return }
-
-                NSApp.setActivationPolicy(.regular)
-                self.pendingMenuBarSelection = .local(paneId: paneId)
-                NotificationCenter.default.post(
-                    name: .openPanesWindow,
-                    object: nil
-                )
-
-                Self.forceActivate()
+                if let hostId {
+                    self.revealRemotePane(hostId: hostId, paneId: paneId)
+                } else {
+                    self.revealLocalPane(paneId)
+                }
             }
+        }
+
+        /// Brings the panes window forward with `paneId` selected and the app
+        /// activated. Shared by the notification-tap handler and the CLI
+        /// `select-session` command so both surface a local session the same way.
+        private func revealLocalPane(_ paneId: String) {
+            NSApp.setActivationPolicy(.regular)
+            pendingMenuBarSelection = .local(paneId: paneId)
+            NotificationCenter.default.post(name: .openPanesWindow, object: nil)
+            Self.forceActivate()
+        }
+
+        /// Brings the panes window forward with a *remote* host's session
+        /// selected. Used by the notification-tap handler when the tapped banner
+        /// came from a connected remote host (viewer mode). Falls back to the raw
+        /// id for the display name if the host is no longer paired.
+        private func revealRemotePane(hostId: String, paneId: String) {
+            NSApp.setActivationPolicy(.regular)
+            let hostName = settings.getHostPairing(id: hostId)?.displayName ?? hostId
+            pendingMenuBarSelection = .remote(hostId: hostId, hostName: hostName, paneId: paneId)
+            NotificationCenter.default.post(name: .openPanesWindow, object: nil)
+            Self.forceActivate()
+        }
+
+        /// Reveals a local tmux session by resolving its active window's active
+        /// pane and revealing that. No-ops if the session isn't currently
+        /// tracked (e.g. it was closed between the request and now). Used by the
+        /// CLI `select-session` command, which targets a session by name.
+        @MainActor
+        private func revealLocalSession(_ sessionName: String) {
+            guard
+                let pane = tmuxService.sessions
+                    .first(where: { $0.sessionName == sessionName })?
+                    .activeWindow?.activePane else { return }
+            revealLocalPane(pane.paneId)
         }
 
         /// Force-activates the app from a non-interactive context (e.g., notification tap).
@@ -2354,10 +3262,10 @@
                 // setting); a nil launch means "open in a bare shell".
                 let runCommand: String? = launch.map { command in
                     if command.args.isEmpty {
-                        return shellQuoteSingle(command.command)
+                        return command.command.posixSingleQuoted
                     }
-                    let quoted = command.args.map(shellQuoteSingle).joined(separator: " ")
-                    return "\(shellQuoteSingle(command.command)) \(quoted)"
+                    let quoted = command.args.map(\.posixSingleQuoted).joined(separator: " ")
+                    return "\(command.command.posixSingleQuoted) \(quoted)"
                 }
 
                 let workingDirectory = spec.workingDirectory
@@ -2413,8 +3321,24 @@
                     workingDirectory: spec.workingDirectory
                 )
 
-                let allPanes = await tmuxService.refreshPanes()
-                windowManager.updatePaneStates(from: allPanes)
+                // `refreshPanes()` early-returns the stale cached list when a
+                // periodic refresh is already in flight, so the freshly-created
+                // window can be missing on the first try (more likely on a slow
+                // machine). If we push that stale state, the viewer's remote tab
+                // bar never gains the new window. The pane definitely exists —
+                // `new-window` just returned its id — so retry the refresh until
+                // it shows up before pushing. Mirrors the split-window and
+                // create-session paths.
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    let allPanes = await tmuxService.refreshPanes()
+                    windowManager.updatePaneStates(from: allPanes)
+                    if allPanes.contains(where: { $0.paneId == paneId }) {
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                    }
+                }
                 await connectionManager?.pushSessionStateToAll()
 
                 return .success(for: command.id, paneId: paneId)
@@ -2666,6 +3590,25 @@
                     remoteEditorContentStore.retainOnly(activeSessionIds: activeIds)
                 }
 
+                // Materialize pre-baked notifications pushed by remote hosts over
+                // the live socket as local desktop notifications — the same alerts
+                // a paired iOS device shows. This lets a connected Mac viewer learn
+                // about remote agent activity (needs-permission, done, questions…)
+                // without watching the viewer window. `pairId` is the host's key, so
+                // tapping the banner reveals the originating remote session.
+                manager.onAgentNotification = { [weak self] notification in
+                    guard let self else { return }
+                    let macNotification = TerminalStreamMessage.TerminalNotification(
+                        title: notification.title,
+                        body: notification.body
+                    )
+                    self.terminalNotificationService.showNotification(
+                        notification.sessionId ?? "system",
+                        macNotification,
+                        notification.pairId
+                    )
+                }
+
                 // Wire partner key received to persist in settings
                 manager.onPartnerKeyReceived = { [weak self] hostId, publicKey, publicKeyId in
                     guard let self else { return }
@@ -2717,7 +3660,7 @@
                 to: host,
                 serverURL: serverURL,
                 deviceId: settings.deviceId,
-                deviceName: Host.current().localizedName ?? "Mac"
+                deviceName: deviceNameClient.current()
             )
         }
 
@@ -2740,7 +3683,7 @@
                     pairedHosts: settings.pairedHosts,
                     serverURL: serverURL,
                     deviceId: settings.deviceId,
-                    deviceName: Host.current().localizedName ?? "Mac"
+                    deviceName: deviceNameClient.current()
                 )
             }
         }

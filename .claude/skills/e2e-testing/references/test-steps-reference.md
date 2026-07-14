@@ -162,7 +162,13 @@ Read the macOS clipboard contents and store them in the execution context under 
 Wait for a text element to appear in the macOS app's accessibility tree. Matches by title, label, value (contains), or help (exact). Useful for verifying status text like "Connected" or dimension labels like "80x24".
 
 ### `macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10)`
-Wait for a text element to no longer be in the macOS app's accessibility tree. Mirror of `macWaitForElement`.
+Wait for a text element to no longer be in the macOS app's accessibility tree. Mirror of `macWaitForElement`. **Caveat:** NSTableView-backed SwiftUI Lists keep off-screen rows in the AX tree, so this never fires for a row that merely scrolled out of view — use `macWaitForElementNotVisible` for that.
+
+### `macWaitForElementVisible(titled: String, timeout: TimeInterval = 10)`
+Wait for an element matching `titled` to be scrolled into view — its AX frame center inside the app window's frame. `macWaitForElement` only checks AX-tree *presence*, which can't tell whether a List row is actually on screen. Use after scrolling a List/tree to assert the target row really became visible.
+
+### `macWaitForElementNotVisible(titled: String, timeout: TimeInterval = 10)`
+Wait until no element matching `titled` is visible inside the window frame — either gone from the AX tree or scrolled out of view. Complement of `macWaitForElementVisible`; the assertion of choice for "this row scrolled off screen".
 
 ### `macWaitForElementQuery(_ query: ElementQuery, timeout: TimeInterval = 10)`
 Wait for an element matching an `ElementQuery` to appear in the macOS app's accessibility tree. Use for precise matching (e.g. a toggle with a specific help text AND value). Example: `.allOf([.help("Auto-resize tmux pane..."), .valueContains("1")])` to verify a toggle is checked.
@@ -195,7 +201,10 @@ Type text into the macOS app via AppleScript `keystroke`. Supports `${variable}`
 Scroll the macOS terminal view up by the given number of pages (Page Up key).
 
 ### `macScrollWheel(deltaY: Int32, count: Int = 3)`
-Send scroll-wheel events to the macOS app window via CGEvent. `deltaY > 0` scrolls up, `< 0` scrolls down. `count` is how many events to send.
+Send scroll-wheel events to the macOS app window via CGEvent. `deltaY > 0` scrolls up, `< 0` scrolls down. `count` is how many events to send. The events land at the **window center** — with the file browser open that's the detail pane, so scrolling the tree sidebar needs `macScrollWheelAtElement`.
+
+### `macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3)`
+Send scroll-wheel events at the center of the accessibility element matching `titled` instead of the window center — targets a specific scrollable region (e.g. the file-tree sidebar, by anchoring on one of its rows). The element's frame is resolved once, before the first event, so all events land on the same screen point even as the matched row scrolls away beneath it.
 
 ### `macClickAtPoint(x: Double, y: Double)`
 Click at a specific screen coordinate inside the macOS app. For places where no accessibility-tree target exists (e.g. clicking on terminal cells).
@@ -211,7 +220,7 @@ The mac defaults (`tolerance: 2%`, `perPixelThreshold: 0.02`) are looser than iO
 ## Tmux Steps
 
 ### `tmuxCreateSession(name: String, width: Int, height: Int)`
-Create a tmux session on the test socket with the given name and initial dimensions. The tmux socket path is managed by the orchestrator (default `/tmp/claudespy-e2e/claudespy-e2e.sock`).
+Create a tmux session on the test socket with the given name and initial dimensions. The tmux socket path is managed by the orchestrator (default `/tmp/claudespy-e2e/claudespy-e2e.sock`). The session env sets `DISABLE_AUTO_UPDATE`/`DISABLE_UPDATE_PROMPT`, pins `TMPDIR` to the runner's temp dir (so `injectScript` paths resolve), and points `ZDOTDIR` at the orchestrator's shell-history shim so typed commands never reach the user's `~/.zsh_history`.
 
 ### `tmuxStorePaneDimensions(target: String, widthKey: String, heightKey: String)`
 Query a tmux pane's current dimensions and store width/height in the execution context. The `target` uses tmux target format (e.g., `"session-name:0.0"`).
@@ -281,6 +290,11 @@ Store a literal string value in the execution context for use in assertions or i
 
 ### `readFile(path: String, storeAs: String)`
 Read a file's contents and store them in the execution context. Path supports `${var}` interpolation. Returns an empty string if the file is missing (does not fail the step). Pair with `assertStoredContains` to verify file content.
+
+Browser-download scenarios read saved files from `${downloadsDirPath}` — instance 0's `--downloads-dir`, a temp directory the app wipes on launch. Downloads are redirected there in E2E runs because writing to the real `~/Downloads` triggers a TCC consent prompt the unattended app can't answer (see `BrowserDownloadsAndErrorsScenario`).
+
+### `writeFile(path: String, content: String)`
+Write a file (creating intermediate directories), replacing any existing content. Both `path` and `content` support `${var}` interpolation. Use to seed on-disk fixtures the app reads — e.g. a plugin `settings.json` under `${gallagerStateRoot}/plugins/<id>/` *before* `launchMacApp`, or a fixture file the app re-reads on demand (`CodexGuardianSuppressionScenario` rewrites a codex `config.toml` mid-scenario to flip the guardian posture). `${gallagerStateRoot}` resolves to instance 0's `--gallager-state-root`, which the orchestrator cleans up after each scenario.
 
 ### `waitForFileContains(path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1)`
 Poll a file until it contains the given substring, then store its contents. Useful for waiting on side-effects written by the app (e.g. log files, generated artifacts) without racing.

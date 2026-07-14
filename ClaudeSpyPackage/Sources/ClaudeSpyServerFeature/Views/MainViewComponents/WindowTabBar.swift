@@ -15,6 +15,10 @@ struct WindowTabBar: View {
     let isFileBrowserSelected: Bool
     /// True only when the Git tab is the active view (issue #258).
     let isGitBrowserSelected: Bool
+    /// Number of changed files in the session's repository (issue #573). When
+    /// greater than zero a small badge is shown on the Git tab button so the
+    /// user can see there are uncommitted changes without opening the tab.
+    let gitChangedFileCount: Int
     /// True when any non-terminal view is showing (file tree, a file tab, or a
     /// browser tab). Used to deselect the underlying tmux window tab so it
     /// doesn't render as concurrently selected with another tab.
@@ -369,6 +373,16 @@ struct WindowTabBar: View {
         }
     }
 
+    /// Accessibility value for the Git tab button, combining its selection
+    /// state with the changed-file count badge (issue #573) so E2E scenarios can
+    /// assert both from one element.
+    private func gitAccessibilityValue(isSelected: Bool) -> String {
+        var parts: [String] = []
+        if isSelected { parts.append("selected") }
+        if gitChangedFileCount > 0 { parts.append("\(gitChangedFileCount) changed files") }
+        return parts.joined(separator: ", ")
+    }
+
     /// The Git tab button (issue #258). A singleton like `fileBrowserButton`,
     /// living immediately to its right, with the same split-toggle and
     /// drag-and-drop affordances.
@@ -379,17 +393,30 @@ struct WindowTabBar: View {
             : isGitBrowserSelected
         return HStack(spacing: 0) {
             Button(action: onSelectGitBrowser) {
-                Symbols.arrowTriangleBranch.image
-                    .font(.caption)
-                    .padding(.leading, 12)
-                    .padding(.trailing, 4)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    CustomSymbol.gitLogo.image
+                        .font(.caption)
+
+                    if gitChangedFileCount > 0 {
+                        Text("\(gitChangedFileCount)")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accentColor))
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 4)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Git changes for \(session.sessionName)")
             .accessibilityLabel("Git")
-            .accessibilityValue(isSelected ? "selected" : "")
+            .accessibilityValue(gitAccessibilityValue(isSelected: isSelected))
 
             TabSplitToggleButton(
                 isSplit: isSplit,
@@ -405,7 +432,7 @@ struct WindowTabBar: View {
             DropIndicator(visible: dropIndicator == .git)
         }
         .draggable(TabDragPayload.git) {
-            TabDragPreview(label: "Git", symbol: .arrowTriangleBranch)
+            TabDragPreview(label: "Git", image: CustomSymbol.gitLogo.image)
         }
         .dropDestination(for: TabDragPayload.self) { payloads, _ in
             handleDrop(payloads: payloads, target: .git)

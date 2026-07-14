@@ -1,4 +1,5 @@
 #if os(macOS)
+    import AppKit
     import Clocks
     import ConcurrencyExtras
     import Dependencies
@@ -73,6 +74,94 @@
                     await clock.advance(by: .milliseconds(2))
                     await Task.megaYield()
                     #expect(updateCount.value == 1)
+                }
+            }
+        }
+
+        @Test("setBadgeCount clears before setting so a fresh dock tile receives the value")
+        func badgeWritesClearBeforeSet() {
+            let manager = withDependencies {
+                $0.continuousClock = ImmediateClock()
+            } operation: { @MainActor in
+                LiveDockIconManager()
+            }
+            let writes = LockIsolated<[String?]>([])
+            manager.badgeLabelWriter = { label in
+                writes.withValue { $0.append(label) }
+            }
+
+            // NSDockTile.badgeLabel dedups unchanged values in-process, so the
+            // clear must precede every set — including a re-set of the SAME
+            // value after a policy cycle destroyed the Dock's tile state
+            // (issue #217).
+            manager.setBadgeCount(3)
+            #expect(writes.value == [nil, "3"])
+
+            writes.withValue { $0.removeAll() }
+            manager.setBadgeCount(3)
+            #expect(writes.value == [nil, "3"])
+
+            writes.withValue { $0.removeAll() }
+            manager.setBadgeCount(0)
+            #expect(writes.value == [nil])
+        }
+
+        @Test("Stored badge is re-applied when a window returns the app to .regular")
+        func badgeReappliedOnPolicyTransition() async {
+            await withMainSerialExecutor {
+                let clock = TestClock()
+                await withDependencies {
+                    $0.continuousClock = clock
+                } operation: { @MainActor in
+                    let manager = LiveDockIconManager(closingDebounce: .milliseconds(100))
+                    let writes = LockIsolated<[String?]>([])
+                    manager.badgeLabelWriter = { label in
+                        writes.withValue { $0.append(label) }
+                    }
+                    let policy = LockIsolated(NSApplication.ActivationPolicy.accessory)
+                    let windowCount = LockIsolated(0)
+                    manager.policyControls = .init(
+                        currentPolicy: { policy.value },
+                        setPolicy: { newPolicy in policy.setValue(newPolicy) },
+                        visibleWindowCount: { windowCount.value },
+                        activate: { }
+                    )
+
+                    // Issue #217's first scenario: the pending count rises
+                    // while the dock icon is hidden (.accessory, no windows).
+                    manager.setBadgeCount(3)
+                    writes.withValue { $0.removeAll() }
+
+                    // A window opens. `handleWindowClosing` is the accessible
+                    // entry to the debounced policy update; the update itself
+                    // only reads current state, so it serves for both
+                    // directions. The transition must flip the app back to
+                    // .regular AND re-apply the stored badge, since the fresh
+                    // dock tile starts badge-less.
+                    windowCount.setValue(1)
+                    manager.handleWindowClosing()
+                    await clock.advance(by: .milliseconds(101))
+                    await Task.megaYield()
+                    #expect(policy.value == .regular)
+                    #expect(writes.value == [nil, "3"])
+
+                    // All windows close again — icon hides, no badge writes.
+                    writes.withValue { $0.removeAll() }
+                    windowCount.setValue(0)
+                    manager.handleWindowClosing()
+                    await clock.advance(by: .milliseconds(101))
+                    await Task.megaYield()
+                    #expect(policy.value == .accessory)
+                    #expect(writes.value == [])
+
+                    // Issue #217's second scenario: reopening a window after a
+                    // hide/show cycle restores the same badge.
+                    windowCount.setValue(1)
+                    manager.handleWindowClosing()
+                    await clock.advance(by: .milliseconds(101))
+                    await Task.megaYield()
+                    #expect(policy.value == .regular)
+                    #expect(writes.value == [nil, "3"])
                 }
             }
         }

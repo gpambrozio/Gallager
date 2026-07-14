@@ -43,7 +43,7 @@
 
         private func makeDispatcher(_ recorder: StateRecorder, yolo: Bool) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onState: { _, sid, state, _, _ in await recorder.recordState(sid, state) },
+                onState: { _, sid, state, _, _, _ in await recorder.recordState(sid, state) },
                 onAutoApprove: { _, sid, rid in await recorder.recordApproval(sid, rid) },
                 isYoloModeEnabled: { _ in yolo }
             )

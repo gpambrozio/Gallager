@@ -4,7 +4,7 @@ import Logging
 import Vapor
 
 /// Aggregate count of active WebSocket connections, partitioned by device type.
-struct ConnectionCounts: Sendable {
+struct ConnectionCounts {
     let host: Int
     let viewer: Int
 }
@@ -40,6 +40,36 @@ actor ConnectionHub {
         }
     }
 
+    /// Unregister a connection only if the currently-registered connection for
+    /// this `(pairId, deviceType)` is the given WebSocket instance.
+    ///
+    /// A device that reconnects — e.g. a viewer after switching networks — opens
+    /// a fresh socket and `register`s it, replacing the old entry in place. The
+    /// old socket's `onClose` can then fire much later: a half-open TCP connection
+    /// takes seconds-to-minutes to surface as closed. Unregistering unconditionally
+    /// at that point would evict the *live* replacement connection and (via the
+    /// caller's `notifyConnection`) tell the peer the device disconnected —
+    /// flipping the peer's `isViewerConnected`/`isHostConnected` to false while the
+    /// device is actually still connected. Gating on socket identity makes a stale
+    /// close a no-op.
+    ///
+    /// - Returns: `true` if the current connection was removed, `false` if a newer
+    ///   connection had already replaced it (so the caller can skip notifying the peer).
+    func unregisterIfCurrent(pairId: String, deviceType: DeviceType, webSocket: WebSocket) -> Bool {
+        guard
+            let current = connections[pairId]?[deviceType],
+            current.webSocket === webSocket
+        else {
+            return false
+        }
+
+        connections[pairId]?[deviceType] = nil
+        if connections[pairId]?.isEmpty == true {
+            connections.removeValue(forKey: pairId)
+        }
+        return true
+    }
+
     /// Disconnect all connections for a pair
     func disconnectAll(pairId: String) {
         guard let pairConnections = connections[pairId] else { return }
@@ -60,10 +90,14 @@ actor ConnectionHub {
 
     /// Block a device type from connecting (for E2E testing).
     /// Existing connections are disconnected and new connections are rejected.
-    func blockDeviceType(_ deviceType: DeviceType) async {
+    ///
+    /// - Returns: the pair IDs whose connection was removed (see `disconnectAll(deviceType:)`).
+    @discardableResult
+    func blockDeviceType(_ deviceType: DeviceType) async -> [String] {
         blockedDeviceTypes.insert(deviceType)
-        await disconnectAll(deviceType: deviceType)
+        let affectedPairIds = await disconnectAll(deviceType: deviceType)
         logger.info("Blocked device type: \(deviceType)")
+        return affectedPairIds
     }
 
     /// Unblock a device type, allowing connections again (for E2E testing)
@@ -77,8 +111,19 @@ actor ConnectionHub {
         blockedDeviceTypes.removeAll()
     }
 
-    /// Disconnect all connections of a given device type across all pairs (for E2E testing)
-    func disconnectAll(deviceType: DeviceType) async {
+    /// Disconnect all connections of a given device type across all pairs (for E2E testing).
+    ///
+    /// This is a server-initiated teardown: unlike a real socket close — handled by
+    /// `WebSocketController`'s `onClose`, which owns `RelayService` and notifies the peer —
+    /// this removes the entry directly. The `onClose` that fires later for each closed
+    /// socket therefore finds nothing current and, by design (`unregisterIfCurrent`), stays
+    /// silent. Returning the affected pair IDs lets the caller drive the same
+    /// `notifyConnection` a real disconnect would, so peers still learn the device left.
+    ///
+    /// - Returns: the pair IDs whose connection of this type was removed.
+    @discardableResult
+    func disconnectAll(deviceType: DeviceType) async -> [String] {
+        var affectedPairIds: [String] = []
         for (pairId, pairConnections) in connections {
             guard let connection = pairConnections[deviceType] else { continue }
             try? await connection.webSocket.close()
@@ -86,7 +131,9 @@ actor ConnectionHub {
             if connections[pairId]?.isEmpty == true {
                 connections.removeValue(forKey: pairId)
             }
+            affectedPairIds.append(pairId)
         }
+        return affectedPairIds
     }
 
     // MARK: - Connection Status
@@ -151,8 +198,13 @@ actor ConnectionHub {
                 "error": "\(error)",
             ])
 
-            // Unregister the dead connection
-            unregister(pairId: pairId, deviceType: deviceType)
+            // Only evict if this is still the registered socket. The `await` above is
+            // a suspension point: a concurrent reconnect (e.g. a viewer that switched
+            // networks) may have replaced this entry with a live socket while the send
+            // was failing on the old one. Evicting by (pairId, deviceType) here would
+            // drop the fresh connection and falsely notify the peer of a disconnect.
+            let removed = unregisterIfCurrent(pairId: pairId, deviceType: deviceType, webSocket: connection.webSocket)
+            guard removed else { return }
 
             // Notify the peer device that this device disconnected
             let peerDevice: DeviceType = deviceType == .host ? .viewer : .host

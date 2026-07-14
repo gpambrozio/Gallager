@@ -96,6 +96,12 @@ Both apps accept `--e2e-test` as a launch argument. When present, `prepareDepend
 
 The macOS app accepts `--tmux-socket <path>` (alongside `--e2e-test`) to use a dedicated tmux server socket instead of the system default. This prevents E2E tests from polluting the developer's real tmux sessions. The default socket path is `/tmp/claudespy-e2e.sock`. During cleanup, the orchestrator kills the isolated tmux server and removes the socket file.
 
+### Shell history isolation
+
+Shells spawned in E2E panes never write to the developer's `~/.zsh_history`. The orchestrator maintains a `$ZDOTDIR` shim directory (`<TMPDIR>/gallager-e2e-zdotdir`) whose zsh startup files source the user's real dotfiles — so the shell behaves exactly like a normal one — and then unset `HISTFILE` after the user's rc has run. A plain `HISTFILE=` env var wouldn't work: macOS's `/etc/zshrc` reassigns `HISTFILE` after tmux applies the pane environment.
+
+The shim reaches both spawn paths: orchestrator-created sessions get `-e ZDOTDIR=<shim>` on `new-session` directly, and app-created panes get it via the `--zdotdir <shim>` launch argument, which the composition root forwards to `TmuxService.zdotDirOverride`. The shim path is deliberately stable (shared across instances and runs) so zsh's `.zcompdump-*` completion cache is reused. Side effect: commands you type into panes during `--interactive` sessions aren't recorded either. Verified end-to-end by the "Terminal Env Vars" scenario.
+
 ### Variable interpolation
 
 Steps can pass data between each other via `ExecutionContext`. Use `macReadClipboard(storeAs: "key")` or `storeValue(key:value:)` to store, and `"${key}"` in any string argument to reference it. The orchestrator resolves variables before passing to drivers.
@@ -168,6 +174,100 @@ ClaudeSpyE2E --scenario "Fresh Pairing" ...
 - The simulator named in `--sim-name` must exist (`xcrun simctl list devices available`)
 - Accessibility permissions for Terminal/IDE (System Settings > Privacy > Accessibility)
 - `xcsift` installed (`brew install xcsift`) for build output filtering
+- **macOS 15+ Local Network:** the app no longer does a blocking local-network call at startup, so a fresh machine runs without a Local Network prompt. (If you ever do see Gallager hang at launch with a "find devices on your local network" prompt, allow it once in System Settings > Privacy & Security > Local Network and re-run.)
+
+## Recording runs as video (`--record`)
+
+`./scripts/e2e-test.sh --record` records each scenario as ONE full-display
+take (issue #621): ScreenCaptureKit captures the main display at ≤15 fps / 1x,
+started on `scenarioStarted` and finalized on `scenarioCompleted` (success or
+failure) by `RecordingCoordinator`, a `TestProgressReporter`.
+
+- **Stage layout:** with `--record`, the orchestrator translates instance-N
+  `macMoveWindow` / `macClickAtPoint` / `macDrag` coordinates into a per-
+  instance screen lane (side-by-side on wide displays, staggered diagonal on
+  laptops) so multi-instance scenarios are visible in one frame. Windows are
+  MOVED, never resized — baselines are unaffected. The Simulator window is
+  pinned top-right. Instance 0 is never touched.
+- **Post-processing:** `e2e_video_postprocess.py` (bundled resource) burns a
+  step-caption ribbon + a real-elapsed timecode on the 1x timeline, then
+  compresses static spans > 0.5s (`--record-mode speedup` (default, visible
+  `>> 8x` badge) or `remove`). Requires `brew install ffmpeg-full` — the slim
+  `ffmpeg` formula dropped the `drawtext`/`ass` filters, and `ffmpeg-full` is
+  keg-only so its bin must be on `PATH` (`export
+  PATH="$(brew --prefix ffmpeg-full)/bin:$PATH"`). Gated by
+  e2e-test.sh. `--record-keep-raw` keeps `recording-raw.mov` for timing
+  disputes (the published video is retimed; the burned-in timecode is the
+  wall-clock reference).
+- **Artifacts** per scenario dir: `timeline.json` (raw step offsets),
+  `video.mp4`, `video.json` (published duration + remapped seek chapters).
+  `e2e-report.sh` stores the video content-addressed (`images/<sha>.mp4`) and
+  embeds a `video` field in `report.json`; the ClaudeSpyTestResults viewer
+  plays it with clickable step-seek chapters.
+- **Caveats:** records the whole desktop — prefer CI VMs over personal
+  machines; incidental system UI can appear; occlusion is minimized, not
+  guaranteed zero, on small displays. Recording every scenario adds ~GBs per
+  full run to the results repo — keep it opt-in.
+
+### Attaching a video to a PR (`e2e-attach-video.sh`)
+
+`./scripts/e2e-attach-video.sh "Scenario Name"` uploads a recorded scenario's
+`video.mp4` as an asset on the rolling `e2e-videos` prerelease of
+ClaudeSpyTestResults (official `gh release upload` API — no repo history, no
+undocumented endpoints) and posts a PR comment linking it. Video proof that a
+feature works, discardable after review:
+
+```bash
+./scripts/e2e-test.sh --record --scenario "Window Description Sync"
+./scripts/e2e-attach-video.sh "Window Description Sync"   # PR auto-detected
+```
+
+Accepts multiple scenarios (one comment), scenario names / dir names / video
+paths, `--pr N` when off the PR branch, `--message TEXT` to replace the
+comment's intro line with what the videos prove (markdown), and `--no-comment`
+to just upload and print the markdown snippet. For two takes of the *same*
+scenario (a bug-fix repro pair), `--label failing` / `--label passing` suffixes
+the asset name and link title so the uploads don't clobber each other — attach
+each take before re-recording, since a new run overwrites the local
+`video.mp4`. Assets are named `pr<N>-<scenario-dir>.mp4`
+(re-runs clobber), post as `gpa-agent` when `BOT_GITHUB_TOKEN` is set, and are
+deletable any time: `gh release delete-asset e2e-videos <asset>.mp4 --repo
+gpambrozio/ClaudeSpyTestResults`. Note: release-asset links download rather
+than play inline, and require access to the (private) results repo — use
+`e2e-watch-video.sh` (below) to watch one in the browser.
+
+### Watching a video (`e2e-watch-video.sh`)
+
+`./scripts/e2e-watch-video.sh TARGET [TARGET ...]` plays an uploaded proof
+video inline in the browser: it resolves the asset's short-lived signed URL
+(~1 hour) with your `gh` credentials and opens the static player page
+`scripts/e2e-video-player.html` with the URL in the fragment (media loads are
+no-cors, so the private asset plays and seeks even though pages can't
+`fetch()` it). Each TARGET is an asset name (`pr626-foo[.mp4]`), a
+release-asset download URL, a local video file / scenario dir (opened
+directly), or a scenario name (`--pr N`, defaulting to the current branch's
+PR). `--results-repo` / `--release-tag` override the defaults, as with the
+attach script. The attach script's PR comments include a copy-pasteable
+`watch:` hint per video.
+
+Design: `docs/superpowers/specs/2026-07-05-e2e-watch-video-design.md`.
+
+### Automatic cleanup (`e2e_video_cleanup.py`)
+
+The `.github/workflows/e2e-video-cleanup.yml` workflow sweeps daily: assets
+whose PR merged or closed more than 3 days ago are deleted, and the PR comments
+that linked them are edited (links struck through, deletion note appended) so
+nobody clicks dead links. Open — including reopened — PRs are skipped; asset
+names not matching `pr<N>-*.mp4` are left alone. Needs the `RESULTS_REPO_TOKEN`
+secret (fine-grained PAT, Contents read/write on ClaudeSpyTestResults only);
+everything on ClaudeSpy uses the workflow's own token. Also runs locally:
+
+```bash
+./scripts/e2e_video_cleanup.py --dry-run   # print, don't mutate
+```
+
+Design: `docs/superpowers/specs/2026-07-02-e2e-video-cleanup-design.md`.
+Unit tests: `python3 scripts/tests/test_e2e_video_cleanup.py`.
 
 ## Writing scenarios
 
@@ -538,12 +638,14 @@ The `e2e-report.sh` script runs all E2E scenarios, collects results and screensh
 ### How it works
 
 1. Gathers git metadata (branch, commit, PR number) from the current ClaudeSpy checkout
-2. Clones or updates the results repository as a sibling folder (`../ClaudeSpyTestResults`)
+2. Ensures a clone of the results repository exists as a sibling folder (`../ClaudeSpyTestResults`)
 3. Runs `e2e-test.sh` with `--json-output` to get structured step-level results
-4. Copies screenshots into a **content-addressable image store** (`images/<sha256>.png`) — identical images are stored once
+4. Syncs the results repo to the latest remote **right before writing results** (not at startup), then copies screenshots into a **content-addressable image store** (`images/<sha256>.png`) — identical images are stored once
 5. Generates a `report.json` with metadata and per-scenario/per-step results (including screenshot hashes)
 6. Updates `results/index.json` with a summary of all runs (most recent first)
-7. Commits and pushes everything to the results repository
+7. Commits and pushes everything to the results repository, retrying with a rebase if a concurrent run pushed first (the index is regenerated on conflict)
+
+> **Concurrency note:** Step 4 deliberately syncs the remote *after* the (long) test run rather than at startup. When several VMs run the report concurrently, syncing at startup would leave the whole test run as a window in which a sibling could push, making the final push race and fail. Syncing immediately before the commit — plus the rebase-and-retry in step 7 — keeps concurrent runs from clobbering each other.
 
 ### Usage
 

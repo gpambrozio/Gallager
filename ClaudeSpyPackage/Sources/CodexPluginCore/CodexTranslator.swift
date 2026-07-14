@@ -55,16 +55,28 @@ enum CodexTranslator {
         /// Context to retain under the `awaiting*` state's `requestID`, if the
         /// event opened a form. `nil` when no form.
         var pending: PendingRequest?
+        /// True when a permission request was silenced because Codex's
+        /// guardian will decide it (the event maps to plain `working`). Lets
+        /// the core log the suppression without re-deriving the decision.
+        var guardianHandled = false
     }
 
     /// Translate a parsed action into a `PluginEvent`, or `nil` to drop the
     /// frame (no state change — the dispatcher no-ops).
+    ///
+    /// `approvalsReviewer` is the EFFECTIVE posture of this event's session,
+    /// resolved by the actor: the live `config.toml` value gated by the
+    /// session's start snapshot (the file is global, the runtime value is
+    /// per-session). It only matters for `PermissionRequest` — see
+    /// `isGuardianHandled`.
     static func translate(
         action: HookAction,
         pluginID: String,
         tmuxPane: String?,
         contextProjectDir: String?,
-        closePaneOnSessionEnd: Bool = false
+        occurrenceID: String,
+        closePaneOnSessionEnd: Bool = false,
+        approvalsReviewer: CodexApprovalsReviewer = .user
     ) -> Output? {
         let body = action.body
         let sessionID = body.sessionId
@@ -83,12 +95,25 @@ enum CodexTranslator {
             tmuxPane: tmuxPane
         )
 
-        let notification = Self.notification(for: hookEvent)
-        let (state, pending) = Self.state(
-            for: action,
-            sessionID: sessionID,
-            hookEvent: hookEvent
+        // Guardian posture: when Codex's auto-reviewer — not the user — will
+        // decide this permission request, stay silent: plain `working` (the
+        // session already was — PreToolUse just fired), no notification, no
+        // form. The guardian's outcome arrives via subsequent hooks
+        // (PostToolUse on allow; Stop after the model reacts to a deny).
+        let guardianHandled = Self.isGuardianHandled(
+            action: action,
+            approvalsReviewer: approvalsReviewer
         )
+
+        let notification = guardianHandled ? nil : Self.notification(for: hookEvent)
+        let (state, pending): (AgentState?, PendingRequest?) = guardianHandled
+            ? (.working, nil)
+            : Self.state(
+                for: action,
+                sessionID: sessionID,
+                hookEvent: hookEvent,
+                occurrenceID: occurrenceID
+            )
         // App actions are keyed by PANE (the app resolves a session name from it),
         // not the agent's internal session id — fall back to sessionID if no pane.
         let appActions = Self.appActions(
@@ -114,9 +139,16 @@ enum CodexTranslator {
             notification: notification,
             appActions: appActions,
             tmuxPane: tmuxPane,
-            projectPath: projectPath
+            projectPath: projectPath,
+            // Seed the permission-mode chip off the hook (issue #602), mirroring
+            // Claude. Codex reports a Claude-compatible `permission_mode` on its
+            // tool/prompt/stop events (the guardian path already keys on
+            // `== "default"`); `nil` on other events leaves the existing value
+            // unchanged. OTEL carries no mid-session mode-change signal for Codex,
+            // so the hook channel is the sole source.
+            permissionMode: body.permissionMode
         )
-        return Output(event: event, pending: pending)
+        return Output(event: event, pending: pending, guardianHandled: guardianHandled)
     }
 
     // MARK: - cwd extraction
@@ -189,16 +221,19 @@ enum CodexTranslator {
     /// Stop / StopFailure → `.doneWorking`; SessionStart → `.idle`; otherwise the
     /// working bit (`true → .working`, `false`/`nil → nil` "no opinion").
     ///
-    /// `requestID` is stable per (session, event) so a Mac-side answer and an iOS
-    /// answer can't double-fire: `"\(sessionID):\(eventName):\(timestamp)"`.
+    /// `requestID` is unique per opened form via the core-supplied `occurrenceID`
+    /// so a Mac-side answer and an iOS answer can't double-fire, and a *second*
+    /// form of the same type never reuses the first's id:
+    /// `"\(sessionID):\(eventName):\(occurrenceID)"`.
     private static func state(
         for action: HookAction,
         sessionID: String,
-        hookEvent: HookEvent
+        hookEvent: HookEvent,
+        occurrenceID: String
     ) -> (AgentState?, PendingRequest?) {
         switch action {
         case let .permissionRequest(body):
-            let id = requestID(sessionID: sessionID, action: action)
+            let id = requestID(sessionID: sessionID, action: action, occurrenceID: occurrenceID)
             switch body.toolInput {
             case let .askUserQuestion(params):
                 return (
@@ -263,6 +298,67 @@ enum CodexTranslator {
         }
     }
 
+    // MARK: - Guardian (auto-review) posture
+
+    /// True when Codex's guardian ("Approve for me", `approvals_reviewer =
+    /// "auto_review"`) — not the user — will decide this permission request,
+    /// so ClaudeSpy must suppress the notification AND the response form.
+    ///
+    /// Why the form too: the `PermissionRequest` hook fires before Codex
+    /// routes the approval to the guardian, whose outcome is a binary
+    /// allow/deny that never escalates to the user — no TUI prompt ever
+    /// exists. Remote Approve/Deny is keystroke injection into that prompt
+    /// (`CodexKeystrokes`), so an actionable form would type "1" into the
+    /// composer or Escape-interrupt the running turn; and because the next
+    /// hook is PostToolUse, a stale `awaitingPermission` would linger for the
+    /// entire tool runtime.
+    ///
+    /// Conditions (all must hold):
+    /// - the live reviewer posture is `auto_review` / `guardian_subagent`;
+    /// - `permission_mode == "default"` — under `"bypassPermissions"` (policy
+    ///   `never`) guardian routing is off, so a hook firing at all means a
+    ///   REAL user prompt follows; a missing/unknown mode also fails safe to
+    ///   notifying;
+    /// - the tool is positively identified as guardian-reviewable (see
+    ///   `isGuardianReviewable`) — anything else keeps notifying and forming.
+    static func isGuardianHandled(
+        action: HookAction,
+        approvalsReviewer: CodexApprovalsReviewer
+    ) -> Bool {
+        guard
+            approvalsReviewer == .autoReview,
+            case let .permissionRequest(body) = action,
+            body.permissionMode == "default",
+            isGuardianReviewable(body)
+        else { return false }
+        return true
+    }
+
+    /// Positive identification of the approval shapes Codex's guardian
+    /// reviews. Codex emits `PermissionRequest` hooks only from its approval
+    /// orchestrator, whose payload `tool_name` vocabulary is closed (verified
+    /// against codex-rs `permission_request_payload()` implementations and
+    /// `HookToolName`): `"Bash"` for the whole shell family
+    /// (shell / unified_exec / exec_command) and `"apply_patch"` for patches
+    /// (`Write`/`Edit` exist only as hook-config matcher aliases — the
+    /// serialized payload name stays `apply_patch`). Prompt-style tools
+    /// (`request_user_input`, plan flows) never enter the approval
+    /// orchestrator, so they can't appear here. The `mcp__` arm future-proofs
+    /// the namespaced MCP family — those approvals are guardian-reviewed but
+    /// don't emit a permission payload in current codex, and a namespaced
+    /// external tool can never be a prompt-style tool.
+    ///
+    /// Deliberately fails CLOSED, unlike `isYoloAutoApprovable` (which fails
+    /// open by design for the yolo path): an unknown or missing tool name
+    /// notifies, so a future Codex prompt-style tool can never be silently
+    /// suppressed while a real TUI prompt waits.
+    static func isGuardianReviewable(_ body: PermissionRequestBody) -> Bool {
+        guard let toolName = body.toolName else { return false }
+        return toolName == "Bash"
+            || toolName == "apply_patch"
+            || toolName.hasPrefix("mcp__")
+    }
+
     /// Builds the agent-blind `PermissionRequest` from a permission body. Mirrors
     /// the Claude core: `isAutoApprovable` consults `isYoloAutoApprovable`, and
     /// permission suggestions become agent-blind chips with the index encoded in
@@ -318,12 +414,14 @@ enum CodexTranslator {
         return AskUserQuestionRequest(questions: questions)
     }
 
-    /// Stable, occurrence-unique request id: `"\(sessionID):\(eventName):\(timestamp)"`.
-    /// The hook timestamp disambiguates repeated events of the same type in one
-    /// session (otherwise a second form would reuse the first id and iOS would
-    /// treat it as already-handled).
-    static func requestID(sessionID: String, action: HookAction) -> String {
-        "\(sessionID):\(action.eventName):\(action.body.timestamp ?? "")"
+    /// Stable, occurrence-unique request id: `"\(sessionID):\(eventName):\(occurrenceID)"`.
+    /// The `occurrenceID` is minted fresh by the core for each ingress frame
+    /// (hooks carry no timestamp/sequence), so a second permission/question form in
+    /// the same session gets a distinct id. Without it, every form collapsed to
+    /// `"\(sessionID):PermissionRequest:"` and iOS restored the first form's
+    /// persisted answer onto the second.
+    static func requestID(sessionID: String, action: HookAction, occurrenceID: String) -> String {
+        "\(sessionID):\(action.eventName):\(occurrenceID)"
     }
 
     // MARK: - App actions

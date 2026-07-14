@@ -69,10 +69,24 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
     @Flag(name: .long, help: "List all available scenarios and exit")
     var listScenarios = false
 
+    @Flag(name: .long, help: "Record each scenario as a full-display video (requires ffmpeg)")
+    var record = false
+
+    @Option(name: .long, help: "Dead-time handling for recorded videos: speedup (default) or remove")
+    var recordMode = "speedup"
+
+    @Flag(name: .long, help: "Keep the raw take (recording-raw.mov) after post-processing")
+    var recordKeepRaw = false
+
     func run() async throws {
         if listScenarios {
             printScenarioList()
             return
+        }
+
+        if record, !["speedup", "remove"].contains(recordMode) {
+            fputs("ERROR: --record-mode must be 'speedup' or 'remove'\n", stderr)
+            throw ExitCode.failure
         }
 
         // Redirect verbose swift-log output to a file so the terminal stays clean
@@ -109,12 +123,24 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Screenshots: \(screenshotsDir)\n", stderr)
         fputs("  Baselines:   \(baselinesDir)\n", stderr)
         fputs("  Compare:     \(noCompare ? "disabled" : "enabled")\n", stderr)
+        fputs("  Recording:   \(record ? "enabled (\(recordMode))" : "disabled")\n", stderr)
         fputs("  Tmux socket: \(tmuxSocket ?? "(default)")\n", stderr)
         fputs("  E2E runner:  \(e2eRunnerPath ?? "(none)")\n", stderr)
         fputs("  State root:  \(gallagerStateRoot ?? "(default: <tmpdir>/claudespy-e2e-gallager)")\n", stderr)
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
-        var reporters: [any TestProgressReporter] = [TerminalReporter()]
+        var reporters: [any TestProgressReporter] = []
+        if record {
+            reporters.append(RecordingCoordinator(
+                screenshotsDir: screenshotsDir,
+                recorder: ScreenRecorder(),
+                postProcessor: RecordingCoordinator.makeFFmpegPostProcessor(
+                    mode: recordMode,
+                    keepRaw: recordKeepRaw
+                )
+            ))
+        }
+        reporters.append(TerminalReporter())
         var dashboardReporter: DashboardReporter?
         if let urlString = dashboardUrl, let url = URL(string: urlString) {
             let dr = DashboardReporter(dashboardURL: url, prNumber: dashboardPrNumber, prTitle: dashboardPrTitle)
@@ -140,6 +166,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             tmuxSocket: tmuxSocket,
             e2eRunnerPath: e2eRunnerPath,
             skipComparison: noCompare,
+            stageLayoutEnabled: record,
             gallagerStateRootBase: gallagerStateRoot,
             reporter: reporter
         )
@@ -256,6 +283,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         YoloModeMacToMacScenario.scenario,
         YoloModeContextCompactionScenario.scenario,
         TerminalNotificationScenario.scenario,
+        MacViewerNotificationScenario.scenario,
         CursorStyleScenario.scenario,
         TableRenderingScenario.scenario,
         YoloModeAutoApproveScenario.scenario,
@@ -309,6 +337,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AppearanceModeScenario.scenario,
         RenameViewerDeviceScenario.scenario,
         TerminalEnvVarsScenario.scenario,
+        OTELTelemetryRenderScenario.scenario,
+        OTELUsageOverviewScenario.scenario,
+        MacSessionInfoSheetScenario.scenario,
         BrowserTabFromTerminalLinkScenario.scenario,
         FileTextSearchScenario.scenario,
         SplitTabScenario.scenario,
@@ -322,6 +353,9 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         OSCBackgroundProbeScenario.scenario,
         EchoIngressRoundTripScenario.scenario,
         EchoResponseRoundTripScenario.scenario,
+        PluginSidecarIngressScenario.scenario,
+        PluginSidecarResponseRoundTripScenario.scenario,
+        PluginCrashRestartScenario.scenario,
         PluginCLIScenario.scenario,
         PluginEnableDisableScenario.scenario,
         ClosePaneOnSessionEndScenario.scenario,
@@ -335,6 +369,26 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         AgentsSettingsTabScenario.scenario,
         TabCycleReorderScenario.scenario,
         BadgeClearsOnAgentResumeScenario.scenario,
+        GitTabFileActionsScenario.scenario,
+        ComposerBandRecaptureScenario.scenario,
+        CodexGuardianSuppressionScenario.scenario,
+        CodexOTELTelemetryRenderScenario.scenario,
+        ScrollbackBandRecaptureScenario.scenario,
+        LongTitleTruncationIOSScenario.scenario,
+        FolderLayoutPersistenceScenario.scenario,
+        RemoteLayoutPersistenceMacViewerScenario.scenario,
+        PluginSidecarQuestionRoundTripScenario.scenario,
+        PluginSidecarPlanApprovalScenario.scenario,
+        PluginSidecarPermissionAllowScenario.scenario,
+        PluginSidecarSessionEndedScenario.scenario,
+        AgentsRemovePluginLiveScenario.scenario,
+        AgentsInstallZipAutoSelectScenario.scenario,
+        OTELPortFallbackScenario.scenario,
+        PluginOTLPTelemetryScenario.scenario,
+        SubagentStopIgnoredScenario.scenario,
+        BrowserDownloadsAndErrorsScenario.scenario,
+        BrowserAddressBarSelectAllScenario.scenario,
+        BrowserAddressBarRefocusScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

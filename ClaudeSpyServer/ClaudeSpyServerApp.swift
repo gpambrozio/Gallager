@@ -98,6 +98,18 @@ struct TmuxPaneMirrorApp: App {
                 clipboardFilePath = nil
             }
 
+            // E2E test support: sentinel file that toggles the Git tab's mock
+            // between clean and dirty (issue #573), driven by the
+            // `setGitMockChanges(_:)` step.
+            let gitChangesFilePath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--git-changes-file"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                gitChangesFilePath = CommandLine.arguments[idx + 1]
+            } else {
+                gitChangesFilePath = nil
+            }
+
             // E2E test support: register a fake editor backed by a Python script
             // so scenarios can verify "Open in Editor" forwards the file path
             // without launching real editor apps on the host.
@@ -129,6 +141,32 @@ struct TmuxPaneMirrorApp: App {
                 defaultBrowserLogPath = CommandLine.arguments[idx + 1]
             } else {
                 defaultBrowserLogPath = nil
+            }
+
+            // E2E test support: redirect browser downloads away from the real
+            // ~/Downloads — writing there triggers a TCC consent prompt the
+            // unattended test app can never answer, wedging the download.
+            let downloadsDirPath: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--downloads-dir"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                downloadsDirPath = CommandLine.arguments[idx + 1]
+            } else {
+                downloadsDirPath = nil
+            }
+
+            // E2E test support: pin the advertised device name. The system
+            // `ComputerName` varies per machine (e.g. "Managed's Virtual Machine"
+            // on a CI box vs "MacMini"), and the iOS/Mac viewer renders it in its
+            // Sessions header, unpair dialog, and version-mismatch text — making
+            // screenshot baselines non-portable. Overriding keeps it deterministic.
+            let deviceNameOverride: String?
+            if let idx = CommandLine.arguments.firstIndex(of: "--e2e-device-name"),
+               idx + 1 < CommandLine.arguments.count
+            {
+                deviceNameOverride = CommandLine.arguments[idx + 1]
+            } else {
+                deviceNameOverride = nil
             }
 
             prepareDependencies {
@@ -236,17 +274,36 @@ struct TmuxPaneMirrorApp: App {
                 fakeTree["ephemeral.txt"] = .file(
                     .ephemeralText("This file is about to disappear.\n")
                 )
+                // Thirty numbered rows so that expanding `generated` makes the
+                // file tree taller than the viewport — the tree-scroll
+                // preservation phase (issue #437) needs enough rows to scroll.
+                // The folder stays collapsed in every other phase, so earlier
+                // screenshots are unaffected. Names and contents deliberately
+                // avoid the strings other phases search for ("hello", "helper",
+                // "swift", "## BOTTOM").
+                var generatedChildren: [String: FakeEntry] = [
+                    "output.txt": .file(.text("Generated content.\n")),
+                ]
+                for index in 1 ... 30 {
+                    let name = String(format: "tree-scroll-%02d.txt", index)
+                    generatedChildren[name] = .file(.text("Generated row \(index).\n"))
+                }
                 let dynamicEntries: [String: FakeEntry] = [
-                    "generated": .folder([
-                        "output.txt": .file(.text("Generated content.\n")),
-                    ]),
+                    "generated": .folder(generatedChildren),
                 ]
                 $0[FileSystemLoadingService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
                 $0[FileTextSearchService.self] = .inMemory(tree: fakeTree, dynamicEntries: dynamicEntries)
-                // Git tab (issue #258): stable in-memory fixtures so the
-                // GitWorkbench view renders deterministic content for scenarios
-                // instead of running `git` against the fake filesystem.
-                $0[GitWorkbenchProviderClient.self] = .mock
+                // Git tab (issue #258): in-memory provider that starts clean and
+                // flips to the fixture changes when a scenario sets the sentinel
+                // file (issue #573), so the eagerly-loaded badge only appears
+                // where a scenario asks for it. Falls back to the always-dirty
+                // mock if no sentinel path was provided.
+                if let gitChangesFilePath {
+                    try? FileManager.default.removeItem(atPath: gitChangesFilePath)
+                    $0[GitWorkbenchProviderClient.self] = .e2e(changesFilePath: gitChangesFilePath)
+                } else {
+                    $0[GitWorkbenchProviderClient.self] = .mock
+                }
                 $0[LoginItemService.self] = LoginItemService(
                     isEnabled: { false },
                     setEnabled: { _ in }
@@ -277,6 +334,21 @@ struct TmuxPaneMirrorApp: App {
                 if let defaultBrowserLogPath {
                     try? FileManager.default.removeItem(atPath: defaultBrowserLogPath)
                     $0[URLOpener.self] = .logged(path: defaultBrowserLogPath)
+                }
+                if let downloadsDirPath {
+                    // Start each run with an empty downloads directory so
+                    // collision-naming assertions are deterministic. Only
+                    // temp-directory paths (where the E2E orchestrator puts
+                    // them) are wiped — recursively deleting an arbitrary
+                    // caller-supplied directory would destroy real files if
+                    // someone hand-launched with `--downloads-dir ~/Downloads`.
+                    if BrowserDownloadsLocation.isSafeToWipe(downloadsDirPath) {
+                        try? FileManager.default.removeItem(atPath: downloadsDirPath)
+                    }
+                    $0[BrowserDownloadsLocation.self] = .fixed(path: downloadsDirPath)
+                }
+                if let deviceNameOverride {
+                    $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
                 }
             }
 
@@ -343,7 +415,11 @@ struct TmuxPaneMirrorApp: App {
             (coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide) ? .presented : .suppressed
         )
         .onChange(of: totalPendingSessionCount, initial: true) { _, newValue in
-            NSApp.dockTile.badgeLabel = newValue > 0 ? "\(newValue)" : nil
+            // Routed through DockIconService (not NSApp.dockTile directly) so
+            // the badge survives .accessory → .regular activation-policy
+            // transitions, which destroy the Dock's tile state (issue #217).
+            @Dependency(DockIconService.self) var dockIconService
+            dockIconService.setBadgeCount(newValue)
         }
         .commands {
             // App menu - custom About window
@@ -357,16 +433,16 @@ struct TmuxPaneMirrorApp: App {
                 InstallCLIMenuItem()
             }
 
-            // File menu - replace default items with Close Tab
-            CommandGroup(replacing: .newItem) {}
+            // File menu - New Session (⌘N) opens the Local section's popover
+            CommandGroup(replacing: .newItem) {
+                Button("New Session") {
+                    NotificationCenter.default.post(name: .newLocalSession, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
             CommandGroup(replacing: .saveItem) {}
             CommandGroup(after: .newItem) {
                 CloseTabMenuItem()
-
-                Button("Open in Editor…") {
-                    NotificationCenter.default.post(name: .openCurrentTabInEditor, object: nil)
-                }
-                .keyboardShortcut("e", modifiers: .command)
             }
 
             CommandGroup(after: .textEditing) {

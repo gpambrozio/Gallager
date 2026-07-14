@@ -190,7 +190,7 @@ Pass data between steps via `ExecutionContext`. Steps that **store** a value: `s
 
 ## Test Steps
 
-Steps are `TestStep` enum cases organised in 8 categories: **Server**, **iOS**, **macOS** (every macOS step accepts `instance: Int = 0`), **Tmux**, **Hooks** (`macSendHookEvent`), **Assertions** (`assertStoredEqual` / `NotEqual` / `Contains` / `NotContains`), **Scripts/Files** (`injectScript`, `readFile`, `waitForFileContains`), and **General** (`wait`, `storeValue`, `log`).
+Steps are `TestStep` enum cases organised in 8 categories: **Server**, **iOS**, **macOS** (every macOS step accepts `instance: Int = 0`), **Tmux**, **Hooks** (`macSendHookEvent`), **Assertions** (`assertStoredEqual` / `NotEqual` / `Contains` / `NotContains`), **Scripts/Files** (`injectScript`, `readFile`, `writeFile`, `removeFile`, `waitForFileContains`), and **General** (`wait`, `storeValue`, `log`).
 
 Read `references/test-steps-reference.md` before writing a step you haven't used before — it has every signature, default value, and per-step usage note (including subtle ones like `macCGClick` vs `macClickButton`, `serverDisconnectDevice` vs `serverBlockDevice`, and `macType`'s `charDelay` for remote terminals).
 
@@ -248,6 +248,8 @@ Detailed patterns are in `references/patterns.md`. Key patterns:
 ## Storage Isolation
 
 Both apps accept `--e2e-test` which overrides `PreferencesService` and `SecretsService` with in-memory implementations. The macOS app also accepts `--tmux-socket <path>` for tmux session isolation. The orchestrator builds these launch arguments automatically per instance, so the user's real Gallager config and tmux server are untouched.
+
+Shell history is isolated too: every e2e-spawned shell gets a `$ZDOTDIR` shim (`<TMPDIR>/gallager-e2e-zdotdir`, maintained by the orchestrator, delivered via `tmuxCreateSession`'s `new-session -e` and the app's `--zdotdir` launch argument) that sources the user's real dotfiles and then unsets `HISTFILE` — commands scenarios type never land in the developer's `~/.zsh_history`. See "Shell history isolation" in `docs/e2e-testing.md`.
 
 ## Additional Resources
 

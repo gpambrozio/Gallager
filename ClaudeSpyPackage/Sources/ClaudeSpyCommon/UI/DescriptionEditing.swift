@@ -1,5 +1,4 @@
 import ClaudeSpyNetworking
-import SwiftEmojiPicker
 import SwiftUI
 
 /// Context menu buttons for adding, editing, and removing a window description.
@@ -52,8 +51,8 @@ public struct DescriptionContextMenuButtons: View {
 /// correctly on macOS and the emoji popover anchors to the right-clicked /
 /// long-pressed row.
 ///
-/// "Set/Edit Emoji" presents a `SwiftEmojiPicker` — anchored to the row as a
-/// popover on macOS, as a half/large detent sheet on iOS (an anchored popover
+/// "Set/Edit Emoji" presents a ``GallagerEmojiPicker`` — anchored to the row as
+/// a popover on macOS, as a half/large detent sheet on iOS (an anchored popover
 /// is too cramped to be usable at iPhone screen widths).
 ///
 /// Callers can supply additional context menu items via the `additionalMenu`
@@ -119,16 +118,17 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
 
                 additionalMenu
             }
-            .alert("Session Description", isPresented: $isEditingDescription) {
-                TextField("Description", text: $editedDescription)
-                Button("Save") {
-                    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            .modifier(TextEntryPresentation(
+                isPresented: $isEditingDescription,
+                title: "Session Description",
+                message: "Enter a custom description for this session",
+                placeholder: "Description",
+                text: $editedDescription,
+                onSave: { raw in
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     onSetDescription(sessionName, trimmed.isEmpty ? nil : trimmed)
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Enter a custom description for this session")
-            }
+            ))
             .modifier(EmojiEntryPresentation(
                 isPresented: $isEditingEmoji,
                 editedEmoji: $editedEmoji,
@@ -159,9 +159,10 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
     }
 }
 
-/// Presents the `SwiftEmojiPicker` view: an anchored popover on macOS where
-/// it sits next to the right-clicked row at a fixed size, and a half-height
-/// detent sheet on iOS where a tiny anchored popover would crop the grid.
+/// Presents the ``GallagerEmojiPicker`` view: an anchored popover on macOS
+/// where it sits next to the right-clicked row at a fixed size, and a
+/// half-height detent sheet on iOS where a tiny anchored popover would crop
+/// the grid.
 private struct EmojiEntryPresentation: ViewModifier {
     @Binding var isPresented: Bool
     @Binding var editedEmoji: String
@@ -171,12 +172,12 @@ private struct EmojiEntryPresentation: ViewModifier {
     func body(content: Content) -> some View {
         #if os(macOS)
             content.popover(isPresented: $isPresented, arrowEdge: .leading) {
-                EmojiPickerView(selectedEmoji: pickerBinding)
+                GallagerEmojiPicker(selectedEmoji: pickerBinding)
                     .frame(width: 360, height: 380)
             }
         #else
             content.sheet(isPresented: $isPresented) {
-                EmojiPickerView(selectedEmoji: pickerBinding)
+                GallagerEmojiPicker(selectedEmoji: pickerBinding)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }

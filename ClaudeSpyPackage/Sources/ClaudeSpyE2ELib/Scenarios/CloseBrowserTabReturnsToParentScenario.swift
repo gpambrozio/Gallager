@@ -30,11 +30,13 @@ public enum CloseBrowserTabReturnsToParentScenario {
     private static let pageClickX: Double = 700
     private static let pageClickY: Double = 400
 
-    // First-row OSC 8 link y-coordinate, matching the math used by
-    // `BrowserTabFromTerminalLinkScenario`: window chrome takes ~100pt;
-    // line 0 of the terminal lands at y ≈ 130.
+    // A click inside the large multi-line OSC 8 block painted by `link_block.py`
+    // (see `BrowserTabFromTerminalLinkScenario`). The wide target tolerates the
+    // content shifts — tab-bar height changes, Panes-window auto-grow — that make
+    // a one-row-tall link click fragile. (400, 200) sits comfortably inside the
+    // block.
     private static let terminalLinkX: Double = 400
-    private static let terminalLinkY: Double = 130
+    private static let terminalLinkY: Double = 200
 
     // Help text on the Settings → Browser default-behavior picker. Copy of
     // the string used by `BrowserTabFromTerminalLinkScenario` so any future
@@ -71,13 +73,15 @@ public enum CloseBrowserTabReturnsToParentScenario {
         TestStep.tmuxCapturePaneContent(target: "popups:server", storeAs: "serverLog")
         TestStep.assertStoredContains(key: "serverLog", substring: "READY 9876")
 
-        // Switch back to window 0 and print the OSC 8 link. The visible
-        // label is wide enough that the fixed-pixel `terminalLinkX` click
-        // reliably hits the link span.
+        // Switch back to window 0 and render the OSC 8 link as a large block via
+        // `link_block.py` (one URL, so no key-advance needed) so the fixed-pixel
+        // click lands on a wide, drift-tolerant target. The block is filled with
+        // `OPEN-LINK-1` tokens, used by the element-presence waits below.
         TestStep.tmuxCommand(arguments: ["select-window", "-t", "popups:0"])
+        TestStep.injectScript(name: "link_block.py")
         Shortcut.tmuxRunCommand(
             target: "popups:0",
-            command: #"printf '\e]8;;http://127.0.0.1:9876/parent\aOPEN-PARENT-PAGE-EASY-CLICK-TARGET\e]8;;\a\n'"#
+            command: "python3 $TMPDIR/link_block.py 'http://127.0.0.1:9876/parent'"
         )
         TestStep.wait(seconds: 1)
 
@@ -105,7 +109,7 @@ public enum CloseBrowserTabReturnsToParentScenario {
         TestStep.macWaitForElement(titled: "popups", timeout: 5)
         TestStep.macClickButton(titled: "popups")
         TestStep.macWaitForElementQuery(
-            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-PARENT-PAGE")]),
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-terminal-with-osc-link")
@@ -148,7 +152,7 @@ public enum CloseBrowserTabReturnsToParentScenario {
             timeout: 5
         )
         TestStep.macWaitForElementQuery(
-            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-PARENT-PAGE")]),
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
             timeout: 5
         )
         TestStep.wait(seconds: 1)
@@ -208,13 +212,13 @@ public enum CloseBrowserTabReturnsToParentScenario {
         Shortcut.openPanesWindow(instance: 1)
         TestStep.macResizeWindow(width: 1_200, height: 700, instance: 1)
 
-        // The OSC 8 link printed earlier in `popups:0` is still in the
-        // pane (terminal scrollback persists), so the viewer's mirror of
-        // the same pane shows it without re-printing.
+        // `link_block.py` is still running in `popups:0` rendering the link
+        // block, so the viewer's mirror of the same pane shows it live without
+        // re-rendering.
         TestStep.macWaitForElement(titled: "popups", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "popups", instance: 1)
         TestStep.macWaitForElementQuery(
-            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-PARENT-PAGE")]),
+            .allOf([.identifier("terminal-%0"), .valueContains("OPEN-LINK-1")]),
             timeout: 15,
             instance: 1
         )
@@ -256,6 +260,9 @@ public enum CloseBrowserTabReturnsToParentScenario {
         TestStep.tmuxSendKeys(target: "popups:server", keys: "C-c")
         TestStep.wait(seconds: 0.5)
         Shortcut.tmuxRunCommand(target: "popups:server", command: "exit")
+        // popups:0 runs link_block.py (reading single keys), so send `q` to exit
+        // the script before the shell `exit`.
+        TestStep.tmuxSendKeys(target: "popups:0", keys: "q")
         Shortcut.tmuxRunCommand(target: "popups:0", command: "exit")
         TestStep.wait(seconds: 1)
     }

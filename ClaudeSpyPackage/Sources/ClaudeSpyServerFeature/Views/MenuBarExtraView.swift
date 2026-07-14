@@ -30,6 +30,17 @@ public struct MenuBarExtraView: View {
         let remote = remoteSessionsByHost
         let hasAny = !local.isEmpty || !remote.isEmpty
 
+        // Cross-session usage rollup (issue #598): today's total across active
+        // sessions, plus the top projects. In the dropdown — the dock badge
+        // only carries the needs-attention count.
+        if let overview = coordinator.usageOverview, !overview.isEmpty {
+            Text("Today — \(usageTodayLine(overview))")
+            ForEach(overview.projects.prefix(3)) { project in
+                Text("\(project.projectName): \(project.costUSD.usdCostString)")
+            }
+            Divider()
+        }
+
         Group {
             if !hasAny {
                 Text("No active sessions")

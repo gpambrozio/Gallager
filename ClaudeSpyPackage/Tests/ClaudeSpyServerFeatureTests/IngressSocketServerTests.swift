@@ -26,13 +26,14 @@
 
         private func makeDispatcher(_ collector: EventCollector) -> PluginEventDispatcher {
             PluginEventDispatcher(
-                onState: { pluginID, sessionID, state, tmuxPane, projectPath in
+                onState: { pluginID, sessionID, state, tmuxPane, projectPath, permissionMode in
                     await collector.record(PluginEvent(
                         pluginID: pluginID,
                         sessionID: sessionID,
                         state: state,
                         tmuxPane: tmuxPane,
-                        projectPath: projectPath
+                        projectPath: projectPath,
+                        permissionMode: permissionMode
                     ))
                 }
             )
@@ -81,9 +82,13 @@
 
         /// Poll `collector` until it has at least `count` events or the deadline
         /// passes. Sanctioned `Task.sleep` poll: the socket read happens on a real
-        /// background queue, so there is no virtual clock to advance.
+        /// background queue, so there is no virtual clock to advance. The deadline
+        /// is generous because the full suite runs in parallel — under CPU
+        /// saturation the background read queue can be starved for several seconds;
+        /// the loop still returns the instant the events land, so a long deadline
+        /// costs nothing on the happy path and only buys patience under load.
         private func waitForEvents(_ collector: EventCollector, atLeast count: Int) async -> [PluginEvent] {
-            let deadline = Date().addingTimeInterval(5)
+            let deadline = Date().addingTimeInterval(30)
             while Date() < deadline {
                 let events = await collector.events
                 if events.count >= count { return events }

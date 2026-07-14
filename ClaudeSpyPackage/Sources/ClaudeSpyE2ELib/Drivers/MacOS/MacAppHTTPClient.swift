@@ -44,6 +44,20 @@ enum MacAppHTTPClient {
         return body == "ok"
     }
 
+    /// Set the configured Claude-session sidebar fields (raw `SidebarField`
+    /// values). Requires in-process access to mutate the live `AppSettings`.
+    @discardableResult
+    static func setSidebarFields(_ fields: [String], port: UInt16 = defaultPort) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/set-sidebar-fields")!
+        components.queryItems = [URLQueryItem(name: "fields", value: fields.joined(separator: ","))]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP set-sidebar-fields \(fields): \(body)")
+        return body == "ok"
+    }
+
     /// Update the in-process `VersionCompatibility` overrides and kick a reconnect.
     ///
     /// Both parameters are always sent. A `nil` value clears the override so the
@@ -68,6 +82,28 @@ enum MacAppHTTPClient {
             "HTTP reconnect appVersion=\(appVersion ?? "<clear>") minRequiredPartnerVersion=\(minRequiredPartnerVersion ?? "<clear>"): \(body)"
         )
         return body == "ok"
+    }
+
+    /// Read the OTLP receiver port the app ACTUALLY bound — it may have fallen
+    /// back from the preferred `--otlp-port` when that port was taken
+    /// (`OTLPReceiver` collision protection). Polls until the app is up and the
+    /// bind has settled (connection refused while launching, 404 while
+    /// pending), or the deadline passes — then `nil`.
+    static func waitForOTLPPort(port: UInt16 = defaultPort, timeout: TimeInterval = 10) async -> UInt16? {
+        let url = URL(string: "http://127.0.0.1:\(port)/otlp-port")!
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if
+                let (data, response) = try? await URLSession.shared.data(from: url),
+                (response as? HTTPURLResponse)?.statusCode == 200,
+                let bound = UInt16(String(data: data, encoding: .utf8) ?? "") {
+                logger.info("HTTP otlp-port: \(bound)")
+                return bound
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        logger.warning("HTTP otlp-port: no response within \(timeout)s")
+        return nil
     }
 
     /// Trigger a simulated Finder file drop on the given tmux pane.

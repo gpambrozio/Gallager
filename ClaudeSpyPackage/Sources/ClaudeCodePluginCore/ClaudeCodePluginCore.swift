@@ -87,12 +87,29 @@ public actor ClaudeCodePluginCore: PluginCore {
             return nil
         }
 
+        // Drop message-less main-agent Stops. Subagents fire the plain `Stop` too
+        // (not always with an `agent_id` for the pre-parse drop above to catch);
+        // only main-agent stops carry `last_assistant_message`. Applying a
+        // message-less one would flip a mid-task session to doneWorking and fire a
+        // bogus notification. Co-located with the subagent drop above (rather than
+        // buried in the pure/stateless translator) so a stuck-"Working" report is
+        // diagnosable from the log.
+        if case let .stop(stopBody) = action, stopBody.lastAssistantMessage == nil {
+            await log(.debug, "Ignoring message-less Stop hook (subagent stop)")
+            return nil
+        }
+
         guard
             let output = ClaudeCodeTranslator.translate(
                 action: action,
                 pluginID: frame.pluginID,
                 tmuxPane: frame.tmuxPane,
                 contextProjectDir: frame.context["CLAUDE_PROJECT_DIR"],
+                // Mint a unique id per ingress frame so each opened form gets a
+                // distinct requestID. Claude hooks carry no timestamp/sequence, so
+                // this is the only disambiguator between two same-type forms in one
+                // session — without it iOS reuses the first form's persisted answer.
+                occurrenceID: UUID().uuidString,
                 closePaneOnSessionEnd: settings.closePaneOnSessionEnd
             )
         else {

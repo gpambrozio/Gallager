@@ -75,20 +75,41 @@ public enum MultiPaneWindowScenario {
 
         TestStep.log("Stage 3a: Verify clicking a pane in the mirror calls select-pane on tmux")
 
-        // Drive each click through the pane's accessibility identifier
-        // (`terminal-%N`) and let the AX layer find its on-screen centre.
-        // Hard-coded screen coordinates were flaky: a 1-px boundary shift in
-        // the horizontal split — which depends on the exact rendered window
-        // height — sent the (995, 245) "top-right" click into the bottom-right
-        // pane and broke `pane_active` for pane .1.
+        // Capture each visible pane's actual tmux pane id (`%N`) and drive the
+        // clicks through `terminal-${id}` — the accessibility identifier the app
+        // sets per pane (`terminal-\(paneId)`). Do NOT hard-code `terminal-%0/1/2`:
+        // tmux pane ids are server-global and monotonic, never contiguous per
+        // window. If anything allocates a pane between session creation and the
+        // splits (an app-launch/discovery race intermittently does), the splits
+        // become `%2`/`%3` while `%1` belongs to a now-gone pane — so a
+        // hard-coded `terminal-%1` query matches nothing and the cg-click times
+        // out. Capturing the ids by pane index makes the queries track reality,
+        // the same way Stage 5+ already does with `tmuxStorePaneId`.
+        TestStep.tmuxStorePaneId(target: "multi-pane:0.0", storeAs: "mpPane0")
+        TestStep.tmuxStorePaneId(target: "multi-pane:0.1", storeAs: "mpPane1")
+        TestStep.tmuxStorePaneId(target: "multi-pane:0.2", storeAs: "mpPane2")
+
+        // Let the AX layer find each pane's on-screen centre. Hard-coded screen
+        // coordinates were flaky: a 1-px boundary shift in the horizontal split —
+        // which depends on the exact rendered window height — sent the
+        // (995, 245) "top-right" click into the bottom-right pane and broke
+        // `pane_active` for pane .1.
         //
         // The post-click tmux assertion uses a generous 20s timeout because
         // the focus → `onBecomeFirstResponder` → `selectPane` chain dispatches
         // through an unstructured Task and has been observed to take well
         // over 10s on a loaded CI host when back-to-back clicks reach the
         // AX tree mid-focus-change.
+        //
+        // For the same reason the cg-clicks pass `timeout: 15` (vs the 5s
+        // default): each click follows a focus-change re-render of the prior
+        // click, during which the next pane's view is briefly absent from the
+        // AX tree. `macCGClickElement` retries the real click each poll interval
+        // (see `MacOSDriver.cgClick(matching:)`), so 15s is a generous ceiling
+        // that absorbs the re-render the same way the 20s assertion absorbs the
+        // tmux round-trip — it is not a single make-or-break lookup window.
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%0"))
+        TestStep.macCGClickElement(query: .identifier("terminal-${mpPane0}"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.0",
             format: "#{pane_active}",
@@ -96,7 +117,7 @@ public enum MultiPaneWindowScenario {
             timeout: 20
         )
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%1"))
+        TestStep.macCGClickElement(query: .identifier("terminal-${mpPane1}"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.1",
             format: "#{pane_active}",
@@ -104,7 +125,7 @@ public enum MultiPaneWindowScenario {
             timeout: 20
         )
 
-        TestStep.macCGClickElement(query: .identifier("terminal-%2"))
+        TestStep.macCGClickElement(query: .identifier("terminal-${mpPane2}"), timeout: 15)
         TestStep.waitForTmuxDisplayMessage(
             target: "multi-pane:0.2",
             format: "#{pane_active}",
@@ -128,7 +149,13 @@ public enum MultiPaneWindowScenario {
         // window — uses the temp-session pattern from MultiWindowTabsScenario
         // to make the sidebar selection unambiguous.
         TestStep.tmuxCreateSession(name: "focus-temp", width: 80, height: 24)
-        TestStep.macWaitForElement(titled: "focus-temp", timeout: 5)
+        // New tmux sessions surface in the sidebar only on the next periodic
+        // discovery tick (a fixed 5s validation interval), and this wait runs
+        // immediately after creation with no intervening steps. A 5s timeout
+        // lands right on the edge of that interval and flakes; 15s absorbs a
+        // full missed tick plus render/AX-tree settle, matching the proven
+        // temp-session pattern in MultiWindowTabsScenario.
+        TestStep.macWaitForElement(titled: "focus-temp", timeout: 15)
         TestStep.macClickButton(titled: "focus-temp")
         TestStep.wait(seconds: 2)
         TestStep.macClickButton(titled: "multi-pane")

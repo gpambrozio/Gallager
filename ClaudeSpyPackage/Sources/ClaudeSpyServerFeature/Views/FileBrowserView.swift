@@ -16,11 +16,24 @@ private let skippedNavigatorEntries: Set = [
 ]
 
 /// Which kind of search the file browser is currently performing.
-enum FileSearchMode: String, CaseIterable, Sendable {
+enum FileSearchMode: String, CaseIterable {
     /// Match file names / paths (existing behavior).
     case name
     /// Match the contents of files (issue #432).
     case content
+}
+
+/// Where an ``OpenFileTab`` was opened from, so closing it can return there
+/// rather than dropping the user on the file-explorer tree. Opening a file in a
+/// new tab always switches the left pane into file-browser mode (that's where
+/// open file tabs render), so without a recorded origin a close would leave the
+/// user stranded in the file explorer.
+enum FileTabOrigin: Equatable {
+    /// Opened from a tmux window's terminal (e.g. a file link); closing returns
+    /// to that window's terminal.
+    case terminalWindow(String)
+    /// Opened from a window's Git tab; closing restores that Git tab.
+    case gitTab(windowId: String)
 }
 
 /// A file opened as its own tab to the right of the file explorer tab.
@@ -31,28 +44,27 @@ enum FileSearchMode: String, CaseIterable, Sendable {
 /// header renders relative to this so the displayed path stays stable when the
 /// user switches to a sibling tmux window with a different cwd.
 ///
-/// `originWindowId` is the tmux window that initiated the tab open via a
-/// terminal click. When set, closing the tab returns the user to that
-/// terminal instead of falling back to the file browser tree.
+/// `origin` records where the tab was opened from so closing it returns there
+/// instead of falling back to the file-browser tree (see ``FileTabOrigin``).
 struct OpenFileTab: Identifiable, Equatable {
     let id: UUID
     let path: String
     let directoryPath: String
     var isDeleted: Bool
-    var originWindowId: String?
+    var origin: FileTabOrigin?
 
     init(
         id: UUID = UUID(),
         path: String,
         directoryPath: String,
         isDeleted: Bool = false,
-        originWindowId: String? = nil
+        origin: FileTabOrigin? = nil
     ) {
         self.id = id
         self.path = path
         self.directoryPath = directoryPath
         self.isDeleted = isDeleted
-        self.originWindowId = originWindowId
+        self.origin = origin
     }
 
     var name: String {
@@ -117,6 +129,14 @@ final class FileBrowserState {
     /// the view being destroyed and rebuilt when the user switches tmux windows
     /// or sessions and returns to the same file.
     var scrollOffsets: [String: CGFloat] = [:]
+    /// Saved vertical scroll offset of the file tree itself (issue #437).
+    /// The tree's `List` is torn down whenever the user switches to another
+    /// tab, window, or session; expansions and selection survive on
+    /// `viewState`, but the scroll position lives in the destroyed AppKit
+    /// scroll view, so it is mirrored here and re-applied on remount by
+    /// `ListScrollPreserver`. Reset by `reloadTree` when the directory
+    /// changes — a different tree makes the old offset meaningless.
+    var treeScrollY: CGFloat = 0
     /// Monotonic counter bumped from outside the view (e.g., the Cmd-Shift-F
     /// menu command) to request the search field take keyboard focus. The view
     /// observes the value and drives `@FocusState` when it changes; using a
@@ -173,6 +193,9 @@ final class FileBrowserState {
     /// reliably propagate through the navigator's disclosure views, so
     /// expansions otherwise load one step behind.
     func reloadTree(directoryPath: String, service: FileSystemLoadingService) async {
+        if let previous = loadedPath, previous != directoryPath {
+            treeScrollY = 0
+        }
         let result = await service.loadFileTree(
             URL(fileURLWithPath: directoryPath),
             loadedFolderPaths,
@@ -321,6 +344,16 @@ final class SessionFileTabsState {
         Set(rightSide.compactMap {
             if case let .window(id) = $0 { id } else { nil }
         })
+    }
+
+    /// Cancels in-flight browser downloads across every tab, deleting their
+    /// partial files. Must be called before this whole state is dropped
+    /// (session killed, host unpaired) — deallocating a `BrowserTabState`
+    /// mid-transfer would orphan half-written files.
+    func cancelActiveBrowserDownloads() {
+        for state in browserStates.values {
+            state.cancelActiveDownloads()
+        }
     }
 }
 
@@ -887,6 +920,7 @@ struct FileBrowserView: View {
                     }
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
+                    .background(ListScrollPreserver(savedScrollY: $state.treeScrollY))
                     .focused($listFocused)
                     .onChange(of: viewState.selection) { _, _ in listFocused = true }
                     .task { await focusList() }
@@ -1377,6 +1411,10 @@ private struct ScrollableWebView: View {
     @State private var position = ScrollPosition()
     @State private var localScrollY: CGFloat = 0
     @State private var isTrackingUserScroll = false
+    /// Latest content offset reported by the scroll-geometry observer. Tracked
+    /// unconditionally (even while restoring) so the restore loop can tell when
+    /// `scrollTo` actually landed on the target instead of being clamped.
+    @State private var observedOffsetY: CGFloat = 0
 
     private var scrollY: Binding<CGFloat> {
         savedScrollY ?? $localScrollY
@@ -1388,22 +1426,51 @@ private struct ScrollableWebView: View {
             .webViewOnScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y
             } action: { _, newValue in
+                observedOffsetY = newValue
                 guard isTrackingUserScroll else { return }
                 scrollY.wrappedValue = newValue
             }
             .task(id: url) {
                 // The web content loads asynchronously, so the scroll view's
-                // contentSize starts at 0 and grows as HTML/CSS resolves.
-                // Wait for layout to settle before applying the saved offset
-                // (otherwise WebView clamps the target to a tiny content size)
-                // and then re-enable user-scroll tracking.
+                // contentSize starts at 0 and grows as HTML/CSS resolves. A
+                // single `scrollTo` after a fixed warm-up clamps the target to
+                // the not-yet-grown content size and lands at the top — which
+                // happens on a slow CI machine, and can also bite a fast
+                // machine with large/slow HTML. Retry the restore until the
+                // offset actually reaches the target (content has grown tall
+                // enough) or we exhaust the budget, then re-enable user-scroll
+                // tracking.
                 let target = scrollY.wrappedValue
                 isTrackingUserScroll = false
-                try? await Task.sleep(for: .milliseconds(250))
-                guard !Task.isCancelled else { return }
-                position.scrollTo(y: target)
-                try? await Task.sleep(for: .milliseconds(100))
-                guard !Task.isCancelled else { return }
+                if target > 0 {
+                    var lastOffset = observedOffsetY
+                    var stalledTicks = 0
+                    for _ in 0..<60 {
+                        position.scrollTo(y: target)
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard !Task.isCancelled else { return }
+                        if abs(observedOffsetY - target) <= 2 { break }
+                        // Stop early if the content has finished laying out
+                        // *shorter* than the saved offset: once it has begun
+                        // scrolling (offset > 0) but the offset stops climbing
+                        // toward the target across several ticks, the target is
+                        // unreachable and further retries won't help — so give
+                        // up instead of burning the full ~6s budget. Ticks
+                        // before any growth (offset still 0, content not yet
+                        // laid out) don't count, so a slow load still gets the
+                        // whole budget to come in.
+                        if observedOffsetY > 2, observedOffsetY <= lastOffset + 2 {
+                            stalledTicks += 1
+                            if stalledTicks >= 5 { break }
+                        } else {
+                            stalledTicks = 0
+                        }
+                        lastOffset = observedOffsetY
+                    }
+                } else {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard !Task.isCancelled else { return }
+                }
                 isTrackingUserScroll = true
             }
     }
@@ -1510,6 +1577,193 @@ private struct MarkdownContentView: View {
                 isTrackingUserScroll = true
             }
         }
+    }
+}
+
+/// Preserves the vertical scroll offset of the SwiftUI `List` it backgrounds
+/// (issue #437).
+///
+/// SwiftUI offers no API to save/restore a plain pixel offset on `List`, and
+/// the file tree's `List` is destroyed whenever the user switches to another
+/// tab, window, or session. This representable is placed in the List's
+/// `.background`, locates the List's underlying `NSScrollView` in the AppKit
+/// hierarchy, mirrors user scrolls into `savedScrollY`, and re-applies the
+/// saved offset when the List is rebuilt — the same clip-view observer and
+/// retry-restore approach as `PDFViewRepresentable`. If the scroll view can't
+/// be found (e.g. a future SwiftUI stops backing `List` with `NSTableView`),
+/// it does nothing and the tree merely reverts to today's scroll-to-top
+/// behavior.
+private struct ListScrollPreserver: NSViewRepresentable {
+    var savedScrollY: Binding<CGFloat>
+
+    @MainActor
+    final class Coordinator {
+        var savedScrollY: Binding<CGFloat>?
+        var isRestoring = false
+        var observer: NSObjectProtocol?
+        weak var observedClipView: NSClipView?
+        /// Handle for the in-flight `attachAndRestore` task so its lifetime
+        /// is tied to the view's — without this the find/retry loop keeps
+        /// running after `dismantleNSView` and writes into a binding whose
+        /// owner may be gone.
+        var attachTask: Task<Void, Never>?
+
+        func detachObserver() {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+                self.observer = nil
+            }
+            observedClipView = nil
+            attachTask?.cancel()
+            attachTask = nil
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.savedScrollY = savedScrollY
+        attachAndRestore(view: view, coordinator: context.coordinator)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.savedScrollY = savedScrollY
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detachObserver()
+    }
+
+    /// Waits for the background view to land in a window and for SwiftUI to
+    /// create the List's scroll view (both need at least one runloop turn
+    /// after `makeNSView`), then restores the saved offset and attaches the
+    /// bounds observer that keeps `savedScrollY` in sync with user scrolls.
+    ///
+    /// The saved target is read *before* the observer attaches: the table
+    /// view posts layout-driven bounds changes at y=0 while its rows
+    /// materialize, and letting those reach the binding first would wipe the
+    /// offset we're about to restore.
+    private func attachAndRestore(view: NSView, coordinator: Coordinator) {
+        coordinator.attachTask?.cancel()
+        coordinator.attachTask = Task { @MainActor [weak coordinator, weak view] in
+            var scrollView: NSScrollView?
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let view, coordinator != nil, !Task.isCancelled else { return }
+                scrollView = Self.findListScrollView(near: view)
+                if scrollView != nil { break }
+            }
+            guard let coordinator, let scrollView, !Task.isCancelled else { return }
+            let target = coordinator.savedScrollY?.wrappedValue ?? 0
+            coordinator.isRestoring = true
+            attachObserver(scrollView: scrollView, coordinator: coordinator)
+            let landed = await restoreScroll(scrollView: scrollView, target: target)
+            // A dismantle mid-restore cancels this task; writing the
+            // torn-down clip view's origin below would clobber the saved
+            // offset with 0 and reintroduce the reset-to-top bug.
+            guard !Task.isCancelled else { return }
+            coordinator.isRestoring = false
+            // The restore's own bounds changes were suppressed above; sync
+            // the binding to wherever the clip view actually landed. Only
+            // when the restore ran to completion, though: if the retry
+            // budget expired while the table was still growing, writing the
+            // clamped offset would permanently shrink the saved position —
+            // leaving it intact lets the next remount (or the user's own
+            // scroll) converge instead.
+            if landed {
+                coordinator.savedScrollY?.wrappedValue = scrollView.contentView.bounds.origin.y
+            }
+        }
+    }
+
+    /// Locates the `NSScrollView` SwiftUI created for the backgrounded
+    /// `List`. The background view is hosted as a sibling of the List's
+    /// platform view with the same frame, so this walks up the ancestor
+    /// chain and breadth-first searches each subtree for the nearest
+    /// table-backed scroll view whose window-space frame overlaps ours —
+    /// the geometry check keeps a flat hosting arrangement from matching
+    /// some other list in the window (e.g. the sessions sidebar).
+    private static func findListScrollView(near view: NSView) -> NSScrollView? {
+        guard view.window != nil else { return nil }
+        let target = view.convert(view.bounds, to: nil)
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let scrollView = firstListScrollView(in: current, overlapping: target) {
+                return scrollView
+            }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    private static func firstListScrollView(in root: NSView, overlapping target: NSRect) -> NSScrollView? {
+        var queue: [NSView] = [root]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            if
+                let scrollView = current as? NSScrollView,
+                scrollView.documentView is NSTableView,
+                scrollView.convert(scrollView.bounds, to: nil).intersects(target) {
+                return scrollView
+            }
+            queue.append(contentsOf: current.subviews)
+        }
+        return nil
+    }
+
+    private func attachObserver(scrollView: NSScrollView, coordinator: Coordinator) {
+        let clip = scrollView.contentView
+        guard coordinator.observedClipView !== clip else { return }
+        // Unlike `PDFViewRepresentable.attachObserver`, no `detachObserver()`
+        // call here: this runs inside `attachTask`, and `detachObserver`
+        // cancels that task — the self-cancellation would abort the
+        // `restoreScroll` that follows. The single caller always runs on a
+        // fresh coordinator, so there is never a previous observer to
+        // remove; if a re-attach path is ever added, detach the old
+        // observer without cancelling the in-flight task.
+        clip.postsBoundsChangedNotifications = true
+        coordinator.observedClipView = clip
+        coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: nil
+        ) { [weak coordinator, weak clip] _ in
+            // Posted synchronously from the main thread; safe to read state
+            // and write the binding without dispatching.
+            MainActor.assumeIsolated {
+                guard let coordinator, let clip else { return }
+                guard !coordinator.isRestoring else { return }
+                coordinator.savedScrollY?.wrappedValue = clip.bounds.origin.y
+            }
+        }
+    }
+
+    /// Re-applies the saved offset until the clip view lands on (or near)
+    /// the target. The table materializes row heights lazily, so a single
+    /// `scroll(to:)` right after mount can clamp against a document view
+    /// that hasn't grown to its full height yet. Returns true when the clip
+    /// view reached the target (or there was nothing to restore); false
+    /// when the retry budget expired or the task was cancelled mid-restore.
+    ///
+    /// The clip view's x origin is preserved, NOT forced to 0: a
+    /// sidebar-styled List inside a `NavigationSplitView` detail pane sits
+    /// at a non-zero x (its table extends under the split-view sidebar),
+    /// and zeroing it shifts every row left to render behind the sidebar.
+    private func restoreScroll(scrollView: NSScrollView, target: CGFloat) async -> Bool {
+        guard target > 0 else { return true }
+        for _ in 0..<10 {
+            if Task.isCancelled { return false }
+            let clip = scrollView.contentView
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: target))
+            scrollView.reflectScrolledClipView(clip)
+            if abs(clip.bounds.origin.y - target) < 1 { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
     }
 }
 

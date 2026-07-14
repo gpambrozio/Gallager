@@ -180,7 +180,70 @@ final public class MirrorWindowManager {
     public func endAgentSession(forPane paneId: String) -> Bool {
         guard paneStates[paneId]?.agentSession != nil else { return false }
         paneStates[paneId]?.agentSession = nil
+        // Drop the OTEL telemetry joined to this session (issue #597) so a fresh
+        // session in the same pane doesn't inherit the prior meter / mode.
+        paneStates[paneId]?.telemetry = nil
+        paneStates[paneId]?.permissionMode = nil
+        paneStates[paneId]?.permissionModeTrigger = nil
+        paneStates[paneId]?.claudeSessionID = nil
+        // The end-of-turn recap (issue #598) belongs to the session just ended.
+        paneStates[paneId]?.recap = nil
         return true
+    }
+
+    // MARK: - OTEL Telemetry Join + Stamp (issue #597)
+
+    /// Returns the pane currently bound to `sessionID` (the Claude `session.id`),
+    /// or `nil` if no pane has registered that id yet.
+    public func paneId(forClaudeSessionID sessionID: String) -> String? {
+        paneStates.first(where: { $0.value.claudeSessionID == sessionID })?.key
+    }
+
+    /// Stamps accumulated OTEL telemetry onto the pane bound to `sessionID`.
+    /// - Returns: the stamped pane id, or `nil` if no pane is bound to the id
+    ///   (so the caller can skip the viewer push).
+    @discardableResult
+    public func applyTelemetry(_ telemetry: SessionTelemetry, forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        paneStates[paneId]?.telemetry = telemetry
+        return paneId
+    }
+
+    /// Records a permission-mode change on the pane bound to `sessionID`.
+    /// - Returns: the stamped pane id, or `nil` if no pane is bound to the id.
+    @discardableResult
+    public func applyPermissionMode(
+        _ mode: String,
+        trigger: String?,
+        forClaudeSessionID sessionID: String
+    ) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        paneStates[paneId]?.permissionMode = mode
+        paneStates[paneId]?.permissionModeTrigger = trigger
+        return paneId
+    }
+
+    /// The project folder name for the pane bound to `sessionID`, used to label
+    /// milestone notifications. Falls back to `nil` when unknown.
+    public func projectName(forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        return paneStates[paneId]?.agentSession?.displayName
+    }
+
+    /// The detected project path for the pane bound to `sessionID` — the
+    /// aggregation key for the cross-session usage store (issue #598). `nil` when
+    /// no pane is bound or no project was detected.
+    public func detectedProjectPath(forClaudeSessionID sessionID: String) -> String? {
+        guard let paneId = paneId(forClaudeSessionID: sessionID) else { return nil }
+        return paneStates[paneId]?.agentSession?.detectedProjectPath
+    }
+
+    /// Stamps an end-of-turn recap onto a pane by its tmux pane id (issue #598).
+    /// Keyed by pane (not the Claude session.id) because the recap is built from
+    /// the `doneWorking` plugin state, which is already pane-addressed.
+    public func applyRecap(_ recap: SessionRecap, forPane paneId: String) {
+        guard paneStates[paneId] != nil else { return }
+        paneStates[paneId]?.recap = recap
     }
 
     // MARK: - Plugin State (in-process plugin runtime)
@@ -204,12 +267,18 @@ final public class MirrorWindowManager {
     ///   - tmuxPane: The pane this state targets (the session key).
     ///   - projectPath: Optional project path, recorded on the session so the
     ///     sidebar can render a name before any tmux refresh tick.
+    ///   - permissionMode: The session's current permission mode, when the
+    ///     originating hook carried one (`UserPromptSubmit`/`PreToolUse`/
+    ///     `PostToolUse`/`Stop`). `nil` leaves the existing value unchanged — this
+    ///     is the hook-channel seed so a non-default starting mode shows its chip
+    ///     without waiting for an OTEL `permission_mode_changed` (issue #597).
     public func applyState(
         pluginID: String,
         sessionID: String,
         state: AgentState,
         tmuxPane: String?,
-        projectPath: String?
+        projectPath: String?,
+        permissionMode: String? = nil
     ) {
         guard let paneId = tmuxPane, !paneId.isEmpty else {
             logger.debug("Dropping plugin state with no tmuxPane", metadata: [
@@ -228,6 +297,34 @@ final public class MirrorWindowManager {
                 session.detectedProjectPath = projectPath
             }
             session.state = state
+        }
+
+        // A new turn started — drop any end-of-turn recap (issue #598) so the
+        // card doesn't linger over an active turn. A fresh `doneWorking` restamps
+        // it from the updated telemetry.
+        if case .working = state {
+            paneStates[paneId]?.recap = nil
+        }
+
+        // Persist the hook `session_id` as the join key for the OTEL telemetry
+        // channel (issue #597). When it changes (a new session via `/clear` or
+        // resume) the accumulated meter belongs to the prior session, so reset it
+        // — the next `api_request` for the new id repopulates a fresh meter.
+        if paneStates[paneId]?.claudeSessionID != sessionID {
+            paneStates[paneId]?.claudeSessionID = sessionID
+            paneStates[paneId]?.telemetry = nil
+            paneStates[paneId]?.permissionMode = nil
+            paneStates[paneId]?.permissionModeTrigger = nil
+        }
+
+        // Seed the current permission mode from the hook channel (issue #597).
+        // Only the four tool/prompt/stop events carry it; others pass nil, which
+        // must NOT clobber a mode already known (incl. one just learned from an
+        // OTEL `permission_mode_changed`). Stamped after the session-id reset above
+        // so a fresh session's first hook wins. (`default` is stamped and renders
+        // its own gray-shield chip; only a truly unknown/empty mode shows nothing.)
+        if let permissionMode {
+            paneStates[paneId]?.permissionMode = permissionMode
         }
 
         // Record arrival order for the "most recent activity" sort.
@@ -459,7 +556,11 @@ final public class MirrorWindowManager {
 
     private static let gitPath = "/usr/bin/git"
 
-    /// Refreshes git branch info for all panes that have a current path.
+    /// Refreshes git branch info for all panes that have a current path. The Git
+    /// tab's changed-file badge (issue #573) is driven separately, straight off
+    /// the per-session GitWorkbench store's `summary`; the sidebar branch keeps
+    /// using a single cheap `git rev-parse` here rather than GitWorkbench's
+    /// heavier `loadStatus()`.
     func refreshGitBranches() async {
         var panesForPath: [String: [String]] = [:]
         for (paneId, state) in paneStates {
@@ -515,3 +616,17 @@ final public class MirrorWindowManager {
         paneStates.removeValue(forKey: paneId)
     }
 }
+
+#if DEBUG
+    extension MirrorWindowManager {
+        /// SwiftUI-preview seam (DEBUG only): inject fully-formed pane states so a
+        /// preview can render every row variant without driving the live tmux,
+        /// hook, or OTEL pipelines. `paneStates` is otherwise `private(set)`; this
+        /// is never called from shipping code.
+        func setPaneStatesForPreview(_ states: [PaneState]) {
+            for state in states {
+                paneStates[state.paneId] = state
+            }
+        }
+    }
+#endif

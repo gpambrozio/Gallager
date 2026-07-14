@@ -27,8 +27,38 @@ Detailed documentation for ClaudeSpy services. Reference when modifying specific
 - `getPaneDimensions()` / `getPaneId()` - dimension tracking
 - `sendKeys()` / `sendInterrupt()` - send input to panes
 - `createSession()` - creates new tmux session with dimensions
+- `probeVisualConflict()` - detects whether the user's rc files clobber the `$VISUAL` Gallager sets (see [Editor Override](#editor-override-ctrl-g) below)
+- `injectVisualOverrideIntoExistingShellPanes()` / `clearInjectedOverrideTracking()` - manage the opt-in `export VISUAL` injection
 
-**Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`
+**Config:** `tmuxPath` (default: `/opt/homebrew/bin/tmux`), optional `socketPath`, `overrideVisualInShellPanes` (mirrors `AppSettings.editorOverrideMode`)
+
+### Editor Override (Ctrl-G)
+
+Gallager points `$VISUAL` at the bundled `gallager edit` CLI (via tmux `-e` on every session) so Ctrl-G in Claude Code / Codex opens the in-app prompt editor. Spawned panes run a login shell that sources the user's rc files **after** the session env is applied, so a user with `export VISUAL=<their editor>` in `~/.zshrc`/`~/.bashrc` clobbers Gallager's value and Ctrl-G opens *their* editor instead. The override is **consent-based** (issue #591) — Gallager's env is a default, never a silent override.
+
+Key files: `EditorOverride.swift` (pure helpers + `EditorOverrideMode`/`VisualProbeResult`), `TmuxService` (probe + injection), `AppCoordinator` (coordination), `EditorOverrideDialog.swift` (the dialog), `EditorsSettingsView.swift` (`PromptEditorOverrideSection`).
+
+**1. Conflict probe.** At startup (only when `GallagerCLI` is bundled, and in either `ask` or `overrideInGallagerSessions` mode), `TmuxService.probeVisualConflict()` creates a detached probe session named `__gallager_probe` with `-e VISUAL=__gallager_probe__` and the normal `default-command` wrapper (real pty / env / startup), types `printf 'GALLAGER_PROBE=%s\n' "$VISUAL"`, and polls `capture-pane` (~10s) for the marker. Sentinel intact → no conflict; a different value or empty → conflict (the user's value is remembered for the dialog copy). No CLI / unknown shell (nushell) / timeout → treated as no-conflict. The probe session is filtered out of every user-facing list by its name prefix (so injection never touches it — the probe stays honest even while override is active). Re-run on demand from Settings ("Re-check now").
+
+**2. Dialog.** Deferred from launch to the **first session creation** (when "Ctrl-G" has context). Shows the conflicting value and three choices:
+- **Fix it in your shell config (recommended)** — keeps the setting at *Ask*; shows a copyable guarded line `[ -n "$GALLAGER_SOCKET" ] || export VISUAL='<their value>'` (Gallager exports `GALLAGER_SOCKET` before rc files run, so the rc can detect a Gallager pane). The next launch's probe verifies; if fixed, the dialog never returns.
+- **Override in Gallager sessions** — enables keystroke injection (below).
+- **Keep my editor, stop asking** — never override, never ask.
+- Dismissing ("Decide later") leaves it at *Ask* — re-prompts on a later conflict probe.
+
+**3. Injection (override mode).** Instead of tampering with shell startup, Gallager types the export into shell panes:
+- **New panes:** `refreshPanes()` injects a leading-space `export VISUAL='<gallager> edit'` (POSIX) / `set -gx VISUAL …` (fish) into each new known-shell pane. The bytes buffer until the first prompt, so they run *after* all rc files. The leading space keeps it out of history under `HISTCONTROL=ignorespace` / `HIST_IGNORE_SPACE`.
+- **Existing panes** are injected when the setting is turned on.
+- **App-launched agents** chain the export onto the agent command line in `createSession` (a direct-command pane never ran rc files, so the new-pane injector skips it).
+- Per-pane dedup keeps it to one line per shell pane.
+
+**4. Startup reconciliation.** A user who opted into the override only needs it while their rc actually clobbers `$VISUAL`. If they later remove their `export VISUAL` and Gallager's `-e VISUAL` wins on its own, the per-pane injection becomes pure redundancy. So on launch in `overrideInGallagerSessions` mode, `AppCoordinator` re-probes and, if the probe **positively** reports `.intact`, falls back to `.ask` (stops injecting) via `EditorOverride.shouldDropRedundantOverride(mode:probe:)`. A `.skipped` / not-yet-run probe is *not* treated as proof the conflict is gone, so the override is left in place. The same reconciliation runs on Settings → "Re-check now". If the conflict later returns, `.ask` re-prompts.
+
+**Settings:** `AppSettings.editorOverrideMode` (`ask` / `overrideInGallagerSessions` / `useMyEditor`). `AppCoordinator.setEditorOverrideMode(_:)` is the single mutation point — it persists the choice and mirrors it onto `TmuxService.overrideVisualInShellPanes`.
+
+**Limitations:** the injected line is visible in scrollback; a nested shell (`exec zsh`) re-sources rc with no re-injection; changing the setting doesn't affect already-running agents; the override also affects `git commit`/`crontab` in those panes; typing within the first ~second of a pane opening (or an rc ending in `exec`) can interleave with / swallow the injected line. All are accepted trade-offs for users who explicitly opted in.
+
+`baseEnvironmentVars` (injected via tmux `-e`, so they reach both app-launched and manually-typed `claude`) sets the Claude rendering/update flags **and** the OTEL export vars that point Claude Code at the Mac-local `OTLPReceiver` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*` → `http://127.0.0.1:<OTLPReceiver.advertisedPort>`; issue #597). No content gates are enabled. The endpoint port is `OTLPReceiver.advertisedPort` — the port the receiver **actually bound** (its preferred port, or a fallback candidate when that was taken), published before any pane can be created, so the bind and the advertisement can't drift. When the receiver failed to bind every candidate, the OTEL block is skipped entirely (no dead endpoints). The property is computed per creation, not cached, so it always reads the settled bind.
 
 ### TmuxControlClient (`ClaudeSpyServerFeature/Services/TmuxControlClient.swift`)
 
@@ -133,6 +163,12 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - Respects user-closed state (won't reopen until session ends)
 - Periodic session validation cleans up stale sessions
 - `updatePaneStates(from:)` syncs pane state from tmux, removing stale entries
+- Persists the Claude `session.id` as `PaneState.claudeSessionID` (the OTEL join key, issue #597) and exposes `applyTelemetry` / `applyPermissionMode` to stamp the joined pane; cleared on session end
+- `refreshGitBranches()` (run on the validation tick) detects each pane's git
+  branch with a single cheap `git rev-parse --abbrev-ref HEAD`. The Git tab's
+  changed-file badge (issue #573) is separate — read live from the per-session
+  GitWorkbench store's `summary`, kept fresh by the store's own repository
+  watcher — so it isn't computed here
 
 ### TerminalContainerView (`ClaudeSpyServerFeature/Views/TerminalContainerView.swift`)
 
@@ -163,6 +199,30 @@ TmuxControlClient ──%layout-change──→ updateDimensions → subscriber 
 - `Stop` - stop events
 
 Codex contributes additional events (`PreCompact`/`PostCompact`, `SubagentStart`, `PermissionRequest`); the server accepts any JSON payload of the right shape and does not validate event names against a Claude-specific enum.
+
+### OTLPReceiver (`ClaudeSpyServerFeature/Telemetry/OTLPReceiver.swift`)
+
+`actor` — a Mac-local OpenTelemetry receiver that **augments** the hook channel with quantitative, content-free data from a coding agent's OTEL export — Claude Code (issue #597) and Codex (issue #602). One-way push only; nothing is ever sent back into the agent. The receiver/decoder/accumulator are agent-blind; each log record is classified by its event-name namespace (`claude_code.` vs `codex.`) and parsed with that agent's vocabulary into the same `SessionTelemetry`.
+
+- Loopback-only `NWListener` bound **explicitly to the IPv4 loopback address** (`requiredLocalEndpoint = 127.0.0.1:<port>` + `requiredInterfaceType = .loopback`, so no Local Network Privacy prompt and unreachable off-host). The explicit IPv4 bind matters: a port-only bind creates a dual-stack IPv6 wildcard socket that silently *coexists* with another process's IPv4-specific listener on the same port — the kernel then routes all IPv4 traffic (exporters dial `127.0.0.1`) to the other process and the meter starves with no error anywhere (observed live: a Docker OTLP collector holding `127.0.0.1:4318` swallowed every export). The IPv4-specific bind turns that into an `EADDRINUSE` the receiver reacts to. Accepts `POST /v1/metrics` and `POST /v1/logs` as OTLP/JSON; responds `200 {}`. No protobuf/gRPC dependency. The hand-rolled HTTP parser frames bodies by **both** `Content-Length` *and* `Transfer-Encoding: chunked` — Claude Code's real exporter (observed on 2.1.198) sends every export chunked with no `Content-Length` at all, so a length-only parser acks `200` while dropping every record (and then misreads the chunk bytes as the next request's headers).
+- **Port** — the receiver probes candidates in order (`OTLPReceiver.portCandidates`): the preferred port (`preferredPort` = `defaultPort` `24318` in production, or an `--otlp-port <port>` launch override), then up to four fallbacks at +100 strides. `defaultPort` is deliberately **not** the OTLP-standard `4318` — that's the first port any local collector binds. The port that wins is published as `OTLPReceiver.advertisedPort`, the one value every advertisement reads (env injection, `PluginEnv.otlpReceiverEndpoint`, the E2E `GET /otlp-port` query on the `TestAccessibilityServer`); `nil` when every candidate was taken, in which case consumers skip OTEL config. E2E passes a per-instance preferred port (`MacOSDriver.defaultOTLPPort + instance`, base `14318`, spacing 1 — the +100 fallback stride can never land on a sibling's preferred port) and the orchestrator re-reads the actually-bound port after launch to repoint `${otlpEndpoint}`. The OTEL channel's counterpart to the per-instance accessibility port / ingress socket / tmux socket.
+- Decoding lives in `OTLPModels.swift` (tolerant: int64 may arrive as a JSON string or number). Accumulation lives in `OTLPTelemetryAccumulator.swift` (pure value logic, unit-tested), keyed by the session join id (Claude `session.id` / Codex `conversation.id`):
+  - **Claude** `claude_code.api_request` log events → summed tokens (by type), summed `cost_usd`, latest `duration_ms`/`model`, and a capped ring of the last ~20 turns.
+  - **Claude** `claude_code.commit.count` / `pull_request.count` counters → milestone deltas between exports **and** the cumulative count carried onto the snapshot (issue #598, for the recap).
+  - **Claude** `claude_code.active_time.total` counter → cumulative active seconds; `claude_code.lines_of_code.count` (`type=added/removed`) → per-type line counts; `claude_code.tool_result` log events → a per-event tool count (issue #598).
+  - **Claude** `claude_code.permission_mode_changed` events → the pane's current permission mode + trigger.
+  - **Codex** `codex.sse_event` (`event.kind = response.completed`) → tokens + `model`. OpenAI's `cached_token_count` is nested *inside* `input_token_count` (unlike Claude's disjoint buckets), so it's mapped to the cache-read field and excluded from the headline. **`input_token_count`/`cached_token_count` are cumulative** — `response.completed` fires once per model call (several per turn with tool use), each re-reporting the whole growing context — so the accumulator adds only the positive **delta** per session (output is per-call and summed as-is); summing raw per-event input would multiply-count the same context (~1.5× over on a 3-tool turn, confirmed live on Codex 0.140). Codex emits no cost.
+  - **Codex** `codex.turn_ttft` → the turn's time-to-first-token `duration_ms` (`SessionTelemetry.recordTurnLatency`, which back-fills the just-completed token turn's sparkline point; the headline is authoritative, the back-fill best-effort). Tokens and latency arrive on *separate* events. Both `codex.sse_event` and `codex.turn_ttft` carry `conversation.id`; `codex.api_request` does **not** (it's the `/models` capability check, and turn calls run over websocket), so it can't be joined. Codex metrics also omit `conversation.id` (openai/codex#15905), so the `codex.turn.*` metrics can't be joined to a pane and are ignored.
+- The permission-mode chip is seeded from the **hook channel** for both agents. For Claude it has a second source — OTEL `permission_mode_changed` (which only fires on a *change*) — so `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`Stop` also carry `permission_mode`, which the translator puts on the `PluginEvent` and `MirrorWindowManager.applyState` stamps onto the pane (a `nil` never clobbers a known mode). Codex reports a Claude-compatible `permission_mode` on the same events (`CodexTranslator` passes it through); it has no OTEL mode-change signal, so the hook channel is its sole source.
+- **Injection differs by agent.** Claude reads `OTEL_*` env vars, injected via `TmuxService.baseEnvironmentVars` (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_*`). Codex does *not* read `OTEL_*` — OTEL is configured only through its `config.toml` schema, and `otel` is denylisted from project-local config — so app-launched Codex panes instead get `-c otel.…` runtime overrides (`CodexOtelConfig.launchOverrides`, gated on the per-agent `export_telemetry` setting), which point `otel.exporter` at `http://127.0.0.1:<port>/v1/logs` (`protocol = "json"`), set `otel.metrics_exporter = "none"`, and leave `log_user_prompt = false`. The runtime-override layer is exempt from the `otel` denylist, and nothing is written to the user's global `~/.codex/config.toml` (so a launch can't corrupt the user's own config). No content gates are enabled for either agent, so no prompt/tool/body content leaves the process.
+- `AppCoordinator` wires the receiver's callbacks: telemetry → `MirrorWindowManager.applyTelemetry` (joined to a pane by `claudeSessionID`, then a throttled ~1/sec viewer push); milestones → one notification each via the existing `handlePluginNotification` path; mode changes → `MirrorWindowManager.applyPermissionMode`. The accumulated state is evicted on session end. See `MirrorWindowManager` and `PaneState.telemetry` / `.permissionMode`.
+
+### Retrospective telemetry consumers (issue #598)
+
+Two **aggregate** consumers built on the same OTEL stream, surfacing data that outlives a live session.
+
+- **End-of-session recap** — `SessionRecap` (`ClaudeSpyNetworking`) is a snapshot of the session's accumulated telemetry (tokens, cost, commits, active time, tools, lines). `AppCoordinator` stamps it onto `PaneState.recap` when a turn finishes (`doneWorking`) — cleared when a new turn starts (`working`) or the session ends — and pushes a one-shot recap notification on `sessionEnd` (`finalizeEndedSession`, reusing `NotificationSpec` → `handlePluginNotification`). The recap card renders in iOS `SessionInfoView`; the Mac surfaces it via the desktop-notification push. Shared formatting (`recapDetailLine`) lives in `ClaudeSpyCommon`.
+- **Cost/usage overview** — `UsageAggregationStore` (`ClaudeSpyServerFeature/Telemetry/UsageAggregationStore.swift`) is an `actor` persisting per-`(project, day)` totals as JSON under `~/.gallager/state/usage-aggregates.json` (so they survive session end **and** app restart). It folds each telemetry snapshot into the bucket as a *delta* against a persisted per-session baseline — cumulative OTEL counters are attributed to the day they occur, with no double-counting across a restart. `overview(asOf:)` builds the wire `UsageOverview` (today totals, a top-N per-project ranking, a per-day trend). It rides the existing `SessionStateMessage` as an optional field (`usageOverview`, `decodeIfPresent`-friendly like `agentProjects`), is shown atop the iOS session list and Mac sidebar as a collapsed one-line "Today" cell (`UsageOverviewView` in `ClaudeSpyCommon` — a disclosure chevron expands it in place to the Projects/Recent-days details, transient state, always starts collapsed), and powers the Mac menu-bar "today" total.
 
 ### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
 
@@ -287,11 +347,15 @@ Static utility detecting the `claude` CLI path.
 
 ### DockIconManager (`ClaudeSpyServerFeature/Managers/DockIconManager.swift`)
 
-`@MainActor` managing dock icon visibility.
+`@MainActor` managing dock icon visibility and the dock tile badge.
 
 - App runs as accessory (no dock icon) when no windows visible
 - Switches to regular mode when windows open
 - Ignores menu bar and popover windows
+- Owns the badge (`setBadgeCount`): `NSDockTile.badgeLabel`'s setter dedups
+  unchanged values in-process while the Dock discards tile state on
+  `.accessory` transitions, so the manager clears the label before every set
+  and re-applies it on policy updates (issue #217)
 
 ### SleepPreventionManager (`ClaudeSpyServerFeature/Managers/SleepPreventionManager.swift`)
 
@@ -323,12 +387,50 @@ the right of the file explorer).
   rebuilt when the working directory changes, so the git UI state survives
   tab/session switches like `FileBrowserState`
 
+**Changes-tab file actions** (`GitBrowserView`): right-clicking a changed file
+shows the *same* native context menu as the file explorer, and double-clicking
+opens it in its default app.
+
+- The store's `WorkbenchConfiguration.repositoryURL` is set to the working-tree
+  root so GitWorkbench's `onChangesRightClick` / `onChangesDoubleClick` hooks
+  hand back **absolute** file URLs.
+- The right-click menu is built by the shared `fileContextMenuItems(…)`
+  (extracted from `FileContextMenu`, also used by the file tree / search list /
+  tab strips) and shown via `presentStableContextMenu(items:with:for:)`, which
+  goes through AppKit's `NSMenu.popUpContextMenu(_:with:for:)`. GitWorkbench
+  reports the click from `rightMouseDown`; the AppKit contextual-menu path keeps
+  the menu open across the press/release and exposes it to accessibility,
+  whereas a bare `NSMenu.popUp` would be dismissed by the trailing mouse-up.
+- `MainView.gitPane` supplies the "Open in New Tab" / "Show in File Explorer"
+  handlers (the reveal logic is the shared `revealInFileExplorer`) so the menu
+  reaches full parity with the file explorer.
+
 ### UpdaterController (`ClaudeSpyServerFeature/Services/UpdaterController.swift`)
 
 `@Observable @MainActor` wrapping Sparkle updater for SwiftUI.
 
 - Exposes `canCheckForUpdates` binding
 - `checkForUpdates()` action
+
+### LayoutStore (`ClaudeSpyServerFeature/Services/LayoutPersistence/LayoutStore.swift`)
+
+`@DependencyClient` that persists per-folder workbench layouts (open file/browser
+tabs, split arrangement, sidebar width) so a session restores its workbench
+across app restarts and a new session on a known folder inherits the folder's
+last-known layout. See `docs/folder-layout-persistence-plan.md`.
+
+- One record per folder, keyed by `(host, folder)` (`SavedFolderRecord`);
+  `record(for:)` returns the folder's layout for both cold-launch restore and
+  new-session seeding. Keyed by folder — not tmux session name — so a recycled
+  session name picks up the folder's current layout, not a dead session's stale
+  one. Two sessions on a folder share the record (most-recent write wins).
+- `save` / `remove` / `prune`; `liveValue` writes a single JSON file under the
+  Gallager state root (`~/.gallager/state/Layouts/`, or `--gallager-state-root`
+  under E2E), `inMemory()` for previews/tests.
+- `MainView` drives it: `seedLayoutIfNeeded()` restores once-while-empty on
+  session selection/launch; a 2s `.task` auto-saves changed layouts via
+  `persistChangedLayouts()`. `LayoutSnapshotMapper` translates the live
+  `SessionFileTabsState` ⇄ the `SavedFolderLayout` snapshot.
 
 ## iOS Services
 
@@ -395,6 +497,7 @@ command, currentPath, width, height, isActive
 - **Tmux:** tmuxPath, tmuxSocket
 - **Remote Access:** externalServerURL, deviceId, pairedDevices
 - **Coding agents:** autoRunClaudeInProjects, claudeCommandPath, codexCommandPath. `commandPath(for: CodingAgent)` returns the right binary path for an agent
+- **Prompt editor (Ctrl-G):** editorOverrideMode (`ask` / `overrideInGallagerSessions` / `useMyEditor`) — see [Editor Override](#editor-override-ctrl-g)
 - **Plugin:** hasCompletedPluginSetup
 
 ### PairedDevice (`ClaudeSpyServerFeature/Models/Settings.swift`)

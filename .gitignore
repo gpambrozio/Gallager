@@ -78,3 +78,9 @@ build-ios/
 claudespy-signing.tar.gz
 .DS_Store
 /.claude/swiftDevelopment.json
+
+# git worktrees for subagent-driven execution
+.claude/worktrees/
+
+# Python bytecode (scripts/ and bundled E2E Scripts import as modules in tests)
+__pycache__/

@@ -28,10 +28,17 @@ public struct MainView: View {
     @State private var projects: [AgentProject] = []
     @State private var isLoadingProjects = false
     @State private var creatingSelection: NewSessionCreatingState?
+    /// Bumped by the ⌘N menu command to open the Local section's new-session popover.
+    @State private var localNewSessionTrigger = 0
     @State private var detailPaneSize: CGSize = .zero
     @State private var closeConfirmation: CloseConfirmation?
 
     @State private var showingDisconnectConfirmation = false
+
+    /// The local session whose info sheet is open, keyed by its agent pane id.
+    /// The sheet reads live state from `windowManager.paneStates[id]`, so the
+    /// recap / token counts keep updating while it's open.
+    @State private var sessionInfoSheet: SessionInfoSheetTarget?
 
     /// Tracks active session pane IDs for detecting section changes
     @State private var trackedActiveSessionPaneIds: Set<String> = []
@@ -83,15 +90,44 @@ public struct MainView: View {
     /// `--e2e-test`). Read here to build per-session stores on demand.
     @Dependency(GitWorkbenchProviderClient.self) private var gitProviderClient
 
-    /// File path for which the "Open in Editor" picker is currently shown
-    /// (triggered by Cmd+E on a focused file tab).
-    @State private var editorPickerPath: String?
+    /// UserDefaults-backed preferences (in-memory under E2E). Passed into each
+    /// session's GitWorkbench config so the package can persist the diff style and
+    /// column widths through the host (it never touches `UserDefaults` itself).
+    @Dependency(PreferencesService.self) private var preferences
 
     /// In-flight terminal-link confirmation, shown when
     /// `settings.browserLinkBehavior == .ask` and the user clicks a web URL.
     @State private var pendingBrowserURLPrompt: PendingBrowserURLPrompt?
 
+    /// Per-folder workbench persistence (see
+    /// `docs/folder-layout-persistence-plan.md`). Restores open file/browser
+    /// tabs + split layout when a session is first viewed.
+    @Dependency(LayoutStore.self) private var layoutStore
+    /// Sessions whose workbench has already been seeded from persisted layout
+    /// this app run, so seeding happens at most once per session (and re-fires
+    /// for a recycled session name only after cleanup clears it).
+    @State private var seededSessions: Set<String> = []
+    /// Last layout snapshot persisted per session, so an unchanged workbench
+    /// doesn't trigger a redundant disk write on every tmux refresh.
+    @State private var lastPersistedLayouts: [String: SavedFolderLayout] = [:]
+    /// In-flight save per session, chained so rapid writes for the same session
+    /// reach the store in order (avoids a stale older snapshot landing last).
+    @State private var pendingLayoutSaves: [String: Task<Void, Never>] = [:]
+
+    /// Remote counterparts of the three bookkeeping dictionaries above, keyed by
+    /// `(hostId, sessionName)` so a viewer persists each remote session's
+    /// browser-tab + split layout the same way local sessions persist theirs
+    /// (issue #608 — Scope A, viewer-local). Kept parallel to (not merged with)
+    /// the local dictionaries so a remote session name can't collide with a
+    /// local one, and so the host-keyed lifecycle (cleared on unpair) stays
+    /// independent of the local session-name lifecycle.
+    @State private var seededRemoteSessions: Set<RemoteSessionTabsKey> = []
+    @State private var lastPersistedRemoteLayouts: [RemoteSessionTabsKey: SavedFolderLayout] = [:]
+    @State private var pendingRemoteLayoutSaves: [RemoteSessionTabsKey: Task<Void, Never>] = [:]
+
     public var body: some View {
+        @Bindable var coordinator = coordinator
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
         } detail: {
@@ -115,6 +151,14 @@ public struct MainView: View {
             trackedActiveSessionPaneIds = windowManager.activeSessionPaneIds
             // Consume any pending menu bar selection that was set before this view appeared
             applyPendingMenuBarSelection()
+            // Garbage-collect stale layout records, then seed whatever session is
+            // already selected (e.g. on a cold launch re-attaching to tmux).
+            await layoutStore.prune(LayoutStore.defaultMaxAge, LayoutStore.defaultMaxCount)
+            // Also drop remote records for hosts we're no longer paired with;
+            // local records (host `layoutHost`) are always kept (issue #608).
+            await layoutStore.pruneHosts(Set(settings.pairedHosts.map(\.id)).union([layoutHost]))
+            seedLayoutIfNeeded()
+            seedRemoteLayoutIfNeeded()
         }
         .task {
             // Silently rescan every 60s so new projects appear without restarting.
@@ -125,6 +169,22 @@ public struct MainView: View {
                     return
                 }
                 await loadProjects(showLoadingIndicator: false)
+            }
+        }
+        .task {
+            // Auto-save the live workbench layout on a steady cadence. The
+            // `.onChange(of: tmuxService.panes)` hook only fires on structural
+            // pane changes, but opening a file/browser tab or splitting doesn't
+            // touch tmux — so persist on a timer too. The per-session change
+            // check keeps the disk write rare.
+            while true {
+                do {
+                    try await Task.sleep(for: .seconds(2))
+                } catch {
+                    return
+                }
+                persistChangedLayouts()
+                persistChangedRemoteLayouts()
             }
         }
         .modifier(AlertsModifier(
@@ -143,6 +203,25 @@ public struct MainView: View {
                     pendingBrowserURLPrompt = nil
                 }
             )
+        }
+        // Consent dialog for the editor-override conflict (issue #591). Deferred
+        // to the first session so "Ctrl-G" has context; fires on whichever of
+        // {session appears, probe finishes} happens last.
+        .sheet(isPresented: $coordinator.isShowingEditorOverrideDialog) {
+            EditorOverrideDialog()
+        }
+        // Session info sheet (right-click a local session → "Session Info"),
+        // the macOS counterpart to the iOS detail popover.
+        .sheet(item: $sessionInfoSheet) { target in
+            LocalSessionInfoSheet(paneId: target.id) {
+                sessionInfoSheet = nil
+            }
+        }
+        .onChange(of: tmuxService.sessions.isEmpty) { _, isEmpty in
+            if !isEmpty { coordinator.maybePresentEditorOverrideDialog() }
+        }
+        .onChange(of: coordinator.editorOverrideProbeResult) {
+            coordinator.maybePresentEditorOverrideDialog()
         }
         .onChange(of: tmuxService.panes) { _, newPanes in
             // Ensure pane states exist for all known panes so the detail view
@@ -177,13 +256,35 @@ public struct MainView: View {
                 }
             }
 
+            // Retry seeding the selected session in case its folder only became
+            // resolvable now that panes have loaded (cold-launch timing). Cheap:
+            // a no-op once the session is in `seededSessions`.
+            seedLayoutIfNeeded()
+
+            // Auto-save each session's live workbench layout (skips unchanged
+            // ones). Runs before cleanup so a session still present this refresh
+            // gets its final state captured.
+            persistChangedLayouts()
+
             // Clean up session-scoped state for sessions that no longer exist
             let currentSessionNames = Set(tmuxService.sessions.map(\.sessionName))
             for key in fileBrowserStates.keys where !currentSessionNames.contains(key) {
                 fileBrowserStates.removeValue(forKey: key)
             }
             for key in sessionFileTabsStates.keys where !currentSessionNames.contains(key) {
+                sessionFileTabsStates[key]?.cancelActiveBrowserDownloads()
                 sessionFileTabsStates.removeValue(forKey: key)
+            }
+            // Forget seed/persist bookkeeping for removed sessions so a recycled
+            // session name re-seeds from scratch next time.
+            seededSessions.formIntersection(currentSessionNames)
+            for key in lastPersistedLayouts.keys where !currentSessionNames.contains(key) {
+                lastPersistedLayouts.removeValue(forKey: key)
+            }
+            // Drop the save-chain reference (not cancelled — let the final write
+            // for a torn-down session land).
+            for key in pendingLayoutSaves.keys where !currentSessionNames.contains(key) {
+                pendingLayoutSaves.removeValue(forKey: key)
             }
             for key in gitWorkbenchStores.keys where !currentSessionNames.contains(key) {
                 gitWorkbenchStores.removeValue(forKey: key)
@@ -236,6 +337,11 @@ public struct MainView: View {
             if let resolvedId = selectedRemoteWindow?.id, resolvedId != selectedRemoteWindowId {
                 selectedRemoteWindowId = resolvedId
             }
+            // Retry seeding once the remote session's window (and thus its
+            // folder) first resolves after panes sync — the analogue of the
+            // local `onChange(of: tmuxService.panes)` seed retry. No-op once
+            // the session is already seeded (issue #608).
+            seedRemoteLayoutIfNeeded()
         }
         .modifier(RemoteSplitCleanupModifier(
             paneCount: coordinator.remoteSessionStore?.paneStates.count ?? 0,
@@ -244,12 +350,27 @@ public struct MainView: View {
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
-            // forever. Session-level cleanup (sessions deleted on a still-
-            // paired host) is left to host-level cleanup; in practice an
-            // empty session goes away when the user reconnects without it.
+            // forever. Per-session cleanup for sessions killed on a still-
+            // *connected* host is handled by `pruneStaleRemoteSessionBookkeeping`;
+            // this host-level pass covers full unpair.
             let currentHostIdsSet = Set(currentHostIds)
             for key in remoteSessionTabsStates.keys where !currentHostIdsSet.contains(key.hostId) {
+                remoteSessionTabsStates[key]?.cancelActiveBrowserDownloads()
                 remoteSessionTabsStates.removeValue(forKey: key)
+            }
+            // Drop the per-session layout bookkeeping for unpaired hosts in
+            // lockstep with `remoteSessionTabsStates` above, so it doesn't leak.
+            // The on-disk records for those hosts are GC'd by `pruneHosts` on the
+            // next launch (issue #608). The save-chain tasks aren't cancelled —
+            // a final write for a just-unpaired host is allowed to land.
+            for key in seededRemoteSessions where !currentHostIdsSet.contains(key.hostId) {
+                seededRemoteSessions.remove(key)
+            }
+            for key in lastPersistedRemoteLayouts.keys where !currentHostIdsSet.contains(key.hostId) {
+                lastPersistedRemoteLayouts.removeValue(forKey: key)
+            }
+            for key in pendingRemoteLayoutSaves.keys where !currentHostIdsSet.contains(key.hostId) {
+                pendingRemoteLayoutSaves.removeValue(forKey: key)
             }
         }
         .modifier(AutoResizeObserversModifier(
@@ -278,11 +399,8 @@ public struct MainView: View {
         .modifier(MenuCommandsModifier(
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
-            onSelectNextTab: { selectAdjacentTab(direction: 1) }
-        ))
-        .modifier(EditorPickerDialogModifier(
-            editorPickerPath: $editorPickerPath,
-            onCmdE: { handleOpenCurrentTabInEditor() }
+            onSelectNextTab: { selectAdjacentTab(direction: 1) },
+            onNewLocalSession: { localNewSessionTrigger += 1 }
         ))
         .onChange(of: windowManager.pendingSessionCount) {
             // When an event arrives on the already-selected session, no selection
@@ -369,6 +487,13 @@ public struct MainView: View {
 
     private func localSessionsSection(sessions: [LocalTmuxSession]) -> some View {
         Section {
+            // Host's own cross-session usage rollup (issue #598), collapsed to
+            // the "Today" line until the disclosure chevron expands it.
+            if let overview = coordinator.usageOverview, !overview.isEmpty {
+                UsageOverviewView(overview: overview)
+                    .padding(.vertical, 2)
+                    .accessibilityIdentifier("usage-overview-local")
+            }
             if sessions.isEmpty && settings.hasRemoteHosts {
                 Text("No local sessions")
                     .foregroundStyle(.secondary)
@@ -382,7 +507,8 @@ public struct MainView: View {
             SectionHeader(
                 title: "Local",
                 symbol: .house,
-                newSessionButtonIdentifier: "new-session-local"
+                newSessionButtonIdentifier: "new-session-local",
+                openPopoverTrigger: localNewSessionTrigger
             ) {
                 localNewSessionPopover
             }
@@ -649,6 +775,14 @@ public struct MainView: View {
 
                 Divider()
 
+                if let claudePane {
+                    Button {
+                        sessionInfoSheet = SessionInfoSheetTarget(id: claudePane.paneId)
+                    } label: {
+                        Label("Session Info", symbol: .infoCircle)
+                    }
+                }
+
                 Button(role: .destructive) {
                     requestCloseSession(session.sessionName)
                 } label: {
@@ -870,6 +1004,10 @@ public struct MainView: View {
                         // selecting any file/browser tab calls gitActiveWindowIds.remove,
                         // so isGitActive is already false whenever a tab is selected.
                         isGitBrowserSelected: isGitActive,
+                        gitChangedFileCount: gitChangedFileCount(
+                            sessionName: session.sessionName,
+                            directoryPath: directoryPath
+                        ),
                         isAnyFileViewActive: isAnyFileViewActive,
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
@@ -979,17 +1117,11 @@ public struct MainView: View {
                             toggleSplit(payload, sessionName: session.sessionName, windowId: window.id)
                         },
                         onShowInFileExplorer: { path in
-                            fileBrowserActiveWindowIds.insert(window.id)
-                            gitActiveWindowIds.remove(window.id)
-                            if fileBrowserStates[session.sessionName] == nil {
-                                fileBrowserStates[session.sessionName] = FileBrowserState()
-                            }
-                            if sessionFileTabsStates[session.sessionName] == nil {
-                                sessionFileTabsStates[session.sessionName] = SessionFileTabsState()
-                            }
-                            sessionFileTabsStates[session.sessionName]?.selectedFileTabId = nil
-                            sessionFileTabsStates[session.sessionName]?.selectedBrowserTabId = nil
-                            fileBrowserStates[session.sessionName]?.pendingRevealPath = path
+                            revealInFileExplorer(
+                                path: path,
+                                sessionName: session.sessionName,
+                                windowId: window.id
+                            )
                         },
                         onAcceptOpenSuggestion: { suggestion in
                             openFileInNewTab(
@@ -1024,6 +1156,17 @@ public struct MainView: View {
                 )
             }
             .id(window.id)
+            .task(id: directoryPath) {
+                // Eagerly load the displayed session's git status so the Git tab
+                // badge (issue #573) shows on session load, before the Git tab is
+                // ever opened.
+                if let session {
+                    await eagerlyLoadGitStatus(
+                        sessionName: session.sessionName,
+                        directoryPath: directoryPath
+                    )
+                }
+            }
         } else if tmuxService.panes.isEmpty && !settings.hasRemoteHosts {
             NewSessionContent(
                 title: "New Session",
@@ -1139,6 +1282,13 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeRemoteBrowserTab(
+                        selectedBrowserTab.id,
+                        hostId: remote.hostId,
+                        sessionName: remote.sessionName
+                    )
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1220,6 +1370,13 @@ public struct MainView: View {
                             sessionName: remote.sessionName,
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
+                        )
+                    },
+                    onRequestClose: {
+                        closeRemoteBrowserTab(
+                            tab.id,
+                            hostId: remote.hostId,
+                            sessionName: remote.sessionName
                         )
                     }
                 )
@@ -1330,6 +1487,9 @@ public struct MainView: View {
                         originWindowId: selectedBrowserTab.originWindowId,
                         parentTabId: selectedBrowserTab.id
                     )
+                },
+                onRequestClose: {
+                    closeBrowserTab(selectedBrowserTab.id, sessionName: session.sessionName)
                 }
             )
             .id(selectedBrowserTab.id)
@@ -1352,7 +1512,7 @@ public struct MainView: View {
                 }
             )
         } else if isGitActive, let session {
-            gitPane(sessionName: session.sessionName, directoryPath: directoryPath)
+            gitPane(windowId: window.id, sessionName: session.sessionName, directoryPath: directoryPath)
         } else {
             WindowPaneLayoutView(
                 window: window,
@@ -1374,9 +1534,34 @@ public struct MainView: View {
     /// survives tab/session switches, and rebuilt when the working directory
     /// changes so it tracks the same folder as the file explorer.
     @ViewBuilder
-    private func gitPane(sessionName: String, directoryPath: String) -> some View {
+    private func gitPane(
+        windowId: String,
+        sessionName: String,
+        directoryPath: String
+    ) -> some View {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath {
-            GitBrowserView(store: entry.store)
+            GitBrowserView(
+                store: entry.store,
+                directoryPath: directoryPath,
+                onOpenFileInNewTab: { path in
+                    openFileInNewTab(
+                        path: path,
+                        directoryPath: directoryPath,
+                        sessionName: sessionName,
+                        windowId: windowId,
+                        // Remember the file came from the Git tab so closing it
+                        // returns here instead of the File Explorer.
+                        origin: .gitTab(windowId: windowId)
+                    )
+                },
+                onShowInFileExplorer: { path in
+                    revealInFileExplorer(
+                        path: path,
+                        sessionName: sessionName,
+                        windowId: windowId
+                    )
+                }
+            )
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1386,15 +1571,66 @@ public struct MainView: View {
         }
     }
 
+    /// Changed-file count for a session's Git tab badge (issue #573), read live
+    /// from the session's cached GitWorkbench store's `summary`. The store keeps
+    /// it fresh on its own (via the provider's repository watcher). Returns 0
+    /// until the store exists for this directory and has finished its first load
+    /// (`summary == nil`), so a clean repository shows no badge.
+    @MainActor
+    private func gitChangedFileCount(sessionName: String, directoryPath: String) -> Int {
+        guard
+            let entry = gitWorkbenchStores[sessionName],
+            entry.path == directoryPath
+        else { return 0 }
+        return entry.store.summary?.changedFileCount ?? 0
+    }
+
+    /// Eagerly builds and loads the displayed session's GitWorkbench store so the
+    /// Git tab badge (issue #573) reflects the repository's changes as soon as the
+    /// session is shown — without the user first opening the Git tab. The store is
+    /// retained per session, so this is a no-op refresh once loaded, and its own
+    /// repository watcher keeps the badge live afterwards.
+    @MainActor
+    private func eagerlyLoadGitStatus(sessionName: String, directoryPath: String) async {
+        ensureGitStore(sessionName: sessionName, directoryPath: directoryPath)
+        await gitWorkbenchStores[sessionName]?.store.reload()
+    }
+
     /// Creates (or rebuilds, on a directory change) the cached GitWorkbench
     /// store for a session. Safe to call from `.task`/event handlers; never call
-    /// it during `body` evaluation since it mutates `@State`.
+    /// it during `body` evaluation since it mutates `@State`. The working-tree
+    /// root is passed as `repositoryURL` so the Changes-tab file callbacks get
+    /// absolute URLs.
     @MainActor
     private func ensureGitStore(sessionName: String, directoryPath: String) {
         if let entry = gitWorkbenchStores[sessionName], entry.path == directoryPath { return }
         let provider = gitProviderClient.provider(URL(fileURLWithPath: directoryPath))
-        let store = GitWorkbenchStore(provider: provider, configuration: .claudeSpy)
+        let store = GitWorkbenchStore(
+            provider: provider,
+            configuration: .claudeSpy(
+                repositoryURL: URL(fileURLWithPath: directoryPath),
+                preferences: preferences
+            )
+        )
         gitWorkbenchStores[sessionName] = GitStoreEntry(path: directoryPath, store: store)
+    }
+
+    /// Switches the given window to the File Explorer and asks it to reveal
+    /// `path`. Shared by the tab bar's "Show in File Explorer" affordance and
+    /// the Git tab's right-click menu so both behave identically.
+    @MainActor
+    private func revealInFileExplorer(path: String, sessionName: String, windowId: String) {
+        fileBrowserActiveWindowIds.insert(windowId)
+        gitActiveWindowIds.remove(windowId)
+        if fileBrowserStates[sessionName] == nil {
+            fileBrowserStates[sessionName] = FileBrowserState()
+        }
+        if sessionFileTabsStates[sessionName] == nil {
+            sessionFileTabsStates[sessionName] = SessionFileTabsState()
+        }
+        sessionFileTabsStates[sessionName]?.selectedFileTabId = nil
+        sessionFileTabsStates[sessionName]?.selectedBrowserTabId = nil
+        fileBrowserStates[sessionName]?.pendingRevealPath = path
     }
 
     /// The working directory a window's Git tab should track — the active
@@ -1458,7 +1694,7 @@ public struct MainView: View {
                 rightPanePlaceholder
             }
         case .git:
-            gitPane(sessionName: sessionName, directoryPath: directoryPath)
+            gitPane(windowId: selectedWindow?.id ?? "", sessionName: sessionName, directoryPath: directoryPath)
                 .id("right-git")
                 .accessibilityIdentifier("split-right-pane")
         case let .browser(id):
@@ -1481,6 +1717,9 @@ public struct MainView: View {
                             originWindowId: tab.originWindowId,
                             parentTabId: tab.id
                         )
+                    },
+                    onRequestClose: {
+                        closeBrowserTab(tab.id, sessionName: sessionName)
                     }
                 )
                 .id("right-\(tab.id)")
@@ -1839,6 +2078,8 @@ public struct MainView: View {
         lastAutoResizeDimensions.removeAll()
         handleAutoResize()
         markSelectedSessionsHandledIfActive()
+        seedLayoutIfNeeded()
+        seedRemoteLayoutIfNeeded()
     }
 
     private func handleAutoResize() {
@@ -2444,18 +2685,18 @@ public struct MainView: View {
     /// selected — its `directoryChanges` task is what drives tab deletion
     /// state, so it must continue running underneath the visible file content.
     ///
-    /// `originWindowId` records which tmux window initiated the open when the
-    /// tab is opened from a terminal click; closing the tab routes the user
-    /// back there instead of leaving them on the file browser tree. When an
-    /// existing tab is re-opened, only a non-nil incoming origin overwrites
-    /// the stored value — a tree/context-menu re-open carries no origin and
-    /// must not silently clear the previously-recorded terminal return target.
+    /// `origin` records where the open came from (a terminal click, or the Git
+    /// tab); closing the tab routes the user back there instead of leaving them
+    /// on the file browser tree. When an existing tab is re-opened, only a
+    /// non-nil incoming origin overwrites the stored value — a tree/context-menu
+    /// re-open carries no origin and must not silently clear the
+    /// previously-recorded return target.
     private func openFileInNewTab(
         path: String,
         directoryPath: String,
         sessionName: String,
         windowId: String,
-        originWindowId: String? = nil
+        origin: FileTabOrigin? = nil
     ) {
         fileBrowserActiveWindowIds.insert(windowId)
         gitActiveWindowIds.remove(windowId)
@@ -2468,8 +2709,8 @@ public struct MainView: View {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         let useSplit = settings.alwaysOpenFilesInSplit
         if let existingIndex = tabs.openFileTabs.firstIndex(where: { $0.path == path }) {
-            if let originWindowId {
-                tabs.openFileTabs[existingIndex].originWindowId = originWindowId
+            if let origin {
+                tabs.openFileTabs[existingIndex].origin = origin
             }
             let existingId = tabs.openFileTabs[existingIndex].id
             if tabs.rightSide.contains(.file(existingId)) {
@@ -2482,7 +2723,7 @@ public struct MainView: View {
         let newTab = OpenFileTab(
             path: path,
             directoryPath: directoryPath,
-            originWindowId: originWindowId
+            origin: origin
         )
         tabs.openFileTabs.append(newTab)
         if useSplit {
@@ -2684,7 +2925,7 @@ public struct MainView: View {
                 directoryPath: directoryPath,
                 sessionName: session.sessionName,
                 windowId: window.id,
-                originWindowId: window.id
+                origin: .terminalWindow(window.id)
             )
             return true
         }
@@ -2943,6 +3184,9 @@ public struct MainView: View {
         let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
+        // Cancel in-flight downloads before dropping the state — a
+        // deallocated `BrowserTabState` can't clean up its partial files.
+        tabs.browserStates[tabId]?.cancelActiveDownloads()
         tabs.browserStates.removeValue(forKey: tabId)
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
@@ -3118,6 +3362,9 @@ public struct MainView: View {
         let wasOnRight = tabs.rightSide.contains(payload)
         let wasSelectedLeft = tabs.selectedBrowserTabId == tabId
         tabs.openBrowserTabs.remove(at: closedIndex)
+        // Cancel in-flight downloads before dropping the state — a
+        // deallocated `BrowserTabState` can't clean up its partial files.
+        tabs.browserStates[tabId]?.cancelActiveDownloads()
         tabs.browserStates.removeValue(forKey: tabId)
         tabs.rightSide.remove(payload)
         if tabs.selectedRight == payload { tabs.selectedRight = nil }
@@ -3257,12 +3504,73 @@ public struct MainView: View {
         )
     }
 
+    /// Forget seed/persist bookkeeping — and the live tab state — for remote
+    /// sessions killed on a host that is *currently reporting* (connected and
+    /// syncing). The analogue of the local
+    /// `seededSessions.formIntersection(currentSessionNames)` cleanup: without
+    /// it a stale `(hostId, sessionName)` key makes `seedRemoteLayoutIfNeeded`
+    /// short-circuit, so a recreated same-named session never re-seeds from the
+    /// persisted folder layout, and the dead session's `BrowserTabState`
+    /// (`WKWebView`s) leaks (issue #608).
+    ///
+    /// Gated on `hasSessions(for:)`: a host clears its pane state on *disconnect*
+    /// too (`AppCoordinator.onHostDisconnected` → `clearSessions`), which is
+    /// indistinguishable here from a kill — so a host that currently reports
+    /// nothing is treated as disconnected and its bookkeeping is retained for
+    /// reconnect, matching `remoteSessionTabsStates` (only fully cleared on
+    /// unpair). Residual gap: a host whose *only* session is recycled under the
+    /// same name on a *different* folder won't re-seed until reconnect;
+    /// same-folder recycles are unaffected (the retained state already equals
+    /// that folder's record).
+    private func pruneStaleRemoteSessionBookkeeping() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+
+        // Live keys for hosts that currently report sessions. Hosts reporting
+        // nothing (disconnected, or briefly between a kill and a recreate) are
+        // absent, so none of their keys are treated as stale below.
+        var liveKeys: Set<RemoteSessionTabsKey> = []
+        var reportingHosts: Set<String> = []
+        for host in settings.pairedHosts where sessionStore.hasSessions(for: host.id) {
+            reportingHosts.insert(host.id)
+            for session in sessionStore.sessions(for: host.id) {
+                liveKeys.insert(RemoteSessionTabsKey(hostId: host.id, sessionName: session.sessionName))
+            }
+        }
+        guard !reportingHosts.isEmpty else { return }
+
+        func isStale(_ key: RemoteSessionTabsKey) -> Bool {
+            reportingHosts.contains(key.hostId) && !liveKeys.contains(key)
+        }
+
+        for key in seededRemoteSessions where isStale(key) {
+            seededRemoteSessions.remove(key)
+        }
+        for key in lastPersistedRemoteLayouts.keys where isStale(key) {
+            lastPersistedRemoteLayouts.removeValue(forKey: key)
+        }
+        // Save-chain task isn't cancelled — let a final write for the just-killed
+        // session land before forgetting it (matches the unpair path).
+        for key in pendingRemoteLayoutSaves.keys where isStale(key) {
+            pendingRemoteLayoutSaves.removeValue(forKey: key)
+        }
+        // Release the dead session's live tab state (browser `WKWebView`s) so a
+        // recreate starts clean — the analogue of the local
+        // `sessionFileTabsStates` removal.
+        for key in remoteSessionTabsStates.keys where isStale(key) {
+            remoteSessionTabsStates[key]?.cancelActiveBrowserDownloads()
+            remoteSessionTabsStates.removeValue(forKey: key)
+        }
+    }
+
     /// Prune any right-side window entries that point at remote terminals
     /// the host has just removed (a window was closed remotely). Without
     /// this, `isSplit` stays true and the right pane shows "No Tab Selected"
     /// forever even though the referenced window is gone.
     private func pruneStaleRemoteRightSideEntries() {
         guard coordinator.remoteSessionStore != nil else { return }
+        // GC bookkeeping + tab state for sessions killed on a still-connected
+        // host before reconciling the survivors' right-side entries (issue #608).
+        pruneStaleRemoteSessionBookkeeping()
         var prunedSelectedSession = false
         for (key, tabs) in remoteSessionTabsStates {
             let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
@@ -3491,37 +3799,6 @@ public struct MainView: View {
     /// clear `selectedFileTabId` when the selected tab is removed, otherwise
     /// the id will dangle and the content area will render `OpenFileTabContentView`
     /// against a stale tab.
-    /// Resolves the path of the currently-focused file (open file tab when one
-    /// is selected, otherwise the file selected in the file browser detail
-    /// pane) and stores it in `editorPickerPath` so the Cmd+E confirmation
-    /// dialog presents the editor list. No-op when nothing file-shaped is in
-    /// view.
-    private func handleOpenCurrentTabInEditor() {
-        guard let window = selectedWindow else { return }
-        guard
-            let sessionName = tmuxService.sessions
-                .first(where: { $0.windows.contains(where: { $0.id == window.id }) })?
-                .sessionName
-        else { return }
-
-        if
-            let tabs = sessionFileTabsStates[sessionName],
-            let selectedId = tabs.selectedFileTabId,
-            let tab = tabs.openFileTabs.first(where: { $0.id == selectedId }) {
-            editorPickerPath = tab.path
-            return
-        }
-
-        guard
-            fileBrowserActiveWindowIds.contains(window.id),
-            let browserState = fileBrowserStates[sessionName]
-        else { return }
-        let directoryPath = window.activePane?.currentPath ?? NSHomeDirectory()
-        if let path = browserState.selectedFilePath(directoryPath: directoryPath) {
-            editorPickerPath = path
-        }
-    }
-
     private func closeOpenFileTab(_ tabId: UUID, sessionName: String) {
         guard let tabs = sessionFileTabsStates[sessionName] else { return }
         guard let closedIndex = tabs.openFileTabs.firstIndex(where: { $0.id == tabId }) else { return }
@@ -3539,16 +3816,35 @@ public struct MainView: View {
         // Right-side close flow doesn't reroute focus to a terminal window.
         guard !wasOnRight else { return }
 
-        guard let originWindowId = closedTab.originWindowId else { return }
+        switch closedTab.origin {
+        case nil:
+            return
+        case let .terminalWindow(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: false)
+        case let .gitTab(windowId):
+            restoreFileTabOrigin(windowId: windowId, showGit: true)
+        }
+    }
 
+    /// On closing the left-pane file tab, returns the left pane to where the tab
+    /// was opened from: the origin window's terminal, or — when `showGit` — its
+    /// Git tab. Opening a file tab forces file-browser mode, so this undoes that
+    /// and reselects the origin window if focus drifted.
+    @MainActor
+    private func restoreFileTabOrigin(windowId: String, showGit: Bool) {
         // Drop membership unconditionally so the content area falls off the
         // tree even when the origin window is gone (closed/renamed). The
         // entry is otherwise only cleaned up by the panes-change observer,
         // which would briefly keep the tree visible.
-        fileBrowserActiveWindowIds.remove(originWindowId)
+        fileBrowserActiveWindowIds.remove(windowId)
 
-        guard let originWindow = tmuxService.windows.first(where: { $0.id == originWindowId }) else {
+        guard let originWindow = tmuxService.windows.first(where: { $0.id == windowId }) else {
             return
+        }
+        // Only restore the Git tab for a live window; a gone window falls back
+        // to the terminal/default like the terminal-origin case.
+        if showGit {
+            gitActiveWindowIds.insert(windowId)
         }
         if selectedWindow?.id != originWindow.id {
             selectedRemoteSession = nil
@@ -3832,6 +4128,10 @@ public struct MainView: View {
         creatingSelection = project.map { .project($0.id) } ?? .newTerminal
 
         Task {
+            // Always clear the in-flight guard on any exit (including an early
+            // return when the task is cancelled mid-retry), so a later create
+            // isn't blocked by `guard creatingSelection == nil`.
+            defer { creatingSelection = nil }
             do {
                 // Determine session name and working directory
                 let sessionName = project?.name ?? "terminal"
@@ -3877,22 +4177,46 @@ public struct MainView: View {
                 )
 
                 // Find the window containing the new pane and select it.
+                //
+                // The cached window list can momentarily lag tmux:
+                // `createSession`'s own `refreshPanes()` early-returns the stale
+                // cached list when a periodic refresh is already in flight (more
+                // likely on a slow machine), so the just-created pane can be
+                // missing on the first lookup, leaving the new session never
+                // selected ("Select a Window"). The pane definitely exists — we
+                // hold its id — so retry the refresh until its window shows up.
+                // Mirrors the same retry in AppCoordinator's split-window path.
+                //
                 // Clearing the remote selection mirrors createRemoteSession's
                 // own "clear the other side" step — without it, the sidebar's
                 // local-row highlight stays suppressed (see the listRowBackground
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                if let newWindow = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                var newWindow: LocalTmuxWindow?
+                for attempt in 0..<PaneSurfaceRetry.attempts {
+                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
+                        newWindow = found
+                        break
+                    }
+                    if attempt < PaneSurfaceRetry.attempts - 1 {
+                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
+                        guard !Task.isCancelled else { return }
+                        _ = await tmuxService.refreshPanes()
+                    }
+                }
+                if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
                     selectedWindow = newWindow
+                } else {
+                    // The pane never surfaced within the retry budget — surface it
+                    // rather than leaving the user on a silent "Select a Window".
+                    attachError = "Session created but its window didn't appear in time. Try selecting it from the sidebar."
                 }
             } catch {
                 attachError = "Failed to create session: \(error.localizedDescription)"
             }
-
-            creatingSelection = nil
         }
     }
 
@@ -3966,4 +4290,271 @@ struct RemoteSessionTabsKey: Hashable {
 struct GitStoreEntry {
     let path: String
     let store: GitWorkbenchStore
+}
+
+// MARK: - Folder layout persistence
+
+/// Seeding and auto-save glue for per-folder workbench persistence. Kept in this
+/// file so it can read `MainView`'s private session-tab `@State`. See
+/// `docs/folder-layout-persistence-plan.md`.
+private extension MainView {
+    /// Host identifier for **locally-managed** sessions — a constant, since a
+    /// host only ever owns one set of local sessions. Remote/viewer sessions are
+    /// persisted too (issue #608) but key their records by the host's `pairId`
+    /// (passed directly in the remote seed/persist paths), never this constant,
+    /// so local and remote records on the same path can't collide. The pairId is
+    /// a UUID-shaped string, so it never equals `"local"`.
+    var layoutHost: String {
+        SavedFolderRecord.localHost
+    }
+
+    /// Windows belonging to `sessionName`, in tmux order.
+    func windows(forSession sessionName: String) -> [LocalTmuxWindow] {
+        tmuxService.windows.filter { $0.sessionName == sessionName }
+    }
+
+    /// Canonical project folder for a session: the active pane's detected
+    /// project path when known, else its working directory. `nil` until a pane
+    /// (and thus a path) is available.
+    func resolveFolder(forSession sessionName: String) -> String? {
+        resolveFolder(in: windows(forSession: sessionName))
+    }
+
+    /// Same as `resolveFolder(forSession:)` but works off a precomputed window
+    /// list, so a hot loop can group `tmuxService.windows` once instead of
+    /// re-filtering per session.
+    func resolveFolder(in sessionWindows: [LocalTmuxWindow]) -> String? {
+        guard
+            let active = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first,
+            let pane = active.activePane
+        else { return nil }
+        let raw = windowManager.paneStates[pane.paneId]?.agentSession?.detectedProjectPath
+            ?? pane.currentPath
+        return LayoutFolderKey.canonicalize(raw)
+    }
+
+    /// Restore the selected session's workbench from the folder's persisted
+    /// layout — once, and only while it's still empty so user-opened tabs are
+    /// never clobbered. Layout is keyed by folder, so a new session inherits the
+    /// folder's current layout and a recycled session name no longer resurrects a
+    /// stale per-session record (plan §4.3).
+    func seedLayoutIfNeeded() {
+        guard let sessionName = selectedWindow?.sessionName else { return }
+        guard !seededSessions.contains(sessionName) else { return }
+
+        // Don't seed a session the user has already populated.
+        if let existing = sessionFileTabsStates[sessionName], !isWorkbenchEmpty(existing) {
+            seededSessions.insert(sessionName)
+            return
+        }
+        guard let folder = resolveFolder(forSession: sessionName) else {
+            // Folder not resolvable yet — leave unmarked so a later change retries.
+            return
+        }
+        seededSessions.insert(sessionName)
+
+        let key = SavedFolderRecord.Key(host: layoutHost, folder: folder)
+        Task {
+            guard let chosen = await layoutStore.record(key)?.layout, !chosen.isEmpty else { return }
+
+            // The store await may have suspended across a cleanup pass that tore
+            // this session down. Don't resurrect a dead session's tabs state.
+            guard tmuxService.sessions.contains(where: { $0.sessionName == sessionName }) else { return }
+
+            // Re-check freshness now that we've awaited the store.
+            let tabs = sessionFileTabsStates[sessionName] ?? {
+                let new = SessionFileTabsState()
+                sessionFileTabsStates[sessionName] = new
+                return new
+            }()
+            guard isWorkbenchEmpty(tabs) else { return }
+
+            let sessionWindows = windows(forSession: sessionName)
+            LayoutSnapshotMapper.apply(
+                chosen,
+                to: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                makeBrowserState: { BrowserTabState(initialURL: $0.url) }
+            )
+            // Baseline the change-gate from the *applied* state, not `chosen`:
+            // apply clamps the split ratio and resolves selection/window refs, so
+            // re-snapshotting avoids one redundant save right after seeding.
+            lastPersistedLayouts[sessionName] = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+        }
+    }
+
+    /// Persist every session whose layout changed since its last write. Empty
+    /// workbenches aren't recorded (nothing to restore). Called on each tmux
+    /// refresh — the change check keeps the disk write rare.
+    func persistChangedLayouts() {
+        // Group the window list once instead of filtering per session below.
+        let windowsBySession = Dictionary(grouping: tmuxService.windows, by: \.sessionName)
+        for (sessionName, tabs) in sessionFileTabsStates {
+            let sessionWindows = windowsBySession[sessionName] ?? []
+            guard let folder = resolveFolder(in: sessionWindows) else { continue }
+            let snapshot = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: fileBrowserStates[sessionName],
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+            guard !snapshot.isEmpty else { continue }
+            guard lastPersistedLayouts[sessionName] != snapshot else { continue }
+            lastPersistedLayouts[sessionName] = snapshot
+
+            let record = SavedFolderRecord(
+                host: layoutHost,
+                folder: folder,
+                lastActive: Date(),
+                layout: snapshot
+            )
+            // Chain on the session's prior save so writes reach the store in the
+            // order they were produced, even though each runs in its own Task.
+            let previous = pendingLayoutSaves[sessionName]
+            pendingLayoutSaves[sessionName] = Task {
+                await previous?.value
+                await layoutStore.save(record)
+            }
+        }
+    }
+
+    // MARK: - Remote (viewer) sessions — issue #608
+
+    /// Canonical project folder for a remote session, read from the viewer's
+    /// synced `SessionStore`. Mirrors `resolveFolder(forSession:)` but uses
+    /// **string-only** normalization: a remote path lives on the host's disk, so
+    /// it must never be expanded/symlink-resolved against the viewer's. `nil`
+    /// until a pane (and thus a path) for the session has synced.
+    func resolveRemoteFolder(hostId: String, sessionName: String) -> String? {
+        guard let sessionStore = coordinator.remoteSessionStore else { return nil }
+        let sessionWindows = sessionStore.windows(for: hostId)
+            .filter { $0.sessionName == sessionName }
+        return resolveRemoteFolder(in: sessionWindows)
+    }
+
+    /// Same as `resolveRemoteFolder(hostId:sessionName:)` but off a precomputed
+    /// window list, so the persist loop can group a host's windows once.
+    func resolveRemoteFolder(in sessionWindows: [TmuxWindow]) -> String? {
+        guard
+            let active = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first,
+            let pane = active.activePane
+        else { return nil }
+        let raw = pane.agentSession?.detectedProjectPath ?? pane.currentPath
+        return LayoutFolderKey.canonicalizeRemote(raw)
+    }
+
+    /// Remote counterpart of `seedLayoutIfNeeded`: restore the selected remote
+    /// session's workbench from the folder's persisted record — once, and only
+    /// while still empty. Records are keyed by `(pairId, folder)`, so a viewer
+    /// restores its own arrangement for that remote folder and never collides
+    /// with local (`layoutHost`) records.
+    ///
+    /// Remote file browsing doesn't exist yet, so only **browser tabs + split +
+    /// selection** are restored — the snapshot's `fileTabs` come out empty and
+    /// there is no file browser to seed (`fileBrowser: nil`).
+    func seedRemoteLayoutIfNeeded() {
+        guard let remote = selectedRemoteSession else { return }
+        let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+        guard !seededRemoteSessions.contains(key) else { return }
+
+        // Don't seed a session the user has already populated.
+        if let existing = remoteSessionTabsStates[key], !isWorkbenchEmpty(existing) {
+            seededRemoteSessions.insert(key)
+            return
+        }
+        guard let folder = resolveRemoteFolder(hostId: remote.hostId, sessionName: remote.sessionName) else {
+            // Folder not synced yet — leave unmarked so a later change retries.
+            return
+        }
+        seededRemoteSessions.insert(key)
+
+        let recordKey = SavedFolderRecord.Key(host: remote.hostId, folder: folder)
+        Task {
+            guard let chosen = await layoutStore.record(recordKey)?.layout, !chosen.isEmpty else { return }
+
+            // The store await may have suspended across a disconnect/unpair that
+            // cleared this host's sessions. Don't resurrect a gone session.
+            guard
+                let sessionStore = coordinator.remoteSessionStore,
+                sessionStore.sessions(for: remote.hostId).contains(where: { $0.sessionName == remote.sessionName })
+            else { return }
+
+            let tabs = remoteSessionTabsStates[key] ?? {
+                let new = SessionFileTabsState()
+                remoteSessionTabsStates[key] = new
+                return new
+            }()
+            guard isWorkbenchEmpty(tabs) else { return }
+
+            let sessionWindows = remoteSessionWindows(hostId: remote.hostId, sessionName: remote.sessionName)
+            LayoutSnapshotMapper.apply(
+                chosen,
+                to: tabs,
+                fileBrowser: nil,
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                makeBrowserState: { BrowserTabState(initialURL: $0.url) }
+            )
+            // Baseline the change-gate from the *applied* state (apply clamps the
+            // split ratio and resolves window refs) so seeding doesn't trigger an
+            // immediate redundant re-save.
+            lastPersistedRemoteLayouts[key] = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: nil,
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+        }
+    }
+
+    /// Remote counterpart of `persistChangedLayouts`: persist every remote
+    /// session whose browser-tab + split layout changed since its last write,
+    /// keyed by `(pairId, folder)`. `fileTabs` come out empty (remote file
+    /// browsing doesn't exist). Sessions whose folder no longer resolves (host
+    /// disconnected, panes cleared) are skipped, so a vanished session never
+    /// writes a stale record.
+    func persistChangedRemoteLayouts() {
+        guard let sessionStore = coordinator.remoteSessionStore else { return }
+        // Fetch each host's windows once (groups all panes) instead of
+        // re-deriving them per session below.
+        let hostIds = Set(remoteSessionTabsStates.keys.map(\.hostId))
+        let windowsByHost = Dictionary(
+            uniqueKeysWithValues: hostIds.map { ($0, sessionStore.windows(for: $0)) }
+        )
+        for (key, tabs) in remoteSessionTabsStates {
+            let sessionWindows = (windowsByHost[key.hostId] ?? [])
+                .filter { $0.sessionName == key.sessionName }
+            guard let folder = resolveRemoteFolder(in: sessionWindows) else { continue }
+            let snapshot = LayoutSnapshotMapper.snapshot(
+                from: tabs,
+                fileBrowser: nil,
+                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+            )
+            guard !snapshot.isEmpty else { continue }
+            guard lastPersistedRemoteLayouts[key] != snapshot else { continue }
+            lastPersistedRemoteLayouts[key] = snapshot
+
+            let record = SavedFolderRecord(
+                host: key.hostId,
+                folder: folder,
+                lastActive: Date(),
+                layout: snapshot
+            )
+            // Chain on the session's prior save so writes land in order.
+            let previous = pendingRemoteLayoutSaves[key]
+            pendingRemoteLayoutSaves[key] = Task {
+                await previous?.value
+                await layoutStore.save(record)
+            }
+        }
+    }
+
+    /// A workbench is "empty" (safe to seed) when the user hasn't opened any
+    /// file/browser tab or split — `tabOrder` is ignored because the tab strip
+    /// auto-populates window/explorer entries even for a fresh session.
+    func isWorkbenchEmpty(_ tabs: SessionFileTabsState) -> Bool {
+        tabs.openFileTabs.isEmpty && tabs.openBrowserTabs.isEmpty && tabs.rightSide.isEmpty
+    }
 }

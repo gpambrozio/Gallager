@@ -5,7 +5,6 @@ import Foundation
 public extension Notification.Name {
     static let refreshPaneList = Notification.Name("refreshPaneList")
     static let openPanesWindow = Notification.Name("openPanesWindow")
-    static let openCurrentTabInEditor = Notification.Name("openCurrentTabInEditor")
     static let openContentSearch = Notification.Name("openContentSearch")
     /// Posted when `EditorClient.openFile` returns `false`. `userInfo` carries
     /// a human-readable message under ``editorLaunchFailedMessageKey`` so
@@ -19,6 +18,9 @@ public extension Notification.Name {
     /// session's tab strip and selects the tab to the right of the
     /// currently-selected one, wrapping at the trailing edge.
     static let selectNextTab = Notification.Name("selectNextTab")
+    /// Posted by the "New Session" menu item (⌘N). `MainView` opens the Local
+    /// section's new-session popover, which auto-focuses its search field.
+    static let newLocalSession = Notification.Name("newLocalSession")
 }
 
 /// `userInfo` key used by ``Notification.Name/editorLaunchFailed`` to carry

@@ -21,17 +21,39 @@ public struct PluginEnv: Sendable {
     /// `<agent> plugin marketplace add`.
     public let marketplaceSource: URL
 
-    public init(pluginRoot: URL, stateDir: URL, appVersion: String, settings: Data, marketplaceSource: URL) {
+    /// The base URL of the Mac-local OTLP/JSON receiver the host is listening on
+    /// (e.g. `http://127.0.0.1:24318`), or `nil` when no receiver is running.
+    /// The port is whatever the receiver ACTUALLY bound this launch — it probes
+    /// fallback candidates when its preferred port is taken — so cores must use
+    /// this value verbatim and never assume a fixed port.
+    ///
+    /// Cores whose agent reads `OTEL_*` env vars (Claude Code) ignore this — the
+    /// host injects those vars directly into the pane. Cores whose agent is
+    /// configured only through its own config (Codex CLI, which does not read
+    /// `OTEL_*`) use this to point the agent's OTLP export at the receiver
+    /// (issue #602). One-way push, signal-specific paths are appended by the
+    /// core (`/v1/logs`).
+    public let otlpReceiverEndpoint: URL?
+
+    public init(
+        pluginRoot: URL,
+        stateDir: URL,
+        appVersion: String,
+        settings: Data,
+        marketplaceSource: URL,
+        otlpReceiverEndpoint: URL? = nil
+    ) {
         self.pluginRoot = pluginRoot
         self.stateDir = stateDir
         self.appVersion = appVersion
         self.settings = settings
         self.marketplaceSource = marketplaceSource
+        self.otlpReceiverEndpoint = otlpReceiverEndpoint
     }
 }
 
 /// What a core returns from `commandForLaunch` to auto-start its agent in a pane.
-public struct LaunchCommand: Sendable {
+public struct LaunchCommand: Sendable, Codable {
     public let command: String
     public let args: [String]
     public let env: [String: String]
@@ -44,14 +66,14 @@ public struct LaunchCommand: Sendable {
 }
 
 /// Result of `install()`.
-public enum InstallResult: Sendable {
+public enum InstallResult: Sendable, Codable {
     case installed(message: String)
     case alreadyInstalled
 }
 
 /// Snapshot of whether the agent's plugin is installed for a given config root.
 /// Transient `installing` / `failed` states are view state, not core state.
-public enum PluginInstallStatus: Sendable, Equatable {
+public enum PluginInstallStatus: Sendable, Codable, Equatable {
     case installed(version: String?)
     case notInstalled
     /// The agent's CLI binary could not be located / run.
@@ -59,14 +81,14 @@ public enum PluginInstallStatus: Sendable, Equatable {
 }
 
 /// Result of `applySettings(_:)`. `.error` surfaces inline in the settings form.
-public enum SettingsResult: Sendable {
+public enum SettingsResult: Sendable, Codable {
     case applied
     case error(field: String?, message: String)
 }
 
 /// A structured log line appended to the plugin's log file and surfaced in
 /// Settings → View Logs (spec §15).
-public struct LogLine: Sendable {
+public struct LogLine: Sendable, Codable {
     public let level: LogLevel
     public let message: String
 

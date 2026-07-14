@@ -1,3 +1,5 @@
+import CoreGraphics
+import Darwin
 import Foundation
 import Logging
 
@@ -6,6 +8,8 @@ public actor TestOrchestrator {
     private let simulatorDriver = SimulatorDriver()
     /// macOS drivers keyed by instance number. Created lazily via `macDriver(for:)`.
     private var macDrivers: [Int: MacOSDriver] = [:]
+    /// Sockets held open by the `occupyTCPPort` step, released in `cleanup()`.
+    private var occupiedPortSockets: [Int32] = []
     private let serverDriver = ServerDriver()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
@@ -27,6 +31,10 @@ public actor TestOrchestrator {
     /// hook-delivery DSL step writes frames to `<stateRoot>/ingress.sock`.
     private let gallagerStateRootBase: String
     private let skipComparison: Bool
+    /// Lane geometry applied when a recorded run needs every instance visible
+    /// in one full-display take (issue #621). `nil` (the default) means
+    /// coordinates pass through untouched — zero behavior change unrecorded.
+    private let stageLayout: StageLayout?
     private let reporter: (any TestProgressReporter)?
     private var screenshotCounter = 0
     /// Paths of scripts copied to TMPDIR via `injectScript`, cleaned up after each scenario.
@@ -110,6 +118,7 @@ public actor TestOrchestrator {
         tmuxSocket: String? = nil,
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
+        stageLayoutEnabled: Bool = false,
         gallagerStateRootBase: String? = nil,
         reporter: (any TestProgressReporter)? = nil
     ) {
@@ -121,6 +130,9 @@ public actor TestOrchestrator {
         self.tmuxSocket = tmuxSocket
         self.e2eRunnerPath = e2eRunnerPath
         self.skipComparison = skipComparison
+        self.stageLayout = stageLayoutEnabled
+            ? StageLayout(display: CGDisplayBounds(CGMainDisplayID()).size)
+            : nil
         self.reporter = reporter
         self.gallagerStateRootBase = gallagerStateRootBase
             ?? (NSTemporaryDirectory() + "claudespy-e2e-gallager")
@@ -134,7 +146,7 @@ public actor TestOrchestrator {
         await reporter?.scenarioStarted(scenario.name, totalSteps: scenario.steps.count)
         let startTime = ContinuousClock.now
 
-        let scenarioDirName = sanitizeForPath(scenario.name)
+        let scenarioDirName = Self.scenarioDirName(for: scenario.name)
 
         // Ensure per-scenario screenshots directory exists
         let scenarioScreenshotsDir = "\(screenshotsDir)/\(scenarioDirName)"
@@ -150,6 +162,10 @@ public actor TestOrchestrator {
         // Pre-populate context with orchestrator configuration
         context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
+        // Instance 1's notification log. Two-Mac scenarios assert that a
+        // connected Mac *viewer* materialized a host-pushed agent notification
+        // locally (issue #628); instance 0 stays under the unsuffixed key.
+        context.set("notificationLogPath1", value: notificationLogPath(for: 1))
         context.set("pushLogPath", value: pushLogPath(for: 0))
         context.set("fakeEditorLogPath", value: fakeEditorLogPath(for: 0))
         context.set("defaultBrowserLogPath", value: defaultBrowserLogPath(for: 0))
@@ -159,8 +175,26 @@ public actor TestOrchestrator {
         // under the unsuffixed `defaultBrowserLogPath` for backwards-compat
         // with existing scenarios.
         context.set("defaultBrowserLogPath1", value: defaultBrowserLogPath(for: 1))
+        // Instance 0's browser downloads directory (`--downloads-dir`), so
+        // download scenarios can assert on saved files without touching the
+        // machine's real ~/Downloads (which would trip a TCC consent prompt).
+        context.set("downloadsDirPath", value: downloadsDirPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
+        // Instance 0's `--gallager-state-root`, so scenarios can pre-seed
+        // plugin state (e.g. a codex `settings.json`) before the app launches
+        // and place watched fixture files (e.g. a codex `config.toml`) inside
+        // the per-scenario sandbox the orchestrator already cleans up.
+        context.set("gallagerStateRoot", value: gallagerStateRootPath(for: 0))
+        // Instance 0's OTLP receiver endpoint, pre-seeded with the preferred
+        // `--otlp-port` the launch args pass (`defaultOTLPPort + 0`). Telemetry
+        // scenarios POST synthetic OTLP here via `${otlpEndpoint}`, so the curl
+        // follows this instance's own receiver instead of a hardcoded port
+        // (which could be held by another instance or a developer's real app).
+        // After `launchMacApp`, this is repointed at the port the app ACTUALLY
+        // bound (queried via `/otlp-port`) in case the preferred port was taken
+        // and the receiver fell back to a candidate.
+        context.set("otlpEndpoint", value: "http://127.0.0.1:\(MacOSDriver.defaultOTLPPort)")
 
         // Clear any leftover fake-editor log from a previous run so scenario
         // assertions don't see stale entries.
@@ -266,6 +300,18 @@ public actor TestOrchestrator {
 
     /// Run multiple scenarios, cleaning up after each one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
+        // Reset the shared gallager state-root base once before the suite runs.
+        // Per-scenario `cleanup()` only removes `<base>/<idx>` — never the sibling
+        // `<base>/plugins/` where sidecar fixtures and zip-installed plugins land.
+        // Because `<base>` defaults to a stable `NSTemporaryDirectory()` path that
+        // is reused across runs, a prior run's `AgentsInstallZipAutoSelectScenario`
+        // would otherwise leave `ziptest-sidecar` behind and leak a phantom
+        // "Zip Install Test" agent into the *next* run's `AgentsSettingsTabScenario`
+        // (which registers before the zip scenario). Wiping here guarantees every
+        // suite run starts with an empty plugins dir → a deterministic agent list.
+        try? FileManager.default.removeItem(atPath: gallagerStateRootBase)
+        logger.info("Reset gallager state-root base: \(gallagerStateRootBase)")
+
         var results: [ScenarioResult] = []
         for scenario in scenarios {
             let result = await run(scenario)
@@ -304,6 +350,12 @@ public actor TestOrchestrator {
     public func cleanup() async {
         logger.info("=== Cleaning up ===")
         cleanupInjectedScripts()
+        // Release ports held by the `occupyTCPPort` step so the next scenario
+        // starts with the loopback space it expects.
+        for fd in occupiedPortSockets {
+            close(fd)
+        }
+        occupiedPortSockets.removeAll()
         try? await simulatorDriver.terminateApp()
         let instanceKeys = Array(macDrivers.keys)
         for driver in macDrivers.values {
@@ -477,6 +529,11 @@ public actor TestOrchestrator {
                 bundleId: iosBundleId(),
                 arguments: iosArgs
             )
+            if let stageLayout {
+                await simulatorDriver.positionWindowTopRight(
+                    displayWidth: Int(stageLayout.display.width)
+                )
+            }
 
         case .terminateIOSApp:
             try await simulatorDriver.terminateApp()
@@ -573,22 +630,39 @@ public actor TestOrchestrator {
                 atPath: stateRoot,
                 withIntermediateDirectories: true
             )
-            var arguments = [
+            var arguments = try [
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
                 "--gallager-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
+                // Per-instance OTLP receiver port so concurrent instances (and a
+                // dev's real app on 24318) never share a loopback telemetry
+                // receiver. This is the app's PREFERRED port — it probes fallback
+                // candidates when taken, and the env injection advertises the
+                // actually-bound port, so launched panes always POST to this
+                // instance's own receiver.
+                "--otlp-port", "\(driver.otlpPort)",
                 "--notification-log", notificationLogPath(for: instance),
                 "--push-log", pushLogPath(for: instance),
                 "--clipboard-file", clipboardFilePath(for: instance),
                 "--default-browser-log", defaultBrowserLogPath(for: instance),
+                "--downloads-dir", downloadsDirPath(for: instance),
+                "--git-changes-file", gitChangesFilePath(for: instance),
+                // Shells the app spawns use the shim as $ZDOTDIR (forwarded to
+                // TmuxService.zdotDirOverride) so scenario-typed commands never
+                // reach the user's ~/.zsh_history.
+                "--zdotdir", ensureZDotDirShim(),
             ]
             // Seed deterministic projects so project-list / project-search
             // scenarios see a stable set (the in-memory scanners that used to
             // do this were deleted in the plugin-system flip). Honoured only in
             // `--e2e-test` + DEBUG builds.
             arguments += ["--e2e-seed-projects"]
+            // Pin the advertised device name so screenshots are portable across
+            // machines whose real `ComputerName` differs. "MacMini" matches the
+            // name the existing baselines were captured with, so they stay valid.
+            arguments += ["--e2e-device-name", "MacMini"]
             if let appVersion {
                 arguments += ["--app-version", appVersion]
             }
@@ -613,6 +687,19 @@ public actor TestOrchestrator {
                 ]
             }
             try await driver.launchApp(path: macOSAppPath, arguments: arguments)
+
+            // The app probes fallback candidates when its preferred
+            // `--otlp-port` is taken (OTLPReceiver collision protection), so
+            // the port actually bound can differ from the one passed above.
+            // Repoint `${otlpEndpoint}` at the real port for instance 0 —
+            // telemetry scenarios POST synthetic OTLP there. Best-effort: on
+            // timeout the pre-seeded preferred-port value stays, which matches
+            // the no-fallback case.
+            if
+                instance == 0,
+                let bound = await MacAppHTTPClient.waitForOTLPPort(port: driver.testAccessibilityPort) {
+                context.set("otlpEndpoint", value: "http://127.0.0.1:\(bound)")
+            }
 
         case let .terminateMacApp(instance):
             try? await macDriver(for: instance).terminateApp()
@@ -650,8 +737,12 @@ public actor TestOrchestrator {
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
 
-        case let .macCGClickElement(query, pointInRect, instance):
-            try await macDriver(for: instance).cgClick(matching: query, pointInRect: pointInRect)
+        case let .macCGClickElement(query, pointInRect, instance, timeout):
+            try await macDriver(for: instance).cgClick(
+                matching: query.resolved(context.resolve),
+                pointInRect: pointInRect,
+                timeout: timeout
+            )
 
         case let .macRightClick(titled, instance):
             try await macDriver(for: instance).rightClick(titled: titled)
@@ -734,6 +825,12 @@ public actor TestOrchestrator {
             let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
             logger.info("  Cleared file-backed clipboard\(suffix)")
 
+        case let .setGitMockChanges(hasChanges, instance):
+            let path = gitChangesFilePath(for: instance)
+            try (hasChanges ? "1" : "0").write(toFile: path, atomically: true, encoding: .utf8)
+            let suffix = instance > 0 ? " (mac\(instance + 1))" : ""
+            logger.info("  Set git mock changes\(suffix): \(hasChanges)")
+
         case let .macPaste(instance):
             try await macDriver(for: instance).paste()
 
@@ -753,23 +850,36 @@ public actor TestOrchestrator {
             let resolvedTitle = context.resolve(titled)
             try await macDriver(for: instance).waitForElementToDisappear(titled: resolvedTitle, timeout: timeout)
 
+        case let .macWaitForElementVisible(titled, timeout, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElementVisible(titled: resolvedTitle, timeout: timeout)
+
+        case let .macWaitForElementNotVisible(titled, timeout, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance).waitForElementNotVisible(titled: resolvedTitle, timeout: timeout)
+
         case let .macWaitForElementQuery(query, timeout, instance):
-            try await macDriver(for: instance).waitForElement(matching: query, timeout: timeout)
+            try await macDriver(for: instance).waitForElement(matching: query.resolved(context.resolve), timeout: timeout)
 
         case let .macWaitForElementQueryToDisappear(query, timeout, instance):
-            try await macDriver(for: instance).waitForElementToDisappear(matching: query, timeout: timeout)
+            try await macDriver(for: instance)
+                .waitForElementToDisappear(matching: query.resolved(context.resolve), timeout: timeout)
 
         case let .macOpenPanesWindow(instance):
             try await macDriver(for: instance).openPanesWindow()
 
         case let .macMoveWindow(x, y, instance):
-            try await macDriver(for: instance).moveWindow(x: x, y: y)
+            let p = staged(x: x, y: y, instance: instance)
+            try await macDriver(for: instance).moveWindow(x: p.x, y: p.y)
 
         case let .macResizeWindow(width, height, instance):
             try await macDriver(for: instance).resizeWindow(width: width, height: height)
 
         case let .macSetSidebarWidth(width, instance):
             try await macDriver(for: instance).setSidebarWidth(width)
+
+        case let .macSetSidebarFields(fields, instance):
+            try await macDriver(for: instance).setSidebarFields(fields)
 
         case let .macFocusElement(titled, instance):
             try await macDriver(for: instance).focusElement(titled: titled)
@@ -784,11 +894,20 @@ public actor TestOrchestrator {
         case let .macScrollWheel(deltaY, count, instance):
             try await macDriver(for: instance).scrollWheel(deltaY: deltaY, count: count)
 
+        case let .macScrollWheelAtElement(titled, deltaY, count, instance):
+            let resolvedTitle = context.resolve(titled)
+            try await macDriver(for: instance)
+                .scrollWheel(atElementTitled: resolvedTitle, deltaY: deltaY, count: count)
+
         case let .macClickAtPoint(x, y, instance):
-            try await macDriver(for: instance).clickAtScreenPoint(x: x, y: y)
+            let p = staged(x: x, y: y, instance: instance)
+            try await macDriver(for: instance).clickAtScreenPoint(x: p.x, y: p.y)
 
         case let .macDrag(fromX, fromY, toX, toY, instance):
-            try await macDriver(for: instance).drag(fromX: fromX, fromY: fromY, toX: toX, toY: toY)
+            let from = staged(x: fromX, y: fromY, instance: instance)
+            let to = staged(x: toX, y: toY, instance: instance)
+            try await macDriver(for: instance)
+                .drag(fromX: from.x, fromY: from.y, toX: to.x, toY: to.y)
 
         case let .macDragElement(fromQuery, toQuery, instance):
             try await macDriver(for: instance).dragElement(from: fromQuery, to: toQuery)
@@ -804,6 +923,11 @@ public actor TestOrchestrator {
             }
 
         // Tmux
+        case let .occupyTCPPort(port):
+            let fd = try Self.occupyIPv4LoopbackPort(port)
+            occupiedPortSockets.append(fd)
+            logger.info("Occupying 127.0.0.1:\(port) (fd \(fd)) for the rest of the scenario")
+
         case let .tmuxCreateSession(name, width, height):
             let socket = context.resolve("${tmuxSocket}")
             let resolvedName = context.resolve(name)
@@ -816,9 +940,13 @@ public actor TestOrchestrator {
             // SAME directory. We used to rely on the tmux server inheriting the runner's TMPDIR, but
             // that breaks when the runner and the tmux server have different temp dirs (e.g. under a
             // sandbox), leaving injected scripts unfindable.
+            // Point ZDOTDIR at the shim so scenario-typed commands never reach the
+            // user's ~/.zsh_history (a plain `-e HISTFILE=` wouldn't survive
+            // /etc/zshrc, which reassigns HISTFILE after the pane env is applied).
+            let zdotDir = try ensureZDotDirShim()
             _ = try await runner.runOrThrow(
                 "tmux",
-                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())"]
+                arguments: ["-f", "/dev/null", "-S", socket, "new-session", "-d", "-s", resolvedName, "-x", "\(width)", "-y", "\(height)", "-c", NSHomeDirectory(), "-e", "DISABLE_AUTO_UPDATE=true", "-e", "DISABLE_UPDATE_PROMPT=true", "-e", "TMPDIR=\(NSTemporaryDirectory())", "-e", "ZDOTDIR=\(zdotDir)"]
             )
 
         case let .tmuxStorePaneDimensions(target, widthKey, heightKey):
@@ -867,6 +995,23 @@ public actor TestOrchestrator {
             let content = result.stdoutString
             context.set(storeAs, value: content)
             logger.info("  Captured pane content (\(content.count) chars) → stored as ${\(storeAs)}")
+
+        case let .tmuxWaitForPaneContent(target, contains, timeout):
+            let socket = context.resolve("${tmuxSocket}")
+            let resolvedTarget = context.resolve(target)
+            let resolvedContains = context.resolve(contains)
+            let runner = processRunner
+            try await Polling.waitUntil(
+                description: "tmux pane '\(resolvedTarget)' content contains '\(resolvedContains)'",
+                timeout: timeout,
+                pollInterval: 1
+            ) {
+                let result = try? await runner.runOrThrow(
+                    "tmux",
+                    arguments: ["-S", socket, "capture-pane", "-t", resolvedTarget, "-p"]
+                )
+                return result?.stdoutString.contains(resolvedContains) ?? false
+            }
 
         case let .tmuxSendKeys(target, keys, literal):
             let socket = context.resolve("${tmuxSocket}")
@@ -949,6 +1094,14 @@ public actor TestOrchestrator {
                 projectPath: resolvedPath,
                 socketPath: ingressSocketPath(for: instance)
             )
+
+        // Sidecar Fixture Staging
+        case let .macStageSidecarFixture(id, instance, otlpNamespace):
+            try stageSidecarFixture(id: id, instance: instance, otlpNamespace: otlpNamespace)
+
+        case let .macStageSidecarZip(id, displayName, storeAs, instance):
+            let zipPath = try stageSidecarZip(id: id, displayName: displayName, instance: instance)
+            context.set(storeAs, value: zipPath)
 
         // Assertions
         case let .assertStoredEqual(key, otherKey):
@@ -1042,6 +1195,16 @@ public actor TestOrchestrator {
             try? FileManager.default.removeItem(atPath: resolvedPath)
             logger.info("  Removed file (if present): \(resolvedPath)")
 
+        case let .writeFile(path, content):
+            let resolvedPath = context.resolve(path)
+            let resolvedContent = context.resolve(content)
+            try FileManager.default.createDirectory(
+                atPath: (resolvedPath as NSString).deletingLastPathComponent,
+                withIntermediateDirectories: true
+            )
+            try resolvedContent.write(toFile: resolvedPath, atomically: true, encoding: .utf8)
+            logger.info("  Wrote file (\(resolvedContent.count) chars): \(resolvedPath)")
+
         case let .waitForFileContains(path, substring, storeAs, timeout, pollInterval):
             let resolvedPath = context.resolve(path)
             let resolvedSubstring = context.resolve(substring)
@@ -1065,7 +1228,228 @@ public actor TestOrchestrator {
         return nil
     }
 
+    // MARK: - Sidecar Fixture Staging
+
+    /// Copy the built `EchoPluginSidecar` binary and a minimal `plugin.json`
+    /// into `<gallagerRoot>/plugins/<id>/` so the app discovers and spawns the
+    /// sidecar on startup (folder-drop channel, spec §9).
+    ///
+    /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
+    /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
+    private func stageSidecarFixture(id: String, instance: Int, otlpNamespace: String? = nil) throws {
+        // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let pluginDir = gallagerRoot
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent(id, isDirectory: true)
+        let binDir = pluginDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Locate the EchoPluginSidecar binary (same walk as EchoSidecarTestSupport).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        if fm.fileExists(atPath: destBinary.path) {
+            try fm.removeItem(at: destBinary)
+        }
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes(
+            [.posixPermissions: 0o755 as NSNumber],
+            ofItemAtPath: destBinary.path
+        )
+
+        // Write a minimal plugin.json. An `otlp` declaration (issue #617) routes
+        // `<namespace>.api_request` OTLP records into the plugin session's meter.
+        let otlpField = otlpNamespace.map { #""otlp": { "namespace": "\#($0)" },"# } ?? ""
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "Echo Sidecar (E2E)",
+            "short_name": "Echo",
+            "version": "0.0.1",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            \(otlpField)
+            "ui": {}
+        }
+        """
+        let manifestURL = pluginDir.appendingPathComponent("plugin.json")
+        try pluginJSON.write(to: manifestURL, atomically: true, encoding: .utf8)
+        logger.info("Staged sidecar fixture '\(id)' → \(pluginDir.path)")
+    }
+
+    /// Build a self-contained sidecar `.zip` (EchoPluginSidecar binary at
+    /// `bin/sidecar` + a `plugin.json` at the archive root) and return its absolute
+    /// path. Used by `macStageSidecarZip` to exercise the local-zip install flow.
+    /// Both the staging tree and the final zip live under the instance's gallager
+    /// root so they are cleaned up with the rest of the scenario state.
+    private func stageSidecarZip(id: String, displayName: String, instance: Int) throws -> String {
+        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
+        let gallagerRoot = stateRoot.deletingLastPathComponent()
+        let fixturesDir = gallagerRoot.appendingPathComponent("zip-fixtures", isDirectory: true)
+        let stagingDir = fixturesDir.appendingPathComponent("\(id)-src", isDirectory: true)
+        let binDir = stagingDir.appendingPathComponent("bin", isDirectory: true)
+        let fm = FileManager.default
+        try? fm.removeItem(at: stagingDir)
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        // Copy the real EchoPluginSidecar so the installed plugin actually answers
+        // `initialize` and enables (→ a successful install, not enableFailed).
+        let binaryURL = try locateEchoSidecarBinary()
+        let destBinary = binDir.appendingPathComponent("sidecar")
+        try fm.copyItem(at: binaryURL, to: destBinary)
+        try fm.setAttributes([.posixPermissions: 0o755 as NSNumber], ofItemAtPath: destBinary.path)
+
+        let pluginJSON = """
+        {
+            "schema_version": 1,
+            "id": "\(id)",
+            "display_name": "\(displayName)",
+            "short_name": "\(id)",
+            "version": "1.0.0",
+            "process_names": [],
+            "runtime": "sidecar",
+            "sidecar": { "executable": "bin/sidecar" },
+            "ui": {}
+        }
+        """
+        try pluginJSON.write(
+            to: stagingDir.appendingPathComponent("plugin.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        // Zip the *contents* of the staging dir so plugin.json sits at the root.
+        let zipURL = fixturesDir.appendingPathComponent("\(id).zip")
+        try? fm.removeItem(at: zipURL)
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-r", "-q", zipURL.path, "."]
+        zip.currentDirectoryURL = stagingDir
+        try zip.run()
+        zip.waitUntilExit()
+        guard zip.terminationStatus == 0 else {
+            throw OrchestratorError.configurationError("Failed to build sidecar zip for '\(id)'")
+        }
+        logger.info("Staged sidecar zip '\(id)' → \(zipURL.path)")
+        return zipURL.path
+    }
+
+    /// Locate the `EchoPluginSidecar` binary in the SPM build-products tree.
+    /// The `EchoPluginSidecar` executable is built by `swift build` (not the
+    /// Xcode workspace), so it lives under `ClaudeSpyPackage/.build/{debug,release}/`.
+    /// We assemble candidate `ClaudeSpyPackage` roots from several sources and
+    /// probe each — robust whether the coordinator runs as an SPM test (where the
+    /// `#file` walk works) or as the Xcode-built E2E binary (where `#file` is
+    /// remapped and the working directory / an explicit env override is the only
+    /// reliable anchor).
+    private func locateEchoSidecarBinary(sourceFile: String = #file) throws -> URL {
+        let fm = FileManager.default
+
+        /// Walk up from `start` until a directory containing `ClaudeSpyPackage/Package.swift`
+        /// (repo root) OR `Package.swift` directly (the package root itself) is found.
+        /// Returns the `ClaudeSpyPackage` directory in either case.
+        func packageRoot(from start: URL) -> URL? {
+            var dir = start
+            for _ in 0..<20 {
+                let nested = dir.appendingPathComponent("ClaudeSpyPackage/Package.swift")
+                if fm.fileExists(atPath: nested.path) {
+                    return dir.appendingPathComponent("ClaudeSpyPackage")
+                }
+                // `dir` is itself a package root containing the sidecar product.
+                let direct = dir.appendingPathComponent("Package.swift")
+                if
+                    fm.fileExists(atPath: direct.path),
+                    dir.lastPathComponent == "ClaudeSpyPackage" {
+                    return dir
+                }
+                let parent = dir.deletingLastPathComponent()
+                if parent == dir { break }
+                dir = parent
+            }
+            return nil
+        }
+
+        // Candidate package roots, in priority order.
+        var roots: [URL] = []
+        // 1. Explicit env override (set by tooling if it knows the package path).
+        if let override = ProcessInfo.processInfo.environment["CLAUDESPY_PACKAGE_ROOT"] {
+            roots.append(URL(fileURLWithPath: override))
+        }
+        // 2. The `#file` walk (works for SPM test runs).
+        if let r = packageRoot(from: URL(fileURLWithPath: sourceFile).deletingLastPathComponent()) {
+            roots.append(r)
+        }
+        // 3. The current working directory walk (works for the Xcode-built
+        //    coordinator launched from the repo/worktree root by e2e-test.sh).
+        if let r = packageRoot(from: URL(fileURLWithPath: fm.currentDirectoryPath)) {
+            roots.append(r)
+        }
+
+        var searched: [String] = []
+        for root in roots {
+            for config in ["debug", "release"] {
+                let candidate = root.appendingPathComponent(".build/\(config)/EchoPluginSidecar")
+                searched.append(candidate.path)
+                if fm.isExecutableFile(atPath: candidate.path) { return candidate }
+            }
+        }
+        throw OrchestratorError.configurationError(
+            "EchoPluginSidecar binary not found. Searched: \(searched). " +
+                "Run `swift build` in ClaudeSpyPackage first " +
+                "(or set CLAUDESPY_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
+        )
+    }
+
+    // MARK: - Network Helpers
+
+    /// Bind AND listen a plain IPv4 socket on `127.0.0.1:port` — the shape of a
+    /// foreign process holding the port (see the `occupyTCPPort` step). The
+    /// socket accepts TCP connections but never speaks HTTP, exactly like a
+    /// non-cooperating squatter. Returns the fd; the caller owns closing it.
+    private static func occupyIPv4LoopbackPort(_ port: UInt16) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw OrchestratorError.configurationError("socket() failed: errno \(errno)")
+        }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                Darwin.bind(fd, sa, addrLen)
+            }
+        }
+        guard bound == 0, listen(fd, 4) == 0 else {
+            let err = errno
+            close(fd)
+            throw OrchestratorError.configurationError(
+                "Could not occupy 127.0.0.1:\(port): errno \(err) (is something already using it?)"
+            )
+        }
+        return fd
+    }
+
     // MARK: - Mac Instance Helpers
+
+    /// Translate scenario-authored absolute coordinates into the instance's
+    /// stage lane. Identity when stage layout is off or for instance 0.
+    private func staged(x: Int, y: Int, instance: Int) -> (x: Int, y: Int) {
+        guard let stageLayout else { return (x, y) }
+        let t = stageLayout.translation(instance: instance)
+        return (x + Int(t.dx), y + Int(t.dy))
+    }
+
+    private func staged(x: Double, y: Double, instance: Int) -> (x: Double, y: Double) {
+        guard let stageLayout else { return (x, y) }
+        let t = stageLayout.translation(instance: instance)
+        return (x + t.dx, y + t.dy)
+    }
 
     /// Return (or create) the macOS driver for the given instance number.
     /// Instance 0 is the primary app; instance 1+ are additional instances with
@@ -1075,8 +1459,9 @@ public actor TestOrchestrator {
             return driver
         }
         let port = MacOSDriver.defaultTestAccessibilityPort + UInt16(instance)
+        let otlpPort = MacOSDriver.defaultOTLPPort + UInt16(instance)
         let label = instance == 0 ? "e2e.macos-driver" : "e2e.macos-driver-\(instance + 1)"
-        let driver = MacOSDriver(label: label, testAccessibilityPort: port)
+        let driver = MacOSDriver(label: label, testAccessibilityPort: port, otlpPort: otlpPort)
         macDrivers[instance] = driver
         return driver
     }
@@ -1105,6 +1490,102 @@ public actor TestOrchestrator {
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 
+    /// Directory used as `$ZDOTDIR` by every shell spawned during E2E runs —
+    /// both by `tmuxCreateSession` (via `new-session -e`) and by app-created
+    /// panes (via `--zdotdir` → `TmuxService.zdotDirOverride`). Its rc files
+    /// source the user's real dotfiles so e2e shells behave identically to
+    /// normal ones, then `.zshrc` disables history so scenario-typed commands
+    /// never land in the user's `~/.zsh_history`. macOS's `/etc/zshrc` derives
+    /// `HISTFILE` from `$ZDOTDIR`, so even the pre-rc default points inside
+    /// this directory rather than at `$HOME`.
+    ///
+    /// Deliberately a stable path shared by all instances (their `TMPDIR` is
+    /// pinned to the runner's, see `MacOSDriver.launchApp`) and across runs,
+    /// so zsh reuses the `.zcompdump-*` completion cache written here.
+    private var zdotDirShimPath: String {
+        NSTemporaryDirectory() + "gallager-e2e-zdotdir"
+    }
+
+    /// Create (or refresh) the ZDOTDIR shim and return its path. Idempotent:
+    /// files are rewritten only when their content changed, and writes are
+    /// atomic so a shell sourcing a file mid-refresh never sees partial
+    /// content.
+    private func ensureZDotDirShim() throws -> String {
+        let dir = zdotDirShimPath
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        /// `if`-form (not `[[ -f … ]] && source …`) so a missing user dotfile
+        /// (~/.zlogin rarely exists) doesn't leave the startup file exiting 1 —
+        /// exit-status prompt themes would flag `$? = 1` at the first prompt.
+        func delegating(to file: String, in root: String) -> String {
+            """
+            # Written by the Gallager E2E orchestrator. Delegates to the user's
+            # real \(file) so e2e shells behave like normal ones.
+            if [[ -f "\(root)/\(file)" ]]; then
+              source "\(root)/\(file)"
+            fi
+
+            """
+        }
+
+        // The user's ~/.zshenv may relocate ZDOTDIR (e.g. to ~/.config/zsh).
+        // The shim's .zshenv captures that as the delegation root for the
+        // remaining dotfiles, then re-pins ZDOTDIR to the shim — otherwise zsh
+        // would read .zshrc from the user's directory and the history unset
+        // would never run. Not exported: the same shell instance sources all
+        // four startup files, so a plain variable is visible to them without
+        // leaking into the pane's child processes.
+        let userRoot = "${GALLAGER_E2E_USER_ZDOTDIR:-$HOME}"
+        let zshenv = delegating(to: ".zshenv", in: "$HOME") + """
+
+        # If the user's zshenv relocated ZDOTDIR, keep delegating the
+        # remaining dotfiles there, but re-pin ZDOTDIR to this shim so zsh
+        # still reads .zprofile/.zshrc/.zlogin (and the history unset) here.
+        if [[ -z "$ZDOTDIR" || "$ZDOTDIR" == "\(dir)" ]]; then
+          GALLAGER_E2E_USER_ZDOTDIR="$HOME"
+        else
+          GALLAGER_E2E_USER_ZDOTDIR="$ZDOTDIR"
+        fi
+        export ZDOTDIR="\(dir)"
+
+        """
+
+        let files: [String: String] = [
+            ".zshenv": zshenv,
+            ".zprofile": delegating(to: ".zprofile", in: userRoot),
+            ".zlogin": delegating(to: ".zlogin", in: userRoot),
+            ".zshrc": delegating(to: ".zshrc", in: userRoot) + """
+
+            # E2E: never record scenario-typed commands in the user's shell
+            # history. Runs after the user's rc so nothing can re-enable it.
+            unset HISTFILE
+            SAVEHIST=0
+
+            # E2E: source an optional per-scenario extra rc whose path a scenario
+            # exports on the tmux *global* environment as GALLAGER_E2E_EXTRA_ZSHRC.
+            # Deliberately a separate variable from ZDOTDIR: the app forces
+            # ZDOTDIR=<shim> per-pane (`-e ZDOTDIR=…`), which overrides tmux's
+            # global environment, so a scenario can't hand a shell its own
+            # ZDOTDIR anymore. A global env var the shim voluntarily sources
+            # survives that override. Sourced last so its definitions win over
+            # the user's rc — used by the deterministic `claude` stub to define a
+            # `claude()` function that survives into app-created panes.
+            if [[ -n "$GALLAGER_E2E_EXTRA_ZSHRC" && -f "$GALLAGER_E2E_EXTRA_ZSHRC" ]]; then
+              source "$GALLAGER_E2E_EXTRA_ZSHRC"
+            fi
+
+            """,
+        ]
+        for (name, content) in files {
+            let url = URL(fileURLWithPath: "\(dir)/\(name)")
+            if let existing = try? String(contentsOf: url, encoding: .utf8), existing == content {
+                continue
+            }
+            try Data(content.utf8).write(to: url, options: .atomic)
+        }
+        return dir
+    }
+
     /// Return the notification log file path for the given instance number.
     /// The macOS app writes terminal notifications here during E2E tests
     /// so scenarios can verify notification delivery via `readFile`.
@@ -1128,6 +1609,13 @@ public actor TestOrchestrator {
         NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
     }
 
+    /// Sentinel file toggling the Git tab's mock between clean and dirty
+    /// (issue #573). The `setGitMockChanges(_:)` step writes "1"/"0" here; the
+    /// app's `E2EGitProvider` reads it.
+    func gitChangesFilePath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-git-changes-\(instance).txt"
+    }
+
     /// Return the path scenarios should read to verify the fake editor was
     /// invoked with a given file. Each "Open in Editor" appends a line.
     public static func fakeEditorLogPath(for instance: Int = 0) -> String {
@@ -1144,6 +1632,15 @@ public actor TestOrchestrator {
     /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
     func defaultBrowserLogPath(for instance: Int) -> String {
         NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
+    }
+
+    /// Return the browser downloads directory for the given instance number.
+    /// The macOS app saves browser-tab downloads here instead of the real
+    /// ~/Downloads, which would trip an unanswerable TCC consent prompt on an
+    /// unattended runner. The app wipes it on launch so collision-naming
+    /// assertions start clean.
+    func downloadsDirPath(for instance: Int) -> String {
+        NSTemporaryDirectory() + "claudespy-e2e-downloads-\(instance)"
     }
 
     // MARK: - Script Cleanup
@@ -1366,8 +1863,10 @@ public actor TestOrchestrator {
         return "\(baseDir)/\(scenarioName)"
     }
 
-    /// Convert a scenario name into a safe directory name
-    private func sanitizeForPath(_ name: String) -> String {
+    /// Convert a scenario name into a safe directory name. Static so
+    /// `RecordingCoordinator` (and the report pipeline) can derive the same
+    /// per-scenario directory the orchestrator writes screenshots into.
+    static func scenarioDirName(for name: String) -> String {
         name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
             .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }

@@ -10,7 +10,6 @@ import Testing
 /// `agent=codex`, so the payloads parse into the same `HookAction` enum; the
 /// notification copy differs (Codex-flavored). Asserts the working / attention /
 /// notification / responseRequest / appActions fields the dispatcher fans out.
-@Suite("CodexTranslator")
 struct CodexTranslatorTests {
     // MARK: - Helpers
 
@@ -138,8 +137,45 @@ struct CodexTranslatorTests {
         #expect(permission.description == "rm -rf build")
         #expect(permission.allowsCustomInstructions == true)
         #expect(permission.isAutoApprovable == true)
-        // requestID is `<session>:<event>:<timestamp>`; this payload has no timestamp.
+        // requestID is `<session>:<event>:<occurrenceID>` — the core mints a fresh
+        // occurrenceID per ingress frame, so repeated same-type forms stay unique.
         #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
+    }
+
+    @Test("two same-type forms in one session get distinct requestIDs (no timestamp collision)")
+    func repeatedFormsGetDistinctRequestIDs() async throws {
+        let (core, _) = try await makeCore()
+        // Two AskUserQuestion forms, byte-identical payloads and NO timestamp —
+        // exactly the production shape (Codex hooks carry no timestamp/sequence).
+        // Before the per-occurrence id, both collapsed to the constant
+        // "sess-q:PermissionRequest:" and iOS restored the first form's persisted
+        // "All questions answered" state onto the brand-new second question.
+        // Mirrors `ClaudeCodeTranslatorTests.repeatedFormsGetDistinctRequestIDs` so
+        // the two cores' requestID schemes can't silently drift.
+        let json = """
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "sess-q",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Pick a fruit",
+                        "header": "Fruit",
+                        "options": [ {"label": "Apple", "description": ""} ],
+                        "multiSelect": false
+                    }
+                ]
+            }
+        }
+        """
+        let first = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+        let second = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+
+        #expect(first != second)
+        // Both still carry the readable `session:event` prefix for debuggability.
+        #expect(first.hasPrefix("sess-q:PermissionRequest:"))
+        #expect(second.hasPrefix("sess-q:PermissionRequest:"))
     }
 
     @Test("permissionRequest maps permission_suggestions to chips")
@@ -527,6 +563,37 @@ struct CodexTranslatorTests {
         #expect(event.state?.openForm == nil)
         #expect(event.notification == nil)
         #expect(event.appActions.isEmpty)
+    }
+
+    @Test("permission_mode on a hook seeds the event's permissionMode (chip seed, issue #602)")
+    func permissionModeSeededFromHook() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-mode",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" },
+            "permission_mode": "default"
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == "default")
+    }
+
+    @Test("an event without permission_mode leaves it nil (so it doesn't clobber a known mode)")
+    func permissionModeAbsentLeavesNil() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-nomode",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" }
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == nil)
     }
 
     @Test("PreCompact (neutral, no notification) is dropped")

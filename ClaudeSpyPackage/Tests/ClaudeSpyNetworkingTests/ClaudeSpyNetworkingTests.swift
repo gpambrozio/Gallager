@@ -342,6 +342,39 @@ struct TmuxKeyCsiParsingTests {
     }
 }
 
+/// A sidecar (e.g. the opencode plugin) hand-builds the `send_keys` `keys` array
+/// as raw JSON. `SidecarPluginCore` decodes it with `try? decode([PluginTmuxKey])`,
+/// so ONE element that fails to decode silently drops the WHOLE array (no keys
+/// sent). These lock the exact wire shapes a sidecar must emit — in particular the
+/// auto-synthesized tagged-enum `_0` for single unlabeled associated values
+/// (`.text`, `.delay`), which is easy to get wrong (a bare `{"text": "x"}` or
+/// `{"delay": 300}` throws and takes the array with it).
+@Suite("TmuxKey Codable Wire")
+struct TmuxKeyCodableWireTests {
+    @Test("Decodes the paced allow-always sequence a sidecar emits")
+    func decodesPacedAllowAlways() throws {
+        // Exactly what plugins/opencode/bin/sidecar emits for allow-always.
+        let json = #"[{"right":{}},{"delay":{"_0":300}},{"enter":{}},{"delay":{"_0":300}},{"enter":{}}]"#
+        let keys = try JSONDecoder().decode([TmuxKey].self, from: Data(json.utf8))
+        #expect(keys == [.right, .delay(300), .enter, .delay(300), .enter])
+    }
+
+    @Test("delay uses the _0 tagged form; a bare int fails to decode")
+    func delayTaggedFormOnly() throws {
+        #expect(try JSONDecoder().decode(TmuxKey.self, from: Data(#"{"delay":{"_0":250}}"#.utf8)) == .delay(250))
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(TmuxKey.self, from: Data(#"{"delay":250}"#.utf8))
+        }
+    }
+
+    @Test("Emitted keys round-trip through encode/decode")
+    func roundTrips() throws {
+        let keys: [TmuxKey] = [.text("hello"), .delay(300), .enter]
+        let data = try JSONEncoder().encode(keys)
+        #expect(try JSONDecoder().decode([TmuxKey].self, from: data) == keys)
+    }
+}
+
 @Suite("WebSocket Message Tests")
 struct WebSocketMessageTests {
     @Test("encryptedPush message encodes correctly")

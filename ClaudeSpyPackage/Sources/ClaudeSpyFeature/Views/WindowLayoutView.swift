@@ -39,6 +39,11 @@
         /// Guards against double-splits from rapid taps
         @State private var isSplitting = false
 
+        /// Width of the navigation bar (measured from the full-width content
+        /// area). Used to cap the centered title so it doesn't bleed behind the
+        /// bar buttons — see `principalTitleMaxWidth`.
+        @State private var barWidth: CGFloat = 0
+
         /// Terminal titles detected via OSC escape sequences, keyed by pane ID
         @State private var terminalTitles: [String: String] = [:]
 
@@ -101,6 +106,23 @@
             return sessionName
         }
 
+        /// Upper bound for the centered title in the navigation bar.
+        ///
+        /// SwiftUI sizes a `.principal` toolbar item to its intrinsic width and
+        /// centers it, so a long title must be explicitly capped or it draws
+        /// behind the leading back button and the trailing toolbar buttons
+        /// (#600). Reserve room on each side for the circular bar buttons (and
+        /// their insets); the title then truncates with a trailing ellipsis.
+        /// Returns `nil` until the width is measured, leaving the title uncapped
+        /// for that first layout pass.
+        private var principalTitleMaxWidth: CGFloat? {
+            guard barWidth > 0 else { return nil }
+            // ~44pt circular bar button hit area + ~28pt inset on each side.
+            // May need tuning if button sizes change or on iPad slide-over.
+            let reservedPerSide: CGFloat = 72
+            return max(120, barWidth - reservedPerSide * 2)
+        }
+
         var body: some View {
             Group {
                 if let window {
@@ -112,6 +134,12 @@
                         description: "This window may have been closed."
                     )
                 }
+            }
+            // Measure the full-width content area to learn the navigation bar's
+            // width, which `principalTitleMaxWidth` uses to keep a long title
+            // from overflowing behind the bar buttons.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+                barWidth = newWidth
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -189,10 +217,15 @@
                         HStack(spacing: 4) {
                             Text(navigationTitle)
                                 .fontWeight(.semibold)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             Symbols.chevronDown.image
                                 .font(.caption2.weight(.bold))
                                 .foregroundStyle(.secondary)
                         }
+                        // Cap the centered title so a long one truncates instead
+                        // of bleeding behind the bar buttons (#600).
+                        .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
                 if let activeService, activeService.session != nil {
@@ -521,6 +554,7 @@
                 showKeyboardButton: false,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
+                telemetry: pane.telemetry,
                 // Tiled panes pass `responseState: .constant(nil)`, so no response
                 // form is shown here and the submit closure is never invoked.
                 submitResponse: { _ in }
@@ -621,7 +655,11 @@
                     SessionInfoView(
                         session: activeService.session,
                         paneId: activeService.paneId,
-                        isPaneActive: activeService.isPaneActive
+                        isPaneActive: activeService.isPaneActive,
+                        telemetry: activeService.telemetry,
+                        permissionMode: activeService.permissionMode,
+                        permissionModeTrigger: activeService.permissionModeTrigger,
+                        recap: activeService.recap
                     )
                     .navigationTitle("Session Info")
                     .navigationBarTitleDisplayMode(.inline)
@@ -714,47 +752,6 @@
                 if case let .failure(error) = result {
                     commandError = error.localizedDescription
                 }
-            }
-        }
-    }
-
-    // MARK: - Session Info
-
-    struct SessionInfoView: View {
-        let session: AgentSession?
-        let paneId: String
-        let isPaneActive: Bool
-
-        var body: some View {
-            if let session {
-                List {
-                    Section("Session Info") {
-                        LabeledContent("Pane ID", value: paneId)
-
-                        if let projectPath = session.detectedProjectPath, !projectPath.isEmpty {
-                            LabeledContent("Project") {
-                                Text(projectPath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        LabeledContent("Status") {
-                            HStack {
-                                Circle()
-                                    .fill(isPaneActive ? Color.green : Color.gray)
-                                    .frame(width: 8, height: 8)
-                                Text(session.statusLabel)
-                            }
-                        }
-                    }
-                }
-            } else {
-                ContentUnavailableView(
-                    "Session Not Found",
-                    symbol: .exclamationmarkTriangle,
-                    description: "This session may have ended."
-                )
             }
         }
     }

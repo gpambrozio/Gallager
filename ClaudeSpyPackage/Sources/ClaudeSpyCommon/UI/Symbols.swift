@@ -11,10 +11,10 @@ public enum Symbols: String {
     case antenna2Bars = "antenna.radiowaves.left.and.right"
     case arrowClockwise = "arrow.clockwise"
     case arrowDown = "arrow.down"
+    case arrowDownCircle = "arrow.down.circle"
     case arrowDownRightAndArrowUpLeft = "arrow.down.right.and.arrow.up.left"
     case arrowLeft = "arrow.left"
     case arrowRight = "arrow.right"
-    case arrowTriangleBranch = "arrow.triangle.branch"
     case arrowUpCircleFill = "arrow.up.circle.fill"
     case arrowUpLeftAndArrowDownRight = "arrow.up.left.and.arrow.down.right"
     case arrowUpRightSquare = "arrow.up.right.square"
@@ -23,6 +23,10 @@ public enum Symbols: String {
     case bolt
     case boltFill = "bolt.fill"
     case bubbleLeftAndExclamationmarkBubbleRight = "bubble.left.and.exclamationmark.bubble.right"
+    case calendar
+    case car
+    case chartBarXaxis = "chart.bar.xaxis"
+    case chartLineUptrendXyaxis = "chart.line.uptrend.xyaxis"
     case checkmark
     case checkmarkCircle = "checkmark.circle"
     case checkmarkCircleFill = "checkmark.circle.fill"
@@ -37,15 +41,18 @@ public enum Symbols: String {
     case docOnClipboard = "doc.on.clipboard"
     case docPlaintextFill = "doc.plaintext.fill"
     case docTextFill = "doc.text.fill"
+    case docZipper = "doc.zipper"
     case ellipsisCircle = "ellipsis.circle"
     case exclamationmarkCircleFill = "exclamationmark.circle.fill"
     case exclamationmarkTriangle = "exclamationmark.triangle"
     case faceSmiling = "face.smiling"
     case figureRun = "figure.run"
+    case flag
     case folder
     case folderBadgeGearshape = "folder.badge.gearshape"
     case folderBadgePlus = "folder.badge.plus"
     case folderFill = "folder.fill"
+    case forkKnife = "fork.knife"
     case gearshape
     case gearshapeFill = "gearshape.fill"
     case globe
@@ -56,6 +63,9 @@ public enum Symbols: String {
     case keyboard
     case keyboardChevronCompactDown = "keyboard.chevron.compact.down"
     case laptopcomputer
+    case largecircleFillCircle = "largecircle.fill.circle"
+    case leaf
+    case lightbulb
     case line3Horizontal = "line.3.horizontal"
     case linkCircle = "link.circle"
     case linkCircleFill = "link.circle.fill"
@@ -66,6 +76,7 @@ public enum Symbols: String {
     case magnifyingglass
     case minusCircleFill = "minus.circle.fill"
     case moonFill = "moon.fill"
+    case number
     case paintpalette
     case paperplaneFill = "paperplane.fill"
     case pause
@@ -79,11 +90,13 @@ public enum Symbols: String {
     case puzzlepiece
     case qrcode
     case questionmark
+    case questionmarkCircle = "questionmark.circle"
     case rectangleBadgeMinus = "rectangle.badge.minus"
     case rectangleSplit1x2Fill = "rectangle.split.1x2.fill"
     case rectangleSplit2x1 = "rectangle.split.2x1"
     case rectangleSplit2x1Fill = "rectangle.split.2x1.fill"
     case rectangleStackBadgeMinus = "rectangle.stack.badge.minus"
+    case shield
     case sparkles
     case square
     case squareAndArrowUp = "square.and.arrow.up"
@@ -92,6 +105,7 @@ public enum Symbols: String {
     case stopFill = "stop.fill"
     case terminal
     case textBubbleFill = "text.bubble.fill"
+    case wandAndStars = "wand.and.stars"
     case wifi
     case wifiSlash = "wifi.slash"
     case wrenchAndScrewdriver = "wrench.and.screwdriver"

@@ -278,6 +278,33 @@ enum MacOSAccessibility {
         event.post(tap: .cghidEventTap)
     }
 
+    /// Screen frame of the app's first window, or nil when the app has no
+    /// windows (or the frame attributes can't be read).
+    static func firstWindowFrame(appPID: pid_t) -> CGRect? {
+        guard let window = windows(appPID: appPID).first else { return nil }
+        return frameOfElement(window.element)
+    }
+
+    /// Screen frame of the first element matching the query whose center
+    /// lies inside the app's first window — i.e. an element actually
+    /// scrolled into view. Nil when no match is visible. NSTableView-backed
+    /// SwiftUI Lists keep off-screen rows in the AX hierarchy (with frames
+    /// above or below the window), so callers that need an on-screen
+    /// element must use this rather than a plain existence check.
+    static func visibleFrameOfElement(appPID: pid_t, matching query: ElementQuery) -> CGRect? {
+        guard let windowFrame = firstWindowFrame(appPID: appPID) else { return nil }
+        let matches = findAllRawElements(appPID: appPID, matching: query)
+        return matches.lazy
+            .compactMap { frameOfElement($0) }
+            .first { windowFrame.contains(CGPoint(x: $0.midX, y: $0.midY)) }
+    }
+
+    /// True when at least one element matching the query is actually
+    /// scrolled into view — see `visibleFrameOfElement`.
+    static func isElementVisibleInWindow(appPID: pid_t, matching query: ElementQuery) -> Bool {
+        visibleFrameOfElement(appPID: appPID, matching: query) != nil
+    }
+
     /// Post CGEvent drag from one screen coordinate to another.
     /// Generates mouseDown at `from`, intermediate leftMouseDragged events, and mouseUp at `to`.
     static func drag(from start: CGPoint, to end: CGPoint, steps: Int = 20) {

@@ -32,16 +32,24 @@ public struct SessionStateMessage: Codable, Sendable {
     /// The host's home directory path (e.g., "/Users/gustavo" or "/home/gustavo")
     public let homeDirectory: String
 
+    /// Cross-session cost/usage rollup for this host (issue #598, part B).
+    /// Optional so an older host that doesn't compute it — or an older viewer
+    /// that doesn't read it — degrades gracefully (it just rides the existing
+    /// snapshot, like `agentProjects`).
+    public let usageOverview: UsageOverview?
+
     public init(
         pairId: String,
         paneStates: [String: PaneState],
         agentProjects: [AgentProject]? = nil,
-        homeDirectory: String = ""
+        homeDirectory: String = "",
+        usageOverview: UsageOverview? = nil
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
         self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
+        self.usageOverview = usageOverview
     }
 
     /// Returns a copy with the `pairId` replaced. Centralises the per-connection
@@ -53,7 +61,8 @@ public struct SessionStateMessage: Codable, Sendable {
             pairId: pairId,
             paneStates: paneStates,
             agentProjects: agentProjects,
-            homeDirectory: homeDirectory
+            homeDirectory: homeDirectory,
+            usageOverview: usageOverview
         )
     }
 }
@@ -161,6 +170,37 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
     public var progress: TerminalProgressState?
 
+    // MARK: - OTEL Telemetry (issue #597)
+
+    /// The Claude Code `session.id` (identical to the hook `session_id`) running
+    /// in this pane, used to join the OTEL telemetry channel to this pane. Set
+    /// from `applyState`; reset when a new session starts (e.g. `/clear`). This
+    /// is the host-side join key — viewers don't read it.
+    public var claudeSessionID: String?
+
+    /// The current permission mode reported by the OTEL
+    /// `permission_mode_changed` event (e.g. "plan", "acceptEdits",
+    /// "bypassPermissions"). `nil` until the first mode change is observed.
+    public var permissionMode: String?
+
+    /// What triggered the latest permission-mode change (e.g. "shift_tab",
+    /// "command"), from the OTEL event's `trigger` attribute. Shown in the
+    /// session detail view alongside the mode.
+    public var permissionModeTrigger: String?
+
+    /// Quantitative, content-free OTEL telemetry (tokens, cost, latency, model,
+    /// per-turn samples) accumulated by the Mac-local OTLP receiver. `nil` until
+    /// the first `api_request` is observed for this pane's session.
+    public var telemetry: SessionTelemetry?
+
+    // MARK: - Session Recap (issue #598)
+
+    /// A retrospective summary stamped when the session's last turn finished
+    /// (`doneWorking`). Drives the recap card in the session detail. Cleared when
+    /// a new turn starts (`working`) or the session ends, so its presence means
+    /// "the agent just finished and nothing new has started".
+    public var recap: SessionRecap?
+
     // MARK: - Computed Properties
 
     public var id: String {
@@ -195,7 +235,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
         yoloMode: Bool = false,
         cliSessionState: CLISessionState? = nil,
         editorSession: EditorSessionInfo? = nil,
-        progress: TerminalProgressState? = nil
+        progress: TerminalProgressState? = nil,
+        claudeSessionID: String? = nil,
+        permissionMode: String? = nil,
+        permissionModeTrigger: String? = nil,
+        telemetry: SessionTelemetry? = nil,
+        recap: SessionRecap? = nil
     ) {
         self.paneId = paneId
         self.target = target
@@ -220,6 +265,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.cliSessionState = cliSessionState
         self.editorSession = editorSession
         self.progress = progress
+        self.claudeSessionID = claudeSessionID
+        self.permissionMode = permissionMode
+        self.permissionModeTrigger = permissionModeTrigger
+        self.telemetry = telemetry
+        self.recap = recap
     }
 }
 

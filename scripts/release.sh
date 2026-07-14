@@ -19,6 +19,11 @@ ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
 
+# Repo plugins (plugins/*) published for remote install
+PLUGINS_DIR="$PROJECT_ROOT/plugins"
+PLUGINS_BUILD_DIR="$BUILD_DIR/plugins"
+PLUGIN_MANIFEST_URLS=()
+
 # Sparkle / FTP configuration
 APPCAST_DIR="$PROJECT_ROOT/docs"
 APPCAST_FILE="$APPCAST_DIR/ClaudeSpy.xml"
@@ -29,13 +34,10 @@ ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
 DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
 
 # =====================================================
-# Colors for output
+# Shared helpers (colors, logging, version + notes editing)
 # =====================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# shellcheck source=scripts/common.sh
+source "$SCRIPT_DIR/common.sh"
 
 # =====================================================
 # Parse arguments
@@ -85,19 +87,6 @@ done
 # =====================================================
 # Helper functions
 # =====================================================
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }  # exits
-
-get_version() {
-    grep "^MARKETING_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
-
-get_build_number() {
-    grep "^CURRENT_PROJECT_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
-}
-
 increment_version() {
     local version=$1
     local major minor
@@ -185,6 +174,34 @@ check_prerequisites() {
 }
 
 # =====================================================
+# Package repo plugins (plugins/*) for remote install
+# =====================================================
+package_plugins() {
+    if ! compgen -G "$PLUGINS_DIR/*/plugin.json" > /dev/null; then
+        log_info "No plugins found in $PLUGINS_DIR — skipping plugin packaging"
+        return
+    fi
+
+    for manifest in "$PLUGINS_DIR"/*/plugin.json; do
+        local plugin_dir plugin_id
+        plugin_dir="$(dirname "$manifest")"
+        plugin_id=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["id"])' "$manifest") \
+            || log_error "Could not read plugin id from $manifest"
+
+        log_info "Packaging plugin '$plugin_id'..."
+        "$SCRIPT_DIR/package-plugin.sh" "$plugin_dir" \
+            --base-url "$DOWNLOAD_URL_PREFIX/plugins/$plugin_id" \
+            --out "$PLUGINS_BUILD_DIR/$plugin_id" \
+            --exclude 'tests/*' --exclude 'scripts/*' \
+            || log_error "Packaging failed for plugin '$plugin_id'"
+
+        PLUGIN_MANIFEST_URLS+=("$DOWNLOAD_URL_PREFIX/plugins/$plugin_id/plugin.json")
+    done
+
+    log_success "Packaged ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) into $PLUGINS_BUILD_DIR"
+}
+
+# =====================================================
 # Verify bundled plugin exists in archive
 # =====================================================
 verify_bundled_plugin() {
@@ -220,7 +237,6 @@ run_unit_tests() {
 build_archive() {
     log_info "Building archive..."
 
-    rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
 
     local build_args=(
@@ -493,7 +509,13 @@ upload_to_ftp() {
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    # Upload DMG (versioned + canonical) and appcast.xml
+    # Mirror packaged plugins (zip + distribution plugin.json per plugin)
+    local plugins_mirror=""
+    if [ -d "$PLUGINS_BUILD_DIR" ]; then
+        plugins_mirror="mirror -R '$PLUGINS_BUILD_DIR' plugins;"
+    fi
+
+    # Upload DMG (versioned + canonical), appcast.xml, and plugins
     lftp -c "
 set ssl:verify-certificate false;
 set cmd:fail-exit true;
@@ -502,10 +524,14 @@ cd $FTP_REMOTE_DIR;
 put -O . '$dmg_path';
 put '$dmg_path' -o 'Gallager.dmg';
 put -O . '$APPCAST_FILE';
+$plugins_mirror
 " || log_error "FTP upload failed"
 
     log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
     log_success "Updated Gallager.dmg link → $dmg_name"
+    if [ -n "$plugins_mirror" ]; then
+        log_success "Uploaded ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) to $FTP_HOST/plugins/"
+    fi
 }
 
 # =====================================================
@@ -620,6 +646,7 @@ run_beta_build() {
     build_number=$(get_build_number)
     log_info "Building beta of version $version (build $build_number)"
 
+    rm -rf "$BUILD_DIR"
     build_archive
     export_archive
     verify_bundled_plugin
@@ -674,6 +701,11 @@ main() {
         exit 0
     fi
 
+    # Package plugins first — it's fast, so a bad plugin tree aborts the
+    # release before the lengthy build/sign/notarize pipeline.
+    rm -rf "$BUILD_DIR"
+    package_plugins
+
     run_unit_tests
 
     trap rollback_on_failure EXIT
@@ -708,22 +740,8 @@ main() {
     echo "----------------------------------------"
     echo ""
 
-    read -p "Proceed with release? (y/N) " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        log_warning "Release cancelled — reverting version bump..."
-        local did_stash=false
-        if ! git -C "$PROJECT_ROOT" diff --quiet 2>/dev/null || ! git -C "$PROJECT_ROOT" diff --cached --quiet 2>/dev/null; then
-            git -C "$PROJECT_ROOT" stash push -m "release-rollback-save" && did_stash=true
-        fi
-        git -C "$PROJECT_ROOT" reset --hard HEAD~1
-        if [ "$did_stash" = true ]; then
-            git -C "$PROJECT_ROOT" stash pop || log_warning "Could not auto-restore local changes — they are saved in git stash"
-        fi
-        REVERT_COMMITS=0
-        log_info "Release cancelled"
-        exit 0
-    fi
+    offer_to_edit_notes "$release_notes" "release notes" "release-notes.md"
+    release_notes="$EDITED_NOTES"
 
     update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
 
@@ -767,6 +785,9 @@ main() {
     echo "Released: ClaudeSpy $version"
     echo "Download: $DOWNLOAD_URL_PREFIX/$(basename "$dmg_path")"
     echo "Appcast:  $DOWNLOAD_URL_PREFIX/appcast.xml"
+    for manifest_url in "${PLUGIN_MANIFEST_URLS[@]}"; do
+        echo "Plugin:   $manifest_url (gallager plugin install $manifest_url)"
+    done
     echo ""
 }
 

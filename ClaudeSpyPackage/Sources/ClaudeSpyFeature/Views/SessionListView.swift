@@ -264,6 +264,13 @@
                     }
                     .accessibilityIdentifier("host-version-mismatch-row")
                 } else if hasContent {
+                    // Cross-session usage rollup for this host (issue #598).
+                    // Renders as its own List rows (header + detail rows when
+                    // expanded) and owns their insets/separators internally.
+                    if let overview = sessionStore.usageOverview(for: host.id), !overview.isEmpty {
+                        UsageOverviewView(overview: overview)
+                    }
+
                     // Claude sessions
                     ForEach(claudeSessions) { session in
                         sessionRow(session)
@@ -314,7 +321,9 @@
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
                             customDescription: session.customDescription,
                             customEmoji: session.customEmoji,
-                            windowCount: session.windows.count
+                            windowCount: session.windows.count,
+                            telemetry: claudePane.telemetry,
+                            permissionMode: claudePane.permissionMode
                         )
                     } else if let pane = activePaneInSession {
                         TerminalRowView(
@@ -528,6 +537,8 @@
         var customDescription: String?
         var customEmoji: String?
         var windowCount = 1
+        var telemetry: SessionTelemetry?
+        var permissionMode: String?
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
@@ -588,6 +599,9 @@
                     Text(session.statusLabel)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+
+                    // OTEL meter + model + permission-mode chip (issue #597).
+                    SessionTelemetrySummary(telemetry: telemetry, permissionMode: permissionMode)
                 }
 
                 Spacer()

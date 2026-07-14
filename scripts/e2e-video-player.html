@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E2E proof video</title>
+<!--
+  Static player for e2e proof videos. Opened by scripts/e2e-watch-video.sh
+  with the short-lived signed asset URL in the fragment:
+      e2e-video-player.html#src=<url-encoded video URL>&title=<asset name>
+  Fragment (not query string) so file:// handling can't strip or mangle it.
+  Media-element loads are no-cors, which is why the signed URL plays even
+  though fetch()ing it cross-origin does not work.
+-->
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 1rem;
+    background: #111; color: #eee;
+    font: 15px/1.5 -apple-system, system-ui, sans-serif;
+  }
+  h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+  video { max-width: 92vw; max-height: 80vh; background: #000; border-radius: 8px; }
+  #error {
+    display: none; max-width: 40rem; padding: 1rem 1.25rem;
+    background: #3a1f1f; border: 1px solid #7f3b3b; border-radius: 8px;
+  }
+  code { background: #222; padding: 0.1em 0.35em; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1 id="title">E2E proof video</h1>
+<video id="player" controls autoplay muted playsinline></video>
+<div id="error"></div>
+<script>
+  const params = new URLSearchParams(location.hash.slice(1));
+  const src = params.get("src");
+  const title = params.get("title");
+  if (title) {
+    document.getElementById("title").textContent = title;
+    document.title = title;
+  }
+  const video = document.getElementById("player");
+  const errorPanel = document.getElementById("error");
+
+  function showError(html) {
+    video.style.display = "none";
+    errorPanel.style.display = "block";
+    errorPanel.innerHTML = html;
+  }
+
+  function escapeHTML(s) {
+    const div = document.createElement("div");
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  if (!src) {
+    showError("No video URL given. Open this page via " +
+      "<code>./scripts/e2e-watch-video.sh &lt;asset|url|scenario&gt;</code>.");
+  } else {
+    video.src = src;
+    video.addEventListener("error", () => {
+      const rerun = title ? " " + escapeHTML(title) : " &lt;asset&gt;";
+      showError("Couldn't load the video — the signed URL has likely expired " +
+        "(they're valid for about an hour). Re-run " +
+        "<code>./scripts/e2e-watch-video.sh" + rerun + "</code> to get a fresh one.");
+    });
+  }
+</script>
+</body>
+</html>

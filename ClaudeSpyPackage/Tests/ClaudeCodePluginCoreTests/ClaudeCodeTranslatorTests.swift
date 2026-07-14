@@ -8,7 +8,6 @@ import Testing
 /// real `ClaudeCodePluginCore.handleIngress`, using realistic hook JSON shapes
 /// copied from the E2E scenarios. Asserts the `state` (incl. the open form) /
 /// notification / appActions fields the dispatcher fans out.
-@Suite("ClaudeCodeTranslator")
 struct ClaudeCodeTranslatorTests {
     // MARK: - Helpers
 
@@ -71,15 +70,17 @@ struct ClaudeCodeTranslatorTests {
         """
         #expect(await core.handleIngress(frame(subagentPermission)) != nil)
 
-        // A main-agent Stop (no agent_id) is processed normally → doneWorking.
+        // A main-agent Stop (no agent_id, carries the assistant message) is
+        // processed normally → doneWorking.
         let mainStop = """
         {
             "hook_event_name": "Stop",
-            "session_id": "sess-1"
+            "session_id": "sess-1",
+            "last_assistant_message": "done"
         }
         """
         let event = try #require(await core.handleIngress(frame(mainStop)))
-        #expect(event.state == .doneWorking(summary: nil))
+        #expect(event.state == .doneWorking(summary: "done"))
     }
 
     @Test("a top-level SubagentStop without agent_id never flips the session to working")
@@ -97,6 +98,43 @@ struct ClaudeCodeTranslatorTests {
         }
         """
         #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop without last_assistant_message is a subagent stop and is dropped")
+    func stopWithoutMessageDropped() async throws {
+        let (core, _) = try await makeCore()
+
+        // Subagents fire the plain Stop hook too, without an agent_id for the
+        // pre-parse drop to see; only main-agent stops carry
+        // last_assistant_message. A message-less Stop must not flip a mid-task
+        // session to doneWorking or fire a notification.
+        let subagentStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "stop_hook_active": true
+        }
+        """
+        #expect(await core.handleIngress(frame(subagentStop)) == nil)
+    }
+
+    @Test("a Stop with an empty last_assistant_message is kept, not dropped")
+    func stopWithEmptyMessageKept() async throws {
+        let (core, _) = try await makeCore()
+
+        // Boundary: the drop guards on `== nil`, NOT `isEmpty`, so a main-agent Stop
+        // that carries an empty string is intentionally KEPT → doneWorking. Pinned so
+        // a future `isEmpty` tightening can't silently reintroduce the stuck-"Working"
+        // risk for tool-only turns (where the assistant's last message is empty).
+        let emptyMessageStop = """
+        {
+            "hook_event_name": "Stop",
+            "session_id": "sess-1",
+            "last_assistant_message": ""
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(emptyMessageStop)))
+        #expect(event.state == .doneWorking(summary: ""))
     }
 
     // MARK: - Plain permission request
@@ -133,9 +171,43 @@ struct ClaudeCodeTranslatorTests {
         #expect(permission.allowsCustomInstructions == true)
         // Bash is yolo-auto-approvable, so isAutoApprovable is true.
         #expect(permission.isAutoApprovable == true)
-        // requestID is `<session>:<event>:<timestamp>` (timestamp makes repeated
-        // events of the same type unique); this payload has no timestamp.
+        // requestID is `<session>:<event>:<occurrenceID>` — the core mints a fresh
+        // occurrenceID per ingress frame, so repeated same-type forms stay unique.
         #expect(form.requestID.hasPrefix("sess-1:PermissionRequest") == true)
+    }
+
+    @Test("two same-type forms in one session get distinct requestIDs (no timestamp collision)")
+    func repeatedFormsGetDistinctRequestIDs() async throws {
+        let (core, _) = try await makeCore()
+        // Two AskUserQuestion forms, byte-identical payloads and NO timestamp —
+        // exactly the production shape (Claude hooks carry no timestamp/sequence).
+        // Before the per-occurrence id, both collapsed to the constant
+        // "sess-q:PermissionRequest:" and iOS restored the first form's persisted
+        // "All questions answered" state onto the brand-new second question.
+        let json = """
+        {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "sess-q",
+            "tool_name": "AskUserQuestion",
+            "tool_input": {
+                "questions": [
+                    {
+                        "question": "Pick a fruit",
+                        "header": "Fruit",
+                        "options": [ {"label": "Apple", "description": ""} ],
+                        "multiSelect": false
+                    }
+                ]
+            }
+        }
+        """
+        let first = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+        let second = try #require(await core.handleIngress(frame(json))?.state?.openForm?.requestID)
+
+        #expect(first != second)
+        // Both still carry the readable `session:event` prefix for debuggability.
+        #expect(first.hasPrefix("sess-q:PermissionRequest:"))
+        #expect(second.hasPrefix("sess-q:PermissionRequest:"))
     }
 
     @Test("permissionRequest maps permission_suggestions to chips")
@@ -570,6 +642,54 @@ struct ClaudeCodeTranslatorTests {
         #expect(event.state?.openForm == nil)
         #expect(event.notification == nil)
         #expect(event.appActions.isEmpty)
+    }
+
+    @Test("the tool/prompt/stop events carry permission_mode into the PluginEvent")
+    func permissionModeSeededFromHooks() async throws {
+        let (core, _) = try await makeCore()
+
+        // Each of the four events Claude Code stamps with permission_mode should
+        // surface it on the PluginEvent so a session's *current* mode is known from
+        // the hook channel alone — OTEL only reports a mode *change* (issue #597).
+        let carriers: [(event: String, extra: String)] = [
+            ("PreToolUse", #""tool_name": "Bash", "tool_input": { "command": "ls" }"#),
+            ("PostToolUse", #""tool_name": "Bash", "tool_input": { "command": "ls" }"#),
+            ("UserPromptSubmit", #""prompt": "hi""#),
+            ("Stop", #""last_assistant_message": "done""#),
+        ]
+        for carrier in carriers {
+            let json = """
+            {
+                "hook_event_name": "\(carrier.event)",
+                "session_id": "sess-mode",
+                "permission_mode": "bypassPermissions",
+                \(carrier.extra)
+            }
+            """
+            let event = try #require(
+                await core.handleIngress(frame(json)),
+                "\(carrier.event) should translate"
+            )
+            #expect(
+                event.permissionMode == "bypassPermissions",
+                "\(carrier.event) should carry permission_mode"
+            )
+        }
+    }
+
+    @Test("an event without permission_mode leaves it nil (must not clobber a known mode)")
+    func permissionModeAbsentIsNil() async throws {
+        let (core, _) = try await makeCore()
+        let json = """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-pre",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" }
+        }
+        """
+        let event = try #require(await core.handleIngress(frame(json)))
+        #expect(event.permissionMode == nil)
     }
 
     @Test("unparseable payload is dropped and logged")

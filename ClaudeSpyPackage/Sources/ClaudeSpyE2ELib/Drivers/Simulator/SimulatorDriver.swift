@@ -197,6 +197,21 @@ public actor SimulatorDriver {
         try await Task.sleep(for: .seconds(2))
     }
 
+    /// Move the Simulator window to the top-right corner of the recorded
+    /// display so it doesn't cover the mac window lanes during recorded runs
+    /// (issue #621). Best-effort: placement failures never fail a step.
+    public func positionWindowTopRight(displayWidth: Int, margin: Int = 10) async {
+        let script = """
+        tell application "System Events"
+            tell process "Simulator"
+                set {w, h} to size of window 1
+                set position of window 1 to {\(displayWidth) - w - \(margin), \(margin)}
+            end tell
+        end tell
+        """
+        try? await SimulatorInteraction.runAppleScript(script)
+    }
+
     /// Terminate a running app.
     ///
     /// Mirrors `launchApp`: when the XCTest runner is up we route through it so

@@ -247,7 +247,12 @@ public enum TestStep: Sendable {
     case macCGClickElement(
         query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
-        instance: Int = 0
+        instance: Int = 0,
+        // Seconds to wait for the matched element to appear in the AX tree before
+        // clicking. Defaults to 5; bump it when the click lands while the app is
+        // mid-re-render (e.g. a focus change between back-to-back pane clicks) and
+        // the target is momentarily absent from the AX tree.
+        timeout: TimeInterval = 5
     )
     /// Right-click an element to open its context menu
     case macRightClick(titled: String, instance: Int = 0)
@@ -287,6 +292,11 @@ public enum TestStep: Sendable {
     /// Clear both text and image entries on the file-backed clipboard for the
     /// given app instance. Use to wipe stale state between scenarios.
     case macClearClipboard(instance: Int = 0)
+    /// Toggle the Git tab's E2E mock between clean (`false`, the default) and the
+    /// fixture's changed files (`true`) for the given instance (issue #573). The
+    /// app's `E2EGitProvider` reacts and reloads, so the changed-file badge and
+    /// the Changes view appear shortly after. Use before asserting either.
+    case setGitMockChanges(_ hasChanges: Bool, instance: Int = 0)
     /// Press Cmd+V in the macOS app, pasting the current system clipboard
     /// contents into the focused field.
     case macPaste(instance: Int = 0)
@@ -302,6 +312,17 @@ public enum TestStep: Sendable {
     case macWaitForElement(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for a text element to disappear from the macOS app's accessibility tree
     case macWaitForElementToDisappear(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait for an element matching `titled` to be scrolled into view — its AX
+    /// frame center inside the app window's frame. `macWaitForElement` only
+    /// checks AX-tree presence, and NSTableView-backed SwiftUI Lists keep
+    /// off-screen rows in the tree; use this to assert a row is actually on
+    /// screen (e.g. after a scroll).
+    case macWaitForElementVisible(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
+    /// Wait until no element matching `titled` is visible inside the window
+    /// frame — either gone from the AX tree or scrolled out of view. The
+    /// complement of `macWaitForElementVisible`; `macWaitForElementToDisappear`
+    /// never fires for rows a List keeps alive off screen.
+    case macWaitForElementNotVisible(titled: String, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for an element matching an ElementQuery to appear in the macOS app's accessibility tree
     case macWaitForElementQuery(ElementQuery, timeout: TimeInterval = 10, instance: Int = 0)
     /// Wait for an element matching an ElementQuery to disappear from the macOS app's accessibility tree
@@ -314,6 +335,10 @@ public enum TestStep: Sendable {
     case macResizeWindow(width: Int, height: Int, instance: Int = 0)
     /// Set the sidebar width of the NavigationSplitView
     case macSetSidebarWidth(_ width: Int, instance: Int = 0)
+    /// Set the configured sidebar fields (Claude sessions) by raw `SidebarField`
+    /// value, e.g. `["projectName", "tokenUsage"]`. Lets a scenario opt into
+    /// fields that are off by default.
+    case macSetSidebarFields(_ fields: [String], instance: Int = 0)
     /// Focus a text field by title so subsequent typing goes into it
     case macFocusElement(titled: String, instance: Int = 0)
     /// Type text into the macOS app (via AppleScript keystroke).
@@ -324,6 +349,13 @@ public enum TestStep: Sendable {
     /// Send scroll wheel events to the macOS app window via CGEvent.
     /// `deltaY` > 0 scrolls up, < 0 scrolls down. `count` is how many events to send.
     case macScrollWheel(deltaY: Int32, count: Int = 3, instance: Int = 0)
+    /// Send scroll wheel events at the center of the accessibility element
+    /// matching `titled` instead of the window center — targets a specific
+    /// scrollable region (e.g. the file-tree sidebar) rather than whatever
+    /// sits mid-window. The element's frame is resolved once, before the
+    /// first event, so all events land on the same screen point even as the
+    /// matched row scrolls away beneath it.
+    case macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3, instance: Int = 0)
     /// Click at a specific screen coordinate in the macOS app.
     case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
     /// Drag from one screen coordinate to another in the macOS app.
@@ -338,6 +370,16 @@ public enum TestStep: Sendable {
     /// and in this case some pixels will differ.
     case macScreenshot(label: String, compare: Bool = true, tolerance: Double = 2, perPixelThreshold: Double = 0.02, instance: Int = 0)
 
+    // MARK: - Network
+
+    /// Occupy an IPv4 loopback TCP port with a plain listener (orchestrator-owned,
+    /// auto-released in the between-scenario cleanup). Simulates a foreign process
+    /// squatting on a port the app wants — e.g. an OTLP collector container
+    /// holding the receiver's preferred `--otlp-port` — so scenarios can prove
+    /// the app's port-collision fallback end-to-end. Must run BEFORE the app
+    /// launch whose bind it should collide with.
+    case occupyTCPPort(port: UInt16)
+
     // MARK: - Tmux
 
     /// Create a tmux session on the test socket
@@ -348,6 +390,14 @@ public enum TestStep: Sendable {
     case tmuxStorePaneId(target: String, storeAs: String)
     /// Capture the visible content of a tmux pane and store it in the execution context
     case tmuxCapturePaneContent(target: String, storeAs: String)
+    /// Poll a tmux pane's captured content via `capture-pane -p` until it contains
+    /// a substring. Use this to wait for the shell to finish startup and draw its
+    /// prompt before sending the first command: keys delivered before zsh's line
+    /// editor is interactive get echoed by the tty on their own line above the
+    /// prompt, shifting all later output down a row and breaking screenshots.
+    case tmuxWaitForPaneContent(
+        target: String, contains: String, timeout: TimeInterval = 10
+    )
     /// Send keys to a tmux pane on the test socket (bypasses macOS app input path)
     case tmuxSendKeys(target: String, keys: String, literal: Bool = false)
     /// Run an arbitrary tmux command on the test socket (e.g., "split-window -h -t session:0")
@@ -422,10 +472,43 @@ public enum TestStep: Sendable {
     /// `waitForFileContains` assertions don't pass on stale entries from earlier
     /// phases. Path supports `${var}` interpolation.
     case removeFile(path: String)
+    /// Write a file (creating intermediate directories), replacing any existing
+    /// content. Used to seed on-disk fixtures the app reads — e.g. a plugin
+    /// `settings.json` before launch, or a `config.toml` the app watches live.
+    /// Both `path` and `content` support `${var}` interpolation.
+    case writeFile(path: String, content: String)
     /// Poll a file until it contains a substring, then store its contents (supports `${var}` interpolation)
     case waitForFileContains(
         path: String, substring: String, storeAs: String, timeout: TimeInterval = 20, pollInterval: TimeInterval = 1
     )
     /// Log a message
     case log(String)
+
+    // MARK: - Sidecar Fixture Staging
+
+    /// Stage a folder-dropped sidecar plugin fixture into the E2E sandbox before
+    /// the macOS app launches (instance 0). Copies the built `EchoPluginSidecar`
+    /// binary to `<gallagerRoot>/plugins/<id>/bin/sidecar` (chmod 0o755) and
+    /// writes a minimal `plugin.json` there (`runtime:"sidecar"`,
+    /// `sidecar:{executable:"bin/sidecar"}`). The orchestrator locates the binary
+    /// by walking up from `#file` to the `Package.swift` root, then probing
+    /// `.build/debug/EchoPluginSidecar` (the same strategy as
+    /// `EchoSidecarTestSupport.locateEchoSidecarBinary`).
+    ///
+    /// The `<gallagerRoot>` is derived from the instance's `--gallager-state-root`
+    /// (its parent directory), so the staged plugin persists for the entire
+    /// scenario in the per-instance E2E sandbox.
+    ///
+    /// `otlpNamespace` adds an `otlp` declaration to the staged manifest
+    /// (issue #617), so records named `<otlpNamespace>.api_request` POSTed to
+    /// the instance's OTLP receiver aggregate into the plugin session's meter.
+    case macStageSidecarFixture(id: String, instance: Int = 0, otlpNamespace: String? = nil)
+
+    /// Build a self-contained sidecar `.zip` bundle (the `EchoPluginSidecar`
+    /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the
+    /// archive root) and store its absolute path in the execution context under
+    /// `storeAs`. Used to exercise the local-zip install flow end-to-end (e.g. via
+    /// `gallager plugin install --zip ${path}`). The zip lives in the per-instance
+    /// E2E sandbox, so it is cleaned up with the rest of the scenario state.
+    case macStageSidecarZip(id: String, displayName: String, storeAs: String, instance: Int = 0)
 }

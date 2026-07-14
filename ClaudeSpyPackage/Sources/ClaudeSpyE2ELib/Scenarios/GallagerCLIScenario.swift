@@ -85,9 +85,15 @@ public enum GallagerCLIScenario {
             command: #"gallager new-session --name e2e-api > /tmp/e2e-cli-newsession.txt 2>&1"#
         )
 
-        // Click e2e-api to view it — stay here for all subsequent screenshots
+        // Click e2e-api to view it — stay here for all subsequent screenshots.
+        // Let the sidebar settle after the new session row is inserted (the list
+        // re-sorts) before clicking, and use a real coordinate click: AXPress on
+        // a freshly-inserted SwiftUI List row can fail to register the selection
+        // on a slow machine, leaving the previously-selected cli-test session
+        // shown (and the host can briefly flash the empty "No Panes" picker).
         TestStep.macWaitForElement(titled: "e2e-api", timeout: 5)
-        TestStep.macClickButton(titled: "e2e-api")
+        TestStep.wait(seconds: 3)
+        TestStep.macCGClick(titled: "e2e-api")
         TestStep.wait(seconds: 2)
         TestStep.macScreenshot(label: "mac-new-session-created")
 
@@ -113,7 +119,11 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager split-pane right --pane "$PANE_ID" --path /tmp --json > /tmp/e2e-cli-split.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
+        // The split CLI call waits for the app to register the new pane (it
+        // retries the pane refresh past an in-flight periodic refresh), which
+        // is slower on a CI VM — give the command time to finish writing before
+        // reading its output.
+        TestStep.wait(seconds: 8)
         TestStep.readFile(path: "/tmp/e2e-cli-split.txt", storeAs: "splitResult")
         // tmux resolves symlinks when reporting cwd; on macOS /tmp → /private/tmp.
         TestStep.assertStoredContains(key: "splitResult", substring: #""cwd":"\/private\/tmp""#)
@@ -207,7 +217,8 @@ public enum GallagerCLIScenario {
         )
         // No status label in the row now — terminal icon returns. Confirm the
         // previous "Idle" hint is gone before snapping the cleared screenshot.
-        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 10)
+        // The clear can take longer to propagate to the sidebar on a slow CI VM.
+        TestStep.macWaitForElementToDisappear(titled: "Idle", timeout: 20)
         TestStep.macScreenshot(label: "mac-state-cleared")
 
         // 14. hook events override CLI state — re-set "idle" then deliver a
@@ -430,10 +441,10 @@ public enum GallagerCLIScenario {
         )
         TestStep.assertStoredContains(key: "tmuxEmojiOptionByName", substring: "🐛")
 
-        // 16h. find-emoji searches the Unicode emoji database by name. Running
-        // it in the terminal must print "<glyph>  <lowercased name>" for every
-        // match — an exact name match short-circuits to a single result, so
-        // "rocket" is guaranteed to be the only line.
+        // 16h. find-emoji searches the emoji database by name. Running it in the
+        // terminal must print "<glyph>  <lowercased name>" for every match — an
+        // exact name match short-circuits to a single result, so "rocket" is
+        // guaranteed to be the only line.
         Shortcut.tmuxRunCommand(
             target: "cli-test:0",
             command: #"gallager find-emoji rocket > /tmp/e2e-cli-find-emoji.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-emoji.txt"#
@@ -442,6 +453,18 @@ public enum GallagerCLIScenario {
         TestStep.readFile(path: "/tmp/e2e-cli-find-emoji.txt", storeAs: "findEmojiResult")
         TestStep.assertStoredContains(key: "findEmojiResult", substring: "🚀  rocket")
         TestStep.assertStoredContains(key: "findEmojiResult", substring: "exit=0")
+
+        // 16h-bis. Keyword search (issue #630): "trash" isn't the wastebasket's
+        // Unicode name (WASTEBASKET), but it is a CLDR keyword synonym, so it
+        // must still resolve 🗑️ — the whole point of the better-search change.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager find-emoji trash > /tmp/e2e-cli-find-trash.txt 2>&1; echo "exit=$?" >> /tmp/e2e-cli-find-trash.txt"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-find-trash.txt", storeAs: "findTrashResult")
+        TestStep.assertStoredContains(key: "findTrashResult", substring: "🗑️  wastebasket")
+        TestStep.assertStoredContains(key: "findTrashResult", substring: "exit=0")
 
         // 16i. set-emoji none clears the emoji. The badge disappears and the
         // tmux option is unset.
@@ -644,7 +667,11 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager apply /tmp/e2e-apply.yaml --detach --json > /tmp/e2e-cli-apply.txt 2>&1"#
         )
-        TestStep.wait(seconds: 3)
+        // `apply` is heavy — it builds a 3-window session with panes and runs
+        // before_script / on_create / on_apply hooks via tmux — so it takes
+        // well over 3s on a slow CI VM. Give the command time to finish writing
+        // its JSON before reading it.
+        TestStep.wait(seconds: 20)
         TestStep.readFile(path: "/tmp/e2e-cli-apply.txt", storeAs: "applyResult")
         TestStep.assertStoredContains(key: "applyResult", substring: #""session_name":"e2e-apply""#)
         TestStep.assertStoredContains(key: "applyResult", substring: #""created":true"#)
@@ -664,7 +691,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager list-panes --window e2e-apply:1 --json > /tmp/e2e-cli-apply-panes.txt 2>&1"#
         )
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 5)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-panes.txt", storeAs: "applyPanesResult")
         TestStep.assertStoredContains(
             key: "applyPanesResult",
@@ -684,7 +711,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"gallager list-windows --session e2e-apply --json > /tmp/e2e-cli-apply-windows.txt 2>&1"#
         )
-        TestStep.wait(seconds: 2)
+        TestStep.wait(seconds: 5)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-windows.txt", storeAs: "applyWindowsResult")
         TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w0""#)
         TestStep.assertStoredContains(key: "applyWindowsResult", substring: #""name":"w1""#)
@@ -704,7 +731,7 @@ public enum GallagerCLIScenario {
             target: "cli-test:0",
             command: #"{ echo BEFORE=$(cat /tmp/e2e-apply-before.txt 2>/dev/null); echo ONCREATE=$(cat /tmp/e2e-apply-oncreate.txt 2>/dev/null); echo ONAPPLY=$(cat /tmp/e2e-apply-onapply.txt 2>/dev/null); } > /tmp/e2e-cli-apply-hooks.txt"#
         )
-        TestStep.wait(seconds: 1)
+        TestStep.wait(seconds: 3)
         TestStep.readFile(path: "/tmp/e2e-cli-apply-hooks.txt", storeAs: "applyHooksResult")
         TestStep.assertStoredContains(key: "applyHooksResult", substring: "BEFORE=before-script-ran")
         TestStep.assertStoredContains(key: "applyHooksResult", substring: "ONCREATE=on-create-ran")
@@ -719,5 +746,58 @@ public enum GallagerCLIScenario {
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-apply-progress-75")
+
+        // 21. select-session — switching the CLI-selected session must move the
+        // app's sidebar + detail selection onto that session (issue #574).
+        // Before the fix, select-session only re-pointed tmux's active window
+        // and the app kept showing whatever session was already selected.
+        //
+        // The window title mirrors the *selected* session's primary sidebar
+        // label, and `.customDescription` is the first terminal field, so a
+        // `set-title` gives each session a deterministic, baseline-free title
+        // we can assert on to prove which session the app is actually showing.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-title "Selected API" --session e2e-api"#
+        )
+        TestStep.wait(seconds: 1)
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager set-title "Selected Color" --session e2e-color"#
+        )
+        TestStep.wait(seconds: 1)
+
+        // 21a. Select e2e-api from the CLI. The app must switch to it; the
+        // window title becomes e2e-api's description. The response is the
+        // result object `{"ok":true}` — an empty file would mean the
+        // command errored, so the presence of "ok" confirms it succeeded.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-api > /tmp/e2e-cli-select-api.txt 2>&1"#
+        )
+        TestStep.wait(seconds: 2)
+        TestStep.readFile(path: "/tmp/e2e-cli-select-api.txt", storeAs: "selectApiResult")
+        TestStep.assertStoredContains(key: "selectApiResult", substring: "ok")
+        TestStep.macAssertWindowTitle(equals: "Selected API", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-api")
+
+        // 21b. Now select e2e-color. The title must follow to the new session —
+        // proving select-session moves the app's selection *across* sessions,
+        // which the pre-fix `select-window`-only path never did.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-color"#
+        )
+        TestStep.macAssertWindowTitle(equals: "Selected Color", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-color")
+
+        // 21c. Switch back to e2e-api to confirm selection is repeatable and
+        // not a one-way latch.
+        Shortcut.tmuxRunCommand(
+            target: "cli-test:0",
+            command: #"gallager select-session e2e-api"#
+        )
+        TestStep.macAssertWindowTitle(equals: "Selected API", timeout: 10)
+        TestStep.macScreenshot(label: "mac-select-session-api-again")
     }
 }

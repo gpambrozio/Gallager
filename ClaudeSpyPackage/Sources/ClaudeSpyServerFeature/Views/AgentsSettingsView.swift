@@ -5,6 +5,7 @@
     import CodexPluginCore
     import GallagerPluginProtocol
     import SwiftUI
+    import UniformTypeIdentifiers
 
     // MARK: - AgentsSettingsView
 
@@ -15,6 +16,12 @@
         @Environment(AppCoordinator.self) private var coordinator
 
         @State private var selectedAgentID = ""
+        /// Single source-of-truth driving the Add-Plugin sheet (URL or zip). Two
+        /// sibling `.sheet` modifiers can be flaky on macOS (one may fail to
+        /// present), so both flows funnel through one `.sheet(item:)`.
+        @State private var addPlugin: AddPluginPresentation?
+        @State private var pluginToRemove: String?
+        @State private var showRemoveConfirmation = false
 
         public init() { }
 
@@ -31,6 +38,7 @@
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    .fixedSize()
                     .accessibilityIdentifier("agentPicker")
                     .padding()
                 }
@@ -39,10 +47,62 @@
                     // Not yet loaded — show nothing (task below will set it)
                     Spacer()
                 } else {
-                    PluginAgentForm(pluginID: selectedAgentID)
+                    PluginAgentForm(pluginID: selectedAgentID) {
+                        pluginToRemove = selectedAgentID
+                        showRemoveConfirmation = true
+                    }
                 }
+
+                Divider()
+
+                // Toolbar row at the bottom of the tab
+                HStack {
+                    Button {
+                        addPlugin = .url
+                    } label: {
+                        Label("Add Plugin from URL…", symbol: .arrowDownCircle)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("addPluginFromURL")
+
+                    Button {
+                        chooseZip()
+                    } label: {
+                        Label("Install from Zip…", symbol: .docZipper)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("installPluginFromZip")
+
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
             }
             .frame(minWidth: 500, minHeight: 400)
+            .sheet(item: $addPlugin) { presentation in
+                switch presentation {
+                case .url:
+                    AddPluginSheet()
+                case let .zip(url):
+                    AddPluginSheet(source: .zip(url))
+                }
+            }
+            .confirmationDialog(
+                "Remove Plugin",
+                isPresented: $showRemoveConfirmation,
+                presenting: pluginToRemove
+            ) { id in
+                Button("Remove \"\(pluginDisplayName(id))\"", role: .destructive) {
+                    Task {
+                        await performRemove(id: id)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pluginToRemove = nil
+                }
+            } message: { id in
+                Text("This will uninstall the \"\(pluginDisplayName(id))\" plugin and delete its files. This cannot be undone.")
+            }
             .task {
                 // Set initial selection once (only when empty to avoid overwriting
                 // a user change that races with the first render).
@@ -51,6 +111,59 @@
                     let first = coordinator.agentPluginList().first {
                     selectedAgentID = first.id
                 }
+            }
+            // Auto-select a freshly installed plugin in the picker.
+            .onChange(of: coordinator.lastInstalledPluginID) { _, newID in
+                if let newID { selectedAgentID = newID }
+            }
+        }
+
+        // MARK: - Helpers
+
+        private func pluginDisplayName(_ id: String) -> String {
+            coordinator.agentPluginList().first { $0.id == id }?.name ?? id
+        }
+
+        /// Present an open panel for a local `.zip` bundle; on selection, trigger
+        /// the trust + install sheet for that zip.
+        @MainActor
+        private func chooseZip() {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.allowedContentTypes = [.zip]
+            panel.message = "Select a plugin .zip bundle"
+            panel.prompt = "Choose"
+
+            if panel.runModal() == .OK, let url = panel.url {
+                addPlugin = .zip(url)
+            }
+        }
+
+        @MainActor
+        private func performRemove(id: String) async {
+            _ = await coordinator.removePlugin(id: id, deleteState: true)
+            // If the removed plugin was selected, switch to the first remaining one.
+            if selectedAgentID == id {
+                selectedAgentID = coordinator.agentPluginList().first { $0.id != id }?.id ?? ""
+            }
+            pluginToRemove = nil
+        }
+    }
+
+    // MARK: - AddPluginPresentation
+
+    /// Single source-of-truth for the Add-Plugin `.sheet(item:)`: either the
+    /// URL-entry flow or a chosen local `.zip`.
+    private enum AddPluginPresentation: Identifiable {
+        case url
+        case zip(URL)
+
+        var id: String {
+            switch self {
+            case .url: "url"
+            case let .zip(url): "zip:\(url.path)"
             }
         }
     }
@@ -62,6 +175,10 @@
     /// change. Config-folder rows appear below with Install/Uninstall actions.
     private struct PluginAgentForm: View {
         let pluginID: String
+        /// Invoked when the user taps "Remove Plugin…". The parent owns the
+        /// confirmation dialog and selection reset, since removal mutates the
+        /// outer `selectedAgentID`.
+        let onRemove: () -> Void
 
         @Environment(AppCoordinator.self) private var coordinator
 
@@ -71,14 +188,16 @@
         @State private var logLevel: LogLevel = .info
         @State private var closePaneOnSessionEnd = false
         @State private var additionalConfigFolders: [String] = []
+        // Codex-only: point Codex's OTLP export at the loopback receiver (#602).
+        @State private var exportTelemetry = true
 
-        // Whether the agent binary was not found
+        /// Whether the agent binary was not found
         @State private var agentUnavailable = false
 
-        // Inline write error
+        /// Inline write error
         @State private var writeError: String?
 
-        // Prevent persisting while we're still loading
+        /// Prevent persisting while we're still loading
         @State private var isLoaded = false
 
         var body: some View {
@@ -133,6 +252,20 @@
                     Toggle("Close pane when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
                         .onChange(of: closePaneOnSessionEnd) { _, _ in persist() }
                         .accessibilityIdentifier("agentClosePane-\(pluginID)")
+
+                    // Codex configures OTEL through its own config (it doesn't read
+                    // `OTEL_*` env vars like Claude), so the export is opt-out-able
+                    // per-agent here (#602). Claude has no equivalent toggle.
+                    if pluginID == "codex" {
+                        Toggle("Export telemetry (tokens, latency, model)", isOn: $exportTelemetry)
+                            .onChange(of: exportTelemetry) { _, _ in persist() }
+                            .accessibilityIdentifier("agentExportTelemetry-\(pluginID)")
+                            .help(
+                                "Point this agent's OpenTelemetry export at Gallager's loopback receiver "
+                                    + "so the session's token meter, latency, and model show in the UI. "
+                                    + "One-way and local only — no prompt or tool content leaves your Mac."
+                            )
+                    }
                 }
 
                 // Config folders
@@ -163,11 +296,36 @@
                     }
                     .accessibilityIdentifier("agentAddFolder-\(pluginID)")
                 } header: {
-                    Text("Config Folders")
-                } footer: {
-                    Text("Additional folders where the \(agentDisplayName) plugin should be installed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // The explanation lives beside the title rather than in a
+                    // section footer: the Agents window's bottom toolbar
+                    // (Add Plugin from URL / Install from Zip) can occlude the
+                    // last section's footer, so a footer here would be unseen.
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Config Folders")
+                        Spacer(minLength: 12)
+                        Text("Additional folders where the \(agentDisplayName) plugin should be installed.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textCase(nil)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+
+                // Remove plugin (only for non-bundled, folder-dropped/URL plugins)
+                if !coordinator.isBundledPlugin(id: pluginID) {
+                    Section {
+                        Button(role: .destructive) {
+                            onRemove()
+                        } label: {
+                            Label("Remove Plugin…", symbol: .minusCircleFill)
+                                .foregroundStyle(.red)
+                        }
+                        .accessibilityIdentifier("removePlugin-\(pluginID)")
+                    } footer: {
+                        Text("Uninstall the \(agentDisplayName) plugin and delete its files. This cannot be undone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -187,7 +345,9 @@
             switch pluginID {
             case "claude-code": return "~/.claude"
             case "codex": return "~/.codex"
-            default: return "~"
+            // A sidecar declares its own default root in the manifest
+            // (`sidecar.default_config_root`); fall back to `~` when absent.
+            default: return coordinator.pluginDefaultConfigRoot(id: pluginID) ?? "~"
             }
         }
 
@@ -207,6 +367,7 @@
                 logLevel = s.logLevel
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
+                exportTelemetry = true
             case "codex":
                 let s = CodexSettings.decode(from: data)
                 commandPath = s.commandPath
@@ -214,13 +375,17 @@
                 logLevel = s.logLevel
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
+                exportTelemetry = s.exportTelemetry
             default:
-                // Unknown plugin — use empty defaults; can't decode typed settings
-                commandPath = ""
-                autoRun = true
-                logLevel = .info
-                closePaneOnSessionEnd = false
-                additionalConfigFolders = []
+                // Any non-bundled sidecar: generic settings that persist + reach
+                // the sidecar via apply_settings.
+                let s = SidecarPluginSettings.decode(from: data)
+                commandPath = s.commandPath
+                autoRun = s.autoRun
+                logLevel = s.logLevel
+                closePaneOnSessionEnd = s.closePaneOnSessionEnd
+                additionalConfigFolders = s.additionalConfigFolders
+                exportTelemetry = true
             }
 
             // Check agent availability for the default root
@@ -262,11 +427,19 @@
                     autoRun: autoRun,
                     logLevel: logLevel,
                     closePaneOnSessionEnd: closePaneOnSessionEnd,
-                    additionalConfigFolders: additionalConfigFolders
+                    additionalConfigFolders: additionalConfigFolders,
+                    exportTelemetry: exportTelemetry
                 )
                 return (try? encoder.encode(s)) ?? Data()
             default:
-                return Data()
+                let s = SidecarPluginSettings(
+                    commandPath: commandPath,
+                    autoRun: autoRun,
+                    logLevel: logLevel,
+                    additionalConfigFolders: additionalConfigFolders,
+                    closePaneOnSessionEnd: closePaneOnSessionEnd
+                )
+                return (try? encoder.encode(s)) ?? Data()
             }
         }
 

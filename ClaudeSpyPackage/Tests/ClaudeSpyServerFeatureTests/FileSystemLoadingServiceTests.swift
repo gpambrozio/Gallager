@@ -141,6 +141,44 @@
             )
         }
 
+        /// Issue #437: the tree's saved scroll offset must survive
+        /// watcher-driven reloads of the same directory — they replace
+        /// `viewState`, and resetting the offset there would drop the user
+        /// back to the top of the tree on every disk event. A reload for a
+        /// *different* directory renders a brand-new tree where the old
+        /// offset is meaningless, so it resets to the top.
+        @Test("tree scroll offset survives same-directory reloads and resets on directory change")
+        func treeScrollOffsetLifecycle() async throws {
+            let dirA = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ClaudeSpy-scroll-a-\(UUID().uuidString)")
+            let dirB = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ClaudeSpy-scroll-b-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dirA, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: dirB, withIntermediateDirectories: true)
+            defer {
+                try? FileManager.default.removeItem(at: dirA)
+                try? FileManager.default.removeItem(at: dirB)
+            }
+
+            let service = FileSystemLoadingService.liveValue
+            let state = FileBrowserState()
+
+            await state.reloadTree(directoryPath: dirA.path, service: service)
+            state.treeScrollY = 120
+
+            await state.reloadTree(directoryPath: dirA.path, service: service)
+            #expect(
+                state.treeScrollY == 120,
+                "A watcher-driven reload of the same directory must not reset the tree scroll offset"
+            )
+
+            await state.reloadTree(directoryPath: dirB.path, service: service)
+            #expect(
+                state.treeScrollY == 0,
+                "Loading a different directory must reset the tree scroll offset"
+            )
+        }
+
         /// Returns the names of the top-level children of the root folder
         /// in the order ProjectNavigator would render them. Returns an
         /// empty array if the state hasn't loaded a tree yet or the root

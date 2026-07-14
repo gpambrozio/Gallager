@@ -1,0 +1,360 @@
+#if os(macOS)
+    import ClaudeSpyNetworking
+    import Darwin
+    import Foundation
+    import GallagerPluginProtocol
+    import Testing
+    @testable import ClaudeSpyServerFeature
+
+    /// Records every telemetry snapshot the receiver pushes, so the ordering test
+    /// can inspect the final `recentTurns` sequence.
+    private actor SnapshotCollector {
+        private(set) var snapshots: [SessionTelemetry] = []
+        func record(_ telemetry: SessionTelemetry) { snapshots.append(telemetry) }
+    }
+
+    @Suite("OTLPReceiver")
+    struct OTLPReceiverTests {
+        // MARK: - Helpers
+
+        /// Ask the OS for a free loopback port (bind to 0, read it back, release).
+        /// The receiver rebinds it immediately and `allowLocalEndpointReuse` makes
+        /// that race-free in practice — far more reliable than a guessed port.
+        private func freeLoopbackPort() -> UInt16? {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = 0 // let the OS assign
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    bind(fd, sa, addrLen)
+                }
+            }
+            guard bound == 0 else { return nil }
+
+            var assigned = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let named = withUnsafeMutablePointer(to: &assigned) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getsockname(fd, sa, &len)
+                }
+            }
+            guard named == 0 else { return nil }
+            return UInt16(bigEndian: assigned.sin_port)
+        }
+
+        /// Bind AND hold a plain IPv4 listener on an OS-assigned loopback port —
+        /// the shape of the real-world collision (an OTLP collector container
+        /// holding `127.0.0.1:<port>`). Returns the fd (caller closes) and the
+        /// occupied port.
+        private func occupyLoopbackPort() -> (fd: Int32, port: UInt16)? {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = 0 // let the OS assign
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let bound = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    bind(fd, sa, addrLen)
+                }
+            }
+            guard bound == 0, listen(fd, 4) == 0 else {
+                close(fd)
+                return nil
+            }
+
+            var assigned = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let named = withUnsafeMutablePointer(to: &assigned) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getsockname(fd, sa, &len)
+                }
+            }
+            guard named == 0 else {
+                close(fd)
+                return nil
+            }
+            return (fd, UInt16(bigEndian: assigned.sin_port))
+        }
+
+        /// Connect a client `AF_INET` socket to `127.0.0.1:port`, retrying briefly
+        /// while the listener finishes binding. Returns the connected fd or `nil`.
+        private func connectTCP(port: UInt16, deadline: Date) -> Int32? {
+            while Date() < deadline {
+                let fd = socket(AF_INET, SOCK_STREAM, 0)
+                guard fd >= 0 else { return nil }
+
+                var addr = sockaddr_in()
+                addr.sin_family = sa_family_t(AF_INET)
+                addr.sin_port = port.bigEndian
+                addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+                let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+                let result = withUnsafePointer(to: &addr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                        connect(fd, sa, addrLen)
+                    }
+                }
+                if result == 0 { return fd }
+                close(fd)
+                usleep(20_000) // 20ms; listener is mid-bind
+            }
+            return nil
+        }
+
+        @discardableResult
+        private func writeAll(_ fd: Int32, _ data: Data) -> Bool {
+            data.withUnsafeBytes { raw -> Bool in
+                guard let base = raw.baseAddress else { return false }
+                var offset = 0
+                while offset < raw.count {
+                    let n = Darwin.write(fd, base + offset, raw.count - offset)
+                    if n <= 0 { return false }
+                    offset += n
+                }
+                return true
+            }
+        }
+
+        /// The OTLP/JSON body of one `api_request` log whose `duration_ms` tags
+        /// the turn, so processing order is observable in the accumulated
+        /// `recentTurns`.
+        private func apiRequestBody(sessionID: String, durationMs: Int) -> Data {
+            let body = #"""
+            {"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"event.name","value":{"stringValue":"api_request"}},{"key":"session.id","value":{"stringValue":"\#(sessionID)"}},{"key":"duration_ms","value":{"intValue":"\#(durationMs)"}},{"key":"cost_usd","value":{"doubleValue":0.01}}]}]}]}]}
+            """#
+            return Data(body.utf8)
+        }
+
+        /// A complete `POST /v1/logs` request framed with `Content-Length`.
+        private func apiRequestRequest(sessionID: String, durationMs: Int) -> Data {
+            let bodyData = apiRequestBody(sessionID: sessionID, durationMs: durationMs)
+            let header = "POST /v1/logs HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: \(bodyData.count)\r\n\r\n"
+            return Data(header.utf8) + bodyData
+        }
+
+        /// The same request framed with `Transfer-Encoding: chunked` and NO
+        /// `Content-Length` — the framing Claude Code's real exporter uses
+        /// (observed on 2.1.198), with the body split into `chunkSize`-byte
+        /// chunks.
+        private func chunkedRequest(path: String, body: Data, chunkSize: Int) -> Data {
+            var out = Data(
+                "POST \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    .utf8
+            )
+            var offset = 0
+            while offset < body.count {
+                let end = min(offset + chunkSize, body.count)
+                let chunk = body.subdata(in: offset..<end)
+                out.append(Data("\(String(chunk.count, radix: 16))\r\n".utf8))
+                out.append(chunk)
+                out.append(Data("\r\n".utf8))
+                offset = end
+            }
+            out.append(Data("0\r\n\r\n".utf8))
+            return out
+        }
+
+        /// Poll until a snapshot carrying at least `count` turns lands, or the
+        /// deadline passes. Real network queues drive the receiver, so there's no
+        /// virtual clock to advance — a sanctioned `Task.sleep` poll. The deadline
+        /// is generous because the full suite runs in parallel — under CPU
+        /// saturation the network queue can be starved for several seconds; the
+        /// loop still returns the instant the snapshot lands, so a long deadline
+        /// costs nothing on the happy path and only buys patience under load.
+        private func waitForTurns(_ collector: SnapshotCollector, atLeast count: Int) async -> SessionTelemetry? {
+            let deadline = Date().addingTimeInterval(30)
+            while Date() < deadline {
+                let snaps = await collector.snapshots
+                if let snap = snaps.last(where: { $0.recentTurns.count >= count }) { return snap }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            return await collector.snapshots.last
+        }
+
+        private func makeReceiver(port: UInt16, collector: SnapshotCollector) -> OTLPReceiver {
+            OTLPReceiver(
+                port: port,
+                onTelemetry: { _, telemetry in await collector.record(telemetry) },
+                onMilestone: { _ in },
+                onModeChange: { _ in }
+            )
+        }
+
+        // MARK: - Tests
+
+        @Test("pipelined requests on one connection are processed in arrival order")
+        func pipelinedRequestsProcessedInOrder() async throws {
+            let collector = SnapshotCollector()
+            let port = try #require(freeLoopbackPort())
+            let receiver = makeReceiver(port: port, collector: collector)
+            try await receiver.start()
+            defer { Task { await receiver.stop() } }
+
+            let fd = try #require(connectTCP(port: port, deadline: Date().addingTimeInterval(5)))
+            defer { close(fd) }
+
+            // Twelve api_request logs (< maxRecentTurns, so none are trimmed) with
+            // strictly increasing duration_ms, all written in a SINGLE socket send
+            // so they arrive pipelined in one buffer. The FIFO consumer must keep
+            // them in order; an unstructured-Task-per-request design could not.
+            let sessionID = "order-test"
+            let turnCount = 12
+            var pipelined = Data()
+            for i in 1...turnCount {
+                pipelined.append(apiRequestRequest(sessionID: sessionID, durationMs: i))
+            }
+            #expect(writeAll(fd, pipelined))
+
+            let snapshot = try #require(await waitForTurns(collector, atLeast: turnCount))
+            let latencies = snapshot.recentTurns.map(\.latencyMs)
+            // In-order processing yields exactly [1, 2, …, 12]; any reordering
+            // would permute this sequence.
+            #expect(latencies == (1...turnCount).map { $0 as Int? })
+
+            await receiver.stop()
+        }
+
+        @Test("falls back to the next candidate when the preferred port is taken")
+        func fallsBackWhenPreferredPortTaken() async throws {
+            // Occupy a port with a plain IPv4 listener — the exact shape of the
+            // real-world collision (an OTLP collector container holding
+            // `127.0.0.1:4318`). This doubles as the explicit-IPv4-bind
+            // regression test: the old port-only bind created a dual-stack
+            // IPv6 wildcard socket that would coexist with this listener and
+            // go `.ready` on the same port, silently losing all IPv4 traffic.
+            let collector = SnapshotCollector()
+            let occupied = try #require(occupyLoopbackPort())
+            defer { close(occupied.fd) }
+
+            let receiver = makeReceiver(port: occupied.port, collector: collector)
+            let bound = try await receiver.start()
+
+            #expect(bound != occupied.port)
+            // Whichever candidate won (a later one may have been taken too on a
+            // busy CI host), it came from the preferred port's probe chain.
+            #expect(OTLPReceiver.portCandidates(startingAt: occupied.port).dropFirst().contains(bound))
+
+            // The fallback listener is live and reachable over IPv4 loopback.
+            let fd = try #require(connectTCP(port: bound, deadline: Date().addingTimeInterval(5)))
+            close(fd)
+
+            await receiver.stop()
+        }
+
+        @Test("chunked requests (Claude Code's real framing) decode, and mix with Content-Length on one connection")
+        func chunkedRequestProcessed() async throws {
+            let collector = SnapshotCollector()
+            let port = try #require(freeLoopbackPort())
+            let receiver = makeReceiver(port: port, collector: collector)
+            try await receiver.start()
+
+            let fd = try #require(connectTCP(port: port, deadline: Date().addingTimeInterval(5)))
+            defer { close(fd) }
+
+            // A chunked api_request (split into small chunks) pipelined with a
+            // Content-Length request on the same connection: both framings must
+            // decode, and the chunked body's `consumed` accounting must hand the
+            // parser a clean start for the follow-up request.
+            let sessionID = "chunked-test"
+            var payload = chunkedRequest(
+                path: "/v1/logs",
+                body: apiRequestBody(sessionID: sessionID, durationMs: 1),
+                chunkSize: 64
+            )
+            payload.append(apiRequestRequest(sessionID: sessionID, durationMs: 2))
+            #expect(writeAll(fd, payload))
+
+            let snapshot = try #require(await waitForTurns(collector, atLeast: 2))
+            #expect(snapshot.recentTurns.map(\.latencyMs) == [1, 2])
+
+            await receiver.stop()
+        }
+
+        @Test("a chunked body split across TCP segments completes once the tail arrives")
+        func chunkedRequestAcrossSegments() async throws {
+            let collector = SnapshotCollector()
+            let port = try #require(freeLoopbackPort())
+            let receiver = makeReceiver(port: port, collector: collector)
+            try await receiver.start()
+
+            let fd = try #require(connectTCP(port: port, deadline: Date().addingTimeInterval(5)))
+            defer { close(fd) }
+
+            // Split the wire bytes mid-chunk: the parser must treat the partial
+            // chunk stream as "not arrived yet" and complete on the second write.
+            let request = chunkedRequest(
+                path: "/v1/logs",
+                body: apiRequestBody(sessionID: "chunked-split", durationMs: 7),
+                chunkSize: 48
+            )
+            let splitAt = request.count / 2
+            #expect(writeAll(fd, request.subdata(in: 0..<splitAt)))
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(writeAll(fd, request.subdata(in: splitAt..<request.count)))
+
+            let snapshot = try #require(await waitForTurns(collector, atLeast: 1))
+            #expect(snapshot.recentTurns.map(\.latencyMs) == [7])
+
+            await receiver.stop()
+        }
+
+        @Test("a declared plugin namespace classifies over the wire once its table is pushed (issue #617)")
+        func declaredNamespaceOverTheWire() async throws {
+            let collector = SnapshotCollector()
+            let port = try #require(freeLoopbackPort())
+            let receiver = makeReceiver(port: port, collector: collector)
+            try await receiver.start()
+            // The table arrives after start() in production too (the receiver
+            // binds before plugin discovery). The undeclared-namespace drop is
+            // covered deterministically in the accumulator unit tests — over
+            // the wire the 200 ack isn't gated on processing, so a before/after
+            // sequence here would race the FIFO consumer.
+            await receiver.updatePluginNamespaces([PluginManifest.OTLP(namespace: "opencode")])
+
+            let fd = try #require(connectTCP(port: port, deadline: Date().addingTimeInterval(5)))
+            defer { close(fd) }
+
+            // The exact record shape the opencode bridge POSTs (issue #617):
+            // fully-qualified `opencode.api_request` in the `event.name`
+            // attribute + `eventName` field, Claude's attribute keys, the tmux
+            // pane id as `session.id`.
+            let body = Data(#"""
+            {"resourceLogs":[{"scopeLogs":[{"logRecords":[{"eventName":"opencode.api_request","attributes":[{"key":"event.name","value":{"stringValue":"opencode.api_request"}},{"key":"session.id","value":{"stringValue":"%3"}},{"key":"input_tokens","value":{"intValue":1234}},{"key":"output_tokens","value":{"intValue":567}},{"key":"cost_usd","value":{"doubleValue":0.0123}},{"key":"duration_ms","value":{"intValue":4200}},{"key":"model","value":{"stringValue":"claude-sonnet-5"}}]}]}]}]}
+            """#.utf8)
+            let request = Data(
+                "POST /v1/logs HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\n\r\n"
+                    .utf8
+            ) + body
+            #expect(writeAll(fd, request))
+
+            let snapshot = try #require(await waitForTurns(collector, atLeast: 1))
+            #expect(snapshot.inputTokens == 1_234)
+            #expect(snapshot.outputTokens == 567)
+            #expect(snapshot.costUSD == 0.0_123)
+            #expect(snapshot.model == "claude-sonnet-5")
+            #expect(snapshot.recentTurns.map(\.latencyMs) == [4_200])
+
+            await receiver.stop()
+        }
+
+        @Test("port candidates: preferred first, +100 strides, clamped at the UInt16 boundary")
+        func portCandidateSequence() {
+            #expect(
+                OTLPReceiver.portCandidates(startingAt: 24_318)
+                    == [24_318, 24_418, 24_518, 24_618, 24_718]
+            )
+            // Near the top of the range, overflowing candidates are dropped
+            // rather than wrapped onto low (privileged) ports.
+            #expect(OTLPReceiver.portCandidates(startingAt: 65_500) == [65_500])
+            #expect(OTLPReceiver.portCandidates(startingAt: 65_435) == [65_435, 65_535])
+        }
+    }
+#endif

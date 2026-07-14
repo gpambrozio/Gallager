@@ -60,18 +60,79 @@ private func isConnectionError(_ stderr: String) -> Bool {
         || lower.contains("no such file or directory")
 }
 
+/// Retry budget for waiting on a freshly created/split pane to surface via
+/// `TmuxService.refreshPanes()`. `refreshPanes()` early-returns the stale cached
+/// list while a periodic refresh is already in flight, so a just-created pane
+/// can be missing on the first poll (more likely on a slow machine). Shared by
+/// AppCoordinator's split-window path and MainView's create-session path so the
+/// two retry loops can't drift apart.
+enum PaneSurfaceRetry {
+    /// Number of poll attempts before giving up.
+    static let attempts = 20
+    /// Delay between attempts.
+    static let delay = Duration.milliseconds(150)
+}
+
 /// Service for interacting with tmux via CLI
 @Observable
 @MainActor
 final public class TmuxService {
     /// Base environment variables set on all sessions/windows/panes created by the app.
-    /// Includes Claude Code rendering config and oh-my-zsh update suppression.
-    private static let baseEnvironmentVars: [String] = {
+    /// Includes Claude Code rendering/accessibility config, color + locale fidelity
+    /// hints for the mirror, and oh-my-zsh update suppression.
+    ///
+    /// Computed (not cached) because the OTEL endpoint reads the port the
+    /// receiver ACTUALLY bound, which is only known once its startup bind has
+    /// settled — a cached `static let` could freeze a pre-bind snapshot.
+    private static var baseEnvironmentVars: [String] {
         var vars = [
             "CLAUDE_CODE_NO_FLICKER=1",
             "DISABLE_AUTO_UPDATE=true",
             "DISABLE_UPDATE_PROMPT=true",
         ]
+        // OpenTelemetry export → the Mac-local OTLP receiver (issue #597).
+        // Augments the hook channel with per-session token/cost/latency,
+        // commit/PR milestones, and permission-mode changes. One-way push;
+        // no content gates are enabled (no OTEL_LOG_USER_PROMPTS etc.), so
+        // no prompt/tool/body content ever leaves the Claude process. The
+        // receiver binds 127.0.0.1 only. `advertisedPort` is the port the
+        // receiver actually bound — possibly a fallback candidate when the
+        // preferred port was taken; when it never bound at all, skip the OTEL
+        // block entirely rather than point agents at a dead (or worse,
+        // foreign) endpoint.
+        if let otlpPort = OTLPReceiver.advertisedPort {
+            vars += [
+                "CLAUDE_CODE_ENABLE_TELEMETRY=1",
+                "OTEL_METRICS_EXPORTER=otlp",
+                "OTEL_LOGS_EXPORTER=otlp",
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+                "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:\(otlpPort)",
+                "OTEL_METRIC_EXPORT_INTERVAL=10000",
+            ]
+        }
+        vars += [
+            // Advertise 24-bit color so agents (Claude Code, Codex) and other CLI
+            // tools emit RGB sequences instead of downgrading to 256 colors. The
+            // matching `RGB` terminal-feature (see applyTerminalFeatureOptions) lets
+            // tmux pass that truecolor through to the SwiftTerm mirror.
+            "COLORTERM=truecolor",
+            // Keep the native terminal cursor visible and disable Claude Code's
+            // inverted-text (reverse-video) cursor. A real cursor renders more
+            // faithfully in the mirror and is clearer for remote iOS viewers.
+            "CLAUDE_CODE_ACCESSIBILITY=1",
+        ]
+        // Pin a UTF-8 locale so wide characters, box-drawing, and emoji get the
+        // correct cell widths in the mirror. Apps launched from Finder/Dock often
+        // inherit no LANG at all; fall back to a UTF-8 default in that case, but
+        // preserve an already-UTF-8 locale so a non-US user keeps their region.
+        let inheritedLang = ProcessInfo.processInfo.environment["LANG"]
+        if
+            let inheritedLang,
+            inheritedLang.uppercased().contains("UTF-8") || inheritedLang.uppercased().contains("UTF8") {
+            vars.append("LANG=\(inheritedLang)")
+        } else {
+            vars.append("LANG=en_US.UTF-8")
+        }
         // Pin spawned panes to the app's own TMPDIR so tooling that resolves
         // `$TMPDIR/<file>` sees the same temp dir the app does. In production this
         // equals the value panes already inherit from the app-owned tmux server (a
@@ -81,7 +142,7 @@ final public class TmuxService {
             vars.append("TMPDIR=\(tmp)")
         }
         return vars
-    }()
+    }
 
     /// Absolute path to the user's login shell. Mirrors tmux's own resolution
     /// chain: `$SHELL` → passwd entry's `pw_shell` → POSIX-guaranteed `/bin/sh`.
@@ -98,12 +159,6 @@ final public class TmuxService {
         }
         return "/bin/sh"
     }()
-
-    /// POSIX single-quote a string for safe substitution into a `/bin/sh -c` command.
-    /// Handles paths with spaces or quotes (rare for shell paths, but cheap to be correct).
-    private static func posixSingleQuote(_ string: String) -> String {
-        "'" + string.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
-    }
 
     /// Wrapper command installed as tmux's `default-command` so every spawned shell
     /// reports as iTerm. Required for OSC 9;4 progress sequences: Claude Code only
@@ -139,7 +194,7 @@ final public class TmuxService {
     /// cached value and the rendered bg can't drift if the user toggles
     /// between dark and light themes.
     private var defaultCommandWrapper: String {
-        let shell = Self.posixSingleQuote(Self.userShellPath)
+        let shell = Self.userShellPath.posixSingleQuoted
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
         let oscPreamble = "printf '\\033]10;rgb:\(fgHex)\\007\\033]11;rgb:\(bgHex)\\007'"
         return "\(oscPreamble); TERM_PROGRAM=iTerm.app TERM_PROGRAM_VERSION=3.6.6 exec \(shell) -l"
@@ -170,6 +225,44 @@ final public class TmuxService {
     /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
     public var apiSocketPath: String?
 
+    /// When set, spawned shells get `ZDOTDIR=<path>` so zsh reads its startup
+    /// files from that directory instead of `$HOME`. Set by the composition
+    /// root from the `--zdotdir` launch argument the E2E orchestrator passes:
+    /// the shim there sources the user's real dotfiles, then disables history
+    /// so test-typed commands never land in the user's `~/.zsh_history`.
+    /// Nil (production) leaves the pane environment unchanged.
+    public var zdotDirOverride: String?
+
+    /// When true, the user opted into the editor override (issue #591 §5):
+    /// `export VISUAL='<editor> edit'` is typed into newly-created shell panes
+    /// (and chained onto app-launched agent commands) so Gallager's in-app
+    /// editor wins even when the user's rc files clobber `$VISUAL`. Mirrored from
+    /// `AppSettings.editorOverrideMode` by `AppCoordinator`; off by default so
+    /// non-consenting users are never typed into.
+    public var overrideVisualInShellPanes = false
+
+    /// Pane IDs we've already injected the override into, so a pane is typed into
+    /// at most once even across repeated `refreshPanes` calls. Cleared when the
+    /// override is turned off so re-enabling re-injects.
+    private var injectedOverridePaneIds: Set<String> = []
+
+    /// Guards against overlapping probe runs (startup + a Settings "re-check").
+    private var isProbingVisualConflict = false
+
+    /// The user's login shell path — mirrors tmux's resolution chain. Exposed so
+    /// the override/probe machinery can pick the right `export` vs `set -gx`
+    /// syntax and craft the suggested rc line.
+    public var loginShellPath: String {
+        Self.userShellPath
+    }
+
+    /// The `$VISUAL` value Gallager wants agents to see: the bundled CLI invoked
+    /// with `edit`. Nil when the CLI isn't in the bundle.
+    private var gallagerVisualValue: String? {
+        guard let editorCLIPath else { return nil }
+        return "\(editorCLIPath) edit"
+    }
+
     /// Full environment variables list including VISUAL when editor CLI is available.
     private var terminalEnvironmentVars: [String] {
         var vars = Self.baseEnvironmentVars
@@ -178,6 +271,9 @@ final public class TmuxService {
         }
         if let apiSocketPath {
             vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
+        }
+        if let zdotDirOverride {
+            vars.append("ZDOTDIR=\(zdotDirOverride)")
         }
         return vars
     }
@@ -310,6 +406,12 @@ final public class TmuxService {
         switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
         case let .assign(newPanes):
             panes = newPanes
+            // When the override is active, type `export VISUAL=…` into any new
+            // shell pane (issue #591 §5). Fired detached so it never blocks the
+            // refresh; the per-pane dedup set keeps it idempotent.
+            if overrideVisualInShellPanes {
+                Task { await injectOverrideIntoEligibleShellPanes() }
+            }
         case let .empty(reason):
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
@@ -386,7 +488,13 @@ final public class TmuxService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "\n")
             .map(String.init)
-        let parsed = lines.compactMap { PaneInfo(fromTmuxOutput: $0) }
+        // Drop the detached `$VISUAL`-conflict probe session (issue #591 §1) so
+        // it never appears in the sidebar / iOS session lists. It's short-lived
+        // (created, queried, killed within ~10s) but a concurrent refresh could
+        // otherwise surface it.
+        let parsed = lines
+            .compactMap { PaneInfo(fromTmuxOutput: $0) }
+            .filter { !$0.sessionName.hasPrefix(EditorOverride.probeSessionPrefix) }
         let sorted = parsed.sorted { pane1, pane2 in
             let pane1Attached = attachedSessions.contains(pane1.sessionName)
             let pane2Attached = attachedSessions.contains(pane2.sessionName)
@@ -644,11 +752,22 @@ final public class TmuxService {
         let (width, height) = try await getPaneDimensions(target)
         let scrollbackLines = height * scrollbackMultiplier
 
+        // `-N` preserves trailing spaces at each line's end (without `-J`'s
+        // wrapped-line joining) on BOTH captures. Without it tmux trims trailing
+        // cells — which makes a multi-row background band that *continues* (a
+        // Codex composer box) indistinguishable from a single-row band followed
+        // by blank rows, dropping the band's background on its continuation rows
+        // when rebuilt. The visible area needed this for #578; the scrollback
+        // capture gets it too (#580) so a band that has scrolled into history
+        // keeps its background. `processCapturePaneForStreaming` then trims the
+        // now-preserved *default*-bg trailing spaces back off plain scrollback
+        // rows so static history can't reflow into permanent blank rows on a
+        // narrower resize (#429 class).
         let scrollbackResult = try await runTmuxCommand(
-            ["capture-pane", "-t", target, "-p", "-e", "-S", "-\(scrollbackLines)", "-E", "-1"]
+            ["capture-pane", "-t", target, "-p", "-e", "-N", "-S", "-\(scrollbackLines)", "-E", "-1"]
         )
         let visibleResult = try await runTmuxCommand(
-            ["capture-pane", "-t", target, "-p", "-e"]
+            ["capture-pane", "-t", target, "-p", "-e", "-N"]
         )
         guard visibleResult.isSuccess else {
             throw TmuxError.invalidPane(target: target)
@@ -696,13 +815,17 @@ final public class TmuxService {
         // until the user navigates away and back.
         let scrollbackLines = height * scrollbackMultiplier
 
+        // `-N` preserves trailing spaces (see the matching note in
+        // `capturePaneWithScrollbackForStreaming`) so multi-row background
+        // bands survive the rebuild — on the scrollback capture too (#580), so
+        // a band that scrolled into history keeps its background. Issue #578.
         let scrollbackResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(paneId)' -p -e -S -\(scrollbackLines) -E -1",
+            "capture-pane -t '\(paneId)' -p -e -N -S -\(scrollbackLines) -E -1",
             sessionName: sessionName
         )
 
         let visibleResponse = try await controlClientManager.sendCommand(
-            "capture-pane -t '\(paneId)' -p -e",
+            "capture-pane -t '\(paneId)' -p -e -N",
             sessionName: sessionName
         )
 
@@ -786,17 +909,52 @@ final public class TmuxService {
             // tmux retains, the mirror retains.
             if !scrollbackLinesList.isEmpty {
                 hasScrollback = true
+                // Carry the SGR state across scrollback rows exactly as Part 2
+                // does for the visible area. With `-N` a multi-row background
+                // band's continuation rows arrive as real trailing spaces but
+                // bear the band's bg setter only on its first row, so the
+                // carried state must be restored on each row or the band loses
+                // its background in history (#580 — the scrollback analogue of
+                // #578). `carriedSGRs` is local to this loop; Part 2 keeps its
+                // own.
+                var carriedSGRs: [String] = []
                 for line in scrollbackLinesList {
                     // Strip any trailing CR (tmux may output \r\n line endings)
                     var lineStr = String(line)
                     if lineStr.hasSuffix("\r") {
                         lineStr.removeLast()
                     }
-                    // Filter to colors only, reset attributes, output content with newline
                     let filtered = filterToColorCodesOnly(lineStr)
-                    output += "\u{1b}[0m" // Reset at start
-                    output += filtered
-                    output += "\u{1b}[0m\r\n" // Reset, carriage return, newline
+                    // Drop the trailing spaces that carry the *default*
+                    // background so a plain full-width row stays short: scrollback
+                    // is static history and is never redrawn, so a preserved
+                    // full-width default row would wrap into permanent blank
+                    // continuation rows on a narrower resize (#429 class). A
+                    // band's trailing spaces carry a non-default bg and are kept,
+                    // so the band survives with its background. SGR sequences are
+                    // never dropped, so the carry below is unaffected.
+                    let drawn = trimTrailingDefaultBackgroundSpaces(filtered, carriedSGRs: carriedSGRs)
+                    if countVisibleColumns(drawn) > 0 {
+                        // Restore the carried state (default for a plain row, the
+                        // band's bg for a continuation row), then draw the row's
+                        // real content and any band spaces. A genuinely-blank row
+                        // (`drawn` empty) skips the restore so a carried band bg
+                        // can't bleed onto it — the #411 guard, same as Part 2.
+                        output += carriedSGRs.joined()
+                        output += drawn
+                    }
+                    // Use `filtered`, not `drawn` — SGR sequences are identical
+                    // in both (trimming only removes trailing default-bg spaces),
+                    // so the accumulated state matches either way.
+                    accumulateSGRState(&carriedSGRs, from: filtered)
+                    // BCE-clear the rest of the row. After a plain row the bg is
+                    // default, so this writes a NULL tail (reflow-safe); after a
+                    // band row `-N` already supplied the real cells to the edge,
+                    // so it is a no-op. The `\e[0m` then resets before the newline
+                    // so a band's bg can't bleed into the LF-push scroll (Part 2)
+                    // — the carried state is re-applied on the next row.
+                    output += "\u{1b}[K"
+                    output += "\u{1b}[0m\r\n"
                 }
             }
         }
@@ -835,68 +993,58 @@ final public class TmuxService {
         // Output visible lines sequentially. Filter each line to keep only color
         // codes (remove cursor positioning that could interfere).
         //
-        // Trailing-cell strategy: write the line's content, then EITHER pad
-        // out to `width - 1` with explicit spaces under the active SGR (when
-        // the line's end-of-line SGR state has non-bg attributes that need
-        // styling preservation), OR just `\e[K` (BCE-erase to end of line)
-        // when the bg band — or no styling at all — is sufficient. Reset SGR
-        // before `\r\n`.
+        // Cross-line SGR state carry (issue #578):
         //
-        // Why conditional and not always-or-never padding:
+        //   `tmux capture-pane -e` emits an SGR setter only when an attribute
+        //   *changes* and lets that state carry across line boundaries — it
+        //   never re-emits the setter at the start of each row. A multi-row
+        //   background band (e.g. a Codex composer box) therefore bears its
+        //   `\e[48;5;…m` setter only on its *first* row; every continuation
+        //   row carries the bg purely via that persisted state. With `-N` the
+        //   continuation rows now arrive with their real (preserved) trailing
+        //   spaces, but still no setter — so we must restore the carried SGR
+        //   state at the start of each rendered row, or those rows render with
+        //   the default (black) background.
         //
-        //   - `\e[K` (EL) is BCE: it paints trailing cells with the line's
-        //     active bg color (so issue #411 bg bands survive) but uses
-        //     `Terminal.eraseAttr()` which strips fg and style — i.e. it
-        //     CANNOT preserve underline / italic / fg-color bands from
-        //     trimmed-capture rows (the #352 trim shape: a lone `\e[4m` or
-        //     similar non-bg setter with no chars after).
+        //   We restore the carried state only on rows that actually render a
+        //   cell (`visibleColumns > 0`). A genuinely blank row arrives empty
+        //   from `-N` (its cells were never written, so tmux emits nothing for
+        //   it); restoring a carried bg there and letting `\e[K` BCE-fill it
+        //   would resurrect the #411 leak. `-N` makes this distinction
+        //   reliable: a band's continuation row carries explicit spaces (it is
+        //   non-empty), whereas a truly default row is captured empty.
         //
-        //   - Padding with real spaces under the active SGR preserves any
-        //     attribute on the trailing cells, including non-bg ones — but
-        //     every padded space is a real cell with `code != 0` in the
-        //     buffer. `BufferLine.getTrimmedLength` only trims cells with
-        //     `code == 0`, so padded rows have a trimmed length equal to the
-        //     pane width. When auto-resize fires after attach and SwiftTerm
-        //     reflows narrower, every padded row of `width - 1` chars wraps
-        //     into `ceil((width - 1) / newCols)` visual rows. The trailing
-        //     visual rows are pure pad spaces — visually blank — producing
-        //     the double/triple-spacing reported as issue #429.
-        //
-        //   So we restrict padding to the rows that actually need it: those
-        //   ending with a non-bg SGR setter that hasn't been reset. In
-        //   practice these are TUI bands (underlined separators, fg-colored
-        //   status lines), not ordinary log content. Ordinary content rows
-        //   skip padding → trimmed length stays at the actual content
-        //   length → reflow narrower trims trailing NULL cells → no blank
-        //   continuation rows. The few padded rows still produce blanks on
-        //   reflow, but those rows are also redrawn by the running TUI on
-        //   the SIGWINCH that auto-resize triggers, so the blanks are
-        //   transient — a much smaller blast radius than padding every row.
-        //
-        //   Padding stops one column short of `width` (then `\e[K` BCE-clears
-        //   the final cell) so the cursor can never land in the pending-wrap
-        //   position. The single-cell loss of non-bg styling on the rightmost
-        //   column is invisible in practice. This was the original intent of
-        //   the `width - 1` cap from PR #353/#413.
+        //   Trailing cells: `\e[K` (EL) is BCE — it paints from the cursor to
+        //   the right margin with the *current* bg. After a band's content it
+        //   extends the band's bg to the edge; after a partial band tmux has
+        //   already emitted `\e[49m`, so `\e[K` clears with the default bg;
+        //   after ordinary content the bg is default and `\e[K` simply clears
+        //   any stale cells from a previous rebuild. The `\e[0m` after it
+        //   resets so the SGR can't leak into the next row's BCE. Because the
+        //   real trailing spaces now come from `-N`, the old conditional
+        //   padding (PR #353/#413, issue #429) is no longer needed and is
+        //   gone — only genuine band rows carry full-width cells, so reflow
+        //   no longer manufactures blank continuation rows for plain content.
         //
         //   The SGR-leak fix from #352 (resetting SGR before extractActiveSGR
         //   and skipping extraction on empty cursor lines) is unchanged and
-        //   still prevents the underline-state leak into live-streamed data
-        //   regardless of padding strategy.
-        let padTarget = max(0, width - 1)
+        //   still prevents the underline-state leak into live-streamed data.
+        var carriedSGRs: [String] = []
         for index in 0..<linesToOutput {
-            var visibleColumns = 0
-            var needsExplicitPadding = false
             if index < visibleLines.count {
                 let filtered = filterToColorCodesOnly(visibleLines[index])
-                output += filtered
-                visibleColumns = countVisibleColumns(filtered)
-                needsExplicitPadding = lineHasNonBgSGRActiveAtEnd(filtered)
+                if countVisibleColumns(filtered) > 0 {
+                    // Restore the SGR state carried into this row (default for
+                    // the first band row, the band's bg for continuation rows),
+                    // then draw the row's real content and trailing spaces.
+                    output += carriedSGRs.joined()
+                    output += filtered
+                }
+                // Track state even for rows we don't render, so a band's bg
+                // carries to its continuation rows exactly as tmux intends.
+                accumulateSGRState(&carriedSGRs, from: filtered)
             }
-            if needsExplicitPadding, visibleColumns < padTarget {
-                output += String(repeating: " ", count: padTarget - visibleColumns)
-            }
-            output += "\u{1b}[K" // BCE-clear trailing cells (preserves bg band; no real chars when not padded)
+            output += "\u{1b}[K" // BCE-clear trailing cells (extends the row's active bg band; default after a band's `\e[49m`)
             output += "\u{1b}[0m" // Reset before newline so SGR can't leak forward
             if index < linesToOutput - 1 {
                 output += "\r\n"
@@ -949,10 +1097,10 @@ final public class TmuxService {
     /// via `displayWidth(of:)` so wide characters (CJK, emoji) count as 2 and
     /// combining marks count as 0 — matching SwiftTerm's column accounting.
     ///
-    /// Used by `processCapturePaneForStreaming` when a row needs explicit
-    /// padding under the active SGR (see `lineHasNonBgSGRActiveAtEnd`) — the
-    /// pad amount is `padTarget - visibleColumns`, so over-counting wraps the
-    /// row and silently consumes a row of the rebuilt screen.
+    /// Used by `processCapturePaneForStreaming` to tell a row that renders a
+    /// cell (`> 0`) from a genuinely blank one: only the former gets the
+    /// carried SGR state restored, so a multi-row background band's
+    /// continuation rows keep their bg while truly default rows stay default.
     func countVisibleColumns(_ filtered: String) -> Int {
         var count = 0
         var i = filtered.startIndex
@@ -1005,101 +1153,6 @@ final public class TmuxService {
             }
         }
         return count
-    }
-
-    /// Returns true if the active SGR state at the end of `filtered` includes
-    /// any attribute that BCE (`\e[K`) cannot preserve — i.e. a style flag
-    /// (bold, dim, italic, underline, blink, reverse, hide, strikethrough,
-    /// double-underline, overline) or a non-default fg color.
-    ///
-    /// Used by `processCapturePaneForStreaming` to decide whether the
-    /// trailing cells of a rebuilt row need explicit padding under the active
-    /// SGR (preserving the issue #352 trim-shape bands like a lone `\e[4m`)
-    /// or whether `\e[K` alone suffices (issue #411 bg bands or default).
-    ///
-    /// The walker treats partial resets (22-29 style off, 39 default fg) as
-    /// no-ops, so it over-pads when a partial reset cancels the only active
-    /// attribute. That false positive is acceptable: the cost is reflow
-    /// blanks on a rare row, while a false negative would lose visible
-    /// styling on the rebuild.
-    func lineHasNonBgSGRActiveAtEnd(_ filtered: String) -> Bool {
-        var hasNonBgActive = false
-        var i = filtered.startIndex
-        while i < filtered.endIndex {
-            guard
-                filtered[i] == "\u{1b}",
-                filtered.index(after: i) < filtered.endIndex,
-                filtered[filtered.index(after: i)] == "[" else {
-                i = filtered.index(after: i)
-                continue
-            }
-            let paramsStart = filtered.index(after: filtered.index(after: i))
-            var end = paramsStart
-            while end < filtered.endIndex {
-                let c = filtered[end]
-                if c >= "@", c <= "~" { break }
-                end = filtered.index(after: end)
-            }
-            if end >= filtered.endIndex { break }
-            let terminator = filtered[end]
-            if terminator == "m" {
-                let paramStr = String(filtered[paramsStart..<end])
-                // `omittingEmptySubsequences: false` so trailing-empty
-                // params (e.g. `\e[1;m`) are treated as `0` per ECMA-48.
-                let params: [Int] = paramStr.isEmpty
-                    ? [0]
-                    : paramStr.split(separator: ";", omittingEmptySubsequences: false)
-                    .map { Int($0) ?? 0 }
-                var idx = 0
-                while idx < params.count {
-                    let p = params[idx]
-                    switch p {
-                    case 0:
-                        // Reset all attributes.
-                        hasNonBgActive = false
-                    case 1...9,
-                         21,
-                         53:
-                        // Style flags: bold, dim, italic, underline, blink,
-                        // fast-blink, reverse, hide, strikethrough,
-                        // double-underline, overline.
-                        hasNonBgActive = true
-                    case 30...37,
-                         90...97:
-                        // 8-color and bright fg.
-                        hasNonBgActive = true
-                    case 38:
-                        // Extended fg: 38;5;N or 38;2;R;G;B. Skip parameters.
-                        hasNonBgActive = true
-                        if idx + 1 < params.count {
-                            switch params[idx + 1] {
-                            case 5: idx += 2
-                            case 2: idx += 4
-                            default: break
-                            }
-                        }
-                    case 48:
-                        // Extended bg — doesn't affect non-bg state. Skip params.
-                        if idx + 1 < params.count {
-                            switch params[idx + 1] {
-                            case 5: idx += 2
-                            case 2: idx += 4
-                            default: break
-                            }
-                        }
-                    default:
-                        // 22-29 (style resetters), 39 (default fg), 40-47 / 49 /
-                        // 100-107 (bg-related). Conservative: leave the flag
-                        // unchanged — partial resets may not clear all non-bg
-                        // attributes and we'd rather over-pad than lose styling.
-                        break
-                    }
-                    idx += 1
-                }
-            }
-            i = filtered.index(after: end)
-        }
-        return hasNonBgActive
     }
 
     /// Filters ANSI escape codes, keeping only SGR (color/style) codes.
@@ -1250,6 +1303,204 @@ final public class TmuxService {
         case "~": return "\u{00b7}" // ·
         default: return char
         }
+    }
+
+    /// Updates a running list of active SGR sequences by processing every SGR
+    /// code in `filtered` (a single `filterToColorCodesOnly` result). A full
+    /// reset (`\e[0m` / `\e[m`) clears the list; any other SGR sequence is
+    /// appended. Replaying the joined list reproduces the SGR state that
+    /// `tmux capture-pane -e` carries across line boundaries — used by
+    /// `processCapturePaneForStreaming` to restore a multi-row band's
+    /// background on its continuation rows (issue #578).
+    ///
+    /// Mirrors the SGR-tracking half of `extractActiveSGR`, but walks the whole
+    /// line (no cursor-column stop) and accumulates into caller-owned state so
+    /// it can be threaded across every rendered row.
+    ///
+    /// Partial resets (`\e[49m` default-bg, `\e[39m` default-fg, `\e[22m`–`29`
+    /// style-off) are appended like any other setter rather than pruning the
+    /// attribute they cancel. This keeps the accumulator a dumb, allocation-light
+    /// string list and stays correct because the list is replayed *in order*:
+    /// a later `\e[49m` always wins over an earlier `\e[48;5;Nm`, reproducing the
+    /// exact state tmux carried (this is what the `\e[K` note in
+    /// `processCapturePaneForStreaming` relies on). Growth is bounded per call —
+    /// the list lives only for one rebuild (≤ height rows) and is reset on every
+    /// full `\e[0m`, which `tmux capture-pane -e` emits at each band boundary —
+    /// so the joined prefix re-emitted per row stays small in practice.
+    ///
+    /// Internal for testing
+    func accumulateSGRState(_ activeSGRs: inout [String], from filtered: String) {
+        var i = filtered.startIndex
+        while i < filtered.endIndex {
+            if
+                filtered[i] == "\u{1b}",
+                filtered.index(after: i) < filtered.endIndex,
+                filtered[filtered.index(after: i)] == "[" {
+                var endIdx = filtered.index(i, offsetBy: 2)
+                while endIdx < filtered.endIndex {
+                    let ch = filtered[endIdx]
+                    if ch >= "@", ch <= "~" {
+                        if ch == "m" {
+                            let sgr = String(filtered[i...endIdx])
+                            if sgr == "\u{1b}[0m" || sgr == "\u{1b}[m" {
+                                activeSGRs.removeAll()
+                            } else {
+                                activeSGRs.append(sgr)
+                            }
+                        }
+                        i = filtered.index(after: endIdx)
+                        break
+                    }
+                    endIdx = filtered.index(after: endIdx)
+                }
+                if endIdx >= filtered.endIndex {
+                    i = filtered.endIndex
+                }
+            } else {
+                i = filtered.index(after: i)
+            }
+        }
+    }
+
+    /// Returns `filtered` with a trailing run of spaces removed when those spaces
+    /// carry the *default* background, while preserving spaces that carry a
+    /// non-default background (a multi-row band's continuation cells).
+    ///
+    /// `tmux capture-pane -N` preserves every row's trailing spaces as real
+    /// cells. In the *visible* area that is what lets a band's continuation rows
+    /// survive (#578) — the running TUI redraws them on the resize SIGWINCH.
+    /// Scrollback is static history that is never redrawn, so a preserved
+    /// full-width row of *default*-bg spaces would wrap into permanent blank
+    /// continuation rows on a narrower resize (#429 class). Dropping those spaces
+    /// keeps a plain row short so SwiftTerm's reflow trims its NULL tail, while a
+    /// band's non-default-bg spaces are kept so the band survives in history with
+    /// its background (#580).
+    ///
+    /// Only trailing space *characters* are removed — every SGR sequence is kept
+    /// in place. That keeps the bg state carried to the next row (via
+    /// `accumulateSGRState`, which reads the untrimmed line) correct, and
+    /// preserves a closing `\e[49m`/`\e[0m` after the content so the caller's
+    /// `\e[K` BCE clears the tail with the right (default) background.
+    ///
+    /// Internal for testing
+    func trimTrailingDefaultBackgroundSpaces(_ filtered: String, carriedSGRs: [String]) -> String {
+        // Background carried into this row from earlier rows. Replayed in order
+        // so a later partial reset wins, matching tmux's cross-line SGR state.
+        // (An order-insensitive `contains` would be wrong: a trailing `\e[49m`
+        // must override an earlier `\e[48;5;Nm`.)
+        var bgActive = false
+        for sgr in carriedSGRs {
+            if let change = sgrBackgroundChange(sgr) {
+                bgActive = change
+            }
+        }
+        // Find the index just past the last "meaningful" character: a non-space,
+        // or a space drawn over a non-default background. Everything after it is
+        // default-bg padding to drop. SGR sequences never bound the trim but do
+        // update the running bg state.
+        var i = filtered.startIndex
+        var keepEnd = filtered.startIndex
+        while i < filtered.endIndex {
+            let ch = filtered[i]
+            if ch == "\u{1b}", filtered.index(after: i) < filtered.endIndex, filtered[filtered.index(after: i)] == "[" {
+                var end = filtered.index(i, offsetBy: 2)
+                while end < filtered.endIndex {
+                    let c = filtered[end]
+                    if c >= "@", c <= "~" {
+                        if c == "m", let change = sgrBackgroundChange(String(filtered[i...end])) {
+                            bgActive = change
+                        }
+                        end = filtered.index(after: end)
+                        break
+                    }
+                    end = filtered.index(after: end)
+                }
+                i = end
+            } else {
+                if ch != " " || bgActive {
+                    keepEnd = filtered.index(after: i)
+                }
+                i = filtered.index(after: i)
+            }
+        }
+        if keepEnd == filtered.endIndex {
+            return filtered
+        }
+        // Rebuild: keep everything up to keepEnd verbatim, then keep only CSI
+        // sequences (dropping the trailing default-bg spaces) so a closing
+        // `\e[49m`/`\e[0m` still reaches the caller. The input is
+        // `filterToColorCodesOnly` output, so the only CSI sequences present are
+        // SGR (`m`); no extra `c == "m"` guard is needed.
+        var result = String(filtered[..<keepEnd])
+        var j = keepEnd
+        while j < filtered.endIndex {
+            let ch = filtered[j]
+            if ch == "\u{1b}", filtered.index(after: j) < filtered.endIndex, filtered[filtered.index(after: j)] == "[" {
+                var end = filtered.index(j, offsetBy: 2)
+                while end < filtered.endIndex {
+                    let c = filtered[end]
+                    if c >= "@", c <= "~" {
+                        end = filtered.index(after: end)
+                        break
+                    }
+                    end = filtered.index(after: end)
+                }
+                result += filtered[j..<end]
+                j = end
+            } else {
+                j = filtered.index(after: j)
+            }
+        }
+        return result
+    }
+
+    /// Classifies how a single SGR sequence changes the background: `true` if it
+    /// selects a non-default background, `false` if it resets the background to
+    /// default (`\e[0m`, `\e[m`, `\e[49m`), or `nil` if it leaves the background
+    /// untouched (a foreground/style-only setter). Used by
+    /// `trimTrailingDefaultBackgroundSpaces` to tell a band's trailing spaces
+    /// (keep) from default-bg padding (drop) in scrollback (#580).
+    ///
+    /// Internal for testing
+    func sgrBackgroundChange(_ sgr: String) -> Bool? {
+        guard sgr.hasPrefix("\u{1b}["), sgr.hasSuffix("m") else { return nil }
+        let body = sgr.dropFirst(2).dropLast()
+        // `\e[m` (empty params) is an implicit full reset.
+        let params = body.isEmpty
+            ? [0]
+            : body.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+        var result: Bool?
+        var idx = 0
+        while idx < params.count {
+            switch params[idx] {
+            case 0,
+                 49:
+                result = false // full reset or explicit default background
+            case 40...47,
+                 100...107:
+                result = true // 16-color / bright background
+            case 38,
+                 48,
+                 58:
+                // Extended fg (38) / bg (48) / underline (58) color. Skip the
+                // following `5;N` or `2;R;G;B` args so a color index that happens
+                // to land in a bg range isn't misread as a background setter.
+                if params[idx] == 48 {
+                    result = true
+                }
+                if idx + 1 < params.count {
+                    if params[idx + 1] == 5 {
+                        idx += 2
+                    } else if params[idx + 1] == 2 {
+                        idx += 4
+                    }
+                }
+            default:
+                break // foreground / style params don't affect the background
+            }
+            idx += 1
+        }
+        return result
     }
 
     /// Extracts the active SGR (color/style) escape sequences at the given cursor position
@@ -2397,24 +2648,36 @@ final public class TmuxService {
 
     // MARK: - Session Creation
 
-    /// Forces the server-wide tmux options needed for modified keys (notably
-    /// Shift+Enter) to round-trip cleanly to apps like Claude Code, so users
-    /// don't need to add these lines to their `~/.tmux.conf`. `extended-keys`
-    /// is a scalar so re-setting it is harmless. `terminal-features` is a
-    /// list option and tmux's `-a` appends without deduping, so we read the
-    /// current value first and only append `xterm*:extkeys` if it isn't
-    /// already present — otherwise the value would grow into
-    /// `xterm*:extkeys,xterm*:extkeys,…` over a long-running server.
-    private func applyExtendedKeysOptions() async {
+    /// Forces the server-wide tmux options needed for high-fidelity passthrough to
+    /// apps like Claude Code, so users don't need to add these lines to their
+    /// `~/.tmux.conf`:
+    ///  - `extended-keys on` + the `xterm*:extkeys` feature so modified keys
+    ///    (notably Shift+Enter) round-trip cleanly.
+    ///  - the `xterm*:RGB` feature so 24-bit color (advertised to agents via
+    ///    `COLORTERM=truecolor`) reaches the mirror instead of being quantized to
+    ///    256 colors.
+    ///
+    /// `extended-keys` is a scalar so re-setting it is harmless. `terminal-features`
+    /// is a list option and tmux's `-a` appends without deduping, so we read the
+    /// current value first and only append a feature if it isn't already present —
+    /// otherwise the value would grow into `…,xterm*:extkeys,xterm*:extkeys,…` over
+    /// a long-running server.
+    private func applyTerminalFeatureOptions() async {
         _ = try? await runTmuxCommand(["set-option", "-s", "extended-keys", "on"])
 
         let current = (try? await runTmuxCommand(["show-options", "-sv", "terminal-features"]))?
             .stdoutString
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !current.contains("xterm*:extkeys") else { return }
-        _ = try? await runTmuxCommand([
-            "set-option", "-sa", "terminal-features", "xterm*:extkeys",
-        ])
+        if !current.contains("xterm*:extkeys") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:extkeys",
+            ])
+        }
+        if !current.contains("xterm*:RGB") {
+            _ = try? await runTmuxCommand([
+                "set-option", "-sa", "terminal-features", "xterm*:RGB",
+            ])
+        }
     }
 
     /// Creates a new tmux session with the specified name and dimensions.
@@ -2450,14 +2713,20 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-command … ; new-session …` in one tmux
-        // invocation. `set-option` needs a running server, but we need the
-        // wrapper installed *before* `new-session` so the first pane uses it.
-        // Within a single tmux call the server is started, then commands run
-        // in order — so set-option succeeds and the new session inherits the
-        // just-set global default-command. Repeating this on every session
-        // create is harmless (idempotent) and avoids tracking server lifetime.
+        // Chain `set-option -g default-terminal … ; set-option -g default-command
+        // … ; new-session …` in one tmux invocation. `set-option` needs a running
+        // server, but we need both options installed *before* `new-session` so the
+        // first pane uses them. Within a single tmux call the server is started,
+        // then commands run in order — so the set-options succeed and the new
+        // session inherits them. `default-terminal` pins the pane's TERM to a
+        // 256-color entry (tmux otherwise spawns with its build default, which can
+        // be the 8-color `screen`); `screen-256color` is chosen over the richer
+        // `tmux-256color` because the latter's terminfo entry is missing on some
+        // macOS installs. Repeating this on every session create is harmless
+        // (idempotent) and avoids tracking server lifetime.
         var args = [
+            "set-option", "-g", "default-terminal", "screen-256color",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
@@ -2480,12 +2749,13 @@ final public class TmuxService {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
 
-        // Apply server-wide options required for extended-key passthrough so
-        // Shift+Enter (and other modified keys) reach apps like Claude Code
-        // without the user editing ~/.tmux.conf. Server options are global and
-        // idempotent — re-running on each session create is harmless and
-        // additive (`-a` appends to the terminal-features list).
-        await applyExtendedKeysOptions()
+        // Apply server-wide options required for extended-key and truecolor
+        // passthrough so Shift+Enter (and other modified keys) and 24-bit color
+        // reach apps like Claude Code without the user editing ~/.tmux.conf.
+        // Server options are global and idempotent — re-running on each session
+        // create is harmless and additive (`-a` appends to the terminal-features
+        // list).
+        await applyTerminalFeatureOptions()
 
         // Get the pane ID of the first pane in the new session
         // Target format: session:window.pane (first window, first pane)
@@ -2506,18 +2776,164 @@ final public class TmuxService {
 
         // Run initial command if specified
         if let runCommand, !runCommand.isEmpty {
+            // App-launched agents are typed into a login shell that has already
+            // sourced the user's rc files — so when the override is active we
+            // chain `export VISUAL=…` onto the same line (issue #591 §5) rather
+            // than relying on the new-pane injector, which would see the agent
+            // (not a shell) as `pane_current_command` and skip the pane. The
+            // chained form runs the command through the shell, so aliases /
+            // functions for the agent still resolve.
+            let line = overrideCommandPrefix().map { "\($0); \(runCommand)" } ?? runCommand
             _ = try await runTmuxCommand([
                 "send-keys",
                 "-t", paneId,
-                runCommand,
+                line,
                 "Enter",
             ])
+            // The override is now asserted on this pane's command line; mark it so
+            // the new-pane injector never also types into it.
+            if overrideVisualInShellPanes {
+                injectedOverridePaneIds.insert(paneId)
+            }
         }
 
         // Refresh panes to include the new session
         await refreshPanes()
 
         return (sessionName: sessionName, paneId: paneId)
+    }
+
+    /// The `export VISUAL=…` statement to chain ahead of an app-launched command
+    /// when the override is active, or nil when it isn't (or the shell/CLI is
+    /// unknown). Uses the user's login shell to pick the right syntax.
+    private func overrideCommandPrefix() -> String? {
+        guard overrideVisualInShellPanes, let gallagerVisualValue else { return nil }
+        return EditorOverride.injectionCommand(visualValue: gallagerVisualValue, shell: Self.userShellPath)
+    }
+
+    // MARK: - Editor Override (issue #591)
+
+    /// Probes whether Gallager's `$VISUAL` survives the user's rc files
+    /// (issue #591 §1). Creates a detached probe session on the app-owned tmux
+    /// server with `-e VISUAL=<sentinel>` and the normal `default-command`
+    /// wrapper (real pty, real env, real startup), types a `printf` that echoes
+    /// the resolved `$VISUAL` at the first prompt, polls `capture-pane` for the
+    /// marker, then kills the session.
+    ///
+    /// - Sentinel intact → `.intact` (no conflict; never show the dialog).
+    /// - Anything else (overridden or unset) → `.conflict` with the user's value.
+    /// - No bundled CLI, an unknown shell that can't run the probe, or a timeout
+    ///   → `.skipped` (treated as no-conflict).
+    public func probeVisualConflict() async -> VisualProbeResult {
+        // Nothing to fight over without the bundled CLI driving `$VISUAL`.
+        guard editorCLIPath != nil else { return .skipped }
+        guard !isProbingVisualConflict else { return .skipped }
+        isProbingVisualConflict = true
+        defer { isProbingVisualConflict = false }
+
+        let sessionName = EditorOverride.probeSessionPrefix
+        let target = Self.sessionTarget(sessionName)
+
+        // Kill any probe session left behind by a crash mid-probe before reusing
+        // the fixed name.
+        _ = try? await runTmuxCommand(["kill-session", "-t", target])
+
+        // Faithful pane env: the normal vars, but with the sentinel standing in
+        // for the editor `$VISUAL` (that's the value we're testing for survival).
+        var env = Self.baseEnvironmentVars
+        if let apiSocketPath {
+            env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+        }
+        if let zdotDirOverride {
+            env.append("ZDOTDIR=\(zdotDirOverride)")
+        }
+        env.append("VISUAL=\(EditorOverride.probeSentinel)")
+
+        // A wide pane keeps the typed `printf` command on one row so its echo
+        // can't wrap into a line that starts with the marker.
+        var args = [
+            "set-option", "-g", "default-command", defaultCommandWrapper,
+            ";",
+            "new-session",
+            "-d",
+            "-s", sessionName,
+            "-x", "200",
+            "-y", "50",
+        ] + env.flatMap { ["-e", $0] }
+        args.append(contentsOf: ["-c", FileManager.default.homeDirectoryForCurrentUser.path])
+
+        guard let created = try? await runTmuxCommand(args), created.isSuccess else {
+            logger.warning("VISUAL probe: failed to create probe session")
+            return .skipped
+        }
+
+        // Type the marker command; the bytes buffer in the tty and execute after
+        // all rc files, at the first prompt.
+        _ = try? await runTmuxCommand(["send-keys", "-t", target, EditorOverride.probeCommand, "Enter"])
+
+        // Poll capture-pane for the marker (≈10s budget).
+        var outcome: VisualProbeResult = .skipped
+        for _ in 0..<40 {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard
+                let capture = try? await runTmuxCommand(["capture-pane", "-t", target, "-p"]),
+                capture.isSuccess
+            else { continue }
+            if let parsed = EditorOverride.parseProbeOutput(capture.stdoutString) {
+                outcome = parsed
+                break
+            }
+        }
+
+        _ = try? await runTmuxCommand(["kill-session", "-t", target])
+        logger.info("VISUAL probe result: \(String(describing: outcome))")
+        return outcome
+    }
+
+    /// Injects the override into every current shell pane we haven't typed into
+    /// yet (issue #591 §5). Called when the user turns the override on, so panes
+    /// that already exist pick it up immediately; new panes are handled by
+    /// `refreshPanes`.
+    public func injectVisualOverrideIntoExistingShellPanes() async {
+        await injectOverrideIntoEligibleShellPanes()
+    }
+
+    /// Forgets which panes have been injected, so flipping the override off and
+    /// back on re-injects current panes.
+    public func clearInjectedOverrideTracking() {
+        injectedOverridePaneIds.removeAll()
+    }
+
+    /// Types `export VISUAL='<editor> edit'` (or the fish equivalent) into each
+    /// known-shell pane not yet injected, recording it so a pane is typed into at
+    /// most once. Non-shell panes (a direct-command agent) are skipped — they
+    /// never ran rc files, so their inherited `-e VISUAL` is already correct, and
+    /// typing into a running program would corrupt its input.
+    private func injectOverrideIntoEligibleShellPanes() async {
+        guard overrideVisualInShellPanes, let gallagerVisualValue else { return }
+
+        // Bound the dedup set to live panes so it can't grow without limit.
+        let livePaneIds = Set(panes.map(\.paneId))
+        injectedOverridePaneIds.formIntersection(livePaneIds)
+
+        for pane in panes {
+            guard !injectedOverridePaneIds.contains(pane.paneId) else { continue }
+            guard
+                let command = EditorOverride.injectionCommand(
+                    visualValue: gallagerVisualValue,
+                    shell: pane.command
+                )
+            else { continue }
+            // Record before awaiting so an overlapping invocation skips this pane.
+            injectedOverridePaneIds.insert(pane.paneId)
+            do {
+                try await sendKeys(pane.paneId, keys: command, literal: true)
+                try await sendKeys(pane.paneId, keys: "Enter")
+            } catch {
+                logger.warning("VISUAL override injection failed for \(pane.paneId): \(error)")
+                injectedOverridePaneIds.remove(pane.paneId)
+            }
+        }
     }
 
     /// Returns `true` when a tmux session with the given name currently exists.

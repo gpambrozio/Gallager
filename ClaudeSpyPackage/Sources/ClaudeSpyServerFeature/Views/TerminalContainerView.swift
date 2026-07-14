@@ -152,8 +152,25 @@ struct TerminalContainerView: NSViewRepresentable {
         private var consecutiveKeyFailures = 0
         private let maxConsecutiveKeyFailures = 3
 
-        /// Serializes key sends so concurrent onInput callbacks don't race
+        /// Serializes key sends so concurrent onInput callbacks don't race.
+        /// Keys flow through `keyCoalescer`, which chains onto this task on the
+        /// *next* runloop turn, while raw input chains synchronously — so the raw
+        /// path calls `keyCoalescer.flushPending()` first to keep key-vs-raw FIFO.
+        /// File drop (a heavyweight paste) is intentionally off this chain, so its
+        /// ordering relative to keystrokes is best-effort.
         private var pendingKeyTask: Task<Void, Never>?
+
+        /// Coalesces the two synchronous `send()` callbacks SwiftTerm emits for a
+        /// Meta/Option sequence (ESC + key) into one batch, sent as a single
+        /// `send-keys` so the app sees one Meta keypress. See `KeystrokeCoalescer`.
+        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
+            guard let self, let target = self.paneState?.target else { return }
+            let previous = self.pendingKeyTask
+            self.pendingKeyTask = Task {
+                _ = await previous?.value
+                await self.sendKeysToTmux(batch, target: target)
+            }
+        }
 
         // MARK: Initialization
 
@@ -191,19 +208,24 @@ struct TerminalContainerView: NSViewRepresentable {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
             applyTheme(settings.theme)
 
-            // Wire up input handling — chained tasks ensure keys are sent in order
+            // Wire up input handling. SwiftTerm emits a Meta/Option sequence as
+            // TWO synchronous send() callbacks — a lone ESC, then the key — so we
+            // coalesce keys that land in the same runloop turn into one batch (see
+            // `keyCoalescer.enqueue`). Sent as separate `send-keys` calls, tmux
+            // delivers a bare Escape followed by the key, so Option-Backspace only
+            // deletes one character; batched into a single `send-keys` they arrive
+            // as the intended Meta combination (ESC DEL → delete word).
             terminalView.onInput = { [weak self] keys in
-                guard let self, let paneState = self.paneState else { return }
-                let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
-                    _ = await previous?.value
-                    await self.sendKeysToTmux(keys, target: paneState.target)
-                }
+                self?.keyCoalescer.enqueue(keys)
             }
 
-            // Wire up raw input (mouse escape sequences) — same serialization chain
+            // Wire up raw input (mouse escape sequences) — same serialization chain.
+            // The coalescer defers its `pendingKeyTask` chaining to the next runloop
+            // turn, so flush any keys buffered earlier in *this* turn first; that
+            // chains them ahead of this raw send and keeps overall input FIFO.
             terminalView.onRawInput = { [weak self] data in
                 guard let self, let paneState = self.paneState else { return }
+                self.keyCoalescer.flushPending()
                 let previous = self.pendingKeyTask
                 self.pendingKeyTask = Task {
                     _ = await previous?.value
@@ -238,25 +260,22 @@ struct TerminalContainerView: NSViewRepresentable {
         private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
             guard let tmuxService else { return }
 
-            for key in keys {
-                // Skip delays - they're for iOS relay, not needed for local
-                if case .delay = key { continue }
+            do {
+                // Batched send: a contiguous run of same-mode keys becomes a
+                // single `send-keys` invocation (sendKeystrokes still splits
+                // across `.delay` boundaries and literal/non-literal transitions).
+                // This is what keeps a split Meta sequence (e.g. `[.escape,
+                // .backspace]` for Option-Backspace) intact — the two land in one
+                // `send-keys`, whereas sent one-by-one tmux delivers a bare Escape
+                // then Backspace and the app only deletes a character, not a word.
+                try await tmuxService.sendKeystrokes(target, keys: keys)
+                consecutiveKeyFailures = 0
+            } catch {
+                consecutiveKeyFailures += 1
+                print("Failed to send keys to tmux: \(error)")
 
-                do {
-                    try await tmuxService.sendKeys(
-                        target,
-                        keys: key.tmuxKeyName,
-                        literal: key.requiresLiteralMode
-                    )
-                    consecutiveKeyFailures = 0
-                } catch {
-                    consecutiveKeyFailures += 1
-                    print("Failed to send key to tmux: \(error)")
-
-                    if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
-                        updateState(.error("Failed to send keystrokes to tmux"))
-                        break
-                    }
+                if consecutiveKeyFailures >= maxConsecutiveKeyFailures {
+                    updateState(.error("Failed to send keystrokes to tmux"))
                 }
             }
         }
@@ -316,6 +335,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
+            keyCoalescer.reset()
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
