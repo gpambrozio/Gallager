@@ -126,6 +126,25 @@ struct WebSocketController: RouteCollection {
             return
         }
 
+        // Hosted-relay gate for hosts (viewers are never gated). Mirrors the
+        // invalidPair rejection flow above.
+        if deviceType == .host {
+            let entitlement = await req.application.licensingService
+                .checkEntitlement(hostDeviceId: deviceId)
+            if !entitlement.isAllowed {
+                req.logger.info("WebSocket host rejected: subscription required for pair \(pairId)")
+                await req.application.metricsService.incrementBlockedHostAttempts()
+                await connectionHub.unregister(pairId: pairId, deviceType: deviceType)
+                let errorMessage = WebSocketMessage.error(.subscriptionRequired())
+                if let data = try? JSONEncoder().encode(errorMessage) {
+                    try? await ws.send(raw: data, opcode: .text)
+                }
+                await connectionHub.send(.hostSubscriptionInactive, to: pairId, deviceType: .viewer)
+                try? await ws.close(code: .policyViolation)
+                return
+            }
+        }
+
         // Notify the other device
         await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
     }

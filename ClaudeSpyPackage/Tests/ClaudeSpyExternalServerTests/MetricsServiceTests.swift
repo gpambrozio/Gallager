@@ -26,6 +26,34 @@ struct MetricsServiceTests {
         #expect(await service.pushNotificationsTotal == 1)
     }
 
+    @Test("licensing counters increment by one and render")
+    func licensingCounters() async {
+        let service = MetricsService()
+        await service.incrementTrialStarts()
+        await service.incrementLicenseActivations()
+        await service.incrementLicenseDeactivations()
+        await service.incrementLicenseValidationFailures()
+        await service.incrementBlockedHostAttempts()
+        #expect(await service.trialStartsTotal == 1)
+        #expect(await service.licenseActivationsTotal == 1)
+        #expect(await service.licenseDeactivationsTotal == 1)
+        #expect(await service.licenseValidationFailuresTotal == 1)
+        #expect(await service.blockedHostAttemptsTotal == 1)
+
+        let snapshot = MetricsSnapshot(
+            activePairs: 0,
+            hostsConnected: 0,
+            viewersConnected: 0,
+            uptimeSeconds: 0
+        )
+        let body = await service.render(snapshot: snapshot, buildVersion: "test-v1")
+        #expect(body.contains("claudespy_trial_starts_total 1"))
+        #expect(body.contains("claudespy_license_activations_total 1"))
+        #expect(body.contains("claudespy_license_deactivations_total 1"))
+        #expect(body.contains("claudespy_license_validation_failures_total 1"))
+        #expect(body.contains("claudespy_blocked_host_attempts_total 1"))
+    }
+
     @Test("render escapes \\, \", and newline in buildVersion label value")
     func renderEscapesBuildVersion() async {
         let service = MetricsService()

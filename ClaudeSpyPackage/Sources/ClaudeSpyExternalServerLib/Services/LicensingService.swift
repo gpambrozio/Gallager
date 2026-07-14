@@ -277,6 +277,7 @@ actor LicensingService {
         state.activations.removeValue(forKey: deviceId)
         saveState()
         logger.info("Deactivated license", metadata: ["deviceId": "\(deviceId)"])
+        Task { await metricsService?.incrementLicenseDeactivations() }
     }
 
     private static func matchesConfiguredProduct(_ meta: LSMeta?, config: LicensingConfiguration) -> Bool {

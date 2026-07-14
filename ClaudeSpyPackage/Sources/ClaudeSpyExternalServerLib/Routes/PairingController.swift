@@ -18,6 +18,18 @@ struct PairingController: RouteCollection {
     func registerPairingCode(req: Request) async throws -> PairingResponse {
         let registration = try req.content.decode(PairingRegistration.self)
 
+        // Hosted-relay gate: hosts need a trial or active license. First touch
+        // auto-starts the trial, so a fresh host sails through.
+        let entitlement = await req.application.licensingService
+            .checkEntitlement(hostDeviceId: registration.deviceId)
+        guard entitlement.isAllowed else {
+            await req.application.metricsService.incrementBlockedHostAttempts()
+            return .error(ErrorInfo(
+                message: "An active subscription is required to use the hosted relay",
+                code: ErrorMessage.subscriptionRequiredCode
+            ))
+        }
+
         return await req.application.pairingService.registerCode(
             code: registration.pairingCode,
             deviceId: registration.deviceId,
