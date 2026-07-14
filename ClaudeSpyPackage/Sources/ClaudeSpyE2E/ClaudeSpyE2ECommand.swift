@@ -391,6 +391,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         BrowserAddressBarSelectAllScenario.scenario,
         BrowserAddressBarRefocusScenario.scenario,
         AutoSelectActiveWindowScenario.scenario,
+        PromptEditorResizeScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
