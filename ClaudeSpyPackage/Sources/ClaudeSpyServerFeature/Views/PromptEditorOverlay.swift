@@ -153,6 +153,12 @@
                     editorHeight = height
                     growToFitContent(parent: parent)
                 }
+                // The mirror only re-measures when the text's *height* changes,
+                // so an edit that doesn't add a line (e.g. typing after a manual
+                // shrink left the content overflowing) must re-run the check too.
+                .onChange(of: content) {
+                    growToFitContent(parent: parent)
+                }
         }
 
         /// Hidden mirror of the editor's text, laid out at the same wrap width,
@@ -177,8 +183,9 @@
         }
 
         /// Raises the card height when the text no longer fits, capped at the
-        /// full pane. Grow-only: deleting text or manually resizing smaller
-        /// never bounces the card back up until the next overflow.
+        /// full pane. Grow-only: the height never shrinks, and a manual resize
+        /// below the content height sticks (the text scrolls) until the next
+        /// edit re-runs the fit check.
         private func growToFitContent(parent: CGSize) {
             let chrome = cardHeight - editorHeight
             guard dragStartSize == nil, parent.height > 0, chrome > 0, textIdealHeight > 0 else { return }

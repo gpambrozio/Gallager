@@ -73,12 +73,13 @@ public enum PromptEditorResizeScenario {
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-editor-grown-to-max")
 
-        // 6. Drag the bottom-right grip far up-left (onto the sidebar row) —
-        //    the card clamps at its minimum size and the content scrolls
+        // 6. Drag the bottom-right grip far up-left (onto the card's own
+        //    header, which sits near the pane's top-left at full size) — the
+        //    card clamps at its minimum size and the content scrolls
         TestStep.macWaitForElementQuery(.label("Resize Prompt Editor"), timeout: 5)
         TestStep.macDragElement(
             from: .label("Resize Prompt Editor"),
-            to: .label("editor-resize")
+            to: .anyTextMatches("Edit Prompt")
         )
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-editor-shrunk-to-min")
