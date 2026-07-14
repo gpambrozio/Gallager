@@ -368,6 +368,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PermissionSuggestionDenyScenario.scenario,
         AgentsSettingsTabScenario.scenario,
         TabCycleReorderScenario.scenario,
+        SessionAndFontHotkeysScenario.scenario,
         BadgeClearsOnAgentResumeScenario.scenario,
         GitTabFileActionsScenario.scenario,
         ComposerBandRecaptureScenario.scenario,
@@ -390,6 +391,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         BrowserAddressBarSelectAllScenario.scenario,
         BrowserAddressBarRefocusScenario.scenario,
         LicensingFlowScenario.scenario,
+        AutoSelectActiveWindowScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

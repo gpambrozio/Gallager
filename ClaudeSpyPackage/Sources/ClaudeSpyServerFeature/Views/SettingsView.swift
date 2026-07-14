@@ -118,7 +118,7 @@ struct GeneralSettingsView: View {
 
                 HStack {
                     Text("Size")
-                    Slider(value: $settings.fontSize, in: 8...24, step: 1)
+                    Slider(value: $settings.fontSize, in: AppSettings.minFontSize...AppSettings.maxFontSize, step: 1)
                     Text("\(Int(settings.fontSize)) pt")
                         .monospacedDigit()
                         .frame(width: 40)
