@@ -130,9 +130,13 @@ public struct PairedViewerInfo: Codable, Sendable, Equatable {
 /// Error info for failed pairing operations
 public struct ErrorInfo: Codable, Sendable, Equatable {
     public let message: String
+    /// Optional machine-readable code (e.g. `ErrorMessage.subscriptionRequiredCode`).
+    /// Absent from older peers — synthesized Codable decodes a missing key as nil.
+    public let code: String?
 
-    public init(message: String) {
+    public init(message: String, code: String? = nil) {
         self.message = message
+        self.code = code
     }
 }
 

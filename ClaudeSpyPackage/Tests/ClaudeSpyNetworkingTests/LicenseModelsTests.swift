@@ -42,4 +42,37 @@ struct LicenseModelsTests {
         #expect(decoded.deviceId == "dev-1")
         #expect(decoded.deviceName == "My Mac")
     }
+
+    @Test("subscriptionRequired error factory is non-recoverable with stable code")
+    func subscriptionRequiredFactory() {
+        let error = ErrorMessage.subscriptionRequired()
+        #expect(error.code == ErrorMessage.subscriptionRequiredCode)
+        #expect(error.code == "SUBSCRIPTION_REQUIRED")
+        #expect(error.recoverable == false)
+    }
+
+    @Test("hostSubscriptionInactive round-trips over the wire")
+    func hostSubscriptionInactiveRoundTrip() throws {
+        let data = try JSONEncoder().encode(WebSocketMessage.hostSubscriptionInactive)
+        let decoded = try JSONDecoder().decode(WebSocketMessage.self, from: data)
+        guard case .hostSubscriptionInactive = decoded else {
+            Issue.record("Expected .hostSubscriptionInactive, got \(decoded)")
+            return
+        }
+    }
+
+    @Test("ErrorInfo decodes legacy payloads without a code")
+    func errorInfoLegacyDecode() throws {
+        let json = Data(#"{"message":"boom"}"#.utf8)
+        let decoded = try JSONDecoder().decode(ErrorInfo.self, from: json)
+        #expect(decoded.message == "boom")
+        #expect(decoded.code == nil)
+    }
+
+    @Test("ErrorInfo round-trips a code")
+    func errorInfoCodeRoundTrip() throws {
+        let info = ErrorInfo(message: "sub required", code: ErrorMessage.subscriptionRequiredCode)
+        let decoded = try JSONDecoder().decode(ErrorInfo.self, from: JSONEncoder().encode(info))
+        #expect(decoded == info)
+    }
 }
