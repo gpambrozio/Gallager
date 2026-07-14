@@ -359,6 +359,16 @@ final public class AppSettings {
         didSet { preferences.setString(deviceId, Keys.deviceId) }
     }
 
+    /// Trial-expiry notifications already fired, as "\(unix-expiry)-\(hours)"
+    /// tokens (e.g. "1800000000-48") so a new trial re-arms both thresholds.
+    public var trialAlertsFired: [String] = Defaults.trialAlertsFired {
+        didSet {
+            if let data = try? JSONEncoder().encode(trialAlertsFired) {
+                preferences.setData(data, Keys.trialAlertsFired)
+            }
+        }
+    }
+
     // MARK: - Sidebar Layout Settings
 
     /// Ordered list of fields to display in sidebar session rows
@@ -462,6 +472,11 @@ final public class AppSettings {
             self.deviceId = newDeviceId
             preferences.setString(newDeviceId, Keys.deviceId)
         }
+        if
+            let data = preferences.data(Keys.trialAlertsFired),
+            let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            self.trialAlertsFired = decoded
+        }
 
         // Sidebar Layout
         self.sidebarFields = Self.loadCodable(from: preferences, key: Keys.sidebarFields)
@@ -520,6 +535,7 @@ final public class AppSettings {
         case pairedHosts
         case autoConnectToServer
         case deviceId
+        case trialAlertsFired
         // Sidebar Layout
         case sidebarFields
         case sidebarTerminalFields
@@ -561,6 +577,7 @@ final public class AppSettings {
         // Remote Access
         static let externalServerURL = "wss://claudespy.gustavo.eng.br"
         static let autoConnectToServer = true
+        static let trialAlertsFired: [String] = []
         /// External Editors
         static let hasSeededEditors = false
         /// In-App Prompt Editor (Ctrl-G)
