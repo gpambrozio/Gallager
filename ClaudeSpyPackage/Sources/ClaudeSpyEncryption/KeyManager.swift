@@ -445,7 +445,7 @@ import Foundation
                 throw CryptoError.keychainError(status: status)
             }
 
-            return String(decoding: data, as: UTF8.self)
+            return String(bytes: data, encoding: .utf8)
         }
 
         /// Deletes a secret stored via `storeSecret` (missing item is not an error).

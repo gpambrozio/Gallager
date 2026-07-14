@@ -31,6 +31,16 @@
         /// App settings
         public let settings: AppSettings
 
+        /// Owns the hosted-relay license status and trial-expiry alerting
+        /// (Task 14).
+        public let licenseManager: LicenseManager
+
+        /// Opens the Settings window from a non-view context (e.g. the
+        /// trial-expiry notification tap handler). SwiftUI's `openSettings`
+        /// environment action only exists inside a View, so this is captured
+        /// once from a view that's guaranteed to run at launch and stored here.
+        public var openSettingsAction: (() -> Void)?
+
         /// Tmux interaction service
         public let tmuxService: TmuxService
 
@@ -193,6 +203,11 @@
         @ObservationIgnored
         private var e2eReconnectObserverTask: Task<Void, Never>?
 
+        /// 30-minute trial-expiry monitoring loop (Task 14): refreshes
+        /// `licenseManager.status` and fires any pending 48h/24h alerts.
+        @ObservationIgnored
+        private var licenseMonitorTask: Task<Void, Never>?
+
         /// Trailing-edge throttle for `OSC 9;4` progress pushes to viewers. Each
         /// new progress arrival cancels the pending task and schedules a fresh
         /// 150ms delay, so a stream stepping 0 → 100% in 1% increments collapses
@@ -231,6 +246,7 @@
         /// to complete service initialization and start connections.
         public init(settings: AppSettings = AppSettings()) {
             self.settings = settings
+            self.licenseManager = LicenseManager(settings: settings)
 
             #if canImport(AppKit) && DEBUG
                 // Expose live settings to the E2E test server so a scenario can
@@ -407,6 +423,10 @@
 
             // Wire terminal notification tap handling
             setupNotificationTapHandler()
+
+            // Trial-expiry alerts (Task 14): re-check status and fire any
+            // pending 48h/24h notifications every 30 minutes.
+            startLicenseMonitoring()
 
             // E2E only: listen for test-driven "reconnect" requests that follow a
             // simulated version-override change.
@@ -3173,6 +3193,29 @@
                     self.revealRemotePane(hostId: hostId, paneId: paneId)
                 } else {
                     self.revealLocalPane(paneId)
+                }
+            }
+
+            // Trial-expiry alert tap (Task 14): jump Settings to Remote Access,
+            // the same way MenuBarExtraView's "Settings…" button does.
+            ForegroundNotificationDelegate.shared.onLicenseAlertTapped = { [weak self] in
+                guard let self else { return }
+                self.settings.selectedSettingsTab = .remoteAccess
+                NSApp.setActivationPolicy(.regular)
+                self.openSettingsAction?()
+                MenuBarExtraView.bringAppToFront()
+            }
+        }
+
+        /// Starts (or restarts) the 30-minute trial-expiry monitoring loop:
+        /// refresh license status, then fire any pending 48h/24h alerts.
+        private func startLicenseMonitoring() {
+            licenseMonitorTask?.cancel()
+            licenseMonitorTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    await self?.licenseManager.refreshStatus()
+                    self?.licenseManager.checkTrialAlerts()
+                    try? await Task.sleep(for: .seconds(1_800))
                 }
             }
         }

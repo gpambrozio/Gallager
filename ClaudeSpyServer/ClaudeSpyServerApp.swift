@@ -12,6 +12,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
     @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
+    @Environment(\.openSettings) private var openSettings
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
@@ -535,6 +536,13 @@ struct TmuxPaneMirrorApp: App {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task {
                     coordinator.settings.applyAppearance()
+                    // Capture the Settings-opening action once at launch so a
+                    // non-view context (the license trial-expiry notification
+                    // tap handler) can open Settings later. `MenuBarLabel` is
+                    // the menu bar icon itself, so — unlike the Panes window's
+                    // content — it's guaranteed to run even if no window is
+                    // ever shown (issue #392, Task 14).
+                    coordinator.openSettingsAction = { openSettings() }
                 }
                 .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }

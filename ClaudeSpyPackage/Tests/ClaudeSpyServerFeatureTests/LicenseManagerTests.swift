@@ -2,6 +2,7 @@
     import ClaudeSpyCommon
     import ClaudeSpyEncryption
     import ClaudeSpyNetworking
+    import ConcurrencyExtras
     import Dependencies
     import Foundation
     import Testing
@@ -97,6 +98,71 @@
             let stored = try await secrets.loadSecret(LicenseKeychainAccounts.licenseKey)
             #expect(stored == nil)
             withExtendedLifetime(settings) { }
+        }
+
+        @Test("checkTrialAlerts fires once and persists flags")
+        func trialAlertsFireOnce() async {
+            let expiry = Date().addingTimeInterval(20 * 3_600) // inside 24h window
+            let fired = LockIsolated<[Int]>([])
+            let (manager, settings) = withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0[LicensingClient.self] = LicensingClient(
+                    activate: { _, _, _, _ in LicenseStatus(state: .active) },
+                    deactivate: { _, _ in },
+                    status: { _, _ in LicenseStatus(state: .trial, expiresAt: expiry) }
+                )
+                $0[SecretsService.self] = .inMemory()
+                $0[LicenseNotificationService.self] = LicenseNotificationService(
+                    showTrialExpiryNotification: { hours in fired.withValue { $0.append(hours) } }
+                )
+            } operation: {
+                let settings = AppSettings()
+                settings.deviceId = "device-1"
+                return (LicenseManager(settings: settings), settings)
+            }
+
+            await manager.refreshStatus()
+            manager.checkTrialAlerts()
+            #expect(fired.value == [24]) // one notification: the most urgent
+            #expect(settings.trialAlertsFired.count == 2) // both thresholds marked
+
+            manager.checkTrialAlerts()
+            #expect(fired.value == [24]) // idempotent
+        }
+    }
+
+    @Suite("TrialAlertPlanner")
+    struct TrialAlertPlannerTests {
+        private let expiry = Date(timeIntervalSince1970: 1_800_000_000)
+
+        @Test("Nothing fires above 48h remaining")
+        func nothingEarly() {
+            let now = expiry.addingTimeInterval(-49 * 3_600)
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: []).isEmpty)
+        }
+
+        @Test("48h threshold fires inside the window, once")
+        func fires48() {
+            let now = expiry.addingTimeInterval(-47 * 3_600)
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
+                == [.hours48])
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
+                .isEmpty)
+        }
+
+        @Test("Inside 24h, both unfired thresholds apply, most urgent first")
+        func fires24AndCatchUp() {
+            let now = expiry.addingTimeInterval(-20 * 3_600)
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
+                == [.hours24, .hours48])
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
+                == [.hours24])
+        }
+
+        @Test("Nothing fires after expiry")
+        func nothingAfterExpiry() {
+            let now = expiry.addingTimeInterval(60)
+            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: []).isEmpty)
         }
     }
 #endif

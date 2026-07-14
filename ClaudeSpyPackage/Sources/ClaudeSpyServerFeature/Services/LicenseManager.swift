@@ -33,6 +33,8 @@
         @Dependency(SecretsService.self) private var secrets
         @ObservationIgnored
         @Dependency(DeviceNameClient.self) private var deviceNameClient
+        @ObservationIgnored
+        @Dependency(LicenseNotificationService.self) private var notifications
 
         private weak var settings: AppSettings?
 
@@ -98,6 +100,32 @@
             } catch {
                 actionState = .error(error.localizedDescription)
             }
+        }
+
+        /// Fires pending 48h/24h trial-expiry alerts. Idempotent: flags are
+        /// persisted per trial expiry in AppSettings.trialAlertsFired.
+        public func checkTrialAlerts() {
+            guard
+                let settings,
+                let status, status.state == .trial,
+                let expiresAt = status.expiresAt else { return }
+
+            let expiryKey = "\(Int(expiresAt.timeIntervalSince1970))"
+            let alreadyFired = Set(settings.trialAlertsFired.compactMap { token -> Int? in
+                let parts = token.split(separator: "-")
+                guard parts.count == 2, parts[0] == expiryKey else { return nil }
+                return Int(parts[1])
+            })
+
+            let pending = TrialAlertPlanner.thresholdsToFire(
+                now: Date(), expiresAt: expiresAt, alreadyFired: alreadyFired
+            )
+            guard let mostUrgent = pending.first else { return }
+
+            notifications.showTrialExpiryNotification(mostUrgent.rawValue)
+            settings.trialAlertsFired.append(
+                contentsOf: pending.map { "\(expiryKey)-\($0.rawValue)" }
+            )
         }
     }
 #endif
