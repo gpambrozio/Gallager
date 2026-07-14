@@ -2,14 +2,16 @@ import ClaudeSpyCommon
 import SwiftUI
 
 /// Bundles the global menu-driven notification observers used by the panes
-/// scene (Cmd-N, Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-]) so the main `body`
-/// chain stays under the Swift type checker's complexity threshold. Cmd-W
-/// routes through the scene-scoped `closeCurrentTabAction` focused value
-/// instead — see `MenuCommandFocusedValues.swift`.
+/// scene (Cmd-N, Cmd-Shift-F, Cmd-Shift-[, Cmd-Shift-], Cmd-`, Cmd-Shift-`) so
+/// the main `body` chain stays under the Swift type checker's complexity
+/// threshold. Cmd-W routes through the scene-scoped `closeCurrentTabAction`
+/// focused value instead — see `MenuCommandFocusedValues.swift`.
 struct MenuCommandsModifier: ViewModifier {
     let onOpenContentSearch: () -> Void
     let onSelectPreviousTab: () -> Void
     let onSelectNextTab: () -> Void
+    let onSelectPreviousSession: () -> Void
+    let onSelectNextSession: () -> Void
     let onNewLocalSession: () -> Void
 
     func body(content: Content) -> some View {
@@ -23,6 +25,12 @@ struct MenuCommandsModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .selectNextTab)) { _ in
                 onSelectNextTab()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .selectPreviousSession)) { _ in
+                onSelectPreviousSession()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectNextSession)) { _ in
+                onSelectNextSession()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .newLocalSession)) { _ in
                 onNewLocalSession()
             }
@@ -30,18 +38,24 @@ struct MenuCommandsModifier: ViewModifier {
 }
 
 /// Re-runs `MainView.handleAutoResize` whenever the global auto-resize
-/// preference flips or the currently-viewed session's split-view layout
-/// changes (split toggled, divider dragged, right-pane terminal swapped).
+/// preference flips, the currently-viewed session's split-view layout
+/// changes (split toggled, divider dragged, right-pane terminal swapped),
+/// or the terminal font changes (⌘+ / ⌘- or the Settings pane).
 ///
-/// The split-state changes don't move the detail-pane bounds, so the
-/// `onGeometryChange` that already triggers auto-resize misses them — this
-/// modifier fills that gap. Extracting these into a separate modifier keeps
-/// the main `body` chain inside SwiftUI's type-checker budget.
+/// None of these move the detail-pane bounds, so the `onGeometryChange` that
+/// already triggers auto-resize misses them — this modifier fills that gap.
+/// A font change alters the cell size, so a different number of columns/rows
+/// fits the same pixel area and the tmux pane must be re-fit or the agent in
+/// it keeps rendering at a stale size. Extracting these into a separate
+/// modifier keeps the main `body` chain inside SwiftUI's type-checker budget.
 struct AutoResizeObserversModifier<Signal: Equatable>: ViewModifier {
     let alwaysAutoResize: Bool
     let splitSignal: Signal?
+    let fontName: String
+    let fontSize: Double
     let onPreferenceChanged: () -> Void
     let onSplitChanged: () -> Void
+    let onFontChanged: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -50,6 +64,12 @@ struct AutoResizeObserversModifier<Signal: Equatable>: ViewModifier {
             }
             .onChange(of: splitSignal) { _, _ in
                 onSplitChanged()
+            }
+            .onChange(of: fontName) { _, _ in
+                onFontChanged()
+            }
+            .onChange(of: fontSize) { _, _ in
+                onFontChanged()
             }
     }
 }
