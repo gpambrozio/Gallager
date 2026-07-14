@@ -154,7 +154,7 @@ extension EnvSerializedSuites {
                 )
                 #expect(blockedPairs == [pairId])
 
-                #expect(errorMessages(in: host.all()).first?.code == ErrorMessage.subscriptionRequiredCode)
+                #expect(await waitUntil { errorMessages(in: host.all()).first?.code == ErrorMessage.subscriptionRequiredCode })
                 #expect(await waitUntil { hasHostSubscriptionInactive(in: viewer.all()) })
                 #expect(await waitUntil { await !app.connectionHub.isHostConnected(pairId: pairId) })
                 // Sweep only evicts the host; the viewer stays connected so it
