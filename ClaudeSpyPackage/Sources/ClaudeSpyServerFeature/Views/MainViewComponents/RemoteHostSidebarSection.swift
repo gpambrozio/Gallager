@@ -41,7 +41,22 @@ struct RemoteHostSidebarSection: View {
 
     var body: some View {
         Section {
-            if let mismatch = connection?.versionMismatch {
+            if connection?.hostSubscriptionInactive == true {
+                HStack(alignment: .top, spacing: 8) {
+                    Symbols.exclamationmarkTriangle.image
+                        .font(.system(size: 16))
+                        .foregroundStyle(.orange)
+                        .frame(width: 20)
+                        .accessibilityHidden(true)
+
+                    Text("Host's subscription expired")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 2)
+                .accessibilityElement(children: .combine)
+            } else if let mismatch = connection?.versionMismatch {
                 RemoteHostVersionMismatchRow(host: host, mismatch: mismatch) {
                     Task { await connection?.enableReconnectAndRetry() }
                 }
@@ -165,6 +180,7 @@ struct RemoteHostSidebarSection: View {
 
     private var hostStatusColor: Color {
         guard let connection else { return .gray }
+        if connection.hostSubscriptionInactive { return .orange }
         if connection.versionMismatch != nil { return .orange }
         if connection.isHostConnected { return .green }
         if connection.isRelayConnected { return .yellow }
