@@ -46,8 +46,10 @@ A new `LicensingService` actor on the relay computes an entitlement per host
 4. **Blocked** — trial expired with no valid key, or the key's verdict is
    `expired`/`disabled`, or LS has been unreachable past the grace window.
 
-Resolution order: licensed (if an activation exists) → trial (if unexpired) →
-blocked. A valid license always wins; trial state is ignored once a key is activated.
+Resolution: if an activation exists, its verdict decides — valid → licensed,
+invalid (`expired`/`disabled`) → blocked, with **no fallback to trial** once a key
+has ever been activated for that device. With no activation: unexpired trial →
+trial, otherwise blocked.
 
 **Grace semantics:** a hard verdict from LS (`expired`, `disabled`) blocks
 immediately — LS's own dunning/retry already gives payment-failure leeway. An
@@ -96,12 +98,14 @@ license key itself); the store/product IDs are identifiers, not credentials.
 
 ```
 POST   /api/license/activate    { licenseKey, deviceId, deviceName } → LicenseStatus
-DELETE /api/license/activation  { deviceId }                         → 204
+DELETE /api/license/activation?deviceId=x                            → 204
 GET    /api/license/status?deviceId=x                                → LicenseStatus
 ```
 
 These return billing state only (never session data) and are keyed by `deviceId` —
-the same trust model as pairing registration today.
+the same trust model as pairing registration today. `GET /status` is read-only: it
+never starts a trial (only the two enforcement points do), so opening Settings on a
+fresh install reports `none` without burning trial days.
 
 ### Enforcement points (two, plus the sweep)
 
@@ -165,14 +169,17 @@ connections. Surfaces the conversion funnel on the existing Grafana dashboard.
     "All 3 Macs used — deactivate one or manage your subscription").
   - **Buy** — opens the LS hosted checkout in the browser (no marketing site needed
     at launch).
-  - **Manage subscription** — LS customer portal (card changes, cancel).
+  - **Manage subscription** — LS customer billing portal (card changes, cancel; LS
+    emails the customer a magic link).
+  - Both URLs are constants in the Mac app (they change rarely; an app update is an
+    acceptable cost to change them).
   - **Deactivate this Mac** — frees an activation slot for Mac migration.
 - **Typed-error UX:** `subscriptionRequired` renders a clear banner with a Subscribe
   button instead of a generic connection error.
 - **Trial expiry alerts:** when `LicenseStatus` is `trial`, the app schedules local
   checks against `expiresAt` and fires a desktop notification at **48h remaining**
   and **24h remaining** — each once (flags persisted keyed to the trial's
-  `startedAt`, so relaunches don't re-alert). A threshold crossed while the app was
+  `expiresAt`, so relaunches don't re-alert). A threshold crossed while the app was
   closed fires on next launch. Clicking opens Remote Access settings. Uses the
   existing desktop-notification infrastructure.
 
