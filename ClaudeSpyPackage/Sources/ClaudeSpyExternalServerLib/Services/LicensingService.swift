@@ -191,6 +191,16 @@ actor LicensingService {
         if let activation = state.activations[deviceId] {
             switch activation.verdict {
             case .active:
+                // Mirror `checkEntitlement`'s grace math: a cached `.active`
+                // verdict that's gone stale past `graceDays` (LS unreachable
+                // across every revalidation attempt) is `.blocked(.graceExpired)`
+                // there, so it must not read as `.active` here either — the Mac
+                // app's License section would otherwise show "Active" past the
+                // point the host is actually being rejected at connect time.
+                let age = now().timeIntervalSince(activation.lastValidatedAt)
+                if age > TimeInterval(config.graceDays) * 86_400 {
+                    return LicenseStatus(state: .expired, expiresAt: activation.expiresAt)
+                }
                 return LicenseStatus(
                     state: .active,
                     expiresAt: activation.expiresAt,

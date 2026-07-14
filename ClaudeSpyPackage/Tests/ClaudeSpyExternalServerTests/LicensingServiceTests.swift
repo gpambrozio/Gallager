@@ -333,6 +333,32 @@ struct LicensingServiceActivationTests {
         #expect(entitlement == .blocked(reason: .graceExpired))
     }
 
+    @Test("status() reports expired (not active) once a cached-active verdict is past grace")
+    func statusReflectsGraceExpiry() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        struct NetworkDown: Error { }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true)),
+            validate: .failure(NetworkDown())
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub,
+            dataDirectory: dir, now: { clock.value }
+        )
+        _ = try await service.activate(licenseKey: "KEY-1", deviceId: "host-1", deviceName: "My Mac")
+        #expect(await service.status(deviceId: "host-1").state == .active)
+
+        clock.advance(bySeconds: 8 * 86_400) // past the 7-day grace from lastValidatedAt
+        // checkEntitlement (the enforcement path) blocks once past grace…
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .blocked(reason: .graceExpired))
+        // …and status() (the Mac app's read-only view) must agree, not still
+        // report .active — revalidation never ran since checkEntitlement was
+        // the one that would trigger it, and status() must not call it either.
+        #expect(await service.status(deviceId: "host-1").state == .expired)
+    }
+
     @Test("Disabled verdict from revalidation blocks with licenseDisabled")
     func disabledVerdict() async throws {
         let dir = try LicensingTestSupport.tempDirectory()
