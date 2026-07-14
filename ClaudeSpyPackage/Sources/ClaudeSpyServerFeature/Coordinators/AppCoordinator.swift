@@ -3216,6 +3216,7 @@
                     await self?.licenseManager.refreshStatus()
                     self?.licenseManager.checkTrialAlerts()
                     try? await Task.sleep(for: .seconds(1_800))
+                    if self == nil { break }
                 }
             }
         }
@@ -3272,6 +3273,7 @@
         deinit {
             wakeObserverTask?.cancel()
             e2eReconnectObserverTask?.cancel()
+            licenseMonitorTask?.cancel()
         }
 
         private static func handleStartStream(

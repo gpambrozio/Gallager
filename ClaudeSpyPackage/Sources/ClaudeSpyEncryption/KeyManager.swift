@@ -427,7 +427,7 @@ import Foundation
         /// Loads a secret stored via `storeSecret`.
         ///
         /// - Parameter account: The keychain account to load the secret from.
-        /// - Returns: The secret string, or nil if not found
+        /// - Returns: The secret string, or nil if not found (or stored bytes are not valid UTF-8).
         /// - Throws: `CryptoError.keychainError` on Keychain access failure
         public func loadSecret(account: String) throws -> String? {
             var query = baseKeychainAttributes(account: account)
