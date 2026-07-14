@@ -74,11 +74,14 @@ actor ConnectionHub {
     /// licensing sweep to evict hosts whose entitlement lapsed mid-connection).
     func disconnect(pairId: String, deviceType: DeviceType) async {
         guard let connection = connections[pairId]?[deviceType] else { return }
-        try? await connection.webSocket.close()
+        // Remove from the map BEFORE awaiting close: the await is a suspension
+        // point, and a reconnect that registers during it must not be clobbered
+        // by post-await cleanup (same guarantee unregisterIfCurrent provides).
         connections[pairId]?[deviceType] = nil
         if connections[pairId]?.isEmpty == true {
             connections.removeValue(forKey: pairId)
         }
+        try? await connection.webSocket.close()
     }
 
     /// Disconnect all connections for a pair
