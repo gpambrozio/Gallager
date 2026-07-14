@@ -2742,6 +2742,15 @@
                 self?.pluginRegistry?.presentations() ?? []
             }
 
+            // Refresh the license status when the relay reports the host's
+            // subscription is no longer active, so the License section reflects
+            // the change without waiting for the next periodic refresh.
+            connectionManager.onSubscriptionRequired = { [weak self] in
+                Task { [weak self] in
+                    await self?.licenseManager.refreshStatus()
+                }
+            }
+
             // Configure terminal stream service with connection manager
             terminalStreamService.configureWithConnectionManager(
                 connectionManager: connectionManager,

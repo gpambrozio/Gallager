@@ -176,6 +176,9 @@ final public class ConnectedViewer: Identifiable {
     /// Called when the server notifies that this pairing was removed by the other side
     public var onUnpaired: (@MainActor @Sendable () async -> Void)?
 
+    /// Called when the server reports the host's subscription is no longer active.
+    public var onSubscriptionRequired: (@MainActor @Sendable () async -> Void)?
+
     /// Provides the current pending-attention session count, used as the badge
     /// value on outgoing push notifications so the iOS app icon badge stays in
     /// sync with the host's needs-attention count.
@@ -775,6 +778,9 @@ final public class ConnectedViewer: Identifiable {
                 await onUnpaired?()
             } else {
                 logger.error("Server error: \(errorMessage.message)")
+                if errorMessage.code == ErrorMessage.subscriptionRequiredCode {
+                    await onSubscriptionRequired?()
+                }
                 if !errorMessage.recoverable {
                     await updateState(.error(errorMessage.message))
                     await disconnect()

@@ -124,9 +124,6 @@ final public class ExternalServerClient {
     /// Called when partner's public key is received (for persisting to settings)
     private var onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)?
 
-    /// Called when the server reports the host's subscription is no longer active.
-    private var onSubscriptionRequired: (@MainActor () -> Void)?
-
     // MARK: - Initialization
 
     public init() { }
@@ -161,11 +158,6 @@ final public class ExternalServerClient {
         _ handler: @escaping @MainActor @Sendable (String, String) async -> Void
     ) {
         onPartnerKeyReceived = handler
-    }
-
-    /// Set the handler for when the server reports the host's subscription is no longer active.
-    public func setSubscriptionRequiredHandler(_ handler: @escaping @MainActor () -> Void) {
-        onSubscriptionRequired = handler
     }
 
     /// Proactively push current session state to viewer.
@@ -570,9 +562,6 @@ final public class ExternalServerClient {
 
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")
-            if errorMessage.code == ErrorMessage.subscriptionRequiredCode {
-                onSubscriptionRequired?()
-            }
             if !errorMessage.recoverable {
                 await updateState(.error(errorMessage.message))
                 await disconnect()
