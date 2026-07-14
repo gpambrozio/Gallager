@@ -55,4 +55,14 @@ struct LicensingConfigurationTests {
             )
         }
     }
+
+    @Test("Malformed override throws")
+    func malformedOverrideThrows() {
+        #expect(throws: LicensingConfigurationError.self) {
+            try LicensingConfiguration.fromEnvironment([
+                "LEMONSQUEEZY_STORE_ID": "123", "LEMONSQUEEZY_PRODUCT_ID": "456",
+                "TRIAL_DAYS": "14d",
+            ])
+        }
+    }
 }

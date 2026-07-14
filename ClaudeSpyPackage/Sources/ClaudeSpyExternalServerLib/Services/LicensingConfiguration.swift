@@ -8,8 +8,7 @@ enum LicensingConfigurationError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case let .incomplete(detail):
-            "Licensing misconfigured: \(detail). Set BOTH LEMONSQUEEZY_STORE_ID and " +
-                "LEMONSQUEEZY_PRODUCT_ID to integers, or neither."
+            "Licensing misconfigured: \(detail)"
         }
     }
 }
@@ -34,6 +33,14 @@ struct LicensingConfiguration: Sendable, Equatable {
             return raw
         }
 
+        func intOrDefault(_ key: String, default defaultValue: Int) throws -> Int {
+            guard let raw = trimmed(key) else { return defaultValue }
+            guard let value = Int(raw) else {
+                throw LicensingConfigurationError.incomplete("\(key) must be an integer (got \"\(raw)\")")
+            }
+            return value
+        }
+
         let storeRaw = trimmed("LEMONSQUEEZY_STORE_ID")
         let productRaw = trimmed("LEMONSQUEEZY_PRODUCT_ID")
 
@@ -46,12 +53,12 @@ struct LicensingConfiguration: Sendable, Equatable {
             throw LicensingConfigurationError.incomplete("ids must be integers")
         }
 
-        return LicensingConfiguration(
+        return try LicensingConfiguration(
             storeId: storeId,
             productId: productId,
-            trialDays: trimmed("TRIAL_DAYS").flatMap(Int.init) ?? 7,
-            revalidateHours: trimmed("LICENSE_REVALIDATE_HOURS").flatMap(Int.init) ?? 24,
-            graceDays: trimmed("LICENSE_GRACE_DAYS").flatMap(Int.init) ?? 7,
+            trialDays: intOrDefault("TRIAL_DAYS", default: 7),
+            revalidateHours: intOrDefault("LICENSE_REVALIDATE_HOURS", default: 24),
+            graceDays: intOrDefault("LICENSE_GRACE_DAYS", default: 7),
             apiBaseURL: trimmed("LEMONSQUEEZY_API_BASE") ?? "https://api.lemonsqueezy.com"
         )
     }
