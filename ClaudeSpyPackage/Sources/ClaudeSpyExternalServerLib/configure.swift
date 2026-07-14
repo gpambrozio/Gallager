@@ -78,6 +78,23 @@ public func configure(_ app: Application) async throws {
     app.storage[RelayServiceKey.self] = relayService
     app.storage[MetricsServiceKey.self] = metricsService
     app.storage[LicensingServiceKey.self] = licensingService
+    if licensingConfig != nil {
+        let sweepLogger = app.logger
+        let sweepTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(86_400))
+                guard !Task.isCancelled else { break }
+                let blocked = await licensingService.sweepBlockedHosts(
+                    pairingService: pairingService,
+                    connectionHub: connectionHub
+                )
+                if !blocked.isEmpty {
+                    sweepLogger.info("Licensing sweep disconnected \(blocked.count) host(s)")
+                }
+            }
+        }
+        await app.storage.setWithAsyncShutdown(LicensingSweepTaskKey.self, to: sweepTask, onShutdown: { $0.cancel() })
+    }
     // Use ContinuousClock so /metrics uptime is monotonic (immune to wall-clock jumps).
     app.storage[ProcessStartTimeKey.self] = ContinuousClock.now
 
@@ -129,6 +146,10 @@ struct MetricsServiceKey: StorageKey {
 
 struct LicensingServiceKey: StorageKey {
     typealias Value = LicensingService
+}
+
+struct LicensingSweepTaskKey: StorageKey {
+    typealias Value = Task<Void, Never>
 }
 
 struct ProcessStartTimeKey: StorageKey {

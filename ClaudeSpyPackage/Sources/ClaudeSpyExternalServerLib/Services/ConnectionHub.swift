@@ -70,6 +70,17 @@ actor ConnectionHub {
         return true
     }
 
+    /// Close and remove a single device's connection for a pair (used by the
+    /// licensing sweep to evict hosts whose entitlement lapsed mid-connection).
+    func disconnect(pairId: String, deviceType: DeviceType) async {
+        guard let connection = connections[pairId]?[deviceType] else { return }
+        try? await connection.webSocket.close()
+        connections[pairId]?[deviceType] = nil
+        if connections[pairId]?.isEmpty == true {
+            connections.removeValue(forKey: pairId)
+        }
+    }
+
     /// Disconnect all connections for a pair
     func disconnectAll(pairId: String) {
         guard let pairConnections = connections[pairId] else { return }

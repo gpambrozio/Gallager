@@ -326,6 +326,37 @@ actor LicensingService {
         }
     }
 
+    // MARK: - Sweep
+
+    /// Disconnects connected hosts whose entitlement lapsed mid-connection
+    /// (connect-time checks only catch new connections). Sends the typed
+    /// error to the host and `hostSubscriptionInactive` to its viewers before
+    /// closing. Returns the affected pairIds.
+    func sweepBlockedHosts(
+        pairingService: PairingService,
+        connectionHub: ConnectionHub
+    ) async -> [String] {
+        guard config != nil else { return [] }
+
+        var blockedPairs: [String] = []
+        for pairId in await pairingService.activePairIds {
+            guard
+                await connectionHub.isHostConnected(pairId: pairId),
+                let pair = await pairingService.getPair(pairId: pairId) else { continue }
+
+            let entitlement = await checkEntitlement(hostDeviceId: pair.hostDeviceId)
+            guard !entitlement.isAllowed else { continue }
+
+            blockedPairs.append(pairId)
+            logger.info("Sweep disconnecting unentitled host", metadata: ["pairId": "\(pairId)"])
+            Task { await metricsService?.incrementBlockedHostAttempts() }
+            await connectionHub.send(.error(.subscriptionRequired()), to: pairId, deviceType: .host)
+            await connectionHub.send(.hostSubscriptionInactive, to: pairId, deviceType: .viewer)
+            await connectionHub.disconnect(pairId: pairId, deviceType: .host)
+        }
+        return blockedPairs
+    }
+
     // MARK: - Persistence
 
     private func saveState() {

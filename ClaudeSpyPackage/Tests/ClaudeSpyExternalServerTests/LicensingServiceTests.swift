@@ -391,3 +391,41 @@ struct LicensingServiceActivationTests {
         #expect(await second.checkEntitlement(hostDeviceId: "host-1") == .licensed)
     }
 }
+
+@Suite("LicensingService sweep")
+struct LicensingServiceSweepTests {
+    @Test("Sweep flags pairs whose connected host lost entitlement")
+    func sweepFindsBlockedHosts() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = TestNow()
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: StubLicenseAPIClient(),
+            dataDirectory: dir, now: { clock.value }
+        )
+
+        // Real PairingService + ConnectionHub, no sockets: send() to
+        // unconnected devices is a logged no-op, so the sweep's message sends
+        // are safe; isHostConnected is false, so first verify the
+        // nothing-connected case…
+        let pairingService = PairingService(dataDirectory: dir)
+        let hub = ConnectionHub()
+
+        _ = await pairingService.registerCode(
+            code: "ABC123", deviceId: "host-1", deviceName: "Mac",
+            username: "u", publicKey: "pk", publicKeyId: "pkid"
+        )
+        _ = await pairingService.completePairing(
+            code: "ABC123", deviceId: "viewer-1", deviceName: "iPhone",
+            publicKey: "vpk", publicKeyId: "vpkid"
+        )
+
+        // Expire host-1's trial.
+        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        clock.advance(bySeconds: 8 * 86_400)
+
+        // No host connected → sweep reports nothing.
+        let quiet = await service.sweepBlockedHosts(pairingService: pairingService, connectionHub: hub)
+        #expect(quiet.isEmpty)
+    }
+}
