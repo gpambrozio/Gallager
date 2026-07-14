@@ -340,6 +340,9 @@ public struct RemoteAccessSettingsView: View {
             }
             TextField("License Key", text: $licenseManager.licenseKeyField)
                 .textFieldStyle(.roundedBorder)
+                // Unique AX label so E2E can focus the field itself — a bare
+                // "License Key" query matches the row's static label first.
+                .accessibilityLabel("License key field")
             HStack {
                 Button("Activate") {
                     Task { await licenseManager.activate() }

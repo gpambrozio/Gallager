@@ -143,6 +143,8 @@ public extension TestStep {
         // Server, tmux, assertions, scripts, general — any running platform
         // could be relevant to diagnose the failure.
         case .startServer,
+             .startStubLicenseServer,
+             .startServerLicensed,
              .verifyServerHealth,
              .verifyServerHasPairings,
              .waitForHostConnected,

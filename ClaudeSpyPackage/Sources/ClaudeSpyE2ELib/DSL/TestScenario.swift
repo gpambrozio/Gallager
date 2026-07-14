@@ -70,6 +70,19 @@ public enum TestStep: Sendable {
 
     /// Start the in-process Vapor server
     case startServer
+    /// Start the in-process stub Lemon Squeezy License API server (fixed
+    /// port 8766). Must run before `startServerLicensed` so the relay's
+    /// activation calls have somewhere to land. Stopped automatically by the
+    /// orchestrator's cleanup.
+    case startStubLicenseServer
+    /// Start the in-process Vapor relay server with hosted-relay licensing
+    /// enabled: `LEMONSQUEEZY_STORE_ID`/`LEMONSQUEEZY_PRODUCT_ID` are set to
+    /// the stub server's ids, `LEMONSQUEEZY_API_BASE` points at the stub, and
+    /// `TRIAL_DAYS` controls the trial window (0 = an auto-started trial is
+    /// already expired). The env is applied before `configure(app)` runs and
+    /// cleared when the server stops, so scenarios using plain `startServer`
+    /// are untouched.
+    case startServerLicensed(trialDays: Int)
     /// Verify the server is healthy
     case verifyServerHealth
     /// Verify the number of active pairings
