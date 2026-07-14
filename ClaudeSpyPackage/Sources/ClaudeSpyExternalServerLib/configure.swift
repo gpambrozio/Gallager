@@ -225,7 +225,14 @@ public extension Application {
         await connectionHub.clearBlockedDeviceTypes()
     }
 
-    /// Reset all licensing state (for testing)
+    /// Reset all licensing state (for testing).
+    ///
+    /// No in-repo caller today: `ServerDriver` (E2E) wipes `licensing.json`
+    /// directly (a process-boundary reset, since the server runs out-of-process
+    /// there) rather than calling in through this actor. Kept anyway as a
+    /// public test hook mirroring `resetPairingState()` — the in-process path
+    /// a future in-process E2E/integration harness (or a unit test against a
+    /// live `Application`) would need — so it isn't "cleaned up" as unused.
     func resetLicensingState() async {
         await licensingService.resetState()
     }
