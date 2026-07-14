@@ -113,7 +113,11 @@ final public class PairingManager {
                 state = .error("Unexpected response from server")
                 logger.error("Unexpected paired response during registration")
             case let .error(errorInfo):
-                state = .error(errorInfo.message)
+                if errorInfo.code == ErrorMessage.subscriptionRequiredCode {
+                    state = .error("Subscription required — see the License section below")
+                } else {
+                    state = .error(errorInfo.message)
+                }
                 logger.error("Failed to register pairing code: \(errorInfo.message)")
             }
         } catch {
