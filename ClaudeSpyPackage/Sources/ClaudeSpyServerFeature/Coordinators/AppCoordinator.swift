@@ -3767,6 +3767,12 @@
 
         /// Connect to a newly paired viewer
         private func connectToNewlyPairedViewer(_ viewer: PairedViewer) async {
+            // A viewer just paired → the relay started this host's trial. Refresh
+            // so the toolbar trial badge appears now rather than at the next poll.
+            // Kept above the guard below so it fires even in the (unusual) case
+            // where the connection manager isn't initialized yet.
+            await licenseManager.refreshStatus()
+
             guard let connectionManager = connectedViewerManager else {
                 logger.warning("Cannot connect to new viewer: connection manager not initialized")
                 return
@@ -3774,10 +3780,6 @@
 
             logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
             await connectionManager.connect(to: viewer)
-
-            // A viewer just paired → the relay started this host's trial. Refresh
-            // so the toolbar trial badge appears now rather than at the next poll.
-            await licenseManager.refreshStatus()
         }
 
         /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.

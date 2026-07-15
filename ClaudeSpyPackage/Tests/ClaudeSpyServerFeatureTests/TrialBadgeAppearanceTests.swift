@@ -8,6 +8,8 @@
         @Test("Trial with more than 2 days is a non-urgent trial badge")
         func trialRelaxed() {
             #expect(trialBadgeAppearance(state: .trial, trialDaysLeft: 5) == .trial(daysLeft: 5, urgent: false))
+            // Pin the non-urgent side of the `<= 2` boundary (one step above the threshold).
+            #expect(trialBadgeAppearance(state: .trial, trialDaysLeft: 3) == .trial(daysLeft: 3, urgent: false))
         }
 
         @Test("Trial with 2 or fewer days is urgent")
