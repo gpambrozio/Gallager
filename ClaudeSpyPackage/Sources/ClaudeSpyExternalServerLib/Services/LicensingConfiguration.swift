@@ -15,7 +15,7 @@ enum LicensingConfigurationError: Error, CustomStringConvertible {
 
 /// Relay-side licensing configuration. `nil` from `fromEnvironment` means
 /// licensing is disabled and every entitlement check short-circuits to allowed.
-struct LicensingConfiguration: Sendable, Equatable {
+struct LicensingConfiguration: Equatable {
     let storeId: Int
     let productId: Int
     let trialDays: Int
@@ -53,12 +53,27 @@ struct LicensingConfiguration: Sendable, Equatable {
             throw LicensingConfigurationError.incomplete("ids must be integers")
         }
 
-        return try LicensingConfiguration(
+        let trialDays = try intOrDefault("TRIAL_DAYS", default: 7)
+        let revalidateHours = try intOrDefault("LICENSE_REVALIDATE_HOURS", default: 24)
+        let graceDays = try intOrDefault("LICENSE_GRACE_DAYS", default: 7)
+
+        // A cached `.active` verdict is blocked once it is `graceDays` stale
+        // (checkEntitlement), but it only *revalidates* once it is `revalidateHours`
+        // stale. If the revalidation interval reaches the grace window, a healthy
+        // license is blocked before it ever gets a chance to refresh — fail loud at
+        // boot rather than silently locking out paying hosts.
+        guard revalidateHours < graceDays * 24 else {
+            throw LicensingConfigurationError.incomplete(
+                "LICENSE_REVALIDATE_HOURS (\(revalidateHours)) must be less than LICENSE_GRACE_DAYS × 24 (\(graceDays * 24))"
+            )
+        }
+
+        return LicensingConfiguration(
             storeId: storeId,
             productId: productId,
-            trialDays: intOrDefault("TRIAL_DAYS", default: 7),
-            revalidateHours: intOrDefault("LICENSE_REVALIDATE_HOURS", default: 24),
-            graceDays: intOrDefault("LICENSE_GRACE_DAYS", default: 7),
+            trialDays: trialDays,
+            revalidateHours: revalidateHours,
+            graceDays: graceDays,
             apiBaseURL: trimmed("LEMONSQUEEZY_API_BASE") ?? "https://api.lemonsqueezy.com"
         )
     }

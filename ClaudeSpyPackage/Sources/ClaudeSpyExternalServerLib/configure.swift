@@ -80,9 +80,18 @@ public func configure(_ app: Application) async throws {
     app.storage[LicensingServiceKey.self] = licensingService
     if licensingConfig != nil {
         let sweepLogger = app.logger
+        // Hourly, not daily: the sweep is the only enforcement for a host that
+        // lapses *while continuously connected* (the register/connect gates only
+        // catch new connections). A once-a-day interval both left up to ~24h of
+        // post-lapse streaming and — because it sleeps before its first run — never
+        // fired at all on a relay that restarts more than once a day (a plausible
+        // deploy cadence). An hourly sweep bounds both. Individual checks are cheap:
+        // `checkEntitlement` only hits LS when a verdict is already `revalidateHours`
+        // stale, so most sweeps are in-memory.
+        let sweepInterval = Duration.seconds(3_600)
         let sweepTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(86_400))
+                try? await Task.sleep(for: sweepInterval)
                 guard !Task.isCancelled else { break }
                 let blocked = await licensingService.sweepBlockedHosts(
                     pairingService: pairingService,

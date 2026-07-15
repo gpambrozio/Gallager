@@ -3237,7 +3237,17 @@
                 while !Task.isCancelled {
                     await self?.licenseManager.refreshStatus()
                     self?.licenseManager.checkTrialAlerts()
-                    try? await Task.sleep(for: .seconds(1_800))
+                    // Self-hosted relays report `.notRequired` — a stable verdict with
+                    // no trial/expiry to track. Back off to a long interval there rather
+                    // than polling every 30 min for the app's lifetime, while still
+                    // eventually noticing if the relay starts requiring a license (URL
+                    // switched to the hosted relay, or licensing enabled server-side).
+                    // This loop isn't restarted on a URL change, so we widen rather than
+                    // stop outright.
+                    let interval: Duration = self?.licenseManager.status?.state == .notRequired
+                        ? .seconds(6 * 3_600)
+                        : .seconds(1_800)
+                    try? await Task.sleep(for: interval)
                     if self == nil { break }
                 }
             }

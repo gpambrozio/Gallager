@@ -144,6 +144,11 @@
             )
             guard let mostUrgent = pending.first else { return }
 
+            // MARK: - before-deliver, intentionally: the token is recorded even though
+            // delivery is fire-and-forget and may no-op (e.g. notification permission
+            // is currently `.denied`). We accept a missed 48h/24h banner rather than
+            // risk re-firing on every 30-min poll; the countdown is always visible in
+            // the Settings → Remote Access License section regardless.
             notifications.showTrialExpiryNotification(mostUrgent.rawValue)
             settings.trialAlertsFired.append(
                 contentsOf: pending.map { "\(expiryKey)-\($0.rawValue)" }

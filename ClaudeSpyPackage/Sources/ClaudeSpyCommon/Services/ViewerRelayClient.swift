@@ -255,6 +255,12 @@ final public class ViewerRelayClient {
         shouldReconnect = true
         reconnectionAttempt = 0
         versionMismatch = nil
+        // Reset on a fresh connect (possibly to a different pair). NOT reset in
+        // `cleanupConnection()` — that runs on every transient reconnect, and the
+        // relay only re-emits `.hostSubscriptionInactive` on a blocked-host connect
+        // or sweep, never on viewer re-register, so clearing it there would silently
+        // drop the "Host's subscription expired" banner after any reconnect blip.
+        hostSubscriptionInactive = false
 
         // Establish E2EE session if we have partner's public key from pairing
         if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
@@ -970,7 +976,6 @@ final public class ViewerRelayClient {
 
     private func cleanupConnection() async {
         awaitingPong = false
-        hostSubscriptionInactive = false
 
         receiveTask?.cancel()
         receiveTask = nil

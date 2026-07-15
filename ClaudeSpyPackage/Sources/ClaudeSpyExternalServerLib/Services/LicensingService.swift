@@ -28,7 +28,7 @@ enum LicensingError: Error, Equatable {
 /// When `config` is nil (self-hosted relays, E2E, local dev) every check
 /// returns `.unrestricted` and nothing is ever written to disk.
 actor LicensingService {
-    enum BlockReason: Equatable, Sendable {
+    enum BlockReason: Equatable {
         case trialExpired
         case licenseExpired
         case licenseDisabled
@@ -37,7 +37,7 @@ actor LicensingService {
         case graceExpired
     }
 
-    enum Entitlement: Equatable, Sendable {
+    enum Entitlement: Equatable {
         case unrestricted
         case trial(expiresAt: Date)
         case licensed
@@ -315,7 +315,11 @@ actor LicensingService {
             )
             guard var current = state.activations[deviceId] else { return }
 
-            if !Self.matchesConfiguredProduct(response.meta, config: config) {
+            // Only demote to `.disabled` on a *positive* product mismatch — i.e. LS
+            // returned meta identifying a foreign store/product. An absent `meta`
+            // (never expected for a found key) must not hard-block a `valid == true`
+            // response; the worst case here is wrongly blocking a paying customer.
+            if let meta = response.meta, !Self.matchesConfiguredProduct(meta, config: config) {
                 current.verdict = .disabled
             } else if response.valid == true {
                 current.verdict = .active
