@@ -45,6 +45,7 @@
                     showingPopover = true
                 } label: {
                     Label(labelText(appearance), symbol: symbol(appearance))
+                        .labelStyle(.titleAndIcon)
                 }
                 .controlSize(.small)
                 .tint(tint(appearance))
