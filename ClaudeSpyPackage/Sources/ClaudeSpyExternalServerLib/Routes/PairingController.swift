@@ -18,8 +18,9 @@ struct PairingController: RouteCollection {
     func registerPairingCode(req: Request) async throws -> PairingResponse {
         let registration = try req.content.decode(PairingRegistration.self)
 
-        // Hosted-relay gate: hosts need a trial or active license. First touch
-        // auto-starts the trial, so a fresh host sails through.
+        // Hosted-relay gate: hosts need a trial or active license. A fresh host
+        // has no trial yet, so it reads as `.preTrial` (allowed) — the trial
+        // clock itself doesn't start until a viewer completes pairing.
         let entitlement = await req.application.licensingService
             .checkEntitlement(hostDeviceId: registration.deviceId)
         guard entitlement.isAllowed else {

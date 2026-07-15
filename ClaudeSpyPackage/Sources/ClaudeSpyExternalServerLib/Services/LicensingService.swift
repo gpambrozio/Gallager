@@ -20,10 +20,10 @@ enum LicensingError: Error, Equatable {
     }
 }
 
-/// Computes hosted-relay entitlements per host deviceId: auto-started trials,
-/// Lemon Squeezy license activations with cached verdicts, and blocked states.
-/// Follows the PairingService pattern: JSON file persistence under the data
-/// directory, synchronous load in init.
+/// Computes hosted-relay entitlements per host deviceId: trials started at
+/// viewer pairing, Lemon Squeezy license activations with cached verdicts,
+/// and blocked states. Follows the PairingService pattern: JSON file
+/// persistence under the data directory, synchronous load in init.
 ///
 /// When `config` is nil (self-hosted relays, E2E, local dev) every check
 /// returns `.unrestricted` and nothing is ever written to disk.
@@ -140,9 +140,11 @@ actor LicensingService {
 
     // MARK: - Entitlement
 
-    /// The single check both enforcement points use. Auto-starts a trial on
-    /// first sight of a deviceId. Once a device has an activation there is no
-    /// fallback to trial.
+    /// The single check both enforcement points use. Pure and side-effect-free:
+    /// it never starts a trial. A device with no trial and no activation is
+    /// `.preTrial` (allowed) — the trial clock only starts via
+    /// `startTrialIfNeeded`, called from `completePairing`. Once a device has
+    /// an activation there is no fallback to trial.
     func checkEntitlement(hostDeviceId: String) async -> Entitlement {
         guard let config else { return .unrestricted }
 
