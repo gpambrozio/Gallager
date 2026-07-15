@@ -72,6 +72,7 @@ default.profraw
 ClaudeSpyPackage/pairs.json
 ClaudeSpyPackage/secrets/
 ClaudeSpyPackage/.env
+ClaudeSpyPackage/.env.staging
 .claude/iOSSimulator.json
 build/
 build-ios/

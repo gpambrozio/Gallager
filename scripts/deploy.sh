@@ -22,6 +22,19 @@ TEST_PORT="${TEST_PORT:-8099}"
 TEST_IMAGE="${TEST_IMAGE:-claudespy-relay:test}"
 TEST_CONTAINER="${TEST_CONTAINER:-claudespy-relay-test}"
 
+# Staging configuration (used by the `staging*` commands). A second, fully
+# isolated relay on the SAME box behind staging.gallager.gustavo.eng.br →
+# 127.0.0.1:8081, with Lemon Squeezy licensing ENABLED via its own on-server
+# .env. Prod (/opt/claudespy, :8080, licensing off) is never touched.
+STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/claudespy-staging}"
+STAGING_PROJECT="${STAGING_PROJECT:-claudespy-staging}"
+STAGING_CADDY_FILE="${STAGING_CADDY_FILE:-claudespy-staging.caddy}"
+STAGING_HEALTH_URL="${STAGING_HEALTH_URL:-https://staging.gallager.gustavo.eng.br/health}"
+# Compose invocation that layers the staging override and names the project so it
+# can't collide with prod's container/network. Relative -f paths resolve after a
+# `cd $STAGING_REMOTE_DIR`.
+STAGING_COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml -p ${STAGING_PROJECT}"
+
 # Print colored output
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -350,6 +363,174 @@ REMOTE_SCRIPT
     fi
 }
 
+# Staging deployment: a second, isolated relay on the SAME box behind
+# staging.gallager.gustavo.eng.br → 127.0.0.1:8081, with Lemon Squeezy licensing
+# ENABLED. Prod (/opt/claudespy, :8080) is never touched.
+#
+# Unlike `deploy`, this EXCLUDES .env and secrets/ from the rsync: staging keeps
+# its own licensing-enabled .env (test mode) and APNs key resident on the server,
+# so deploys never clobber them and a prod deploy can't leak into staging. Those
+# two files must therefore be created on the server once (this fails loud with
+# setup steps if the .env is missing).
+deploy_staging() {
+    # Same local release build + server tests as prod — it's the same codebase.
+    pre_deploy_checks
+
+    info "Starting Gallager STAGING relay deployment..."
+
+    SERVER_HOST=$(get_server_host)
+    if [ -z "$SERVER_HOST" ]; then
+        error "Could not determine server host"
+        exit 1
+    fi
+    info "Deploying STAGING to: $SERVER_HOST (dir: $STAGING_REMOTE_DIR, project: $STAGING_PROJECT)"
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+
+    # Preflight: the staging .env must already exist on the server, because we
+    # deliberately don't rsync it. Fail loud with first-time setup steps.
+    if ! ssh -o LogLevel=ERROR "$REMOTE_HOST" "test -f $STAGING_REMOTE_DIR/.env" 2>/dev/null; then
+        error "Missing $STAGING_REMOTE_DIR/.env on the server."
+        echo ""
+        echo "First-time staging setup (run once):"
+        echo "  1. DNS: point staging.gallager.gustavo.eng.br at this server's IP."
+        echo "  2. ssh $REMOTE_HOST 'mkdir -p $STAGING_REMOTE_DIR/secrets'"
+        echo "  3. scp ClaudeSpyPackage/.env.staging.example $REMOTE_HOST:$STAGING_REMOTE_DIR/.env"
+        echo "     then edit it: set LEMONSQUEEZY_* to your Lemon Squeezy TEST-mode ids + APNS_* values."
+        echo "  4. scp ClaudeSpyPackage/secrets/AuthKey.p8 $REMOTE_HOST:$STAGING_REMOTE_DIR/secrets/AuthKey.p8"
+        echo ""
+        echo "Then re-run: $0 staging"
+        exit 1
+    fi
+
+    # Sync the package to the ISOLATED staging dir, EXCLUDING .env + secrets
+    # (managed on-server) and data (persistent state).
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    PACKAGE_DIR="$(cd "$SCRIPT_DIR/../ClaudeSpyPackage" && pwd)"
+
+    info "Syncing files to $STAGING_REMOTE_DIR (excluding .env, secrets, data)..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $STAGING_REMOTE_DIR"
+    rsync -az --delete \
+        --exclude='.build' \
+        --exclude='.git' \
+        --exclude='*.xcodeproj' \
+        --exclude='*.xcworkspace' \
+        --exclude='Tests' \
+        --exclude='data' \
+        --exclude='.env' \
+        --exclude='secrets' \
+        -e ssh \
+        "$PACKAGE_DIR/" \
+        "$REMOTE_HOST:$STAGING_REMOTE_DIR/"
+
+    # Install the staging Caddy site block (separate hostname + port from prod).
+    info "Checking for Caddy configuration..."
+    if ssh -o LogLevel=ERROR "$REMOTE_HOST" "test -d $CADDY_CONF_D" 2>/dev/null; then
+        if [ -f "$PACKAGE_DIR/caddy/$STAGING_CADDY_FILE" ]; then
+            info "Installing staging Caddy configuration ($STAGING_CADDY_FILE)..."
+            ssh -o LogLevel=ERROR "$REMOTE_HOST" "cp $STAGING_REMOTE_DIR/caddy/$STAGING_CADDY_FILE $CADDY_CONF_D/"
+        fi
+    else
+        info "Caddy conf.d directory not found, skipping Caddy config installation."
+        info "You may need to configure your reverse proxy manually."
+    fi
+
+    # Ensure the staging data directory exists with correct permissions.
+    info "Ensuring data directory permissions..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "mkdir -p $STAGING_REMOTE_DIR/data && chmod 777 $STAGING_REMOTE_DIR/data"
+
+    info "Building and starting the staging container..."
+    BUILD_OUTPUT=$(ssh -T -o LogLevel=ERROR "$REMOTE_HOST" << REMOTE_SCRIPT 2>&1
+        cd $STAGING_REMOTE_DIR
+        set -eo pipefail
+
+        # Build the image with BuildKit enabled for cache mounts.
+        echo "Building Docker image with BuildKit..."
+        BUILD_LOG=\$(mktemp)
+        if ! DOCKER_BUILDKIT=1 $STAGING_COMPOSE build --progress=plain 2>&1 | tee "\$BUILD_LOG"; then
+            echo "DEPLOY_BUILD_FAILED"
+            cat "\$BUILD_LOG" | grep -E '(error:|ERROR|failed)' | head -20
+            rm -f "\$BUILD_LOG"
+            exit 1
+        fi
+
+        # Show filtered build output.
+        cat "\$BUILD_LOG" | grep -E '(^#[0-9]+ \[|CACHED|DONE|ERROR|error:|Build of product|exporting to image|naming to)' | head -50
+        rm -f "\$BUILD_LOG"
+
+        # Stop the existing staging container if running (prod is a different project).
+        $STAGING_COMPOSE down 2>/dev/null || true
+
+        echo "Starting staging container..."
+        $STAGING_COMPOSE up -d 2>&1 | grep -v "^\$"
+
+        # Reload Caddy if it's running (picks up the staging site block).
+        if systemctl is-active --quiet caddy 2>/dev/null; then
+            echo "Reloading Caddy..."
+            systemctl reload caddy
+        fi
+
+        echo ""
+        echo "Container status:"
+        $STAGING_COMPOSE ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || $STAGING_COMPOSE ps
+REMOTE_SCRIPT
+    )
+    BUILD_EXIT_CODE=$?
+
+    # Filter out Ubuntu MOTD noise and display output.
+    echo "$BUILD_OUTPUT" | grep -v -E '(^Welcome to|Documentation:|Management:|Support:|System (information|load)|Usage of|Memory usage|Swap usage|Processes:|Users logged|IPv[46] address|Expanded Security|update.*applied|additional updates|additional security|Learn more about|ubuntu\.com|help\.ubuntu)' | grep -v '^[[:space:]]*$'
+
+    if [ $BUILD_EXIT_CODE -ne 0 ] || echo "$BUILD_OUTPUT" | grep -q "DEPLOY_BUILD_FAILED"; then
+        error "Staging Docker build failed! Deployment aborted (prod untouched)."
+        exit 1
+    fi
+
+    info "Waiting for staging server to be healthy..."
+    sleep 5
+
+    info "Testing staging deployment..."
+    HEALTH_CHECK=$(curl -s "$STAGING_HEALTH_URL" 2>/dev/null || echo "failed")
+    if echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
+        info "Staging deployment successful! Server is healthy."
+        echo ""
+        echo -e "${GREEN}Gallager STAGING relay is now running.${NC}"
+        echo ""
+        echo "Health check: $STAGING_HEALTH_URL"
+        echo ""
+        echo "Point a TEST host Mac + viewer at (Remote Access → Server URL):"
+        echo "  wss://staging.gallager.gustavo.eng.br"
+        echo "Your everyday devices stay on wss://claudespy.gustavo.eng.br."
+    else
+        warn "Staging health check failed or server is still starting."
+        echo "Check manually: curl $STAGING_HEALTH_URL"
+        echo "Container logs: $0 staging-logs"
+    fi
+}
+
+# Follow staging logs.
+staging_logs() {
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+    info "Fetching STAGING logs from $SERVER_HOST..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $STAGING_REMOTE_DIR && $STAGING_COMPOSE logs -f --tail=200"
+}
+
+# Show staging status + recent logs.
+staging_status() {
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+    info "Checking STAGING relay status on $SERVER_HOST..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $STAGING_REMOTE_DIR && $STAGING_COMPOSE ps && echo '' && $STAGING_COMPOSE logs --tail=10"
+}
+
+# Stop the staging relay (prod untouched).
+staging_stop() {
+    SERVER_HOST=$(get_server_host)
+    REMOTE_HOST="$DEPLOY_USER@$SERVER_HOST"
+    info "Stopping Gallager STAGING relay..."
+    ssh -o LogLevel=ERROR "$REMOTE_HOST" "cd $STAGING_REMOTE_DIR && $STAGING_COMPOSE down"
+    info "Staging stopped. Production was not touched."
+}
+
 # Show logs (warnings and errors only by default)
 logs() {
     SERVER_HOST=$(get_server_host)
@@ -410,8 +591,12 @@ usage() {
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
-    echo "  deploy        Deploy or update the server (default)"
-    echo "  test          Build + boot + health-check in isolation on the server (no prod impact)"
+    echo "  deploy          Deploy or update the PROD server (default)"
+    echo "  test            Build + boot + health-check in isolation on the server (no prod impact)"
+    echo "  staging         Deploy the isolated STAGING relay (licensing ON, staging.gallager.gustavo.eng.br)"
+    echo "  staging-logs    Follow staging container logs"
+    echo "  staging-status  Show staging container status + recent logs"
+    echo "  staging-stop    Stop the staging relay (prod untouched)"
     echo "  logs          Show warnings and errors only (follow mode)"
     echo "  logs all      Show all logs including info level"
     echo "  logs debug    Restart with debug logging (use 'restart' to restore)"
@@ -427,6 +612,11 @@ usage() {
     echo "  HEALTH_CHECK_URL  URL for health check (default: http://\$DEPLOY_HOST:8080/health)"
     echo "  TEST_REMOTE_DIR   Isolated dir for 'test' (default: /opt/claudespy-test)"
     echo "  TEST_PORT         Host port for the 'test' container (default: 8099)"
+    echo ""
+    echo "  # Staging (second isolated relay on the same box):"
+    echo "  STAGING_REMOTE_DIR  Staging install dir (default: /opt/claudespy-staging)"
+    echo "  STAGING_PROJECT     Compose project name (default: claudespy-staging)"
+    echo "  STAGING_HEALTH_URL  Staging health URL (default: https://staging.gallager.gustavo.eng.br/health)"
     echo ""
     echo "  # Legacy Hetzner Cloud support:"
     echo "  HCLOUD_SERVER_NAME  Hetzner server name (alternative to DEPLOY_HOST)"
@@ -445,6 +635,18 @@ case "${1:-deploy}" in
         ;;
     test)
         test_deploy
+        ;;
+    staging)
+        deploy_staging
+        ;;
+    staging-logs)
+        staging_logs
+        ;;
+    staging-status)
+        staging_status
+        ;;
+    staging-stop)
+        staging_stop
         ;;
     logs)
         logs "$2"
