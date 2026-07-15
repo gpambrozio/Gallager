@@ -4,6 +4,23 @@
 **Issue:** #392 (Figure out a good way to monetize)
 **Status:** Approved design, pending implementation plan
 
+> **Amendment (2026-07-15) — trial-start trigger changed; see
+> `docs/superpowers/specs/2026-07-15-trial-status-badge-and-pairing-trial-start-design.md`.**
+> The trial no longer auto-starts on first-touch of a gate. It now starts when a
+> **viewer completes pairing** (`PairingController.completePairing` →
+> `LicensingService.startTrialIfNeeded`). `checkEntitlement` is now a pure,
+> side-effect-free gate with a new `.preTrial` (allowed) state; register and the
+> pending-window host WS connect no longer start a trial. Host WS connect *does*
+> start the trial, but only for pre-existing **ACTIVE (completed)** pairs (gated on
+> `PairingService.getPair`≠nil) — a one-time migration so pairings completed before
+> licensing was enabled begin a trial at first connect rather than being
+> grandfathered into permanent free access. A trial/expired **badge** was also added
+> to the panes-window toolbar (left of Disconnect, paired hosts only) with a
+> buy/activate popover. Consequently the "auto-started per host device",
+> "starts automatically the first time a host `deviceId` touches the hosted relay
+> (pairing register or host WS connect)", and "Auto-starts trials" descriptions
+> below are **superseded** by the follow-on spec.
+
 ## Summary
 
 Gallager stays free — the Mac app, the iOS app, viewers, and self-hosting the relay.
