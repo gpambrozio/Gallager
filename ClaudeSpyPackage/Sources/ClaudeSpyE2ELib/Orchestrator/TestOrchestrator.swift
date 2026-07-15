@@ -627,7 +627,7 @@ public actor TestOrchestrator {
             logger.info("=== End iOS UI Tree ===")
 
         // macOS App (all cases use `instance` to select which app instance to target)
-        case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
+        case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion, licenseState):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
             // Each instance gets its own `--gallager-state-root` so the plugin
@@ -677,6 +677,9 @@ public actor TestOrchestrator {
             }
             if let minRequiredPartnerVersion {
                 arguments += ["--min-required-partner-version", minRequiredPartnerVersion]
+            }
+            if let licenseState {
+                arguments += ["--e2e-license-state", licenseState]
             }
             if
                 let sampleDir = Bundle.module.resourcePath.map({ $0 + "/SampleFiles" }),

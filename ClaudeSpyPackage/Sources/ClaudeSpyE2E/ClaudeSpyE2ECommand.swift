@@ -392,6 +392,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         BrowserAddressBarSelectAllScenario.scenario,
         BrowserAddressBarRefocusScenario.scenario,
         LicensingFlowScenario.scenario,
+        TrialStatusToolbarBadgeScenario.scenario,
         AutoSelectActiveWindowScenario.scenario,
         PromptEditorResizeScenario.scenario,
     ]

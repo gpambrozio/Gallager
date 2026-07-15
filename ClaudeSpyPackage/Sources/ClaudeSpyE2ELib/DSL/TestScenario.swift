@@ -202,8 +202,17 @@ public enum TestStep: Sendable {
     // Ports and file paths are derived automatically from the instance number.
 
     /// Launch the macOS app. Pass optional version overrides to simulate old or mismatched
-    /// app versions for compatibility testing.
-    case launchMacApp(instance: Int = 0, appVersion: String? = nil, minRequiredPartnerVersion: String? = nil)
+    /// app versions for compatibility testing. `licenseState` maps to
+    /// `--e2e-license-state <trial|expired|none>`, overriding `LicensingClient`
+    /// so `LicenseManager.status` is deterministic (issue #392, Task 5) — used
+    /// by scenarios proving the toolbar trial-status badge without depending on
+    /// the relay's own licensing configuration.
+    case launchMacApp(
+        instance: Int = 0,
+        appVersion: String? = nil,
+        minRequiredPartnerVersion: String? = nil,
+        licenseState: String? = nil
+    )
     /// Terminate the macOS app
     case terminateMacApp(instance: Int = 0)
     /// Activate the macOS app instance so it becomes frontmost with its key window.

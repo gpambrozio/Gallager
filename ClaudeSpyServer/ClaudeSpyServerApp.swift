@@ -351,6 +351,28 @@ struct TmuxPaneMirrorApp: App {
                 if let deviceNameOverride {
                     $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
                 }
+
+                // E2E: deterministic license status for the toolbar trial badge.
+                let e2eLicenseState: LicenseStatus.State? = {
+                    guard let idx = CommandLine.arguments.firstIndex(of: "--e2e-license-state"),
+                          idx + 1 < CommandLine.arguments.count
+                    else { return nil }
+                    return LicenseStatus.State(rawValue: CommandLine.arguments[idx + 1])
+                }()
+                if let e2eLicenseState {
+                    $0[LicensingClient.self] = LicensingClient(
+                        activate: { _, _, _, _ in LicenseStatus(state: .active) },
+                        deactivate: { _, _ in },
+                        status: { _, _ in
+                            LicenseStatus(
+                                state: e2eLicenseState,
+                                // Trial badge shows "5 days left" deterministically.
+                                expiresAt: e2eLicenseState == .trial
+                                    ? Date().addingTimeInterval(5 * 86400) : nil
+                            )
+                        }
+                    )
+                }
             }
 
             // Force regular activation policy so the app has a menu bar
