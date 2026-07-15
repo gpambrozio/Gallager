@@ -123,7 +123,9 @@ public protocol HookBodyProtocol: Codable, Sendable {
 public extension HookBodyProtocol {
     /// Most hook bodies don't carry a permission mode; the four that do override
     /// this with a stored property.
-    var permissionMode: String? { nil }
+    var permissionMode: String? {
+        nil
+    }
 }
 
 // MARK: - Common Hook Fields
@@ -636,6 +638,126 @@ public struct UserPromptSubmitBody: HookBodyProtocol {
     }
 }
 
+private extension KeyedDecodingContainer {
+    /// Lenient field decode: `nil` (rather than a decode error) when the key is
+    /// missing or holds a value of the wrong type, so one malformed field can't
+    /// fail the enclosing `Stop` decode and drop the stop entirely (spec §13).
+    func lenient<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+}
+
+/// A background task listed on a `Stop` hook payload (hooks reference, "Stop
+/// input", Claude Code v2.1.145+). Documented element fields: `id`, `type`
+/// (friendly label like `shell`/`subagent`/`workflow`), `status`, `description`
+/// (capped at 1000 chars upstream), plus type-specific extras — `name` exists
+/// only on `workflow` tasks. Decoding is lenient field-by-field: a mismatched
+/// field decodes as `nil`, and a non-object element decodes as all-`nil`
+/// (counting as pending — the classifier fails open anyway), so no element
+/// shape can fail the whole `StopBody` decode (spec §13).
+public struct StopBackgroundTask: Codable, Sendable, Equatable {
+    public let id: String?
+    public let type: String?
+    /// The hooks reference does not enumerate the status vocabulary ("Current
+    /// task status"), so `isPending` excludes only statuses known to be
+    /// terminal and treats anything unrecognized as pending.
+    public let status: String?
+    public let description: String?
+    /// Workflow name; present only for `workflow` tasks.
+    public let name: String?
+
+    public init(
+        id: String? = nil,
+        type: String? = nil,
+        status: String? = nil,
+        description: String? = nil,
+        name: String? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.status = status
+        self.description = description
+        self.name = name
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        self.id = container?.lenient(String.self, forKey: .id)
+        self.type = container?.lenient(String.self, forKey: .type)
+        self.status = container?.lenient(String.self, forKey: .status)
+        self.description = container?.lenient(String.self, forKey: .description)
+        self.name = container?.lenient(String.self, forKey: .name)
+    }
+
+    /// Whether this task could still wake the session back up. Terminal states
+    /// linger in the array until cleanup, so only they are excluded; an unknown
+    /// (or missing) status is treated as pending — the classifier fails open,
+    /// so the cost of a wrong "pending" is one model round trip, while a wrong
+    /// "terminal" would skip the check entirely.
+    public var isPending: Bool {
+        switch status {
+        case "completed",
+             "failed",
+             "cancelled",
+             "killed": false
+        default: true
+        }
+    }
+
+    /// Short human label for the drop log and the classifier prompt.
+    /// Descriptions can run to 1000 chars upstream, so clip.
+    var label: String {
+        clippedLabel(name ?? description ?? type ?? id, fallback: "background task")
+    }
+}
+
+/// A session-scoped scheduled wakeup listed on a `Stop` hook payload (sourced
+/// from `CronCreate`, `ScheduleWakeup`, and `/loop`). Documented element
+/// fields: `id`, `schedule`, `recurring`, `prompt` — notably NO status, so
+/// every listed cron counts as pending (`pendingBackgroundWork`): a cron in the
+/// array is scheduled to fire and can wake the session. Same lenient
+/// field-by-field decoding as `StopBackgroundTask`.
+public struct StopSessionCron: Codable, Sendable, Equatable {
+    public let id: String?
+    public let schedule: String?
+    /// `false` for one-shot wakeups, `true` for re-firing schedules.
+    public let recurring: Bool?
+    /// The prompt submitted when the cron fires; capped at 1000 chars upstream.
+    public let prompt: String?
+
+    public init(
+        id: String? = nil,
+        schedule: String? = nil,
+        recurring: Bool? = nil,
+        prompt: String? = nil
+    ) {
+        self.id = id
+        self.schedule = schedule
+        self.recurring = recurring
+        self.prompt = prompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        self.id = container?.lenient(String.self, forKey: .id)
+        self.schedule = container?.lenient(String.self, forKey: .schedule)
+        self.recurring = container?.lenient(Bool.self, forKey: .recurring)
+        self.prompt = container?.lenient(String.self, forKey: .prompt)
+    }
+
+    /// Short human label for the drop log and the classifier prompt.
+    var label: String {
+        clippedLabel(prompt ?? id, fallback: "scheduled task")
+    }
+}
+
+/// Clips a task/cron label so 1000-char upstream descriptions can't bloat the
+/// drop log line or the classifier prompt.
+private func clippedLabel(_ raw: String?, fallback: String) -> String {
+    guard let raw, !raw.isEmpty else { return fallback }
+    return raw.count > 80 ? String(raw.prefix(79)) + "…" : raw
+}
+
 public struct StopBody: HookBodyProtocol {
     public let sessionId: String
     public let transcriptPath: String?
@@ -645,6 +767,12 @@ public struct StopBody: HookBodyProtocol {
     public let permissionMode: String?
     public let stopHookActive: Bool?
     public let lastAssistantMessage: String?
+    /// Background tasks in flight when the stop fired. Present when Claude's
+    /// task registry is reachable; empty when nothing is running (hooks docs,
+    /// "Stop input"). `nil` on older CLIs that don't send the field.
+    public let backgroundTasks: [StopBackgroundTask]?
+    /// Scheduled cron tasks for the session; same presence semantics.
+    public let sessionCrons: [StopSessionCron]?
     public var shouldSendToServer: Bool {
         true
     }
@@ -658,6 +786,8 @@ public struct StopBody: HookBodyProtocol {
         case permissionMode = "permission_mode"
         case stopHookActive = "stop_hook_active"
         case lastAssistantMessage = "last_assistant_message"
+        case backgroundTasks = "background_tasks"
+        case sessionCrons = "session_crons"
     }
 
     public init(
@@ -668,7 +798,9 @@ public struct StopBody: HookBodyProtocol {
         timestamp: String? = nil,
         permissionMode: String? = nil,
         stopHookActive: Bool? = nil,
-        lastAssistantMessage: String? = nil
+        lastAssistantMessage: String? = nil,
+        backgroundTasks: [StopBackgroundTask]? = nil,
+        sessionCrons: [StopSessionCron]? = nil
     ) {
         self.sessionId = sessionId
         self.transcriptPath = transcriptPath
@@ -678,6 +810,47 @@ public struct StopBody: HookBodyProtocol {
         self.permissionMode = permissionMode
         self.stopHookActive = stopHookActive
         self.lastAssistantMessage = lastAssistantMessage
+        self.backgroundTasks = backgroundTasks
+        self.sessionCrons = sessionCrons
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+        self.cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        self.hookEventName = try container.decode(String.self, forKey: .hookEventName)
+        self.timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        self.permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        self.stopHookActive = try container.decodeIfPresent(Bool.self, forKey: .stopHookActive)
+        self.lastAssistantMessage = try container.decodeIfPresent(String.self, forKey: .lastAssistantMessage)
+        // Before #644 no payload shape could break Stop decoding; keep it that
+        // way for the two fields new to it. `lenient` degrades a non-array value
+        // (or a future shape change) to `nil` — no pending work, pre-#644 stop
+        // handling — instead of failing the whole decode and wedging the session
+        // on "Working". Element-level malformations are absorbed by the
+        // elements' own lenient decoders above.
+        self.backgroundTasks = container.lenient([StopBackgroundTask].self, forKey: .backgroundTasks)
+        self.sessionCrons = container.lenient([StopSessionCron].self, forKey: .sessionCrons)
+    }
+
+    /// Labels of the background tasks / crons that could still wake this
+    /// session back up. Non-empty means the stop may be a pause, not a finish —
+    /// but not reliably (a task pending termination lingers after a genuinely
+    /// final message), which is why the finality classifier gets the last word
+    /// (issue #644). Gates classification and feeds the info log only — nothing
+    /// about the pending work ever reaches the classifier prompt (the labels
+    /// are agent-authored free text that steers the verdict, and even neutral
+    /// counts anchor it).
+    public var pendingBackgroundWork: [String] {
+        let tasks = (backgroundTasks ?? [])
+            .filter(\.isPending)
+            .map(\.label)
+        // Cron entries carry no status field (hooks reference: `id`, `schedule`,
+        // `recurring`, `prompt`), so every listed cron is scheduled to fire and
+        // counts as pending.
+        let crons = (sessionCrons ?? []).map(\.label)
+        return tasks + crons
     }
 }
 

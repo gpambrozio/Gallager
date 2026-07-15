@@ -49,6 +49,48 @@ not always with an `agent_id` for the pre-parse drop to see. Only main-agent sto
 carry `last_assistant_message`, so a `Stop` without it is dropped entirely — applying
 one would flip a mid-task session to doneWorking and fire a bogus notification.
 
+**Paused-`Stop` drop (issue #644, per-agent setting `detect_false_stops`, default
+on):** Claude also fires `Stop` when it *parks* the turn waiting on background tasks
+/ session crons to wake it back up. The payload's `background_tasks`/`session_crons`
+arrays (hooks reference "Stop input", v2.1.145+) alone can't distinguish a pause from
+a finish (a task pending termination lingers after a genuinely final message), so
+when the arrays still hold pending work — task `status` not known-terminal; every
+listed cron counts, since cron entries carry no status field
+(`StopBody.pendingBackgroundWork`) — `handleIngress` asks the
+`StopFinalityClassifier` — Apple Intelligence's on-device model (FoundationModels,
+macOS 26+) — whether `last_assistant_message` reads as final or as
+waiting-for-background-work. The judge prompt receives the message and NOTHING
+about the pending work — task descriptions/cron prompts are agent-authored free
+text ("Wait for the e2e run to finish") that demonstrably steered verdicts, and
+even neutral counts anchor the judge toward still-waiting; the human-readable
+labels go to the info log instead. The judge instructions are
+eval-tuned: run `swift run StopFinalityEval` (a package executable driving the real
+`liveValue` over a fixed case set of realistic final/waiting messages; needs a Mac
+with Apple Intelligence — CI only compiles it) before and after any prompt change. Waiting → the stop is *downgraded*: an explicit
+`.working` event keeps the spinner and the turn's summary still surfaces as a
+notification titled "Still Working" (same project-prefix/256-char copy as the done
+notification, no app actions — a pause can't close panes or suggest opens); the
+real final `Stop` drives the done state and its normal notification later. The two
+arrays decode leniently (a malformed element, field, or non-array value degrades to
+`nil` instead of failing the whole `StopBody` decode), so no payload shape can drop
+a Stop outright. The classifier fails open to "final" on every *failure* path (no
+SDK, pre-26 OS, model unavailable/disabled, generation error, empty message, and a
+10s inference deadline so a wedged model daemon can't head-of-line-block the serial
+ingress FIFO) — classifier failure can never wedge a session on "Working". The
+residual risk is a systematic *misclassification* of final messages while work stays
+registered (e.g. an always-firing cron), which would hold the session on "Working"
+until the next Stop or SessionEnd; the per-agent toggle (Settings → Agents → Claude
+Code → "Verify completion with Apple Intelligence") turns the check off entirely.
+The settings row probes `StopFinalityClassifier.availability` on load and renders
+the toggle's real state (`StopFinalityAvailability`): disabled + caption when the
+check is permanently inert on this Mac (pre-26 OS / device not eligible, or Apple
+Intelligence switched off), enabled + caption while the model is still downloading
+(transient), plain when available. Under `--e2e-test` the probe always reports
+available so the form renders identically on every CI machine. In `--e2e-test` mode the
+verdict is deterministic — a message containing `[e2e-still-waiting]` classifies as
+still-waiting (CI has no Apple Intelligence) — exercised by the "Paused Stop
+Ignored" scenario.
+
 - **`working`** = `HookEvent.isWorking`: `true` entering the agent loop
   (userPromptSubmit, preToolUse, permissionRequest, …), `false` on `stop`/`stopFailure`,
   `nil` (no opinion) for neutral events.

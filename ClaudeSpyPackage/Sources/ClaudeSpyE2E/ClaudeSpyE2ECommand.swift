@@ -388,6 +388,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         PluginOTLPTelemetryScenario.scenario,
         SubagentStopIgnoredScenario.scenario,
         BrowserDownloadsAndErrorsScenario.scenario,
+        PausedStopIgnoredScenario.scenario,
         BrowserAddressBarSelectAllScenario.scenario,
         BrowserAddressBarRefocusScenario.scenario,
         AutoSelectActiveWindowScenario.scenario,
