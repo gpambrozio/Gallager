@@ -181,6 +181,14 @@ extension EnvSerializedSuites {
                 setenv("LEMONSQUEEZY_STORE_ID", "123", 1)
                 setenv("LEMONSQUEEZY_PRODUCT_ID", "456", 1)
                 setenv("TRIAL_DAYS", licensingTrialDays, 1)
+            } else {
+                // Force the connect-time gate OFF, hermetic against a developer's
+                // local `.env`: `Application.make(.testing)` loads `.env` with
+                // `overwrite: false`, so a staging `.env` setting LEMONSQUEEZY_*
+                // would otherwise ENABLE licensing here. Empty ids read as unset
+                // (trimmed to nil) and the `.env` load can't overwrite them.
+                setenv("LEMONSQUEEZY_STORE_ID", "", 1)
+                setenv("LEMONSQUEEZY_PRODUCT_ID", "", 1)
             }
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-license-ws-tests-\(UUID().uuidString)")
@@ -189,11 +197,9 @@ extension EnvSerializedSuites {
             defer {
                 try? FileManager.default.removeItem(at: tempDir)
                 unsetenv("DATA_DIRECTORY")
-                if licensingTrialDays != nil {
-                    unsetenv("LEMONSQUEEZY_STORE_ID")
-                    unsetenv("LEMONSQUEEZY_PRODUCT_ID")
-                    unsetenv("TRIAL_DAYS")
-                }
+                unsetenv("LEMONSQUEEZY_STORE_ID")
+                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
+                unsetenv("TRIAL_DAYS")
             }
 
             let app = try await Application.make(.testing)

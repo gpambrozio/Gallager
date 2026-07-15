@@ -34,6 +34,32 @@ extension EnvSerializedSuites {
             try await withApp(configure: configure, test)
         }
 
+        /// Boots the app with licensing DISABLED, hermetic against a developer's
+        /// local `.env`. `Application.make(.testing)` loads `.env` with
+        /// `overwrite: false`; if that file sets `LEMONSQUEEZY_STORE_ID`/
+        /// `LEMONSQUEEZY_PRODUCT_ID` (as a staging-deploy `.env` does) it would
+        /// silently ENABLE licensing and break these "disabled relay" assertions.
+        /// Forcing the two ids present-but-EMPTY makes
+        /// `LicensingConfiguration.fromEnvironment()` read them as unset (empty is
+        /// trimmed to nil) AND stops the `.env` load from filling them in.
+        private func withDisabledLicensingApp(
+            _ test: (Application) async throws -> Void
+        ) async throws {
+            setenv("LEMONSQUEEZY_STORE_ID", "", 1)
+            setenv("LEMONSQUEEZY_PRODUCT_ID", "", 1)
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            setenv("DATA_DIRECTORY", tempDir.path, 1)
+            defer {
+                try? FileManager.default.removeItem(at: tempDir)
+                unsetenv("DATA_DIRECTORY")
+                unsetenv("LEMONSQUEEZY_STORE_ID")
+                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
+            }
+            try await withApp(configure: configure, test)
+        }
+
         @Test("GET /api/license/status returns none for a fresh device and starts no trial")
         func statusFreshDevice() async throws {
             try await withLicensingApp { app in
@@ -52,15 +78,7 @@ extension EnvSerializedSuites {
 
         @Test("GET /api/license/status returns notRequired when licensing is disabled")
         func statusDisabledRelay() async throws {
-            let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-            }
-            try await withApp(configure: configure) { app in
+            try await withDisabledLicensingApp { app in
                 try await app.testing().test(.GET, "api/license/status?deviceId=any") { res in
                     #expect(res.status == .ok)
                     let status = try res.content.decode(LicenseStatus.self)
@@ -136,15 +154,7 @@ extension EnvSerializedSuites {
 
         @Test("Pairing register is untouched when licensing is disabled")
         func registerUnrestrictedWhenDisabled() async throws {
-            let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-            }
-            try await withApp(configure: configure) { app in
+            try await withDisabledLicensingApp { app in
                 try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
                     try req.content.encode(PairingRegistration(
                         deviceId: "host-1", deviceName: "My Mac", pairingCode: "ABC123",
