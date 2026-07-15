@@ -387,6 +387,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.editorSessionManager)
                 .environment(coordinator.remoteEditorContentStore)
                 .environment(coordinator.markdownOpenSuggestionStore)
+                .environment(coordinator.licenseManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .onAppear {
                     if coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide {

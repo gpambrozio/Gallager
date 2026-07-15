@@ -3774,6 +3774,10 @@
 
             logger.info("Connecting to newly paired viewer: \(viewer.displayName)")
             await connectionManager.connect(to: viewer)
+
+            // A viewer just paired → the relay started this host's trial. Refresh
+            // so the toolbar trial badge appears now rather than at the next poll.
+            await licenseManager.refreshStatus()
         }
 
         /// Applies an `OSC 9;4` progress update from `PaneStreamManager`.
