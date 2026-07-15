@@ -1,0 +1,31 @@
+# ClaudeSpy/Gallager Relay Server — STAGING
+# Place this in /etc/caddy/conf.d/ alongside claudespy.caddy, then reload Caddy.
+#
+# Fronts the staging relay container (docker-compose.staging.yml), which binds
+# 127.0.0.1:8081. Production (relay.gallager.app, plus the legacy
+# claudespy.gustavo.eng.br alias → :8080) is untouched.
+# Caddy issues a separate Let's Encrypt cert for this hostname automatically;
+# make sure staging.gallager.app has an A record for this server's IP.
+
+staging.gallager.app {
+    # Reverse proxy to the STAGING relay container (host port 8081)
+    reverse_proxy localhost:8081
+
+    # WebSocket support is automatic in Caddy — no special configuration needed
+
+    # Access logging (separate file from prod)
+    log {
+        output file /var/log/caddy/gallager-staging-access.log
+        format json
+    }
+
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable XSS protection
+        X-XSS-Protection "1; mode=block"
+    }
+}

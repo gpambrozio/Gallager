@@ -1,7 +1,11 @@
-# ClaudeSpy Relay Server
+# ClaudeSpy/Gallager Relay Server
 # This file should be placed in /etc/caddy/conf.d/
+#
+# relay.gallager.app is the canonical hostname; claudespy.gustavo.eng.br is
+# kept as a legacy alias so existing clients (which have the old URL saved) keep
+# connecting. Caddy issues a cert for each hostname; both proxy to the same relay.
 
-claudespy.gustavo.eng.br {
+relay.gallager.app, claudespy.gustavo.eng.br {
     # Reverse proxy to the relay server
     reverse_proxy localhost:8080
 

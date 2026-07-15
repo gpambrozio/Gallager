@@ -1,0 +1,29 @@
+# Staging override for the ClaudeSpy/Gallager relay.
+#
+# Runs a SECOND, fully isolated relay beside production on the SAME box, so the
+# hosted-relay monetization (Lemon Squeezy licensing) can be exercised against
+# real host + viewer clients without touching the live service.
+#
+# Usage (on the server, from the staging deploy dir /opt/claudespy-staging):
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml \
+#     -p claudespy-staging up -d --build
+#
+# `scripts/deploy.sh staging` wires all of this up for you; see docs/staging-relay.md.
+#
+# The base compose hardcodes container_name + host port 8080; both MUST be
+# overridden here or staging collides with prod. Everything else (env_file,
+# ./data, ./secrets, the container's internal :8080 healthcheck) resolves
+# relative to the staging project directory, so deploying to a separate dir with
+# its own licensing-enabled .env gives staging its own licensing.json, pairings,
+# secrets, and enforcement state for free — prod is never touched.
+#
+# `ports: !override` is REQUIRED: Compose merges list fields across -f files by
+# APPENDING, so a plain `ports:` here would keep the base's 8080 mapping AND add
+# 8081 — the staging container would then try to bind 8080 and collide with prod.
+# The `!override` tag replaces the list instead (needs Docker Compose v2.24+).
+services:
+  relay:
+    container_name: claudespy-relay-staging
+    ports: !override
+      # Host 8081 → container's internal 8080; Caddy's staging site fronts 127.0.0.1:8081.
+      - "127.0.0.1:8081:8080"

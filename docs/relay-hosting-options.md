@@ -113,11 +113,11 @@ Potential saving if cleancast tunes to <3 GB: ~€10/mo. Out of scope for Claude
 Rough order of operations to move the relay off `hetzner1`:
 
 1. **Provision** Hetzner CPX11 in Ashburn, Ubuntu 24.04. Same SSH key as `hetzner1`. (No image rebuild needed — same x86 arch.)
-2. **DNS:** add a second A record (e.g. `relay-new.gustavo.eng.br`) pointing at the new IP for testing. Don't repoint `claudespy.gustavo.eng.br` yet.
+2. **DNS:** add a second A record (e.g. `relay-new.gustavo.eng.br`) pointing at the new IP for testing. Don't repoint `relay.gallager.app` (or its legacy alias `claudespy.gustavo.eng.br`) yet.
 3. **Bootstrap:** copy `/opt/claudespy/` (compose file + `.env`), `caddy/` configs, run `docker compose up -d`. Generate a fresh `METRICS_TOKEN`.
 4. **Monitoring agents:** install node_exporter + alloy on the new box (re-use `monitoring/agents/install.sh`). Update Grafana dashboard `instance` filter or add the new instance label.
 5. **Smoke test:** point a test iOS viewer + Mac host at `relay-new.gustavo.eng.br`. Pair, send messages, confirm push notifications fire.
-6. **Cutover:** repoint `claudespy.gustavo.eng.br` to the new IP. Caddy on the new box re-issues the cert via ACME.
+6. **Cutover:** repoint `relay.gallager.app` (and the legacy `claudespy.gustavo.eng.br`) to the new IP. Caddy on the new box re-issues the certs via ACME.
 7. **Decommission:** stop and remove `claudespy-relay` from `hetzner1`'s docker-compose. Remove the relay-specific Caddy site block. Stop scraping the old `instance="relay"` from the old alloy (or leave for a week as a safety net).
 8. **Memory note update:** the `Relay Host Noisy Neighbor` memory becomes stale after this lands — update it.
 

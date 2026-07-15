@@ -602,7 +602,7 @@ final public class AppSettings {
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
-        static let externalServerURL = "wss://claudespy.gustavo.eng.br"
+        static let externalServerURL = "wss://relay.gallager.app"
         static let autoConnectToServer = true
         static let trialAlertsFired: [String] = []
         /// External Editors
