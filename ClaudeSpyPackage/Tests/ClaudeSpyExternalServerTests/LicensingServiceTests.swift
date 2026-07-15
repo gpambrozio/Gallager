@@ -117,8 +117,21 @@ struct LicensingServiceCoreTests {
         #expect(!fileExists)
     }
 
-    @Test("First touch auto-starts a 7-day trial")
-    func trialAutoStart() async throws {
+    @Test("checkEntitlement returns .preTrial for a fresh device and starts no trial")
+    func freshDeviceIsPreTrial() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: StubLicenseAPIClient(),
+            dataDirectory: dir
+        )
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .preTrial)
+        // No trial recorded by asking.
+        #expect(await service.status(deviceId: "host-1") == LicenseStatus(state: .none))
+    }
+
+    @Test("startTrialIfNeeded starts a 7-day trial once; idempotent thereafter")
+    func startTrialIfNeededStartsOnce() async throws {
         let dir = try LicensingTestSupport.tempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
         let clock = TestNow()
@@ -126,15 +139,14 @@ struct LicensingServiceCoreTests {
             config: LicensingTestSupport.config, apiClient: StubLicenseAPIClient(),
             dataDirectory: dir, now: { clock.value }
         )
-
-        let entitlement = await service.checkEntitlement(hostDeviceId: "host-1")
+        await service.startTrialIfNeeded(hostDeviceId: "host-1")
         let expectedExpiry = clock.value.addingTimeInterval(7 * 86_400)
-        #expect(entitlement == .trial(expiresAt: expectedExpiry))
-        #expect(entitlement.isAllowed)
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .trial(expiresAt: expectedExpiry))
 
-        let status = await service.status(deviceId: "host-1")
-        #expect(status.state == .trial)
-        #expect(status.expiresAt == expectedExpiry)
+        // Second call does not restart the clock.
+        clock.advance(bySeconds: 3 * 86_400)
+        await service.startTrialIfNeeded(hostDeviceId: "host-1")
+        #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .trial(expiresAt: expectedExpiry))
     }
 
     @Test("Trial keeps its original start across repeated checks and expires")
@@ -147,7 +159,7 @@ struct LicensingServiceCoreTests {
             dataDirectory: dir, now: { clock.value }
         )
 
-        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        await service.startTrialIfNeeded(hostDeviceId: "host-1")
         clock.advance(bySeconds: 6 * 86_400)
         let stillTrial = await service.checkEntitlement(hostDeviceId: "host-1")
         guard case .trial = stillTrial else {
@@ -185,6 +197,7 @@ struct LicensingServiceCoreTests {
             config: LicensingTestSupport.config, apiClient: StubLicenseAPIClient(),
             dataDirectory: dir, now: { clock.value }
         )
+        await first.startTrialIfNeeded(hostDeviceId: "host-1")
         let original = await first.checkEntitlement(hostDeviceId: "host-1")
 
         let second = LicensingService(
@@ -447,7 +460,7 @@ struct LicensingServiceSweepTests {
         )
 
         // Expire host-1's trial.
-        _ = await service.checkEntitlement(hostDeviceId: "host-1")
+        await service.startTrialIfNeeded(hostDeviceId: "host-1")
         clock.advance(bySeconds: 8 * 86_400)
 
         // No host connected → sweep reports nothing.

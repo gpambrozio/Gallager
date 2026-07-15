@@ -44,7 +44,7 @@ extension EnvSerializedSuites {
                 let host = TextCollector()
                 let hostWS = try await connectClient(
                     port: port,
-                    query: "pairId=\(pairId)&deviceType=host&deviceId=host-1",
+                    query: "pairId=\(pairId)&deviceType=host&deviceId=host-device",
                     collector: host
                 )
 
@@ -77,7 +77,7 @@ extension EnvSerializedSuites {
                 let host = TextCollector()
                 let hostWS = try await connectClient(
                     port: port,
-                    query: "pairId=\(pairId)&deviceType=host&deviceId=host-1",
+                    query: "pairId=\(pairId)&deviceType=host&deviceId=host-device",
                     collector: host
                 )
 
@@ -144,8 +144,8 @@ extension EnvSerializedSuites {
                     config: sweepConfig, apiClient: StubLicenseAPIClient(),
                     dataDirectory: sweepDir, now: { clock.value }
                 )
-                // Auto-starts a 1-day trial for the pair's hostDeviceId.
-                _ = await sweepLicensingService.checkEntitlement(hostDeviceId: "host-device")
+                // Starts a 1-day trial for the pair's hostDeviceId.
+                await sweepLicensingService.startTrialIfNeeded(hostDeviceId: "host-device")
                 clock.advance(bySeconds: 2 * 86_400) // past the 1-day trial
 
                 let blockedPairs = await sweepLicensingService.sweepBlockedHosts(
@@ -252,6 +252,9 @@ extension EnvSerializedSuites {
             guard case .paired = complete else {
                 throw RelayTestError.pairingFailed("complete returned \(complete)")
             }
+            // Mirror PairingController.completePairing: a completed pairing starts the
+            // host's trial (no-op when licensing is disabled, i.e. licensingTrialDays == nil).
+            await app.licensingService.startTrialIfNeeded(hostDeviceId: "host-device")
             return info.pairId
         }
 

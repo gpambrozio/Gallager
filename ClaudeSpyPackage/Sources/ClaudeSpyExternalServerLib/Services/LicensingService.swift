@@ -39,6 +39,9 @@ actor LicensingService {
 
     enum Entitlement: Equatable {
         case unrestricted
+        /// Licensing enabled, but this host has no trial yet and no activation.
+        /// Allowed — the trial clock has not started (it starts at viewer pairing).
+        case preTrial
         case trial(expiresAt: Date)
         case licensed
         case blocked(reason: BlockReason)
@@ -150,7 +153,7 @@ actor LicensingService {
                 // device deliberately re-enters ordinary trial rules: deactivating
                 // frees the LS slot and resets this device to as-new (status .none /
                 // existing trial), matching the deactivate tests.
-                return trialEntitlement(deviceId: hostDeviceId, config: config)
+                return evaluateTrial(deviceId: hostDeviceId, config: config)
             }
             switch activation.verdict {
             case .active:
@@ -166,22 +169,28 @@ actor LicensingService {
             }
         }
 
-        return trialEntitlement(deviceId: hostDeviceId, config: config)
+        return evaluateTrial(deviceId: hostDeviceId, config: config)
     }
 
-    private func trialEntitlement(deviceId: String, config: LicensingConfiguration) -> Entitlement {
-        let trial: TrialRecord
-        if let existing = state.trials[deviceId] {
-            trial = existing
-        } else {
-            trial = TrialRecord(startedAt: now())
-            state.trials[deviceId] = trial
-            saveState()
-            logger.info("Started trial", metadata: ["deviceId": "\(deviceId)"])
-            Task { await metricsService?.incrementTrialStarts() }
-        }
+    /// Pure: evaluate an EXISTING trial. Never creates one. A device with no
+    /// trial (and no activation) is `.preTrial` — allowed, clock not started.
+    private func evaluateTrial(deviceId: String, config: LicensingConfiguration) -> Entitlement {
+        guard let trial = state.trials[deviceId] else { return .preTrial }
         let expiresAt = trial.startedAt.addingTimeInterval(TimeInterval(config.trialDays) * 86_400)
         return now() < expiresAt ? .trial(expiresAt: expiresAt) : .blocked(reason: .trialExpired)
+    }
+
+    /// Start the host's free trial the first time a viewer pairs. Idempotent:
+    /// no-op when licensing is disabled, an activation exists, or a trial already
+    /// exists. This is the ONLY place a trial is created.
+    func startTrialIfNeeded(hostDeviceId: String) {
+        guard config != nil else { return }
+        guard state.activations[hostDeviceId] == nil else { return }
+        guard state.trials[hostDeviceId] == nil else { return }
+        state.trials[hostDeviceId] = TrialRecord(startedAt: now())
+        saveState()
+        logger.info("Started trial", metadata: ["deviceId": "\(hostDeviceId)"])
+        Task { await metricsService?.incrementTrialStarts() }
     }
 
     /// Read-only billing status for the Mac app UI. Never starts a trial.

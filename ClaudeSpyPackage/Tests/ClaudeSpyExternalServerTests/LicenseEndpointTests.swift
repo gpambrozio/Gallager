@@ -107,8 +107,8 @@ extension EnvSerializedSuites {
 
         private static let testPublicKey = "dGVzdC1tYWMtcHVibGljLWtleS0wMTIzNDU2Nzg5MDEyMw=="
 
-        @Test("Pairing register auto-starts a trial and succeeds")
-        func registerStartsTrial() async throws {
+        @Test("Pairing register succeeds but does NOT start a trial")
+        func registerDoesNotStartTrial() async throws {
             try await withLicensingApp { app in
                 try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
                     try req.content.encode(PairingRegistration(
@@ -123,7 +123,38 @@ extension EnvSerializedSuites {
                         return
                     }
                 }
-                // The register touched the relay → trial exists now.
+                // Registering a code alone must not start the trial clock.
+                try await app.testing().test(.GET, "api/license/status?deviceId=host-1") { res in
+                    let status = try res.content.decode(LicenseStatus.self)
+                    #expect(status.state == .none)
+                }
+            }
+        }
+
+        @Test("Completing a pairing starts the host's trial")
+        func completeStartsTrial() async throws {
+            try await withLicensingApp { app in
+                try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
+                    try req.content.encode(PairingRegistration(
+                        deviceId: "host-1", deviceName: "My Mac", pairingCode: "ABC123",
+                        publicKey: Self.testPublicKey, publicKeyId: "key-1", username: "tester"
+                    ))
+                }) { res in #expect(res.status == .ok) }
+
+                try await app.testing().test(.POST, "api/pairing/complete", beforeRequest: { req in
+                    try req.content.encode(PairingCompletion(
+                        pairingCode: "ABC123", deviceId: "viewer-1", deviceName: "iPhone",
+                        publicKey: Self.testPublicKey, publicKeyId: "vkey-1"
+                    ))
+                }) { res in
+                    #expect(res.status == .ok)
+                    let response = try res.content.decode(PairingResponse.self)
+                    guard case .paired = response else {
+                        Issue.record("Expected .paired, got \(response)")
+                        return
+                    }
+                }
+                // The viewer pairing started the host's trial.
                 try await app.testing().test(.GET, "api/license/status?deviceId=host-1") { res in
                     let status = try res.content.decode(LicenseStatus.self)
                     #expect(status.state == .trial)
@@ -131,13 +162,35 @@ extension EnvSerializedSuites {
             }
         }
 
-        @Test("Pairing register is blocked with SUBSCRIPTION_REQUIRED after trial expiry")
+        @Test("Register is blocked with SUBSCRIPTION_REQUIRED once the trial has expired")
         func registerBlockedAfterTrial() async throws {
-            // TRIAL_DAYS=0 → the auto-started trial is already expired.
+            // TRIAL_DAYS=0 → the trial started by completing a pairing is already expired.
             try await withLicensingApp(trialDays: "0") { app in
+                // Register + complete once: allowed (pre-trial), and complete starts the
+                // (already-expired) trial for host-1.
                 try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
                     try req.content.encode(PairingRegistration(
                         deviceId: "host-1", deviceName: "My Mac", pairingCode: "ABC123",
+                        publicKey: Self.testPublicKey, publicKeyId: "key-1", username: "tester"
+                    ))
+                }) { res in
+                    let response = try res.content.decode(PairingResponse.self)
+                    guard case .registered = response else {
+                        Issue.record("Expected .registered, got \(response)")
+                        return
+                    }
+                }
+                try await app.testing().test(.POST, "api/pairing/complete", beforeRequest: { req in
+                    try req.content.encode(PairingCompletion(
+                        pairingCode: "ABC123", deviceId: "viewer-1", deviceName: "iPhone",
+                        publicKey: Self.testPublicKey, publicKeyId: "vkey-1"
+                    ))
+                }) { res in #expect(res.status == .ok) }
+
+                // A NEW register for the same host is now blocked — its trial expired.
+                try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
+                    try req.content.encode(PairingRegistration(
+                        deviceId: "host-1", deviceName: "My Mac", pairingCode: "XYZ789",
                         publicKey: Self.testPublicKey, publicKeyId: "key-1", username: "tester"
                     ))
                 }) { res in

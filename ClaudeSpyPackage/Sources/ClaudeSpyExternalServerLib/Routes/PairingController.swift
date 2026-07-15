@@ -46,13 +46,23 @@ struct PairingController: RouteCollection {
     func completePairing(req: Request) async throws -> PairingResponse {
         let completion = try req.content.decode(PairingCompletion.self)
 
-        return await req.application.pairingService.completePairing(
+        let response = await req.application.pairingService.completePairing(
             code: completion.pairingCode,
             deviceId: completion.deviceId,
             deviceName: completion.deviceName,
             publicKey: completion.publicKey,
             publicKeyId: completion.publicKeyId
         )
+
+        // Start the host's free-trial clock the moment a viewer actually pairs —
+        // not at register/first-touch. Idempotent; a no-op when licensing is off.
+        if
+            case let .paired(info) = response,
+            let hostDeviceId = await req.application.pairingService.getPair(pairId: info.pairId)?.hostDeviceId {
+            await req.application.licensingService.startTrialIfNeeded(hostDeviceId: hostDeviceId)
+        }
+
+        return response
     }
 
     /// Get pairing status
