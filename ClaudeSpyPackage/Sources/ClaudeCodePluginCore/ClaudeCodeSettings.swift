@@ -18,19 +18,28 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
     /// When true (and the agent exited cleanly at the prompt), the pane closes
     /// on session end. Per-agent; the app honors the core's eligibility flag.
     public var closePaneOnSessionEnd: Bool
+    /// When true, a `Stop` hook that arrives while background tasks or session
+    /// crons are still pending is checked with the on-device Apple Intelligence
+    /// model: if the last assistant message reads as still-waiting, the
+    /// premature "Done" is suppressed (issue #644). The classifier fails open
+    /// to honoring the Stop wherever Apple Intelligence is unavailable, so it
+    /// is safe to leave on by default.
+    public var detectFalseStops: Bool
 
     public init(
         commandPath: String = "claude",
         autoRun: Bool = true,
         logLevel: LogLevel = .info,
         additionalConfigFolders: [String] = [],
-        closePaneOnSessionEnd: Bool = false
+        closePaneOnSessionEnd: Bool = false,
+        detectFalseStops: Bool = true
     ) {
         self.commandPath = commandPath
         self.autoRun = autoRun
         self.logLevel = logLevel
         self.additionalConfigFolders = additionalConfigFolders
         self.closePaneOnSessionEnd = closePaneOnSessionEnd
+        self.detectFalseStops = detectFalseStops
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -39,6 +48,7 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
         case logLevel = "log_level"
         case additionalConfigFolders = "additional_config_folders"
         case closePaneOnSessionEnd = "close_pane_on_session_end"
+        case detectFalseStops = "detect_false_stops"
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +60,8 @@ public struct ClaudeCodeSettings: Codable, Sendable, Equatable {
             .decodeIfPresent([String].self, forKey: .additionalConfigFolders) ?? []
         self.closePaneOnSessionEnd = try container
             .decodeIfPresent(Bool.self, forKey: .closePaneOnSessionEnd) ?? false
+        self.detectFalseStops = try container
+            .decodeIfPresent(Bool.self, forKey: .detectFalseStops) ?? true
     }
 
     /// Decode from raw `settings.json` bytes, falling back to defaults when the

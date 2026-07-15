@@ -3,6 +3,7 @@
     import ClaudeCodePluginCore
     import ClaudeSpyCommon
     import CodexPluginCore
+    import Dependencies
     import GallagerPluginProtocol
     import SwiftUI
     import UniformTypeIdentifiers
@@ -190,6 +191,18 @@
         @State private var additionalConfigFolders: [String] = []
         // Codex-only: point Codex's OTLP export at the loopback receiver (#602).
         @State private var exportTelemetry = true
+        // Claude-only: verify Stop hooks with Apple Intelligence (#644).
+        @State private var detectFalseStops = true
+        /// Whether the "what does this do?" popover for the completion-check
+        /// toggle is showing.
+        @State private var showDetectFalseStopsInfo = false
+        /// Whether the on-device model can actually classify on this Mac —
+        /// probed on load so the toggle renders its real state (disabled +
+        /// caption when the check would be inert) instead of a live-looking
+        /// switch that silently does nothing.
+        @State private var detectFalseStopsAvailability: StopFinalityAvailability = .available
+
+        @Dependency(StopFinalityClassifier.self) private var stopFinalityClassifier
 
         /// Whether the agent binary was not found
         @State private var agentUnavailable = false
@@ -252,6 +265,63 @@
                     Toggle("Close pane when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
                         .onChange(of: closePaneOnSessionEnd) { _, _ in persist() }
                         .accessibilityIdentifier("agentClosePane-\(pluginID)")
+
+                    // Claude-only: Claude can fire a Stop hook while a background
+                    // task or cron is still pending. When on, on-device Apple
+                    // Intelligence judges whether the last message really reads as
+                    // finished, and keeps the session "working" if it doesn't (#644).
+                    // The ⓘ button (right of the label, not the switch) opens a
+                    // popover with the full explanation; the hover tooltip carries
+                    // the same copy for mouse users. Explicit row layout — text +
+                    // button siblings, switch pushed trailing via `labelsHidden` —
+                    // so the button's clicks can't be swallowed by a toggle label.
+                    if pluginID == "claude-code" {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text("Verify completion with Apple Intelligence")
+                                    .foregroundStyle(detectFalseStopsAvailability.disablesToggle ? .secondary : .primary)
+                                Button {
+                                    showDetectFalseStopsInfo = true
+                                } label: {
+                                    Symbols.infoCircle.image
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("About completion verification")
+                                .accessibilityIdentifier("agentDetectFalseStopsInfo-\(pluginID)")
+                                .popover(isPresented: $showDetectFalseStopsInfo, arrowEdge: .bottom) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Verify completion with Apple Intelligence")
+                                            .font(.headline)
+                                        Text(detectFalseStopsHelp)
+                                            .font(.callout)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(16)
+                                    .frame(width: 340)
+                                }
+                                Spacer()
+                                Toggle("Verify completion with Apple Intelligence", isOn: $detectFalseStops)
+                                    .labelsHidden()
+                                    .disabled(detectFalseStopsAvailability.disablesToggle)
+                                    .onChange(of: detectFalseStops) { _, _ in persist() }
+                                    .accessibilityIdentifier("agentDetectFalseStops-\(pluginID)")
+                                    .help(detectFalseStopsHelp)
+                            }
+                            // Why the check is inert on this Mac (pre-26 OS, Apple
+                            // Intelligence off, model downloading). The ⓘ popover
+                            // stays clickable so the explanation is reachable even
+                            // when the toggle is disabled.
+                            if let caption = detectFalseStopsAvailability.settingsCaption {
+                                Text(caption)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("agentDetectFalseStopsCaption-\(pluginID)")
+                            }
+                        }
+                    }
 
                     // Codex configures OTEL through its own config (it doesn't read
                     // `OTEL_*` env vars like Claude), so the export is opt-out-able
@@ -341,6 +411,18 @@
             coordinator.agentPluginList().first { $0.id == pluginID }?.name ?? pluginID
         }
 
+        /// Help text for the Apple-Intelligence completion-check toggle. Built
+        /// here (not inline) so the `Form` body stays within the type-checker's
+        /// reach.
+        private var detectFalseStopsHelp: String {
+            "When \(agentDisplayName) stops while a background task or cron is still "
+                + "pending, use on-device Apple Intelligence to check whether the last "
+                + "message really reads as finished. If it doesn't, the session stays "
+                + "marked as working and the summary arrives as a \"Still Working\" "
+                + "notification instead of a done one. Runs entirely on your Mac. "
+                + "Requires Apple Intelligence (macOS 26+); otherwise ignored."
+        }
+
         private var defaultConfigRoot: String {
             switch pluginID {
             case "claude-code": return "~/.claude"
@@ -368,6 +450,8 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = true
+                detectFalseStops = s.detectFalseStops
+                detectFalseStopsAvailability = stopFinalityClassifier.availability()
             case "codex":
                 let s = CodexSettings.decode(from: data)
                 commandPath = s.commandPath
@@ -376,6 +460,7 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = s.exportTelemetry
+                detectFalseStops = true
             default:
                 // Any non-bundled sidecar: generic settings that persist + reach
                 // the sidecar via apply_settings.
@@ -386,6 +471,7 @@
                 closePaneOnSessionEnd = s.closePaneOnSessionEnd
                 additionalConfigFolders = s.additionalConfigFolders
                 exportTelemetry = true
+                detectFalseStops = true
             }
 
             // Check agent availability for the default root
@@ -418,7 +504,8 @@
                     autoRun: autoRun,
                     logLevel: logLevel,
                     additionalConfigFolders: additionalConfigFolders,
-                    closePaneOnSessionEnd: closePaneOnSessionEnd
+                    closePaneOnSessionEnd: closePaneOnSessionEnd,
+                    detectFalseStops: detectFalseStops
                 )
                 return (try? encoder.encode(s)) ?? Data()
             case "codex":

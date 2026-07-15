@@ -58,4 +58,21 @@ struct ClaudeCodeSettingsTests {
         let data = try JSONEncoder().encode(original)
         #expect(ClaudeCodeSettings.decode(from: data) == original)
     }
+
+    @Test("detectFalseStops defaults to true (also when the key is absent)")
+    func detectFalseStopsDefault() throws {
+        #expect(ClaudeCodeSettings().detectFalseStops == true)
+        let json = Data(#"{ "command_path": "claude" }"#.utf8)
+        #expect(try JSONDecoder().decode(ClaudeCodeSettings.self, from: json).detectFalseStops == true)
+    }
+
+    @Test("decodes detect_false_stops from JSON and round-trips")
+    func detectFalseStopsRoundTrip() throws {
+        let json = Data(#"{ "detect_false_stops": false }"#.utf8)
+        #expect(try JSONDecoder().decode(ClaudeCodeSettings.self, from: json).detectFalseStops == false)
+
+        let original = ClaudeCodeSettings(detectFalseStops: false)
+        let data = try JSONEncoder().encode(original)
+        #expect(ClaudeCodeSettings.decode(from: data) == original)
+    }
 }
