@@ -142,6 +142,18 @@ struct WebSocketController: RouteCollection {
         // Hosted-relay gate for hosts (viewers are never gated). Mirrors the
         // invalidPair rejection flow above.
         if deviceType == .host {
+            // Migration safety net for grandfathered pairings: an ACTIVE
+            // (completed) pair that predates licensing being enabled — or predates
+            // trial-on-pairing — has no trial record. Start it on connect so such a
+            // host begins its trial rather than getting ungated `.preTrial` access
+            // forever. Gated to active pairs via `getPair` (nil for pending pairs),
+            // so a pending pair connecting mid-pairing still never starts a trial —
+            // that stays `completePairing`'s job. Idempotent no-op for normal new
+            // pairings (trial already started) and for expired trials.
+            if let pair = await pairingService.getPair(pairId: pairId) {
+                await req.application.licensingService.startTrialIfNeeded(hostDeviceId: pair.hostDeviceId)
+            }
+
             let entitlement = await req.application.licensingService
                 .checkEntitlement(hostDeviceId: deviceId)
             if !entitlement.isAllowed {

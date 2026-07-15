@@ -166,6 +166,72 @@ extension EnvSerializedSuites {
             }
         }
 
+        @Test("Existing completed pair with no trial starts the trial on host connect")
+        func migratesExistingCompletedPairOnHostConnect() async throws {
+            try await withRunningRelay(licensingTrialDays: "7") { app, port in
+                let pairId = try await makeUnarmedPair(app)
+
+                // Precondition: this pair completed before licensing was enabled
+                // (or before trial-on-pairing), so no trial record exists yet.
+                #expect(await app.licensingService.status(deviceId: "host-device").state == .none)
+
+                let host = TextCollector()
+                let hostWS = try await connectClient(
+                    port: port,
+                    query: "pairId=\(pairId)&deviceType=host&deviceId=host-device",
+                    collector: host
+                )
+
+                // Host is allowed — `.preTrial` (now started) is entitled.
+                #expect(await waitUntil { await app.connectionHub.isHostConnected(pairId: pairId) })
+                #expect(errorMessages(in: host.all()).isEmpty)
+                #expect(!hostWS.isClosed)
+
+                // The safety net started the trial on connect.
+                #expect(await waitUntil { await app.licensingService.status(deviceId: "host-device").state == .trial })
+
+                try? await hostWS.close()
+            }
+        }
+
+        @Test("Pending pair does NOT start a trial on host connect")
+        func pendingPairDoesNotStartTrialOnHostConnect() async throws {
+            try await withRunningRelay(licensingTrialDays: "7") { app, port in
+                let code = "PAIR-\(UUID().uuidString.prefix(6))"
+                let register = await app.pairingService.registerCode(
+                    code: String(code),
+                    deviceId: "host-device",
+                    deviceName: "Test Host",
+                    username: "tester",
+                    publicKey: Self.hostPublicKey,
+                    publicKeyId: Self.hostKeyId
+                )
+                guard case let .registered(info) = register else {
+                    throw RelayTestError.pairingFailed("register returned \(register)")
+                }
+                // No `completePairing` call: the pair stays pending, and
+                // `pairingService.getPair` returns nil for it.
+
+                let host = TextCollector()
+                let hostWS = try await connectClient(
+                    port: port,
+                    query: "pairId=\(info.pairId)&deviceType=host&deviceId=host-device",
+                    collector: host
+                )
+
+                // `isValidPair` accepts pending pairs, so the host is allowed through.
+                #expect(await waitUntil { await app.connectionHub.isHostConnected(pairId: info.pairId) })
+                #expect(errorMessages(in: host.all()).isEmpty)
+                #expect(!hostWS.isClosed)
+
+                // Settle briefly, then confirm no trial was started for the pending pair.
+                try? await Task.sleep(for: .milliseconds(200))
+                #expect(await app.licensingService.status(deviceId: "host-device").state == .none)
+
+                try? await hostWS.close()
+            }
+        }
+
         // MARK: - Relay lifecycle
 
         /// Boots the real relay on an ephemeral port, runs the body, and tears down
@@ -255,6 +321,36 @@ extension EnvSerializedSuites {
             // Mirror PairingController.completePairing: a completed pairing starts the
             // host's trial (no-op when licensing is disabled, i.e. licensingTrialDays == nil).
             await app.licensingService.startTrialIfNeeded(hostDeviceId: "host-device")
+            return info.pairId
+        }
+
+        /// Registers and completes a pair the same way `makePair` does, but WITHOUT
+        /// starting a trial — simulating a pairing that completed before licensing
+        /// (or trial-on-pairing) was enabled. Used to exercise the WS-connect
+        /// migration safety net, which should start the trial on first host connect.
+        private func makeUnarmedPair(_ app: Application) async throws -> String {
+            let code = "PAIR-\(UUID().uuidString.prefix(6))"
+            let register = await app.pairingService.registerCode(
+                code: String(code),
+                deviceId: "host-device",
+                deviceName: "Test Host",
+                username: "tester",
+                publicKey: Self.hostPublicKey,
+                publicKeyId: Self.hostKeyId
+            )
+            guard case let .registered(info) = register else {
+                throw RelayTestError.pairingFailed("register returned \(register)")
+            }
+            let complete = await app.pairingService.completePairing(
+                code: String(code),
+                deviceId: "viewer-device",
+                deviceName: "Test Viewer",
+                publicKey: Self.viewerPublicKey,
+                publicKeyId: Self.viewerKeyId
+            )
+            guard case .paired = complete else {
+                throw RelayTestError.pairingFailed("complete returned \(complete)")
+            }
             return info.pairId
         }
 

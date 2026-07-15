@@ -118,12 +118,15 @@ trial is used up it stays expired even if the host deletes the pair and re-pairs
 
 ### Non-goals
 
-- **No WS-connect safety-net start.** We deliberately do *not* also start the trial
-  at host WS connect. Every active (completed) pair already went through
-  `complete`, so the only gap is "a pairing completed while licensing was disabled,
-  then licensing was enabled later" — an operational edge case not worth the added
-  branch (WS connect would have to distinguish active vs pending pairs, since
-  `isValidPair` accepts both). If it ever matters, it can be added later.
+- **WS-connect safety-net start, for migration only.** Host WS connect *does* call
+  `startTrialIfNeeded`, but gated to ACTIVE (completed) pairs via
+  `PairingService.getPair` (nil for pending pairs, so a pending pair connecting
+  mid-pairing still never starts a trial there — that stays `completePairing`'s
+  job). This exists solely to migrate pairings that completed before licensing (or
+  trial-on-pairing) was enabled, so those hosts begin a trial at first connect
+  after enablement instead of being grandfathered into permanent free access. It's
+  a no-op for normal new pairings (the trial already started at `complete`) and
+  does not reset an expired trial.
 
 ### Test impact (relay)
 
