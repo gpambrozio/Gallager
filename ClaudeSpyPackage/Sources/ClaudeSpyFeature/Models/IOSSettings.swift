@@ -179,7 +179,7 @@
 
             // Load settings
             self.externalServerURL = preferences.string(Keys.externalServerURL)
-                ?? "wss://gallager.gustavo.eng.br"
+                ?? "wss://relay.gallager.app"
             self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? false
             self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? .system
 

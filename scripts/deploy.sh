@@ -23,13 +23,13 @@ TEST_IMAGE="${TEST_IMAGE:-claudespy-relay:test}"
 TEST_CONTAINER="${TEST_CONTAINER:-claudespy-relay-test}"
 
 # Staging configuration (used by the `staging*` commands). A second, fully
-# isolated relay on the SAME box behind staging.gallager.gustavo.eng.br →
+# isolated relay on the SAME box behind staging.gallager.app →
 # 127.0.0.1:8081, with Lemon Squeezy licensing ENABLED via its own on-server
 # .env. Prod (/opt/claudespy, :8080, licensing off) is never touched.
 STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/claudespy-staging}"
 STAGING_PROJECT="${STAGING_PROJECT:-claudespy-staging}"
 STAGING_CADDY_FILE="${STAGING_CADDY_FILE:-claudespy-staging.caddy}"
-STAGING_HEALTH_URL="${STAGING_HEALTH_URL:-https://staging.gallager.gustavo.eng.br/health}"
+STAGING_HEALTH_URL="${STAGING_HEALTH_URL:-https://staging.gallager.app/health}"
 # Compose invocation that layers the staging override and names the project so it
 # can't collide with prod's container/network. Relative -f paths resolve after a
 # `cd $STAGING_REMOTE_DIR`.
@@ -228,7 +228,7 @@ REMOTE_SCRIPT
     info "Testing deployment..."
 
     # Determine health check URL
-    HEALTH_URL="${HEALTH_CHECK_URL:-https://gallager.gustavo.eng.br/health}"
+    HEALTH_URL="${HEALTH_CHECK_URL:-https://relay.gallager.app/health}"
     HEALTH_CHECK=$(curl -s "$HEALTH_URL" 2>/dev/null || echo "failed")
 
     if echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
@@ -364,7 +364,7 @@ REMOTE_SCRIPT
 }
 
 # Staging deployment: a second, isolated relay on the SAME box behind
-# staging.gallager.gustavo.eng.br → 127.0.0.1:8081, with Lemon Squeezy licensing
+# staging.gallager.app → 127.0.0.1:8081, with Lemon Squeezy licensing
 # ENABLED. Prod (/opt/claudespy, :8080) is never touched.
 #
 # Unlike `deploy`, this EXCLUDES .env and secrets/ from the rsync: staging keeps
@@ -392,7 +392,7 @@ deploy_staging() {
         error "Missing $STAGING_REMOTE_DIR/.env on the server."
         echo ""
         echo "First-time staging setup (run once):"
-        echo "  1. DNS: point staging.gallager.gustavo.eng.br at this server's IP."
+        echo "  1. DNS: point staging.gallager.app at this server's IP."
         echo "  2. ssh $REMOTE_HOST 'mkdir -p $STAGING_REMOTE_DIR/secrets'"
         echo "  3. scp ClaudeSpyPackage/.env.staging.example $REMOTE_HOST:$STAGING_REMOTE_DIR/.env"
         echo "     then edit it: set LEMONSQUEEZY_* to your Lemon Squeezy TEST-mode ids + APNS_* values."
@@ -497,8 +497,8 @@ REMOTE_SCRIPT
         echo "Health check: $STAGING_HEALTH_URL"
         echo ""
         echo "Point a TEST host Mac + viewer at (Remote Access → Server URL):"
-        echo "  wss://staging.gallager.gustavo.eng.br"
-        echo "Your everyday devices stay on wss://gallager.gustavo.eng.br."
+        echo "  wss://staging.gallager.app"
+        echo "Your everyday devices stay on wss://relay.gallager.app."
     else
         warn "Staging health check failed or server is still starting."
         echo "Check manually: curl $STAGING_HEALTH_URL"
@@ -593,7 +593,7 @@ usage() {
     echo "Commands:"
     echo "  deploy          Deploy or update the PROD server (default)"
     echo "  test            Build + boot + health-check in isolation on the server (no prod impact)"
-    echo "  staging         Deploy the isolated STAGING relay (licensing ON, staging.gallager.gustavo.eng.br)"
+    echo "  staging         Deploy the isolated STAGING relay (licensing ON, staging.gallager.app)"
     echo "  staging-logs    Follow staging container logs"
     echo "  staging-status  Show staging container status + recent logs"
     echo "  staging-stop    Stop the staging relay (prod untouched)"
@@ -616,7 +616,7 @@ usage() {
     echo "  # Staging (second isolated relay on the same box):"
     echo "  STAGING_REMOTE_DIR  Staging install dir (default: /opt/claudespy-staging)"
     echo "  STAGING_PROJECT     Compose project name (default: claudespy-staging)"
-    echo "  STAGING_HEALTH_URL  Staging health URL (default: https://staging.gallager.gustavo.eng.br/health)"
+    echo "  STAGING_HEALTH_URL  Staging health URL (default: https://staging.gallager.app/health)"
     echo ""
     echo "  # Legacy Hetzner Cloud support:"
     echo "  HCLOUD_SERVER_NAME  Hetzner server name (alternative to DEPLOY_HOST)"

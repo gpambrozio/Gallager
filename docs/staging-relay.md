@@ -11,8 +11,8 @@ This is maintainer tooling for the official relay. It is unrelated to
 ## How it stays isolated
 
 ```
-staging.gallager.gustavo.eng.br  →  Caddy  →  127.0.0.1:8081  →  claudespy-relay-staging   (its own ./data + .env, licensing ON)
-gallager.gustavo.eng.br          →  Caddy  →  127.0.0.1:8080  →  claudespy-relay           (production, licensing OFF, untouched)
+staging.gallager.app  →  Caddy  →  127.0.0.1:8081  →  claudespy-relay-staging   (its own ./data + .env, licensing ON)
+relay.gallager.app          →  Caddy  →  127.0.0.1:8080  →  claudespy-relay           (production, licensing OFF, untouched)
 claudespy.gustavo.eng.br  (legacy alias, same prod container)
 ```
 
@@ -22,7 +22,7 @@ claudespy.gustavo.eng.br  (legacy alias, same prod container)
 | Compose project | `claudespy` | `claudespy-staging` |
 | Container | `claudespy-relay` | `claudespy-relay-staging` |
 | Host port (behind Caddy) | `8080` | `8081` |
-| Hostname | `gallager.gustavo.eng.br` (+ legacy `claudespy.gustavo.eng.br`) | `staging.gallager.gustavo.eng.br` |
+| Hostname | `relay.gallager.app` (+ legacy `claudespy.gustavo.eng.br`) | `staging.gallager.app` |
 | `./data` (pairings, `licensing.json`) | separate | separate |
 | `.env` / `secrets/` | prod's | staging's (licensing test-mode) |
 
@@ -40,7 +40,7 @@ regardless of which branch's compose you use.
 
 ## One-time setup
 
-1. **DNS** — add an A record `staging.gallager.gustavo.eng.br` → the server's IP.
+1. **DNS** — add an A record `staging.gallager.app` → the server's IP.
    Caddy issues a separate Let's Encrypt cert on first request.
 
 2. **Lemon Squeezy test mode** — in the Lemon Squeezy dashboard, toggle **Test
@@ -76,7 +76,7 @@ This runs the same local release build + server tests as a prod deploy, rsyncs
 the package to `/opt/claudespy-staging` (excluding `.env`, `secrets`, `data`),
 installs the staging Caddy block, builds and starts `claudespy-relay-staging` on
 `127.0.0.1:8081`, reloads Caddy, and health-checks
-`https://staging.gallager.gustavo.eng.br/health`. Production is never touched.
+`https://staging.gallager.app/health`. Production is never touched.
 
 To shorten the trial for expiry testing, set `TRIAL_DAYS=1` (or lower) in the
 staging `.env` and redeploy / restart.
@@ -86,11 +86,11 @@ staging `.env` and redeploy / restart.
 On a **throwaway** host Mac and viewer, set **Remote Access → Server URL** to:
 
 ```
-wss://staging.gallager.gustavo.eng.br
+wss://staging.gallager.app
 ```
 
 No rebuild needed — the URL is an editable field. Your everyday devices stay on
-`wss://gallager.gustavo.eng.br` (or the legacy `wss://claudespy.gustavo.eng.br`,
+`wss://relay.gallager.app` (or the legacy `wss://claudespy.gustavo.eng.br`,
 which prod still accepts).
 
 ## Operate
@@ -106,7 +106,7 @@ which prod still accepts).
 ```sh
 ./scripts/deploy.sh staging-stop
 ssh root@<server> 'rm -rf /opt/claudespy-staging && rm -f /etc/caddy/conf.d/claudespy-staging.caddy && systemctl reload caddy'
-# optional: remove the staging.gallager.gustavo.eng.br DNS record
+# optional: remove the staging.gallager.app DNS record
 ```
 
 ## Notes
