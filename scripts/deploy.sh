@@ -228,7 +228,7 @@ REMOTE_SCRIPT
     info "Testing deployment..."
 
     # Determine health check URL
-    HEALTH_URL="${HEALTH_CHECK_URL:-https://claudespy.gustavo.eng.br/health}"
+    HEALTH_URL="${HEALTH_CHECK_URL:-https://gallager.gustavo.eng.br/health}"
     HEALTH_CHECK=$(curl -s "$HEALTH_URL" 2>/dev/null || echo "failed")
 
     if echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
@@ -498,7 +498,7 @@ REMOTE_SCRIPT
         echo ""
         echo "Point a TEST host Mac + viewer at (Remote Access → Server URL):"
         echo "  wss://staging.gallager.gustavo.eng.br"
-        echo "Your everyday devices stay on wss://claudespy.gustavo.eng.br."
+        echo "Your everyday devices stay on wss://gallager.gustavo.eng.br."
     else
         warn "Staging health check failed or server is still starting."
         echo "Check manually: curl $STAGING_HEALTH_URL"

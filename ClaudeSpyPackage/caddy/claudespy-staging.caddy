@@ -2,7 +2,8 @@
 # Place this in /etc/caddy/conf.d/ alongside claudespy.caddy, then reload Caddy.
 #
 # Fronts the staging relay container (docker-compose.staging.yml), which binds
-# 127.0.0.1:8081. Production (claudespy.gustavo.eng.br → :8080) is untouched.
+# 127.0.0.1:8081. Production (gallager.gustavo.eng.br, plus the legacy
+# claudespy.gustavo.eng.br alias → :8080) is untouched.
 # Caddy issues a separate Let's Encrypt cert for this hostname automatically;
 # make sure staging.gallager.gustavo.eng.br has an A record for this server's IP.
 

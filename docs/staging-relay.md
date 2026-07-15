@@ -12,7 +12,8 @@ This is maintainer tooling for the official relay. It is unrelated to
 
 ```
 staging.gallager.gustavo.eng.br  →  Caddy  →  127.0.0.1:8081  →  claudespy-relay-staging   (its own ./data + .env, licensing ON)
-claudespy.gustavo.eng.br         →  Caddy  →  127.0.0.1:8080  →  claudespy-relay           (production, licensing OFF, untouched)
+gallager.gustavo.eng.br          →  Caddy  →  127.0.0.1:8080  →  claudespy-relay           (production, licensing OFF, untouched)
+claudespy.gustavo.eng.br  (legacy alias, same prod container)
 ```
 
 | Concern | Production | Staging |
@@ -21,7 +22,7 @@ claudespy.gustavo.eng.br         →  Caddy  →  127.0.0.1:8080  →  claudespy
 | Compose project | `claudespy` | `claudespy-staging` |
 | Container | `claudespy-relay` | `claudespy-relay-staging` |
 | Host port (behind Caddy) | `8080` | `8081` |
-| Hostname | `claudespy.gustavo.eng.br` | `staging.gallager.gustavo.eng.br` |
+| Hostname | `gallager.gustavo.eng.br` (+ legacy `claudespy.gustavo.eng.br`) | `staging.gallager.gustavo.eng.br` |
 | `./data` (pairings, `licensing.json`) | separate | separate |
 | `.env` / `secrets/` | prod's | staging's (licensing test-mode) |
 
@@ -89,7 +90,8 @@ wss://staging.gallager.gustavo.eng.br
 ```
 
 No rebuild needed — the URL is an editable field. Your everyday devices stay on
-`wss://claudespy.gustavo.eng.br`.
+`wss://gallager.gustavo.eng.br` (or the legacy `wss://claudespy.gustavo.eng.br`,
+which prod still accepts).
 
 ## Operate
 
