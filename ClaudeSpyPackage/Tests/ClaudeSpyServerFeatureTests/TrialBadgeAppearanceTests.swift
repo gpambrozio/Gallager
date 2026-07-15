@@ -24,7 +24,7 @@
         @Test("Hidden for non-trial/expired states and for a trial with no day count")
         func hidden() {
             #expect(trialBadgeAppearance(state: .active, trialDaysLeft: nil) == nil)
-            #expect(trialBadgeAppearance(state: .none, trialDaysLeft: nil) == nil)
+            #expect(trialBadgeAppearance(state: LicenseStatus.State.none, trialDaysLeft: nil) == nil)
             #expect(trialBadgeAppearance(state: .notRequired, trialDaysLeft: nil) == nil)
             #expect(trialBadgeAppearance(state: nil, trialDaysLeft: nil) == nil)
             #expect(trialBadgeAppearance(state: .trial, trialDaysLeft: nil) == nil)
