@@ -9,28 +9,6 @@ Distributed system for monitoring coding-agent sessions (Anthropic Claude Code a
 
 **Targets:** macOS 15.0+, iOS 17.0+
 
-## Project Structure
-
-```
-ClaudeSpy/
-├── Config/                        # XCConfig (Debug/Release/Shared/Tests.xcconfig)
-├── ClaudeSpy/                     # iOS @main entry
-├── ClaudeSpyServer/               # macOS @main entry
-├── ClaudeSpyNotificationExtension/  # iOS push decryption extension
-├── ClaudeSpyPackage/              # ALL business logic + server deployment
-│   ├── Sources/
-│   │   ├── ClaudeSpyCommon/       # Shared UI (Symbols, extensions)
-│   │   ├── ClaudeSpyEncryption/   # E2EE (Mac/iOS only)
-│   │   ├── ClaudeSpyNetworking/   # Shared models (Mac/Server/iOS)
-│   │   ├── ClaudeSpyFeature/      # iOS feature module
-│   │   ├── ClaudeSpyServerFeature/  # macOS feature module
-│   │   └── ClaudeSpyExternalServer/ # Vapor relay server
-│   ├── Dockerfile                 # Server container build
-│   ├── docker-compose.yml         # Server orchestration
-│   └── caddy/                     # Reverse proxy configs
-└── docs/                          # Architecture docs
-```
-
 **Development by platform:**
 - macOS → `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/`
 - iOS → `ClaudeSpyPackage/Sources/ClaudeSpyFeature/`
