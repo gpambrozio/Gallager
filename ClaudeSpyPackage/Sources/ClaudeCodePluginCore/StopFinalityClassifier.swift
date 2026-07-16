@@ -238,11 +238,13 @@ extension StopFinalityClassifier: DependencyKey {
             // `swift run StopFinalityEval`): FINISHED must explicitly cover
             // error reports, questions, and user-directed next steps, and must
             // say that naming builds/tests/commands is not waiting — the
-            // earlier, softer rubric misclassified all of those. WAITING is
-            // deliberately narrow (the AGENT explicitly pausing), with a
-            // FINISHED default, because a systematic false WAITING pins the
-            // session on "Working" while a false FINISHED is just the pre-#644
-            // behavior.
+            // earlier, softer rubric misclassified all of those. WAITING keeps
+            // a FINISHED default (a systematic false WAITING pins the session
+            // on "Working" while a false FINISHED is just the pre-#644
+            // behavior) but must also cover elliptical forms — a second field
+            // failure showed orchestrator summaries like "Task 2 reviewer
+            // dispatched. Awaiting the verdict" read as finished when WAITING
+            // demanded a first-person "I'll wait".
             let session = LanguageModelSession(instructions: """
             You judge the final message a coding agent printed when its turn ended, \
             deciding whether the agent FINISHED its turn or is WAITING for background work.
@@ -253,10 +255,13 @@ extension StopFinalityClassifier: DependencyKey {
             background jobs by name does NOT make it waiting, and neither do commands the \
             user could run.
 
-            WAITING — the message explicitly says the AGENT itself is pausing now and will \
-            continue when still-running background work completes: "I'll wait for the \
-            build", "monitoring the deploy", "will report back when the tests finish", \
-            "I'll resume once CI completes".
+            WAITING — the message says the agent is pausing now and will continue when \
+            still-running work completes: "I'll wait for the build", "monitoring the \
+            deploy", "will report back when the tests finish", "I'll resume once CI \
+            completes". Terse forms without "I" count too: "Awaiting its report", \
+            "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
+            then awaiting its result, report, or verdict is WAITING — the dispatch being \
+            past tense does not make the turn finished.
 
             Background work can stay registered after a turn genuinely finishes (tasks \
             pending cleanup), so decide only from what the message says. If the message \
