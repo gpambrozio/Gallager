@@ -455,7 +455,12 @@ build_changelog_and_set() {
     local changelog
     if [ -n "$WHATS_NEW_FILE" ]; then
         if [ ! -f "$WHATS_NEW_FILE" ]; then
-            log_error "What to Test file not found: $WHATS_NEW_FILE"
+            # Consistent with the other failure branches below (empty commits,
+            # empty notes, VALID timeout): warn + return 1 so main() still
+            # prints the completion summary / recovery instructions instead of
+            # hard-exiting via log_error.
+            log_warning "What to Test file not found: $WHATS_NEW_FILE"
+            return 1
         fi
         log_info "Using pre-written What to Test notes from $WHATS_NEW_FILE"
         changelog=$(cat "$WHATS_NEW_FILE")

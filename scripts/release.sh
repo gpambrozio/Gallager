@@ -107,13 +107,26 @@ increment_version() {
 }
 
 # =====================================================
-# Rollback support
+# Cleanup / rollback support
+#
+# A single EXIT trap (installed before gather_user_input) so the two concerns
+# share one handler instead of clobbering each other:
+#   1. Always remove the iOS "What to Test" temp file. It's created up front
+#      (before the long unattended pipeline) and handed to testflight.sh, so it
+#      must outlive the build/upload steps yet never leak when a step fails.
+#   2. Roll back version/appcast commits + the release tag on failure (guarded
+#      by REVERT_COMMITS, which stays 0 until the first commit is made).
 # =====================================================
 REVERT_COMMITS=0
 RELEASE_TAG=""
 
-rollback_on_failure() {
+cleanup_on_exit() {
     local exit_code=$?
+
+    if [ -n "$IOS_WHATS_NEW_FILE" ]; then
+        rm -f "$IOS_WHATS_NEW_FILE"
+    fi
+
     if [ $exit_code -eq 0 ] || [ "$REVERT_COMMITS" -eq 0 ]; then
         return
     fi
@@ -584,6 +597,9 @@ bump_version() {
 # =====================================================
 generate_release_notes() {
     local version=$1
+    # Previous release tag to diff against (passed by gather_user_input so mac
+    # and iOS notes share one tag). Fall back to the latest tag if unset.
+    local previous_tag=$2
     log_info "Generating release notes with Claude..." >&2
 
     # Check if claude CLI is available
@@ -595,9 +611,9 @@ generate_release_notes() {
         return
     fi
 
-    # Get the previous tag
-    local previous_tag
-    previous_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
+    if [ -z "$previous_tag" ]; then
+        previous_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
+    fi
 
     local commit_range
     if [ -n "$previous_tag" ]; then
@@ -608,9 +624,9 @@ generate_release_notes() {
         log_info "No previous tag found, analyzing last 20 commits" >&2
     fi
 
-    # Get commit history
+    # Get commit history (--no-merges to match the iOS changelog's commit set)
     local commits
-    commits=$(git -C "$PROJECT_ROOT" log "$commit_range" --pretty=format:"- %s (%h)" 2>/dev/null || echo "Initial release")
+    commits=$(git -C "$PROJECT_ROOT" log "$commit_range" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "Initial release")
 
     # Use Claude to generate release notes
     local prompt="You are a technical writer creating release notes for a software product.
@@ -657,9 +673,10 @@ $commits"
 # =====================================================
 prepare_release_notes() {
     local version=$1
+    local prev_tag=$2
 
     local release_notes
-    release_notes=$(generate_release_notes "$version")
+    release_notes=$(generate_release_notes "$version" "$prev_tag")
 
     echo ""
     echo "Generated release notes:"
@@ -679,17 +696,15 @@ prepare_release_notes() {
 # =====================================================
 prepare_ios_notes() {
     local version=$1
+    # Previous release tag, resolved once by gather_user_input and shared with
+    # the macOS notes so both diff against the identical tag.
+    local prev_tag=$2
 
     # Only needed when the iOS TestFlight step will actually run.
     if [ "$SKIP_UPLOAD" = true ]; then
         log_info "Skipping iOS 'What to Test' notes (--skip-upload)"
         return
     fi
-
-    # These are generated BEFORE the version bump and the new release tag exist,
-    # so diff against the latest existing tag (passed explicitly).
-    local prev_tag
-    prev_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
 
     local ios_notes
     ios_notes=$(generate_changelog "$version" "$prev_tag")
@@ -715,9 +730,17 @@ prepare_ios_notes() {
 gather_user_input() {
     local version=$1
 
+    # Resolve the previous release tag ONCE and hand it to both note
+    # generators. These run BEFORE the version bump and the new release tag
+    # exist, so this is the latest existing tag. Sharing it avoids a duplicate
+    # git call and guarantees the macOS and iOS notes diff against the identical
+    # previous tag (and, with --no-merges in both, the identical commit set).
+    local prev_tag
+    prev_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
+
     retrieve_ftp_credentials
-    prepare_release_notes "$version"
-    prepare_ios_notes "$version"
+    prepare_release_notes "$version" "$prev_tag"
+    prepare_ios_notes "$version" "$prev_tag"
 
     log_success "All input collected — the rest of the release runs unattended."
 }
@@ -795,6 +818,12 @@ main() {
         exit 0
     fi
 
+    # Arm cleanup/rollback now, before gather_user_input creates the iOS notes
+    # temp file — so any failure between here and completion removes it. The
+    # rollback half stays inert until REVERT_COMMITS is bumped past the first
+    # commit below.
+    trap cleanup_on_exit EXIT
+
     # ----------------------------------------------------------------------
     # Interactive phase — collect EVERYTHING we need from the user up front
     # (FTP credentials + macOS/iOS release notes) so the long pipeline below
@@ -813,7 +842,6 @@ main() {
 
     run_unit_tests
 
-    trap rollback_on_failure EXIT
     bump_version "$current_version"
     REVERT_COMMITS=1
 
@@ -851,10 +879,11 @@ main() {
     git -C "$PROJECT_ROOT" push
     git -C "$PROJECT_ROOT" push origin "v$version"
 
-    # Release succeeded — disable rollback
+    # Release succeeded — disable rollback. The EXIT trap stays armed so it
+    # still removes the iOS notes temp file (but skips rollback now that
+    # REVERT_COMMITS is 0).
     REVERT_COMMITS=0
     RELEASE_TAG=""
-    trap - EXIT
 
     rm -rf "$BUILD_DIR"
 
@@ -874,9 +903,7 @@ main() {
         fi
     fi
 
-    if [ -n "$IOS_WHATS_NEW_FILE" ]; then
-        rm -f "$IOS_WHATS_NEW_FILE"
-    fi
+    # The iOS notes temp file is removed by the EXIT trap (cleanup_on_exit).
 
     echo ""
     echo "=========================================="
