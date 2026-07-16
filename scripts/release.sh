@@ -34,6 +34,16 @@ ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
 DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
 
 # =====================================================
+# State gathered during the interactive phase (see gather_user_input).
+# Everything the release needs from the user is collected up front so the
+# long build/notarize/upload pipeline can run unattended.
+# =====================================================
+RELEASE_NOTES=""        # macOS appcast release notes (edited)
+IOS_WHATS_NEW_FILE=""   # temp file holding iOS TestFlight "What to Test" notes
+FTP_USER=""             # FTP username retrieved from 1Password
+FTP_PASS=""             # FTP password retrieved from 1Password
+
+# =====================================================
 # Shared helpers (colors, logging, version + notes editing)
 # =====================================================
 # shellcheck source=scripts/common.sh
@@ -484,7 +494,29 @@ EOF
 }
 
 # =====================================================
-# Upload to FTP server
+# Retrieve FTP credentials from 1Password
+# Interactive (may prompt for Touch ID / password), so it runs up front and
+# stashes the credentials in FTP_USER / FTP_PASS for the unattended upload.
+# =====================================================
+retrieve_ftp_credentials() {
+    if [ "$SKIP_UPLOAD" = true ]; then
+        log_info "Skipping FTP credential retrieval (--skip-upload)"
+        return
+    fi
+
+    log_info "Retrieving FTP credentials from 1Password..."
+    op signin --account "$ONEPASSWORD_ACCOUNT" || log_error "1Password sign-in failed"
+
+    FTP_USER=$(op item get "$ONEPASSWORD_ITEM" --fields username --account "$ONEPASSWORD_ACCOUNT") \
+        || log_error "Failed to get FTP username from 1Password. Create item '$ONEPASSWORD_ITEM' with username and password fields."
+    FTP_PASS=$(op item get "$ONEPASSWORD_ITEM" --fields password --reveal --account "$ONEPASSWORD_ACCOUNT") \
+        || log_error "Failed to get FTP password from 1Password"
+
+    log_success "FTP credentials retrieved"
+}
+
+# =====================================================
+# Upload to FTP server (uses credentials fetched by retrieve_ftp_credentials)
 # =====================================================
 upload_to_ftp() {
     local dmg_path=$1
@@ -495,16 +527,6 @@ upload_to_ftp() {
     fi
 
     log_info "Uploading to FTP server..."
-
-    # Get credentials from 1Password
-    log_info "Retrieving credentials from 1Password..."
-    op signin --account "$ONEPASSWORD_ACCOUNT" || log_error "1Password sign-in failed"
-
-    local FTP_USER FTP_PASS
-    FTP_USER=$(op item get "$ONEPASSWORD_ITEM" --fields username --account "$ONEPASSWORD_ACCOUNT") \
-        || log_error "Failed to get FTP username from 1Password. Create item '$ONEPASSWORD_ITEM' with username and password fields."
-    FTP_PASS=$(op item get "$ONEPASSWORD_ITEM" --fields password --reveal --account "$ONEPASSWORD_ACCOUNT") \
-        || log_error "Failed to get FTP password from 1Password"
 
     local dmg_name
     dmg_name=$(basename "$dmg_path")
@@ -629,6 +651,78 @@ $commits"
 }
 
 # =====================================================
+# Prepare macOS appcast release notes (interactive)
+# Generates notes with Claude, shows them, and offers an edit.
+# Result → RELEASE_NOTES.
+# =====================================================
+prepare_release_notes() {
+    local version=$1
+
+    local release_notes
+    release_notes=$(generate_release_notes "$version")
+
+    echo ""
+    echo "Generated release notes:"
+    echo "----------------------------------------"
+    echo "$release_notes"
+    echo "----------------------------------------"
+    echo ""
+
+    offer_to_edit_notes "$release_notes" "release notes" "release-notes.md"
+    RELEASE_NOTES="$EDITED_NOTES"
+}
+
+# =====================================================
+# Prepare iOS TestFlight "What to Test" notes (interactive)
+# Generates notes with Claude, offers an edit, and writes them to a temp file
+# (IOS_WHATS_NEW_FILE) handed to testflight.sh so its iOS step runs unattended.
+# =====================================================
+prepare_ios_notes() {
+    local version=$1
+
+    # Only needed when the iOS TestFlight step will actually run.
+    if [ "$SKIP_UPLOAD" = true ]; then
+        log_info "Skipping iOS 'What to Test' notes (--skip-upload)"
+        return
+    fi
+
+    # These are generated BEFORE the version bump and the new release tag exist,
+    # so diff against the latest existing tag (passed explicitly).
+    local prev_tag
+    prev_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
+
+    local ios_notes
+    ios_notes=$(generate_changelog "$version" "$prev_tag")
+
+    echo ""
+    echo "Generated iOS 'What to Test' notes:"
+    echo "----------------------------------------"
+    echo "$ios_notes"
+    echo "----------------------------------------"
+    echo ""
+
+    offer_to_edit_notes "$ios_notes" "iOS 'What to Test' notes" "what-to-test.txt"
+    ios_notes="$EDITED_NOTES"
+
+    IOS_WHATS_NEW_FILE=$(mktemp) || log_error "Could not create temp file for iOS notes"
+    printf '%s\n' "$ios_notes" > "$IOS_WHATS_NEW_FILE"
+}
+
+# =====================================================
+# Gather ALL user interaction up front so the release runs unattended:
+# FTP credentials, macOS release notes, and iOS "What to Test" notes.
+# =====================================================
+gather_user_input() {
+    local version=$1
+
+    retrieve_ftp_credentials
+    prepare_release_notes "$version"
+    prepare_ios_notes "$version"
+
+    log_success "All input collected — the rest of the release runs unattended."
+}
+
+# =====================================================
 # Beta build (build, sign, notarize, copy to ~)
 # =====================================================
 run_beta_build() {
@@ -701,6 +795,17 @@ main() {
         exit 0
     fi
 
+    # ----------------------------------------------------------------------
+    # Interactive phase — collect EVERYTHING we need from the user up front
+    # (FTP credentials + macOS/iOS release notes) so the long pipeline below
+    # runs unattended and the user can walk away.
+    # ----------------------------------------------------------------------
+    gather_user_input "$new_version"
+
+    # ----------------------------------------------------------------------
+    # Unattended phase — no further user interaction from here on.
+    # ----------------------------------------------------------------------
+
     # Package plugins first — it's fast, so a bad plugin tree aborts the
     # release before the lengthy build/sign/notarize pipeline.
     rm -rf "$BUILD_DIR"
@@ -729,21 +834,7 @@ main() {
     local sparkle_signature
     sparkle_signature=$(sign_dmg_for_sparkle "$dmg_path")
 
-    # Generate release notes using Claude
-    local release_notes
-    release_notes=$(generate_release_notes "$version")
-
-    echo ""
-    echo "Generated release notes:"
-    echo "----------------------------------------"
-    echo "$release_notes"
-    echo "----------------------------------------"
-    echo ""
-
-    offer_to_edit_notes "$release_notes" "release notes" "release-notes.md"
-    release_notes="$EDITED_NOTES"
-
-    update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$release_notes"
+    update_appcast "$version" "$build_number" "$dmg_path" "$sparkle_signature" "$RELEASE_NOTES"
 
     log_info "Committing appcast..."
     git -C "$PROJECT_ROOT" add "$APPCAST_FILE"
@@ -770,11 +861,21 @@ main() {
     if [ "$SKIP_UPLOAD" != true ]; then
         echo ""
         log_info "Starting TestFlight release for iOS..."
-        if "$SCRIPT_DIR/testflight.sh" --yes; then
+        # Hand off the pre-generated "What to Test" notes so testflight.sh
+        # doesn't prompt — the whole iOS step runs unattended too.
+        local testflight_args=(--yes)
+        if [ -n "$IOS_WHATS_NEW_FILE" ]; then
+            testflight_args+=(--whats-new-file "$IOS_WHATS_NEW_FILE")
+        fi
+        if "$SCRIPT_DIR/testflight.sh" "${testflight_args[@]}"; then
             log_success "TestFlight release complete"
         else
             log_warning "TestFlight release failed — run '$SCRIPT_DIR/testflight.sh' manually"
         fi
+    fi
+
+    if [ -n "$IOS_WHATS_NEW_FILE" ]; then
+        rm -f "$IOS_WHATS_NEW_FILE"
     fi
 
     echo ""
