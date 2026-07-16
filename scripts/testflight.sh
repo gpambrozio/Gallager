@@ -46,6 +46,7 @@ SET_CHANGELOG=false
 SKIP_SUBMIT=false
 API_KEY=""
 API_ISSUER=""
+WHATS_NEW_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -64,6 +65,10 @@ while [[ $# -gt 0 ]]; do
         --skip-submit)
             SKIP_SUBMIT=true
             shift
+            ;;
+        --whats-new-file)
+            WHATS_NEW_FILE="$2"
+            shift 2
             ;;
         --yes|-y)
             AUTO_YES=true
@@ -85,6 +90,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --export-only       Same as --skip-upload (alias)"
             echo "  --set-changelog     Set TestFlight 'What to Test' from git commits (run after build processes)"
             echo "  --skip-submit       Don't assign to $BETA_GROUP_NAME group or submit for beta review"
+            echo "  --whats-new-file F  Use pre-written 'What to Test' notes from file F (skips generation + edit prompt)"
             echo "  --yes, -y           Skip confirmation prompts (the 'What to Test' edit offer still appears)"
             echo "  --api-key KEY       App Store Connect API Key ID"
             echo "  --api-issuer ID     App Store Connect API Issuer ID"
@@ -175,72 +181,6 @@ asc_patch() {
     local token
     token=$(generate_jwt)
     curl -s --globoff -X PATCH -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d "$2" "${ASC_API_BASE}$1"
-}
-
-generate_changelog() {
-    local current_version
-    current_version=$(get_version)
-
-    local prev_tag
-    prev_tag=$(git -C "$PROJECT_ROOT" tag --sort=-v:refname \
-        | grep -Ev "^v?${current_version}$" \
-        | head -1)
-
-    local commit_range
-    if [ -z "$prev_tag" ]; then
-        log_warning "No previous tag found, using last 20 commits" >&2
-        commit_range="HEAD~20..HEAD"
-    else
-        log_info "Generating changelog since $prev_tag" >&2
-        commit_range="${prev_tag}..HEAD"
-    fi
-
-    local commits
-    commits=$(git -C "$PROJECT_ROOT" log "$commit_range" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "Initial release")
-
-    if ! command -v claude &> /dev/null; then
-        log_warning "Claude CLI not found, using raw commit list" >&2
-        echo "$commits"
-        return
-    fi
-
-    log_info "Generating What to Test notes with Claude..." >&2
-
-    local prompt="You are a technical writer creating TestFlight 'What to Test' notes for testers.
-
-Generate concise, tester-friendly notes for version $(get_version) of Gallager (ClaudeSpy), an iOS app for remotely monitoring Claude Code sessions.
-
-IMPORTANT: This is an independent open source project. It is NOT affiliated with or built by Anthropic.
-
-Here are the commits since the last release:
-$commits
-
-Requirements:
-- ONLY include changes that directly affect the user experience on iOS (new features, behavior changes, bug fixes users would notice, performance improvements)
-- ONLY include changes from shared layers (networking, encryption, server relay) if they have a visible effect on the iOS app
-- SKIP anything that does not affect users: CI/CD changes, build scripts, internal refactoring, code cleanup, dependency updates, tests, docs, tooling, release scripts, macOS-only changes, server infrastructure changes invisible to users
-- If a commit is ambiguous, err on the side of omitting it
-- Group changes by category (New Features, Improvements, Bug Fixes) if applicable
-- Explain what each change means for testers — what to look for, what might break
-- Keep it concise but informative — this is TestFlight, not a press release
-- Use plain text, no markdown (TestFlight renders plain text only)
-- Do NOT wrap output in code fences, backticks, or any formatting wrappers
-- Do NOT include ANY preamble, commentary, thinking, or meta-text — start directly with the content
-- Do NOT add URLs, links, or 'for more information' sections
-- Output ONLY the What to Test content itself
-- If no user-facing iOS changes exist, output: No user-facing changes in this build."
-
-    local notes
-    notes=$(claude -p "$prompt" 2>/dev/null) || {
-        log_warning "Claude failed to generate notes, using raw commit list" >&2
-        echo "$commits"
-        return
-    }
-
-    # Strip code fences in case Claude ignored the instruction to omit them
-    notes=$(echo "$notes" | sed '/^```/d')
-
-    echo "$notes"
 }
 
 find_app_id() {
@@ -509,24 +449,45 @@ BETA_REVIEW_SUBMITTED=false
 build_changelog_and_set() {
     local prompt_user="$1"
 
-    # Step 1: Generate changelog with Claude up front
-    log_info "Generating changelog..."
+    # Step 1: Obtain the changelog. When release.sh gathers the notes up front
+    # (so it can run unattended), it hands us a ready-made file via
+    # --whats-new-file — use it as-is and skip generation + the edit prompt.
     local changelog
-    changelog=$(generate_changelog)
-    if [ -z "$changelog" ]; then
-        log_warning "No commits found for changelog"
-        return 1
+    if [ -n "$WHATS_NEW_FILE" ]; then
+        if [ ! -f "$WHATS_NEW_FILE" ]; then
+            # Consistent with the other failure branches below (empty commits,
+            # empty notes, VALID timeout): warn + return 1 so main() still
+            # prints the completion summary / recovery instructions instead of
+            # hard-exiting via log_error.
+            log_warning "What to Test file not found: $WHATS_NEW_FILE"
+            return 1
+        fi
+        log_info "Using pre-written What to Test notes from $WHATS_NEW_FILE"
+        changelog=$(cat "$WHATS_NEW_FILE")
+    else
+        log_info "Generating changelog..."
+        # shellcheck disable=SC2119  # intentional: no args → default version + auto prev_tag
+        changelog=$(generate_changelog)
+        if [ -z "$changelog" ]; then
+            log_warning "No commits found for changelog"
+            return 1
+        fi
+
+        echo ""
+        echo "Changelog:"
+        echo "$changelog"
+        echo ""
+
+        # Always offered, even with --yes: editing the notes is an opportunity
+        # (Enter skips it), not a confirmation, and release.sh runs us with --yes.
+        offer_to_edit_notes "$changelog" "What to Test notes" "what-to-test.txt"
+        changelog="$EDITED_NOTES"
     fi
 
-    echo ""
-    echo "Changelog:"
-    echo "$changelog"
-    echo ""
-
-    # Always offered, even with --yes: editing the notes is an opportunity
-    # (Enter skips it), not a confirmation, and release.sh runs us with --yes.
-    offer_to_edit_notes "$changelog" "What to Test notes" "what-to-test.txt"
-    changelog="$EDITED_NOTES"
+    if [ -z "$changelog" ]; then
+        log_warning "What to Test notes are empty — skipping"
+        return 1
+    fi
 
     local build_number
     build_number=$(get_build_number)
