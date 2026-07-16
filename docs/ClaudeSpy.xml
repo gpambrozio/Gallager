@@ -6,6 +6,45 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.5</title>
+         <sparkle:version>38</sparkle:version>
+         <sparkle:shortVersionString>2.5</sparkle:shortVersionString>
+         <pubDate>Wed, 15 Jul 2026 15:17:46 -1000</pubDate>
+         <description><![CDATA[
+<h2>Version 2.5</h2>
+
+<h3>Features</h3>
+
+<ul>
+<li><strong>Smarter completion detection.</strong> On supported Macs, Apple Intelligence is now used to confirm whether Claude has genuinely finished working before signaling that a session is done, reducing premature "done" notifications.</li>
+<li><strong>New keyboard shortcuts.</strong> Adjust terminal font size with ⌘+ and ⌘-, and cycle between sessions with ⌘\` and ⌘⇧\`.</li>
+<li><strong>pi coding-agent support.</strong> Sessions run with the pi coding agent are now monitored alongside existing agents.</li>
+<li><strong>Browser file downloads.</strong> The in-app browser can now download files.</li>
+</ul>
+
+<h3>Improvements</h3>
+
+<ul>
+<li><strong>Resizable Edit Prompt overlay.</strong> The Edit Prompt overlay can now be resized, and its height grows automatically as you type.</li>
+<li><strong>Collapsible usage overview.</strong> The usage overview cell can now be collapsed on both iOS and macOS to save space.</li>
+<li><strong>Preserved file tree scroll position.</strong> The file tree keeps its scroll position when switching between tabs or sessions.</li>
+<li><strong>Browser address bar.</strong> Address-bar text is now automatically selected on focus, and a dedicated page is shown when a page fails to load.</li>
+</ul>
+
+<h3>Bug Fixes</h3>
+
+<ul>
+<li>Fixed the wrong window being auto-selected on first launch when existing sessions were present.</li>
+<li>Fixed browser address-bar text losing its selection when clicked with the mouse.</li>
+<li>Fixed remote-host commands being silently dropped after a viewer switched networks.</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gustavo.eng.br/Gallager-2.5.dmg"
+                    sparkle:edSignature="Y2zq11ufFJLlRlHCIjoUUWOkOdCFwpIz/czIZlzH/GYfckjPYR5HiiOLUtTb5BH/GIO48O8da7+H1QgAwfKoBQ=="
+                    length="34023437"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 2.4</title>
          <sparkle:version>37</sparkle:version>
          <sparkle:shortVersionString>2.4</sparkle:shortVersionString>
