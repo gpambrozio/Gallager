@@ -206,16 +206,21 @@ extension StopFinalityClassifier: DependencyKey {
     /// The guide text is eval-tuned (`swift run StopFinalityEval`): real agent
     /// summaries are long and full of action words ("run the preflight", "the
     /// build is pushed"), which the earlier, softer wording misread as waiting
-    /// — including plain error reports and questions. Keep the "default to
-    /// false" clause; removing it regresses the eval.
+    /// — including plain error reports and questions. It also names the
+    /// dispatch-and-await hand-off ("awaiting its report/verdict") so those
+    /// don't fall through to FINISHED (issue #644 follow-up). Keep the "default
+    /// to false" clause; removing it regresses the eval.
     @available(macOS 26, iOS 26, *)
     @Generable
     private struct StopFinalityJudgment {
         @Guide(description: """
-        True ONLY when the message clearly states the agent is pausing and will \
-        continue when background work finishes. False for summaries of completed \
-        work, results, error reports, and questions — even when they mention \
-        builds, tests, commands, or jobs. Default to false when unsure.
+        True when the agent is paused and will resume on its own once \
+        still-running work finishes — including when it dispatched or kicked off \
+        work (a subagent, a build, a test run) and is awaiting that work's \
+        result, report, or verdict before continuing. False for summaries of \
+        completed work, results, error reports, and questions the user must \
+        answer — even when they mention builds, tests, commands, or jobs. \
+        Default to false when unsure.
         """)
         var isWaitingForBackgroundWork: Bool
     }
@@ -238,29 +243,42 @@ extension StopFinalityClassifier: DependencyKey {
             // `swift run StopFinalityEval`): FINISHED must explicitly cover
             // error reports, questions, and user-directed next steps, and must
             // say that naming builds/tests/commands is not waiting — the
-            // earlier, softer rubric misclassified all of those. WAITING is
-            // deliberately narrow (the AGENT explicitly pausing), with a
-            // FINISHED default, because a systematic false WAITING pins the
+            // earlier, softer rubric misclassified all of those. WAITING stays
+            // narrow — the AGENT itself pausing — but also covers orchestration
+            // hand-offs ("dispatched the reviewer; awaiting its verdict"), which
+            // the first rubric misread as FINISHED because they open past-tense
+            // and phrase the wait as "awaiting <noun>" (issue #644 follow-up).
+            // The who-acts-next tie-breaker keeps questions/offers FINISHED. The
+            // FINISHED default holds because a systematic false WAITING pins the
             // session on "Working" while a false FINISHED is just the pre-#644
             // behavior.
             let session = LanguageModelSession(instructions: """
             You judge the final message a coding agent printed when its turn ended, \
             deciding whether the agent FINISHED its turn or is WAITING for background work.
 
-            FINISHED — the message wraps the turn up: it summarizes work already done \
-            (past tense), reports results or an error, asks the user a question, or tells \
-            the USER what they can do next. Mentioning builds, tests, commands, or \
-            background jobs by name does NOT make it waiting, and neither do commands the \
-            user could run.
+            FINISHED — the message hands the turn back to the user: it summarizes work \
+            already done (past tense), reports results or an error, asks the user a \
+            question, or tells the USER what they can do next. Mentioning builds, tests, \
+            commands, or background jobs by name does NOT make it waiting, and neither do \
+            commands the user could run.
 
-            WAITING — the message explicitly says the AGENT itself is pausing now and will \
-            continue when still-running background work completes: "I'll wait for the \
-            build", "monitoring the deploy", "will report back when the tests finish", \
-            "I'll resume once CI completes".
+            WAITING — the message says the AGENT itself is paused and will resume on its \
+            own once still-running work finishes. This covers two shapes:
+            - An explicit pause: "I'll wait for the build", "monitoring the deploy", \
+            "will report back when the tests finish", "I'll resume once CI completes".
+            - A hand-off: the agent dispatched or kicked off work (a subagent, a build, a \
+            test run) and is awaiting its result, report, or verdict before continuing — \
+            "dispatched the reviewer; awaiting its verdict", "awaiting its report", \
+            "awaiting the re-run, then I'll review". Opening with what was just dispatched \
+            or started (past tense) does NOT make it finished when the message then says \
+            the agent is awaiting that work's result.
 
-            Background work can stay registered after a turn genuinely finishes (tasks \
-            pending cleanup), so decide only from what the message says. If the message \
-            does not clearly state the agent is waiting to continue, it is FINISHED.
+            The tie-breaker is who acts next: WAITING when the agent will resume by itself \
+            once the dispatched or background work returns; FINISHED when the message asks \
+            the user something or leaves the next move to the user. Background work can \
+            stay registered after a turn genuinely finishes (tasks pending cleanup), so \
+            decide only from what the message says. If the message does not clearly state \
+            the agent is waiting to continue, it is FINISHED.
             """)
 
             // Trust boundary: `message` is untrusted agent output interpolated

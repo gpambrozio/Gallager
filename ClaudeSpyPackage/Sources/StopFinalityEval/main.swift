@@ -100,6 +100,35 @@ let cases: [EvalCase] = [
     Kicked off the release build — it takes about 40 minutes. Nothing more to do \
     until it completes; I'll resume then.
     """, expectWaiting: true),
+
+    // ── WAITING: orchestration hand-offs (real-world failures, issue #644
+    // follow-up). The agent dispatched a subagent / background job and is
+    // awaiting its result before continuing. The pre-tuning rubric misread
+    // these as FINISHED: they open with a past-tense "dispatched" and phrase
+    // the wait as "Awaiting <noun>" rather than the first-person "I'll report
+    // back" the WAITING examples used, so the FINISHED default won. ──
+    EvalCase(name: "W7 dispatched, awaiting report", message: """
+    Task 3 implementer dispatched (the badge view + popover). Awaiting its report/build result.
+    """, expectWaiting: true),
+    EvalCase(name: "W8 dispatched, awaiting verdict", message: """
+    Task 2 reviewer dispatched (this time instructed to SendMessage its full report so it \
+    reaches me). Awaiting the verdict.
+    """, expectWaiting: true),
+    EvalCase(name: "W9 awaiting re-run then review", message: """
+    Task 2 warning fix dispatched. Awaiting the pristine re-run, then I'll review the full \
+    Task 2 delta.
+    """, expectWaiting: true),
+    EvalCase(name: "W10 dispatched, awaiting report (terse)", message: """
+    Task 2 implementer dispatched (Mac appearance helper + `hourglass` symbol, TDD). \
+    Awaiting its report.
+    """, expectWaiting: true),
+    EvalCase(name: "W11 fix dispatched, awaiting then re-review", message: """
+    Fix dispatched to the Task 1 implementer (3 doc-comment corrections + build check). \
+    Awaiting the fix report, then I'll re-review that focused delta before marking Task 1 done.
+    """, expectWaiting: true),
+    EvalCase(name: "W12 subagent idle, waiting on next", message: """
+    Just the Task 2 reviewer going idle — no action. Waiting on Task 3.
+    """, expectWaiting: true),
 ]
 
 let classifier = StopFinalityClassifier.liveValue
