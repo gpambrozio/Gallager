@@ -11,6 +11,8 @@ public actor TestOrchestrator {
     /// Sockets held open by the `occupyTCPPort` step, released in `cleanup()`.
     private var occupiedPortSockets: [Int32] = []
     private let serverDriver = ServerDriver()
+    /// Stub Lemon Squeezy License API for licensing scenarios (issue #392).
+    private let stubLicenseServer = StubLemonSqueezyServer()
     private let processRunner = ProcessRunner()
     private let context = ExecutionContext()
     private let logger = Logger(label: "e2e.orchestrator")
@@ -363,6 +365,7 @@ public actor TestOrchestrator {
         }
         macDrivers.removeAll()
         try? await serverDriver.stop()
+        await stubLicenseServer.stop()
 
         // Kill isolated tmux servers for all instances and remove socket files
         // so the next scenario starts with a clean slate (a stale socket causes
@@ -392,6 +395,12 @@ public actor TestOrchestrator {
         // Server
         case .startServer:
             try await serverDriver.start(port: serverPort)
+
+        case .startStubLicenseServer:
+            try await stubLicenseServer.start()
+
+        case let .startServerLicensed(trialDays):
+            try await serverDriver.start(port: serverPort, licensedTrialDays: trialDays)
 
         case .verifyServerHealth:
             try await serverDriver.waitForHealthy()
@@ -618,7 +627,7 @@ public actor TestOrchestrator {
             logger.info("=== End iOS UI Tree ===")
 
         // macOS App (all cases use `instance` to select which app instance to target)
-        case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion):
+        case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion, licenseState):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
             // Each instance gets its own `--gallager-state-root` so the plugin
@@ -668,6 +677,9 @@ public actor TestOrchestrator {
             }
             if let minRequiredPartnerVersion {
                 arguments += ["--min-required-partner-version", minRequiredPartnerVersion]
+            }
+            if let licenseState {
+                arguments += ["--e2e-license-state", licenseState]
             }
             if
                 let sampleDir = Bundle.module.resourcePath.map({ $0 + "/SampleFiles" }),

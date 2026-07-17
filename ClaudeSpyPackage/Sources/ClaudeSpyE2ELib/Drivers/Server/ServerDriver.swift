@@ -14,8 +14,17 @@ public actor ServerDriver {
 
     // MARK: - Server Lifecycle
 
-    /// Start the server on the given port
-    public func start(port: Int = 8_765) async throws {
+    /// Start the server on the given port.
+    ///
+    /// Pass `licensedTrialDays` to boot the relay with hosted-relay licensing
+    /// enabled: the Lemon Squeezy env vars are applied via `setenv` BEFORE
+    /// `configure(app)` runs (that's where `LicensingConfiguration
+    /// .fromEnvironment()` reads them) and point at the in-process
+    /// `StubLemonSqueezyServer`. `stop()` clears the env and licensing state
+    /// again, so scenarios that start the server without the parameter always
+    /// run with licensing disabled — even in the same process, right after a
+    /// licensing scenario.
+    public func start(port: Int = 8_765, licensedTrialDays: Int? = nil) async throws {
         self.port = port
         logger.info("Starting test server on port \(port)")
 
@@ -24,6 +33,22 @@ public actor ServerDriver {
         if FileManager.default.fileExists(atPath: pairsFile) {
             try? FileManager.default.removeItem(atPath: pairsFile)
             logger.info("Removed stale pairs.json before starting server")
+        }
+
+        // Clean up stale licensing.json (trial/activation state) the same way —
+        // it lives next to pairs.json because E2E runs don't set DATA_DIRECTORY.
+        Self.removeLicensingStateFile(logger: logger)
+
+        if let trialDays = licensedTrialDays {
+            setenv("LEMONSQUEEZY_STORE_ID", "\(StubLemonSqueezyServer.storeId)", 1)
+            setenv("LEMONSQUEEZY_PRODUCT_ID", "\(StubLemonSqueezyServer.productId)", 1)
+            setenv("TRIAL_DAYS", "\(trialDays)", 1)
+            setenv("LEMONSQUEEZY_API_BASE", StubLemonSqueezyServer.baseURL, 1)
+            logger.info("Licensing env applied (TRIAL_DAYS=\(trialDays), API base \(StubLemonSqueezyServer.baseURL))")
+        } else {
+            // Defensive: a previous aborted run could have leaked the env in
+            // this process; half-set ids would even fail configure() at boot.
+            Self.clearLicensingEnv()
         }
 
         // Wire the relay's APNs push log file. APNsService picks this up via
@@ -76,6 +101,37 @@ public actor ServerDriver {
         if FileManager.default.fileExists(atPath: pairsFile) {
             try? FileManager.default.removeItem(atPath: pairsFile)
             logger.info("Removed pairs.json")
+        }
+
+        // Mirror the pairs.json cleanup for licensing: clear the trial /
+        // activation state file and the env a licensed start applied, so the
+        // next scenario's relay boots with licensing disabled by default.
+        Self.removeLicensingStateFile(logger: logger)
+        Self.clearLicensingEnv()
+    }
+
+    // MARK: - Licensing Env + State
+
+    /// Env vars a `start(port:licensedTrialDays:)` call applies; cleared on
+    /// every `stop()` so they never leak into subsequent scenarios.
+    private static let licensingEnvKeys = [
+        "LEMONSQUEEZY_STORE_ID",
+        "LEMONSQUEEZY_PRODUCT_ID",
+        "TRIAL_DAYS",
+        "LEMONSQUEEZY_API_BASE",
+    ]
+
+    private static func clearLicensingEnv() {
+        for key in licensingEnvKeys {
+            unsetenv(key)
+        }
+    }
+
+    private static func removeLicensingStateFile(logger: Logger) {
+        let licensingFile = FileManager.default.currentDirectoryPath + "/licensing.json"
+        if FileManager.default.fileExists(atPath: licensingFile) {
+            try? FileManager.default.removeItem(atPath: licensingFile)
+            logger.info("Removed licensing.json")
         }
     }
 

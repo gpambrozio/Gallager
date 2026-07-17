@@ -11,3 +11,4 @@ extension PairingResponse: Content { }
 extension PairingStatus: Content { }
 extension PairingRegistration: Content { }
 extension PairingCompletion: Content { }
+extension LicenseStatus: Content { }

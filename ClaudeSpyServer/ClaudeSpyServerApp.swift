@@ -12,6 +12,7 @@ struct TmuxPaneMirrorApp: App {
     @State private var showingLaunchAtLoginPrompt = false
     @State private var updaterController: UpdaterController
     @NSApplicationDelegateAdaptor private var shutdownDelegate: AppShutdownDelegate
+    @Environment(\.openSettings) private var openSettings
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
@@ -350,6 +351,28 @@ struct TmuxPaneMirrorApp: App {
                 if let deviceNameOverride {
                     $0[DeviceNameClient.self] = DeviceNameClient(current: { deviceNameOverride })
                 }
+
+                // E2E: deterministic license status for the toolbar trial badge.
+                let e2eLicenseState: LicenseStatus.State? = {
+                    guard let idx = CommandLine.arguments.firstIndex(of: "--e2e-license-state"),
+                          idx + 1 < CommandLine.arguments.count
+                    else { return nil }
+                    return LicenseStatus.State(rawValue: CommandLine.arguments[idx + 1])
+                }()
+                if let e2eLicenseState {
+                    $0[LicensingClient.self] = LicensingClient(
+                        activate: { _, _, _, _ in LicenseStatus(state: .active) },
+                        deactivate: { _, _ in },
+                        status: { _, _ in
+                            LicenseStatus(
+                                state: e2eLicenseState,
+                                // Trial badge shows "5 days left" deterministically.
+                                expiresAt: e2eLicenseState == .trial
+                                    ? Date().addingTimeInterval(5 * 86400) : nil
+                            )
+                        }
+                    )
+                }
             }
 
             // Force regular activation policy so the app has a menu bar
@@ -386,6 +409,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(coordinator.editorSessionManager)
                 .environment(coordinator.remoteEditorContentStore)
                 .environment(coordinator.markdownOpenSuggestionStore)
+                .environment(coordinator.licenseManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
                 .onAppear {
                     if coordinator.settings.openPanesWindowOnLaunch || showingTmuxInstallGuide {
@@ -544,6 +568,7 @@ struct TmuxPaneMirrorApp: App {
                 .environment(updaterController)
                 .environment(coordinator.getOrCreatePairingManager())
                 .environment(coordinator)
+                .environment(coordinator.licenseManager)
                 .environment(\.e2eeService, coordinator.e2eeService)
         }
 
@@ -557,6 +582,13 @@ struct TmuxPaneMirrorApp: App {
             MenuBarLabel(pendingCount: totalPendingSessionCount)
                 .task {
                     coordinator.settings.applyAppearance()
+                    // Capture the Settings-opening action once at launch so a
+                    // non-view context (the license trial-expiry notification
+                    // tap handler) can open Settings later. `MenuBarLabel` is
+                    // the menu bar icon itself, so — unlike the Panes window's
+                    // content — it's guaranteed to run even if no window is
+                    // ever shown (issue #392, Task 14).
+                    coordinator.openSettingsAction = { openSettings() }
                 }
                 .task(id: showingTmuxInstallGuide) {
                     guard !showingTmuxInstallGuide else { return }

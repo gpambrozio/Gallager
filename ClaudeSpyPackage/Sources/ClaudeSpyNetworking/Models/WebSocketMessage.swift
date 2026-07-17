@@ -65,6 +65,11 @@ public enum WebSocketMessage: Codable, Sendable {
     /// Server notifies viewer that host has disconnected
     case hostDisconnected
 
+    /// Server notifies viewers that their host is blocked from the hosted
+    /// relay for lack of an active subscription (trial expired or license
+    /// lapsed). Carries no session content.
+    case hostSubscriptionInactive
+
     // (sessionState, commandResponse are shared with Host → Server)
 
     // MARK: - Bidirectional
@@ -149,6 +154,18 @@ public struct ErrorMessage: Codable, Sendable {
         ErrorMessage(code: invalidPairCode, message: "Pair ID is invalid or expired", recoverable: false)
     }
 
+    /// Error code sent to a host whose trial/subscription no longer allows
+    /// use of the hosted relay.
+    public static let subscriptionRequiredCode = "SUBSCRIPTION_REQUIRED"
+
+    public static func subscriptionRequired() -> ErrorMessage {
+        ErrorMessage(
+            code: subscriptionRequiredCode,
+            message: "An active subscription is required to use the hosted relay",
+            recoverable: false
+        )
+    }
+
     public static func notConnected(_ device: String) -> ErrorMessage {
         ErrorMessage(code: "NOT_CONNECTED", message: "\(device) is not connected")
     }
@@ -182,6 +199,7 @@ public extension WebSocketMessage {
         case pushTokenRegistered
         case hostConnected
         case hostDisconnected
+        case hostSubscriptionInactive
         case unpaired
         case peerHello
         case ping
@@ -242,6 +260,8 @@ public extension WebSocketMessage {
             self = .hostConnected(payload)
         case .hostDisconnected:
             self = .hostDisconnected
+        case .hostSubscriptionInactive:
+            self = .hostSubscriptionInactive
         case .unpaired:
             self = .unpaired
         case .peerHello:
@@ -321,6 +341,8 @@ public extension WebSocketMessage {
             try container.encode(payload, forKey: .payload)
         case .hostDisconnected:
             try container.encode(MessageType.hostDisconnected, forKey: .type)
+        case .hostSubscriptionInactive:
+            try container.encode(MessageType.hostSubscriptionInactive, forKey: .type)
         case .unpaired:
             try container.encode(MessageType.unpaired, forKey: .type)
         case let .peerHello(payload):
@@ -372,6 +394,7 @@ public extension WebSocketMessage {
         case .pushTokenRegistered: MessageType.pushTokenRegistered.rawValue
         case .hostConnected: MessageType.hostConnected.rawValue
         case .hostDisconnected: MessageType.hostDisconnected.rawValue
+        case .hostSubscriptionInactive: MessageType.hostSubscriptionInactive.rawValue
         case .unpaired: MessageType.unpaired.rawValue
         case .peerHello: MessageType.peerHello.rawValue
         case .ping: MessageType.ping.rawValue

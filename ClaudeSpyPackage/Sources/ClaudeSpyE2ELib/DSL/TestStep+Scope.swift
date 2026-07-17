@@ -40,7 +40,7 @@ public extension TestStep {
              .iosSetAppVersion:
             return .ios
         // macOS app (specific instance)
-        case let .launchMacApp(instance, _, _):
+        case let .launchMacApp(instance, _, _, _):
             return .macOS(instance: instance)
         case let .terminateMacApp(instance):
             return .macOS(instance: instance)
@@ -143,6 +143,8 @@ public extension TestStep {
         // Server, tmux, assertions, scripts, general — any running platform
         // could be relevant to diagnose the failure.
         case .startServer,
+             .startStubLicenseServer,
+             .startServerLicensed,
              .verifyServerHealth,
              .verifyServerHasPairings,
              .waitForHostConnected,

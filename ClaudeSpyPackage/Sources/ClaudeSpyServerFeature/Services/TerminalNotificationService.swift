@@ -175,6 +175,10 @@
         /// (viewer mode), so the tap reveals that host's remote session.
         @MainActor var onTapped: ((_ paneId: String, _ hostId: String?) -> Void)?
 
+        /// Handler called on the main actor when a trial-expiry alert
+        /// (`userInfo["licenseAlert"] == true`) is tapped.
+        @MainActor var onLicenseAlertTapped: (() -> Void)?
+
         func userNotificationCenter(
             _: UNUserNotificationCenter,
             willPresent _: UNNotification
@@ -187,6 +191,20 @@
             didReceive response: UNNotificationResponse
         ) async {
             let userInfo = response.notification.request.content.userInfo
+
+            if userInfo["licenseAlert"] as? Bool == true {
+                // Schedule after didReceive returns — the system may reclaim focus
+                // while this async method is still running.
+                await MainActor.run {
+                    let handler = onLicenseAlertTapped
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(300))
+                        handler?()
+                    }
+                }
+                return
+            }
+
             guard let paneId = userInfo["paneId"] as? String else { return }
             let hostId = userInfo["hostId"] as? String
             // Schedule after didReceive returns — the system may reclaim focus

@@ -9,7 +9,10 @@ public struct RemoteAccessSettingsView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(PairingManager.self) private var pairingManager
     @Environment(AppCoordinator.self) private var coordinator
+    @Environment(LicenseManager.self) private var licenseManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
+
+    @Dependency(URLOpener.self) private var urlOpener
 
     @State private var showCopiedFeedback = false
 
@@ -46,10 +49,25 @@ public struct RemoteAccessSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // License
+            Section {
+                licenseSection
+            } header: {
+                Text("License")
+            } footer: {
+                Text("The hosted relay requires a subscription after a 7-day free trial. Self-hosted relays never need one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(minWidth: 400, minHeight: 300)
         .navigationTitle("Remote Access")
+        .task {
+            await licenseManager.loadStoredKey()
+            await licenseManager.refreshStatus()
+        }
         .onReceive(
             NotificationCenter.default.publisher(
                 for: .init("com.claudespy.e2e.unpairViewer")
@@ -279,6 +297,69 @@ public struct RemoteAccessSettingsView: View {
                 }
             }
             .buttonStyle(.bordered)
+        }
+    }
+
+    // MARK: - License Section
+
+    @ViewBuilder
+    private var licenseSection: some View {
+        @Bindable var licenseManager = licenseManager
+
+        switch licenseManager.status?.state {
+        case .notRequired:
+            Label("Not required on this relay", symbol: .checkmarkCircleFill)
+                .foregroundStyle(.secondary)
+        case .active:
+            LabeledContent("Status") {
+                Text("Active")
+                    .foregroundStyle(.green)
+            }
+            if
+                let limit = licenseManager.status?.activationLimit,
+                let usage = licenseManager.status?.activationUsage {
+                LabeledContent("Activations", value: "\(usage) of \(limit) Macs")
+            }
+            Button("Manage Subscription") {
+                urlOpener.openInDefaultBrowser(LicensingLinks.billingPortal)
+            }
+            .buttonStyle(.borderless)
+            Button("Deactivate This Mac", role: .destructive) {
+                Task { await licenseManager.deactivate() }
+            }
+            .buttonStyle(.borderless)
+        default:
+            if let daysLeft = licenseManager.trialDaysLeft {
+                LabeledContent("Status") {
+                    Text("Trial — \(daysLeft) day\(daysLeft == 1 ? "" : "s") left")
+                        .foregroundStyle(daysLeft <= 2 ? .orange : .secondary)
+                }
+            } else if licenseManager.status?.state == .expired {
+                Label("Subscription required", symbol: .exclamationmarkTriangle)
+                    .foregroundStyle(.orange)
+            }
+            TextField("License Key", text: $licenseManager.licenseKeyField)
+                .textFieldStyle(.roundedBorder)
+                // Unique AX label so E2E can focus the field itself — a bare
+                // "License Key" query matches the row's static label first.
+                .accessibilityLabel("License key field")
+                .onSubmit {
+                    Task { await licenseManager.activate() }
+                }
+            HStack {
+                Button("Activate") {
+                    Task { await licenseManager.activate() }
+                }
+                .disabled(licenseManager.actionState == .working)
+                Button("Buy a License…") {
+                    urlOpener.openInDefaultBrowser(LicensingLinks.checkout)
+                }
+            }
+            if case let .error(message) = licenseManager.actionState {
+                Label(message, symbol: .exclamationmarkTriangle)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
     }
 

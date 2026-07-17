@@ -70,6 +70,10 @@ extension Target.Dependency {
         .product(name: "VaporAPNS", package: "apns")
     }
 
+    static var asyncHTTPClient: Self {
+        .product(name: "AsyncHTTPClient", package: "async-http-client")
+    }
+
     static var crypto: Self {
         .product(name: "Crypto", package: "swift-crypto")
     }
@@ -277,6 +281,7 @@ let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
     .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
     .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+    .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
     // Only the `Clocks` trait is enabled — the app's sole built-in dependency
@@ -401,6 +406,7 @@ let targets: [Target] = [
             .claudeSpyEncryption,
             .vapor,
             .vaporAPNS,
+            .asyncHTTPClient,
         ]
     ),
     // External server executable (thin wrapper around library)

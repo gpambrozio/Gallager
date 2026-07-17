@@ -1765,6 +1765,10 @@ public struct MainView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
+            TrialStatusToolbarItem()
+        }
+
+        ToolbarItem(placement: .automatic) {
             connectionStatusView
         }
 

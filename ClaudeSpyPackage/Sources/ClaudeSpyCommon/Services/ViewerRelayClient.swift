@@ -72,6 +72,10 @@ final public class ViewerRelayClient {
     /// update-required affordances without string parsing.
     public private(set) var versionMismatch: VersionCompatibility.VersionMismatch?
 
+    /// True when the relay reported this host is blocked for lack of an
+    /// active subscription. Cleared when the host connects again.
+    public private(set) var hostSubscriptionInactive = false
+
     /// The WebSocket task
     private var webSocketTask: URLSessionWebSocketTask?
 
@@ -251,6 +255,12 @@ final public class ViewerRelayClient {
         shouldReconnect = true
         reconnectionAttempt = 0
         versionMismatch = nil
+        // Reset on a fresh connect (possibly to a different pair). NOT reset in
+        // `cleanupConnection()` — that runs on every transient reconnect, and the
+        // relay only re-emits `.hostSubscriptionInactive` on a blocked-host connect
+        // or sweep, never on viewer re-register, so clearing it there would silently
+        // drop the "Host's subscription expired" banner after any reconnect blip.
+        hostSubscriptionInactive = false
 
         // Establish E2EE session if we have partner's public key from pairing
         if let partnerKey = partnerPublicKey, let partnerKeyId = partnerPublicKeyId {
@@ -741,6 +751,7 @@ final public class ViewerRelayClient {
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
+            hostSubscriptionInactive = false
 
             // `isHostConnected` is NOT flipped to true here — it is set only after
             // the host's peerHello arrives and passes the compatibility check.
@@ -802,6 +813,11 @@ final public class ViewerRelayClient {
             isHostConnected = false
             connectedHostName = nil
             await onHostDisconnected?()
+
+        case .hostSubscriptionInactive:
+            logger.info("Host blocked: subscription inactive")
+            hostSubscriptionInactive = true
+            isHostConnected = false
 
         case .unpaired:
             logger.info("Pairing removed by the other side")

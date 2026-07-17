@@ -36,6 +36,17 @@
 
         /// Checks if a session key exists for a specific pair ID.
         public var hasStoredSessionKey: @Sendable (_ pairId: String) async -> Bool = { _ in false }
+
+        // MARK: - Generic Secret Operations
+
+        /// Stores an arbitrary secret string under a keychain account (value, account).
+        public var storeSecret: @Sendable (_ value: String, _ account: String) async throws -> Void
+
+        /// Loads a secret by account; nil when absent.
+        public var loadSecret: @Sendable (_ account: String) async throws -> String?
+
+        /// Deletes a secret by account.
+        public var deleteSecret: @Sendable (_ account: String) async throws -> Void
     }
 
     // MARK: - In-Memory Implementation
@@ -75,6 +86,15 @@
                 },
                 hasStoredSessionKey: { pairId in
                     await keyManager.hasStoredSessionKey(for: pairId)
+                },
+                storeSecret: { value, account in
+                    await keyManager.storeSecret(value, account: account)
+                },
+                loadSecret: { account in
+                    await keyManager.loadSecret(account: account)
+                },
+                deleteSecret: { account in
+                    await keyManager.deleteSecret(account: account)
                 }
             )
         }
@@ -136,6 +156,15 @@
                 },
                 hasStoredSessionKey: { pairId in
                     await keyManager.hasStoredSessionKey(for: pairId)
+                },
+                storeSecret: { value, account in
+                    try await keyManager.storeSecret(value, account: account)
+                },
+                loadSecret: { account in
+                    try await keyManager.loadSecret(account: account)
+                },
+                deleteSecret: { account in
+                    try await keyManager.deleteSecret(account: account)
                 }
             )
         }

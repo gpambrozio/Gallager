@@ -290,10 +290,12 @@ private func browseForTerminalApp(settings: AppSettings) {
 #Preview {
     let settings = AppSettings()
     let e2eeService = E2EEService(keyPair: .generateNew())
+    let coordinator = AppCoordinator(settings: settings)
 
     SettingsView()
         .environment(settings)
-        .environment(AppCoordinator(settings: settings))
+        .environment(coordinator)
+        .environment(coordinator.licenseManager)
         .environment(PairingManager(settings: settings, e2eeService: e2eeService))
         .environment(UpdaterController(startUpdater: false))
         .e2eeService(e2eeService)

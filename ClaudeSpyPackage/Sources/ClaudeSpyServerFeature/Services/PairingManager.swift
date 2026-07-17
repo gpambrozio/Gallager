@@ -45,12 +45,20 @@ final public class PairingManager {
     /// Code expiry duration in seconds (matches server)
     private let codeExpirySeconds: TimeInterval = 300
 
+    /// Error shown when the relay rejects a registration with
+    /// `SUBSCRIPTION_REQUIRED`; `retryAfterSubscriptionRestored()` keys off it.
+    static let subscriptionRequiredErrorMessage = "Subscription required — see the License section below"
+
     /// Callback when a new viewer is successfully paired
     public var onViewerPaired: ((PairedViewer) -> Void)?
 
     /// This Mac's advertised device name (overridable in E2E for deterministic screenshots).
     @ObservationIgnored
     @Dependency(DeviceNameClient.self) private var deviceNameClient
+
+    /// Relay pairing endpoints (injectable so tests never touch the network).
+    @ObservationIgnored
+    @Dependency(PairingAPIClient.self) private var apiClient
 
     // MARK: - Initialization
 
@@ -113,13 +121,26 @@ final public class PairingManager {
                 state = .error("Unexpected response from server")
                 logger.error("Unexpected paired response during registration")
             case let .error(errorInfo):
-                state = .error(errorInfo.message)
+                if errorInfo.code == ErrorMessage.subscriptionRequiredCode {
+                    state = .error(Self.subscriptionRequiredErrorMessage)
+                } else {
+                    state = .error(errorInfo.message)
+                }
                 logger.error("Failed to register pairing code: \(errorInfo.message)")
             }
         } catch {
             state = .error("Network error: \(error.localizedDescription)")
             logger.error("Failed to register pairing code: \(error)")
         }
+    }
+
+    /// Retry a registration the relay blocked with SUBSCRIPTION_REQUIRED,
+    /// now that the host's entitlement has been restored (license activated,
+    /// or a status refresh observed expired→active). No-op otherwise, so
+    /// ordinary activations don't spuriously open a pairing-code flow.
+    public func retryAfterSubscriptionRestored() async {
+        guard state == .error(Self.subscriptionRequiredErrorMessage) else { return }
+        await generatePairingCode()
     }
 
     /// Cancel the current pairing attempt
@@ -200,16 +221,6 @@ final public class PairingManager {
             throw PairingError.settingsNotAvailable
         }
 
-        let serverURL = settings.externalServerURL.httpURL
-
-        guard let url = URL(string: "\(serverURL)/api/pairing/register") else {
-            throw PairingError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let registration = PairingRegistration(
             deviceId: deviceId,
             deviceName: deviceName,
@@ -219,21 +230,7 @@ final public class PairingManager {
             username: ProcessInfo.processInfo.userName
         )
 
-        let encoder = JSONEncoder()
-        request.httpBody = try encoder.encode(registration)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PairingError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw PairingError.serverError(statusCode: httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        return try decoder.decode(PairingResponse.self, from: data)
+        return try await apiClient.register(settings.externalServerURL, registration)
     }
 
     private func checkPairingStatus(pairId: String) async throws -> PairingStatus {
@@ -241,39 +238,13 @@ final public class PairingManager {
             throw PairingError.settingsNotAvailable
         }
 
-        let serverURL = settings.externalServerURL.httpURL
-
-        guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)/status") else {
-            throw PairingError.invalidURL
-        }
-
-        let (data, response) = try await URLSession.shared.data(from: url)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PairingError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw PairingError.serverError(statusCode: httpResponse.statusCode)
-        }
-
-        let decoder = JSONDecoder()
-        return try decoder.decode(PairingStatus.self, from: data)
+        return try await apiClient.status(settings.externalServerURL, pairId)
     }
 
     private func deletePairing(pairId: String) async throws {
         guard let settings else { return }
 
-        let serverURL = settings.externalServerURL.httpURL
-
-        guard let url = URL(string: "\(serverURL)/api/pairing/\(pairId)") else {
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-
-        _ = try await URLSession.shared.data(for: request)
+        try await apiClient.delete(settings.externalServerURL, pairId)
     }
 
     private func startPollingForCompletion(pairId: String) {

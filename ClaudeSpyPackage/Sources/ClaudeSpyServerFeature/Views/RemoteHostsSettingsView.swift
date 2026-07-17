@@ -262,7 +262,10 @@ private struct HostRow: View {
 
     @ViewBuilder
     private var connectionIndicator: some View {
-        if let connection {
+        if let connection, connection.hostSubscriptionInactive {
+            Symbols.exclamationmarkTriangle.image
+                .foregroundStyle(.orange)
+        } else if let connection {
             switch connection.state {
             case .connected where connection.isHostConnected:
                 Symbols.checkmarkCircleFill.image
@@ -286,7 +289,10 @@ private struct HostRow: View {
 
     @ViewBuilder
     private var connectionStatusText: some View {
-        if let connection {
+        if let connection, connection.hostSubscriptionInactive {
+            Text("Host's subscription expired")
+                .foregroundStyle(.orange)
+        } else if let connection {
             switch connection.state {
             case .connected where connection.isHostConnected:
                 Text("Connected")

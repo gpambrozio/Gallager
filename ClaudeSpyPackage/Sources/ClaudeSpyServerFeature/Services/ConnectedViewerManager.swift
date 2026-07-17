@@ -52,6 +52,10 @@ final public class ConnectedViewerManager {
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: (@MainActor @Sendable (String) async -> Void)?
 
+    /// Called when a viewer connection reports that the host's subscription
+    /// is no longer active.
+    public var onSubscriptionRequired: (@MainActor @Sendable () async -> Void)?
+
     /// Provides the current pending-attention session count. Forwarded to every
     /// `ConnectedViewer` so outgoing pushes (event and silent) carry the right
     /// APNs badge value.
@@ -377,6 +381,10 @@ final public class ConnectedViewerManager {
             guard let self else { return }
             self.connections.removeValue(forKey: viewerId)
             await self.onUnpaired?(viewerId)
+        }
+
+        connection.onSubscriptionRequired = { [weak self] in
+            await self?.onSubscriptionRequired?()
         }
 
         connection.onPendingSessionCount = { [weak self] in

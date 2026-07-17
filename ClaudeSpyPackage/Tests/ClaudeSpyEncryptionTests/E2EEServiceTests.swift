@@ -358,6 +358,15 @@ private func makeSecretsService(
         },
         hasStoredSessionKey: { pairId in
             await keyManager.hasStoredSessionKey(for: pairId)
+        },
+        storeSecret: { value, account in
+            await keyManager.storeSecret(value, account: account)
+        },
+        loadSecret: { account in
+            await keyManager.loadSecret(account: account)
+        },
+        deleteSecret: { account in
+            await keyManager.deleteSecret(account: account)
         }
     )
 }

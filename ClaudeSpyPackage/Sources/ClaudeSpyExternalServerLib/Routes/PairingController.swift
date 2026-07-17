@@ -18,6 +18,19 @@ struct PairingController: RouteCollection {
     func registerPairingCode(req: Request) async throws -> PairingResponse {
         let registration = try req.content.decode(PairingRegistration.self)
 
+        // Hosted-relay gate: hosts need a trial or active license. A fresh host
+        // has no trial yet, so it reads as `.preTrial` (allowed) — the trial
+        // clock itself doesn't start until a viewer completes pairing.
+        let entitlement = await req.application.licensingService
+            .checkEntitlement(hostDeviceId: registration.deviceId)
+        guard entitlement.isAllowed else {
+            await req.application.metricsService.incrementBlockedHostAttempts()
+            return .error(ErrorInfo(
+                message: "An active subscription is required to use the hosted relay",
+                code: ErrorMessage.subscriptionRequiredCode
+            ))
+        }
+
         return await req.application.pairingService.registerCode(
             code: registration.pairingCode,
             deviceId: registration.deviceId,
@@ -34,13 +47,23 @@ struct PairingController: RouteCollection {
     func completePairing(req: Request) async throws -> PairingResponse {
         let completion = try req.content.decode(PairingCompletion.self)
 
-        return await req.application.pairingService.completePairing(
+        let response = await req.application.pairingService.completePairing(
             code: completion.pairingCode,
             deviceId: completion.deviceId,
             deviceName: completion.deviceName,
             publicKey: completion.publicKey,
             publicKeyId: completion.publicKeyId
         )
+
+        // Start the host's free-trial clock the moment a viewer actually pairs —
+        // not at register/first-touch. Idempotent; a no-op when licensing is off.
+        if
+            case let .paired(info) = response,
+            let hostDeviceId = await req.application.pairingService.getPair(pairId: info.pairId)?.hostDeviceId {
+            await req.application.licensingService.startTrialIfNeeded(hostDeviceId: hostDeviceId)
+        }
+
+        return response
     }
 
     /// Get pairing status

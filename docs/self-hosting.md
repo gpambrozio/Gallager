@@ -11,6 +11,12 @@ The ClaudeSpy relay server is a lightweight Vapor (Swift) application that:
 
 All communication is end-to-end encrypted. The server only relays encrypted blobs—it cannot read your session data.
 
+Self-hosted relays are free and require no license configuration: the hosted-relay
+licensing gate is entirely disabled unless `LEMONSQUEEZY_STORE_ID` and
+`LEMONSQUEEZY_PRODUCT_ID` are set in the environment. Leave them unset (the
+default) and the relay behaves exactly as before licensing existed. Once licensing is enabled, a malformed (non-integer) value in any licensing variable fails the boot rather
+than silently falling back; with both ids unset, the other licensing variables are ignored.
+
 ## Requirements
 
 ### Server Requirements
@@ -70,16 +76,23 @@ Update the server URL in both apps:
 Create a `.env` file based on `.env.example`:
 
 ```bash
+# Server settings
+LOG_LEVEL=warning              # debug, info, notice, warning, error, critical
+PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
+
+# Licensing (leave unset for self-hosting — see docs above)
+LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
+LEMONSQUEEZY_PRODUCT_ID=       # From Lemon Squeezy dashboard
+TRIAL_DAYS=7                   # Trial length (default 7)
+LICENSE_REVALIDATE_HOURS=24    # Recheck license validity (default 24)
+LICENSE_GRACE_DAYS=7           # Grace period if Lemon Squeezy unreachable (default 7)
+
 # Required for push notifications (optional feature)
 APNS_KEY_PATH=/secrets/AuthKey.p8
 APNS_KEY_ID=XXXXXXXXXX
 APNS_TEAM_ID=XXXXXXXXXX
 APNS_BUNDLE_ID=com.yourcompany.ClaudeSpy
 APNS_ENVIRONMENT=development
-
-# Server settings
-LOG_LEVEL=warning              # debug, info, notice, warning, error, critical
-PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
 ```
 
 ### Push Notifications (Optional)

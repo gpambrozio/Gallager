@@ -70,6 +70,19 @@ public enum TestStep: Sendable {
 
     /// Start the in-process Vapor server
     case startServer
+    /// Start the in-process stub Lemon Squeezy License API server (fixed
+    /// port 8766). Must run before `startServerLicensed` so the relay's
+    /// activation calls have somewhere to land. Stopped automatically by the
+    /// orchestrator's cleanup.
+    case startStubLicenseServer
+    /// Start the in-process Vapor relay server with hosted-relay licensing
+    /// enabled: `LEMONSQUEEZY_STORE_ID`/`LEMONSQUEEZY_PRODUCT_ID` are set to
+    /// the stub server's ids, `LEMONSQUEEZY_API_BASE` points at the stub, and
+    /// `TRIAL_DAYS` controls the trial window (0 = an auto-started trial is
+    /// already expired). The env is applied before `configure(app)` runs and
+    /// cleared when the server stops, so scenarios using plain `startServer`
+    /// are untouched.
+    case startServerLicensed(trialDays: Int)
     /// Verify the server is healthy
     case verifyServerHealth
     /// Verify the number of active pairings
@@ -189,8 +202,17 @@ public enum TestStep: Sendable {
     // Ports and file paths are derived automatically from the instance number.
 
     /// Launch the macOS app. Pass optional version overrides to simulate old or mismatched
-    /// app versions for compatibility testing.
-    case launchMacApp(instance: Int = 0, appVersion: String? = nil, minRequiredPartnerVersion: String? = nil)
+    /// app versions for compatibility testing. `licenseState` maps to
+    /// `--e2e-license-state <trial|expired|none>`, overriding `LicensingClient`
+    /// so `LicenseManager.status` is deterministic (issue #392, Task 5) — used
+    /// by scenarios proving the toolbar trial-status badge without depending on
+    /// the relay's own licensing configuration.
+    case launchMacApp(
+        instance: Int = 0,
+        appVersion: String? = nil,
+        minRequiredPartnerVersion: String? = nil,
+        licenseState: String? = nil
+    )
     /// Terminate the macOS app
     case terminateMacApp(instance: Int = 0)
     /// Activate the macOS app instance so it becomes frontmost with its key window.

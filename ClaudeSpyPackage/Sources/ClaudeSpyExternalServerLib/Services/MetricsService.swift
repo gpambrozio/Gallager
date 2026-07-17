@@ -14,6 +14,11 @@ struct MetricsSnapshot: Sendable {
 actor MetricsService {
     private(set) var messagesRelayedTotal = 0
     private(set) var pushNotificationsTotal = 0
+    private(set) var trialStartsTotal = 0
+    private(set) var licenseActivationsTotal = 0
+    private(set) var licenseValidationFailuresTotal = 0
+    private(set) var licenseDeactivationsTotal = 0
+    private(set) var blockedHostAttemptsTotal = 0
 
     func incrementMessagesRelayed() {
         messagesRelayedTotal &+= 1
@@ -21,6 +26,26 @@ actor MetricsService {
 
     func incrementPushNotifications() {
         pushNotificationsTotal &+= 1
+    }
+
+    func incrementTrialStarts() {
+        trialStartsTotal &+= 1
+    }
+
+    func incrementLicenseActivations() {
+        licenseActivationsTotal &+= 1
+    }
+
+    func incrementLicenseValidationFailures() {
+        licenseValidationFailuresTotal &+= 1
+    }
+
+    func incrementLicenseDeactivations() {
+        licenseDeactivationsTotal &+= 1
+    }
+
+    func incrementBlockedHostAttempts() {
+        blockedHostAttemptsTotal &+= 1
     }
 
     /// Render the full Prometheus text exposition for a scrape.
@@ -34,6 +59,26 @@ actor MetricsService {
         lines.append("# HELP claudespy_push_notifications_total Total push notifications sent to APNs since process start.")
         lines.append("# TYPE claudespy_push_notifications_total counter")
         lines.append("claudespy_push_notifications_total \(pushNotificationsTotal)")
+
+        lines.append("# HELP claudespy_trial_starts_total Hosted-relay trials auto-started since process start.")
+        lines.append("# TYPE claudespy_trial_starts_total counter")
+        lines.append("claudespy_trial_starts_total \(trialStartsTotal)")
+
+        lines.append("# HELP claudespy_license_activations_total License keys activated since process start.")
+        lines.append("# TYPE claudespy_license_activations_total counter")
+        lines.append("claudespy_license_activations_total \(licenseActivationsTotal)")
+
+        lines.append("# HELP claudespy_license_deactivations_total License activations released since process start.")
+        lines.append("# TYPE claudespy_license_deactivations_total counter")
+        lines.append("claudespy_license_deactivations_total \(licenseDeactivationsTotal)")
+
+        lines.append("# HELP claudespy_license_validation_failures_total Failed license validations/activations since process start.")
+        lines.append("# TYPE claudespy_license_validation_failures_total counter")
+        lines.append("claudespy_license_validation_failures_total \(licenseValidationFailuresTotal)")
+
+        lines.append("# HELP claudespy_blocked_host_attempts_total Host connections/registrations rejected for lack of entitlement.")
+        lines.append("# TYPE claudespy_blocked_host_attempts_total counter")
+        lines.append("claudespy_blocked_host_attempts_total \(blockedHostAttemptsTotal)")
 
         lines.append("# HELP claudespy_active_pairs Number of currently-paired devices.")
         lines.append("# TYPE claudespy_active_pairs gauge")

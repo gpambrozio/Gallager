@@ -9,6 +9,14 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-warning}
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
+      # Licensing (hosted-relay monetization) — leave BOTH unset for self-hosting.
+      # Setting only one of the two ids fails the boot on purpose.
+      # With licensing enabled, a non-integer value in any of these also fails boot.
+      - LEMONSQUEEZY_STORE_ID=${LEMONSQUEEZY_STORE_ID:-}
+      - LEMONSQUEEZY_PRODUCT_ID=${LEMONSQUEEZY_PRODUCT_ID:-}
+      - TRIAL_DAYS=${TRIAL_DAYS:-7}
+      - LICENSE_REVALIDATE_HOURS=${LICENSE_REVALIDATE_HOURS:-24}
+      - LICENSE_GRACE_DAYS=${LICENSE_GRACE_DAYS:-7}
       - DATA_DIRECTORY=/data
       - METRICS_TOKEN=${METRICS_TOKEN:-}
       # APNs configuration - set these for push notification support
