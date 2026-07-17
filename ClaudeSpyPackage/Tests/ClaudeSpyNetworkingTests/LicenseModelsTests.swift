@@ -75,4 +75,22 @@ struct LicenseModelsTests {
         let decoded = try JSONDecoder().decode(ErrorInfo.self, from: JSONEncoder().encode(info))
         #expect(decoded == info)
     }
+
+    @Test("LicenseKeyFormat strips whitespace and invisible characters anywhere in the key")
+    func keySanitization() {
+        // Email-copied keys arrive with wrap artifacts: padding, embedded
+        // newlines/spaces, and zero-width characters.
+        let pasted = " 084A4570-4DD0-49DF-\n9214-86565DFC8959\u{200B} "
+        #expect(LicenseKeyFormat.sanitized(pasted) == "084A4570-4DD0-49DF-9214-86565DFC8959")
+    }
+
+    @Test("LicenseKeyFormat accepts UUIDs of either case and rejects everything else")
+    func keyValidation() {
+        #expect(LicenseKeyFormat.isValid("084A4570-4DD0-49DF-9214-86565DFC8959"))
+        #expect(LicenseKeyFormat.isValid("084a4570-4dd0-49df-9214-86565dfc8959"))
+        #expect(!LicenseKeyFormat.isValid(""))
+        #expect(!LicenseKeyFormat.isValid("KEY-42"))
+        #expect(!LicenseKeyFormat.isValid("084A45704DD049DF921486565DFC8959")) // no hyphens
+        #expect(!LicenseKeyFormat.isValid("084A4570-4DD0-49DF-9214-86565DFC895")) // short
+    }
 }

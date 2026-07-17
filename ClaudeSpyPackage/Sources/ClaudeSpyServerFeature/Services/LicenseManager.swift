@@ -88,10 +88,19 @@
         }
 
         public func activate() async {
-            guard let settings else { return }
-            let key = licenseKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
+            // The `working` guard makes activate() safe to call from every
+            // surface (button, field onSubmit) without each caller gating on
+            // actionState — a return press during an in-flight activation is
+            // a no-op instead of a double submit.
+            guard let settings, actionState != .working else { return }
+            let key = LicenseKeyFormat.sanitized(licenseKeyField)
             guard !key.isEmpty else {
                 actionState = .error("Enter a license key first")
+                return
+            }
+            // LS keys are UUIDs — catch paste mistakes before a round-trip.
+            guard LicenseKeyFormat.isValid(key) else {
+                actionState = .error("Invalid key")
                 return
             }
             actionState = .working

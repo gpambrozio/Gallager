@@ -107,6 +107,7 @@
                 TextField("License Key", text: $licenseManager.licenseKeyField)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("trial-popover-license-key")
+                    .onSubmit(activateAndDismiss)
 
                 if case let .error(message) = licenseManager.actionState {
                     Text(message)
@@ -117,18 +118,20 @@
 
                 HStack {
                     Spacer()
-                    Button("Activate") {
-                        Task {
-                            await licenseManager.activate()
-                            if licenseManager.actionState == .idle { showingPopover = false }
-                        }
-                    }
-                    .disabled(licenseManager.actionState == .working)
-                    .accessibilityIdentifier("trial-popover-activate")
+                    Button("Activate", action: activateAndDismiss)
+                        .disabled(licenseManager.actionState == .working)
+                        .accessibilityIdentifier("trial-popover-activate")
                 }
             }
             .padding(16)
             .frame(width: 320)
+        }
+
+        private func activateAndDismiss() {
+            Task {
+                await licenseManager.activate()
+                if licenseManager.actionState == .idle { showingPopover = false }
+            }
         }
 
         private func popoverHeadline(_ appearance: TrialBadgeAppearance) -> String {

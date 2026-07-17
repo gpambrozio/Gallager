@@ -25,8 +25,9 @@ public actor StubLemonSqueezyServer {
     /// relay start applies — they must match for activation to succeed.
     public static let storeId = 123
     public static let productId = 456
-    /// The one license key this stub accepts.
-    public static let acceptedLicenseKey = "E2E-GALLAGER-LICENSE-392"
+    /// The one license key this stub accepts. UUID-shaped because the Mac app
+    /// rejects non-UUID keys client-side before they ever reach the relay.
+    public static let acceptedLicenseKey = "E2E00392-0000-4000-8000-000000000392"
     /// Base URL the relay's `LEMONSQUEEZY_API_BASE` should point at.
     public static var baseURL: String { "http://127.0.0.1:\(port)" }
 

@@ -244,7 +244,7 @@ actor LicensingService {
     func activate(licenseKey: String, deviceId: String, deviceName: String) async throws -> LicenseStatus {
         guard let config else { throw LicensingError.licensingDisabled }
 
-        let licenseKey = Self.sanitizedLicenseKey(licenseKey)
+        let licenseKey = LicenseKeyFormat.sanitized(licenseKey)
         let response = try await apiClient.activate(licenseKey: licenseKey, instanceName: deviceName)
         guard response.activated == true else {
             Task { await metricsService?.incrementLicenseValidationFailures() }
@@ -313,16 +313,6 @@ actor LicensingService {
     private static func friendlyLSError(_ error: String?) -> String {
         guard let error, !error.isEmpty else { return "Activation failed" }
         return error.lowercased().contains("license_key not found") ? "Invalid key" : error
-    }
-
-    /// Keys copied from the LS receipt email carry wrap artifacts — embedded
-    /// newlines/spaces and zero-width characters — that make LS respond
-    /// "license_key not found". Strip whitespace and invisible format
-    /// characters anywhere in the string, not just at the ends.
-    private static func sanitizedLicenseKey(_ raw: String) -> String {
-        String(raw.unicodeScalars
-            .filter { !CharacterSet.whitespacesAndNewlines.contains($0) && $0.properties.generalCategory != .format }
-            .map(Character.init))
     }
 
     // MARK: - Revalidation

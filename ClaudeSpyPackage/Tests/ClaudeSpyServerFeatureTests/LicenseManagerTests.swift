@@ -11,6 +11,9 @@
     @Suite("LicenseManager")
     @MainActor
     struct LicenseManagerTests {
+        /// LS keys are UUIDs; activate() rejects anything else client-side.
+        private nonisolated static let validKey = "084A4570-4DD0-49DF-9214-86565DFC8959"
+
         private func makeManager(
             client: LicensingClient,
             secrets: SecretsService = .inMemory()
@@ -42,13 +45,13 @@
             withExtendedLifetime(settings) { }
         }
 
-        @Test("activate stores the key in secrets and updates status")
+        @Test("activate sanitizes the key, stores it in secrets, and updates status")
         func activateStoresKey() async throws {
             let secrets = SecretsService.inMemory()
             let (manager, settings) = makeManager(
                 client: LicensingClient(
                     activate: { _, key, _, _ in
-                        #expect(key == "KEY-42")
+                        #expect(key == Self.validKey)
                         return LicenseStatus(state: .active, activationLimit: 3, activationUsage: 1)
                     },
                     deactivate: { _, _ in },
@@ -56,12 +59,32 @@
                 ),
                 secrets: secrets
             )
-            manager.licenseKeyField = "  KEY-42  " // trimmed before send
+            // Email-copied wrap artifacts (padding, embedded newline,
+            // zero-width space) are stripped before validation and send.
+            manager.licenseKeyField = "  084A4570-4DD0-49DF-\n9214-86565DFC8959\u{200B}  "
             await manager.activate()
             #expect(manager.status?.state == .active)
             #expect(manager.actionState == .idle)
             let stored = try await secrets.loadSecret(LicenseKeychainAccounts.licenseKey)
-            #expect(stored == "KEY-42")
+            #expect(stored == Self.validKey)
+            withExtendedLifetime(settings) { }
+        }
+
+        @Test("activate rejects a non-UUID key without calling the server")
+        func activateRejectsMalformedKey() async {
+            let called = LockIsolated(false)
+            let (manager, settings) = makeManager(client: LicensingClient(
+                activate: { _, _, _, _ in
+                    called.setValue(true)
+                    return LicenseStatus(state: .active)
+                },
+                deactivate: { _, _ in },
+                status: { _, _ in LicenseStatus(state: .none) }
+            ))
+            manager.licenseKeyField = "KEY-42"
+            await manager.activate()
+            #expect(manager.actionState == .error("Invalid key"))
+            #expect(called.value == false)
             withExtendedLifetime(settings) { }
         }
 
@@ -74,7 +97,7 @@
                 deactivate: { _, _ in },
                 status: { _, _ in LicenseStatus(state: .none) }
             ))
-            manager.licenseKeyField = "KEY-42"
+            manager.licenseKeyField = Self.validKey
             await manager.activate()
             #expect(
                 manager.actionState
@@ -111,7 +134,7 @@
             ))
             let fired = LockIsolated(0)
             manager.onActivationSuccess = { fired.withValue { $0 += 1 } }
-            manager.licenseKeyField = "KEY-42"
+            manager.licenseKeyField = Self.validKey
             await manager.activate()
             #expect(fired.value == 1)
             withExtendedLifetime(settings) { }

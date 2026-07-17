@@ -343,6 +343,9 @@ public struct RemoteAccessSettingsView: View {
                 // Unique AX label so E2E can focus the field itself — a bare
                 // "License Key" query matches the row's static label first.
                 .accessibilityLabel("License key field")
+                .onSubmit {
+                    Task { await licenseManager.activate() }
+                }
             HStack {
                 Button("Activate") {
                     Task { await licenseManager.activate() }
