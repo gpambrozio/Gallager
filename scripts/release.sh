@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Release Script for ClaudeSpy macOS App with Sparkle Auto-Update
-# Builds, notarizes, packages, and uploads to FTP server
+# Builds, notarizes, packages, and uploads to the update host over rsync/SSH
 
 set -e
 
@@ -24,14 +24,15 @@ PLUGINS_DIR="$PROJECT_ROOT/plugins"
 PLUGINS_BUILD_DIR="$BUILD_DIR/plugins"
 PLUGIN_MANIFEST_URLS=()
 
-# Sparkle / FTP configuration
+# Sparkle / update-host configuration. Uploads go over rsync/SSH to the same
+# Hetzner box the relay runs on (issue #664), resolved like deploy.sh does:
+# DEPLOY_HOST wins, otherwise hcloud looks up HCLOUD_SERVER_NAME.
 APPCAST_DIR="$PROJECT_ROOT/docs"
 APPCAST_FILE="$APPCAST_DIR/ClaudeSpy.xml"
-FTP_HOST="gustavo.eng.br"
-FTP_REMOTE_DIR="/"
-ONEPASSWORD_ITEM="Updates FTP for gustavo.eng.br"
-ONEPASSWORD_ACCOUNT="OKIDD7RZWVFWPDPZSBA4O4BSPI"
-DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
+DEPLOY_USER="${DEPLOY_USER:-root}"
+HCLOUD_SERVER_NAME="${HCLOUD_SERVER_NAME:-cleancast}"
+UPDATES_REMOTE_DIR="${UPDATES_REMOTE_DIR:-/opt/claudespy-updates}"
+DOWNLOAD_URL_PREFIX="https://updates.gallager.app"
 
 # =====================================================
 # State gathered during the interactive phase (see gather_user_input).
@@ -40,8 +41,7 @@ DOWNLOAD_URL_PREFIX="https://updates.gustavo.eng.br"
 # =====================================================
 RELEASE_NOTES=""        # macOS appcast release notes (edited)
 IOS_WHATS_NEW_FILE=""   # temp file holding iOS TestFlight "What to Test" notes
-FTP_USER=""             # FTP username retrieved from 1Password
-FTP_PASS=""             # FTP password retrieved from 1Password
+UPDATES_HOST=""         # update host resolved by verify_updates_host
 
 # =====================================================
 # Shared helpers (colors, logging, version + notes editing)
@@ -163,14 +163,6 @@ check_prerequisites() {
     log_info "Checking prerequisites..."
 
     if [ "$BETA" != true ]; then
-        if ! command -v lftp &> /dev/null; then
-            log_error "lftp is not installed. Install with: brew install lftp"
-        fi
-
-        if ! command -v op &> /dev/null; then
-            log_error "1Password CLI is not installed. Install with: brew install --cask 1password-cli"
-        fi
-
         if ! command -v create-dmg &> /dev/null; then
             log_error "create-dmg is not installed. Install with: brew install create-dmg"
         fi
@@ -488,7 +480,7 @@ ITEMEOF
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
    <channel>
       <title>ClaudeSpy Updates</title>
-      <link>$DOWNLOAD_URL_PREFIX/appcast.xml</link>
+      <link>$DOWNLOAD_URL_PREFIX/$(basename "$APPCAST_FILE")</link>
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
 $(cat "$item_file")
@@ -507,65 +499,82 @@ EOF
 }
 
 # =====================================================
-# Retrieve FTP credentials from 1Password
-# Interactive (may prompt for Touch ID / password), so it runs up front and
-# stashes the credentials in FTP_USER / FTP_PASS for the unattended upload.
+# Resolve the update host and verify SSH access
+# Runs up front (before the long unattended pipeline) so a missing host or
+# broken SSH key setup fails immediately instead of after build/notarize.
 # =====================================================
-retrieve_ftp_credentials() {
+verify_updates_host() {
     if [ "$SKIP_UPLOAD" = true ]; then
-        log_info "Skipping FTP credential retrieval (--skip-upload)"
+        log_info "Skipping update-host check (--skip-upload)"
         return
     fi
 
-    log_info "Retrieving FTP credentials from 1Password..."
-    op signin --account "$ONEPASSWORD_ACCOUNT" || log_error "1Password sign-in failed"
+    log_info "Resolving update host..."
 
-    FTP_USER=$(op item get "$ONEPASSWORD_ITEM" --fields username --account "$ONEPASSWORD_ACCOUNT") \
-        || log_error "Failed to get FTP username from 1Password. Create item '$ONEPASSWORD_ITEM' with username and password fields."
-    FTP_PASS=$(op item get "$ONEPASSWORD_ITEM" --fields password --reveal --account "$ONEPASSWORD_ACCOUNT") \
-        || log_error "Failed to get FTP password from 1Password"
+    if [ -n "$DEPLOY_HOST" ]; then
+        UPDATES_HOST="$DEPLOY_HOST"
+    elif command -v hcloud &> /dev/null; then
+        UPDATES_HOST=$(hcloud server ip "$HCLOUD_SERVER_NAME" 2>/dev/null)
+    fi
 
-    log_success "FTP credentials retrieved"
+    if [ -z "$UPDATES_HOST" ]; then
+        log_error "Could not determine update host. Set DEPLOY_HOST, or install/configure hcloud (server: $HCLOUD_SERVER_NAME)."
+    fi
+
+    if ! ssh -q -o BatchMode=yes -o ConnectTimeout=5 "$DEPLOY_USER@$UPDATES_HOST" exit 2>/dev/null; then
+        log_error "Cannot connect to $DEPLOY_USER@$UPDATES_HOST over SSH. Make sure SSH key authentication is configured."
+    fi
+
+    log_success "Update host reachable: $DEPLOY_USER@$UPDATES_HOST"
 }
 
 # =====================================================
-# Upload to FTP server (uses credentials fetched by retrieve_ftp_credentials)
+# Upload to the update host (rsync over SSH, host from verify_updates_host)
 # =====================================================
-upload_to_ftp() {
+upload_to_server() {
     local dmg_path=$1
 
     if [ "$SKIP_UPLOAD" = true ]; then
-        log_warning "Skipping FTP upload"
+        log_warning "Skipping upload"
         return
     fi
 
-    log_info "Uploading to FTP server..."
+    local remote_host="$DEPLOY_USER@$UPDATES_HOST"
+    log_info "Uploading to $remote_host:$UPDATES_REMOTE_DIR..."
 
     local dmg_name
     dmg_name=$(basename "$dmg_path")
 
-    # Mirror packaged plugins (zip + distribution plugin.json per plugin)
-    local plugins_mirror=""
+    ssh -o LogLevel=ERROR "$remote_host" "mkdir -p '$UPDATES_REMOTE_DIR'" \
+        || log_error "Could not create $UPDATES_REMOTE_DIR on $UPDATES_HOST"
+
+    # Versioned DMG + appcast.
+    rsync -az -e "ssh -o LogLevel=ERROR" \
+        "$dmg_path" "$APPCAST_FILE" "$remote_host:$UPDATES_REMOTE_DIR/" \
+        || log_error "Upload of DMG/appcast failed"
+
+    # Canonical Gallager.dmg copy, made server-side to avoid a second transfer.
+    ssh -o LogLevel=ERROR "$remote_host" \
+        "cp '$UPDATES_REMOTE_DIR/$dmg_name' '$UPDATES_REMOTE_DIR/Gallager.dmg'" \
+        || log_error "Could not update the canonical Gallager.dmg copy"
+
+    # Mirror packaged plugins (zip + distribution plugin.json per plugin).
+    # No --delete: older versioned zips already on the host stay available.
     if [ -d "$PLUGINS_BUILD_DIR" ]; then
-        plugins_mirror="mirror -R '$PLUGINS_BUILD_DIR' plugins;"
+        rsync -az -e "ssh -o LogLevel=ERROR" \
+            "$PLUGINS_BUILD_DIR/" "$remote_host:$UPDATES_REMOTE_DIR/plugins/" \
+            || log_error "Plugin upload failed"
     fi
 
-    # Upload DMG (versioned + canonical), appcast.xml, and plugins
-    lftp -c "
-set ssl:verify-certificate false;
-set cmd:fail-exit true;
-open ftp://$FTP_USER:$FTP_PASS@$FTP_HOST;
-cd $FTP_REMOTE_DIR;
-put -O . '$dmg_path';
-put '$dmg_path' -o 'Gallager.dmg';
-put -O . '$APPCAST_FILE';
-$plugins_mirror
-" || log_error "FTP upload failed"
+    # Everything must be world-readable for Caddy's file_server, which runs as
+    # its own user (macOS's bundled openrsync has no --chmod, so fix up here).
+    ssh -o LogLevel=ERROR "$remote_host" "chmod -R a+rX '$UPDATES_REMOTE_DIR'" \
+        || log_error "Could not make $UPDATES_REMOTE_DIR world-readable"
 
-    log_success "Uploaded $dmg_name and appcast.xml to $FTP_HOST"
+    log_success "Uploaded $dmg_name and $(basename "$APPCAST_FILE") to $UPDATES_HOST"
     log_success "Updated Gallager.dmg link → $dmg_name"
-    if [ -n "$plugins_mirror" ]; then
-        log_success "Uploaded ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) to $FTP_HOST/plugins/"
+    if [ -d "$PLUGINS_BUILD_DIR" ]; then
+        log_success "Uploaded ${#PLUGIN_MANIFEST_URLS[@]} plugin(s) to $UPDATES_REMOTE_DIR/plugins/"
     fi
 }
 
@@ -725,7 +734,7 @@ prepare_ios_notes() {
 
 # =====================================================
 # Gather ALL user interaction up front so the release runs unattended:
-# FTP credentials, macOS release notes, and iOS "What to Test" notes.
+# update-host SSH preflight, macOS release notes, and iOS "What to Test" notes.
 # =====================================================
 gather_user_input() {
     local version=$1
@@ -738,7 +747,7 @@ gather_user_input() {
     local prev_tag
     prev_tag=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || echo "")
 
-    retrieve_ftp_credentials
+    verify_updates_host
     prepare_release_notes "$version" "$prev_tag"
     prepare_ios_notes "$version" "$prev_tag"
 
@@ -826,8 +835,8 @@ main() {
 
     # ----------------------------------------------------------------------
     # Interactive phase — collect EVERYTHING we need from the user up front
-    # (FTP credentials + macOS/iOS release notes) so the long pipeline below
-    # runs unattended and the user can walk away.
+    # (update-host SSH preflight + macOS/iOS release notes) so the long
+    # pipeline below runs unattended and the user can walk away.
     # ----------------------------------------------------------------------
     gather_user_input "$new_version"
 
@@ -869,7 +878,7 @@ main() {
     git -C "$PROJECT_ROOT" commit -m "Update appcast for version $version"
     REVERT_COMMITS=2
 
-    upload_to_ftp "$dmg_path"
+    upload_to_server "$dmg_path"
 
     log_info "Creating release tag v$version..."
     git -C "$PROJECT_ROOT" tag -a "v$version" -m "Release $version"
@@ -912,7 +921,7 @@ main() {
     echo ""
     echo "Released: ClaudeSpy $version"
     echo "Download: $DOWNLOAD_URL_PREFIX/$(basename "$dmg_path")"
-    echo "Appcast:  $DOWNLOAD_URL_PREFIX/appcast.xml"
+    echo "Appcast:  $DOWNLOAD_URL_PREFIX/$(basename "$APPCAST_FILE")"
     for manifest_url in "${PLUGIN_MANIFEST_URLS[@]}"; do
         echo "Plugin:   $manifest_url (gallager plugin install $manifest_url)"
     done

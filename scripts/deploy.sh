@@ -14,6 +14,7 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/claudespy}"
 CADDY_CONF_D="${CADDY_CONF_D:-/etc/caddy/conf.d}"
 HCLOUD_SERVER_NAME="${HCLOUD_SERVER_NAME:-cleancast}"
 PROD_CADDY_FILE="claudespy.caddy"
+UPDATES_CADDY_FILE="updates.caddy"
 PROD_COMPOSE="docker compose"
 HEALTH_URL="${HEALTH_CHECK_URL:-https://relay.gallager.app/health}"
 
@@ -249,6 +250,9 @@ deploy() {
     sync_package "$REMOTE_DIR"
 
     install_caddy "$REMOTE_DIR" "$PROD_CADDY_FILE"
+    # Update hosting (updates.gallager.app → /opt/claudespy-updates, issue #664)
+    # rides along so edits to its site file reach the server on every deploy.
+    install_caddy "$REMOTE_DIR" "$UPDATES_CADDY_FILE"
 
     # Ensure data directory exists with correct permissions
     info "Ensuring data directory permissions..."
