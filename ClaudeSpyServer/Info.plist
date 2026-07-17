@@ -8,7 +8,7 @@
 
 	<!-- Sparkle Auto-Update Configuration -->
 	<key>SUFeedURL</key>
-	<string>https://updates.gustavo.eng.br/ClaudeSpy.xml</string>
+	<string>https://updates.gallager.app/ClaudeSpy.xml</string>
 
 	<key>SUPublicEDKey</key>
 	<string>SgIzXu4JuQVHuQFIyVAPsy48BCLzF6nuCTRKUyPi+cc=</string>

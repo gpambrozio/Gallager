@@ -449,7 +449,7 @@ lands in `build/plugins/<id>/` (gitignored); trim dev-only files with
 
 Plugins living in this repo's `plugins/` directory are packaged and published
 automatically by `scripts/release.sh` (non-beta releases) to
-`https://updates.gustavo.eng.br/plugins/<id>/`, excluding `tests/` and `scripts/`.
+`https://updates.gallager.app/plugins/<id>/`, excluding `tests/` and `scripts/`.
 
 ### Remote install (recommended)
 

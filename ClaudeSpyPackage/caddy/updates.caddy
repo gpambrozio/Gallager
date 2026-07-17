@@ -1,0 +1,36 @@
+# Gallager update hosting (Sparkle appcast + DMGs + plugin bundles)
+# This file should be placed in /etc/caddy/conf.d/ (deploy.sh installs it
+# alongside claudespy.caddy on every prod deploy).
+#
+# Serves static files from /opt/claudespy-updates, uploaded by
+# scripts/release.sh over rsync/SSH:
+#   ClaudeSpy.xml            Sparkle appcast
+#   Gallager-<version>.dmg   versioned releases
+#   Gallager.dmg             canonical copy of the latest release
+#   plugins/<id>/            sidecar plugin bundles + distribution manifests
+#
+# updates.gustavo.eng.br is the legacy hostname baked into every shipped app's
+# SUFeedURL, so it must keep serving the appcast indefinitely (its DNS flipped
+# to this server on 2026-07-17, issue #664). Caddy issues a separate
+# Let's Encrypt cert per hostname; both serve the same file tree.
+
+updates.gallager.app, updates.gustavo.eng.br {
+    root * /opt/claudespy-updates
+    file_server
+
+    # Access logging (separate file from the relay)
+    log {
+        output file /var/log/caddy/gallager-updates-access.log
+        format json
+    }
+
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable XSS protection
+        X-XSS-Protection "1; mode=block"
+    }
+}

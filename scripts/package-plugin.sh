@@ -26,7 +26,7 @@
 #   # Remote install: bundle + a ready-to-host distribution plugin.json.
 #   # --base-url is where BOTH files will live (no trailing filename):
 #   scripts/package-plugin.sh plugins/opencode \
-#       --base-url https://updates.gustavo.eng.br/plugins/opencode
+#       --base-url https://updates.gallager.app/plugins/opencode
 #
 #   # Trim dev-only files out of the shipped bundle:
 #   scripts/package-plugin.sh plugins/opencode --exclude 'tests/*' --exclude 'scripts/*'

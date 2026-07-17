@@ -23,8 +23,8 @@ manifest). `release.sh` orchestrates it and uploads the output.
 Per-plugin directory under the existing updates host:
 
 ```
-https://updates.gustavo.eng.br/plugins/<id>/plugin.json          (manifest — install URL)
-https://updates.gustavo.eng.br/plugins/<id>/<id>-<version>.zip   (bundle)
+https://updates.gallager.app/plugins/<id>/plugin.json          (manifest — install URL)
+https://updates.gallager.app/plugins/<id>/<id>-<version>.zip   (bundle)
 ```
 
 This matches `package-plugin.sh`'s documented example and avoids `plugin.json`

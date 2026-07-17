@@ -16,7 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static let downloadURL = URL(staticString: "https://updates.gustavo.eng.br/Gallager.dmg")
+        private static let downloadURL = URL(staticString: "https://updates.gallager.app/Gallager.dmg")
 
         private let codeLength = 6
 
