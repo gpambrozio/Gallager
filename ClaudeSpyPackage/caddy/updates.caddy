@@ -10,14 +10,11 @@
 #   plugins/<id>/            sidecar plugin bundles + distribution manifests
 #
 # updates.gustavo.eng.br is the legacy hostname baked into every shipped app's
-# SUFeedURL, so it must keep serving the appcast indefinitely. Add it as an
-# alias here ONLY AFTER its DNS points at this server (issue #664 task 5) —
-# if Caddy sees the hostname before DNS flips, ACME cert issuance fails and
-# retries noisily:
-#
-#   updates.gallager.app, updates.gustavo.eng.br {
+# SUFeedURL, so it must keep serving the appcast indefinitely (its DNS flipped
+# to this server on 2026-07-17, issue #664). Caddy issues a separate
+# Let's Encrypt cert per hostname; both serve the same file tree.
 
-updates.gallager.app {
+updates.gallager.app, updates.gustavo.eng.br {
     root * /opt/claudespy-updates
     file_server
 
