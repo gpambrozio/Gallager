@@ -526,6 +526,9 @@ final public class ConnectedViewer: Identifiable {
             URLQueryItem(name: "pairId", value: id),
             URLQueryItem(name: "deviceType", value: "host"),
             URLQueryItem(name: "deviceId", value: hostDeviceId),
+            // Report our version so the relay's optional minimum-client-version
+            // gate (issue #659) can refuse an out-of-date client on connect.
+            URLQueryItem(name: "clientVersion", value: VersionCompatibility.currentAppVersion),
         ]
 
         guard let wsURL = components?.url else {

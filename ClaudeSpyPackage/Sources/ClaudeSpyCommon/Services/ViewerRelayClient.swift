@@ -551,6 +551,9 @@ final public class ViewerRelayClient {
             URLQueryItem(name: "pairId", value: pairId),
             URLQueryItem(name: "deviceType", value: "viewer"),
             URLQueryItem(name: "deviceId", value: deviceId),
+            // Report our version so the relay's optional minimum-client-version
+            // gate (issue #659) can refuse an out-of-date client on connect.
+            URLQueryItem(name: "clientVersion", value: VersionCompatibility.currentAppVersion),
         ]
 
         guard let wsURL = components?.url else {

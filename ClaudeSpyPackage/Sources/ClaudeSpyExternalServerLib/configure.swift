@@ -42,6 +42,19 @@ public func configure(_ app: Application) async throws {
         app.logger.info("Licensing ENABLED — hosted-relay hosts require a trial or license")
     }
 
+    // Optional server-side minimum-client-version gate (issue #659). Default-off:
+    // self-hosted relays leave MIN_CLIENT_VERSION unset and accept every client.
+    // When set, the relay refuses clients reporting a version below the minimum
+    // (and, if MIN_CLIENT_VERSION_REJECT_UNKNOWN is on, clients reporting none).
+    let minClientVersionGate = MinClientVersionGate.fromEnvironment()
+    app.storage[MinClientVersionGateKey.self] = minClientVersionGate
+    if let minClientVersionGate {
+        let unknownNote = minClientVersionGate.rejectUnknown ? " (unknown-version clients also refused)" : ""
+        app.logger.info(
+            "Minimum-client-version gate ENABLED — clients below \(minClientVersionGate.minVersion) are refused\(unknownNote)"
+        )
+    }
+
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
     let apnsEnvString = ProcessInfo.processInfo.environment["APNS_ENVIRONMENT"] ?? "development"
@@ -170,6 +183,12 @@ struct MetricsTokenKey: StorageKey {
     typealias Value = String?
 }
 
+struct MinClientVersionGateKey: StorageKey {
+    /// `nil` means the minimum-client-version gate is disabled (no
+    /// `MIN_CLIENT_VERSION` in env) and every client is accepted.
+    typealias Value = MinClientVersionGate?
+}
+
 // MARK: - Application Extensions (Internal)
 
 extension Application {
@@ -215,6 +234,12 @@ extension Application {
     /// `nil` when the `/metrics` endpoint is disabled (no `METRICS_TOKEN` in env).
     var metricsToken: String? {
         storage[MetricsTokenKey.self] ?? nil
+    }
+
+    /// `nil` when the minimum-client-version gate is disabled (no
+    /// `MIN_CLIENT_VERSION` in env); otherwise the configured gate.
+    var minClientVersionGate: MinClientVersionGate? {
+        storage[MinClientVersionGateKey.self] ?? nil
     }
 }
 
