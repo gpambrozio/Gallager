@@ -46,7 +46,9 @@ public func configure(_ app: Application) async throws {
     // self-hosted relays leave MIN_CLIENT_VERSION unset and accept every client.
     // When set, the relay refuses clients reporting a version below the minimum
     // (and, if MIN_CLIENT_VERSION_REJECT_UNKNOWN is on, clients reporting none).
-    let minClientVersionGate = MinClientVersionGate.fromEnvironment()
+    // A malformed MIN_CLIENT_VERSION throws here — fail-loud at boot rather than
+    // logging the gate as enabled while it silently accepts almost everything.
+    let minClientVersionGate = try MinClientVersionGate.fromEnvironment()
     app.storage[MinClientVersionGateKey.self] = minClientVersionGate
     if let minClientVersionGate {
         let unknownNote = minClientVersionGate.rejectUnknown ? " (unknown-version clients also refused)" : ""

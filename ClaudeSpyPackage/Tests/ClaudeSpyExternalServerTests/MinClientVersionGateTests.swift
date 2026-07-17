@@ -5,31 +5,48 @@ struct MinClientVersionGateTests {
     // MARK: - fromEnvironment
 
     @Test("Unset MIN_CLIENT_VERSION → nil (gate disabled)")
-    func unsetDisablesGate() {
-        #expect(MinClientVersionGate.fromEnvironment([:]) == nil)
+    func unsetDisablesGate() throws {
+        #expect(try MinClientVersionGate.fromEnvironment([:]) == nil)
     }
 
     @Test("Blank MIN_CLIENT_VERSION counts as unset")
-    func blankCountsAsUnset() {
-        #expect(MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "   "]) == nil)
+    func blankCountsAsUnset() throws {
+        #expect(try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "   "]) == nil)
     }
 
     @Test("Set MIN_CLIENT_VERSION → gate, rejectUnknown defaults to false")
-    func setEnablesGate() {
-        let gate = MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "2.1"])
+    func setEnablesGate() throws {
+        let gate = try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "2.1"])
         #expect(gate == MinClientVersionGate(minVersion: "2.1", rejectUnknown: false))
     }
 
     @Test("MIN_CLIENT_VERSION is trimmed")
-    func versionIsTrimmed() {
-        let gate = MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "  2.1 "])
+    func versionIsTrimmed() throws {
+        let gate = try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": "  2.1 "])
         #expect(gate?.minVersion == "2.1")
     }
 
+    @Test("Malformed MIN_CLIENT_VERSION throws rather than silently under-enforcing")
+    func malformedVersionThrows() {
+        for raw in ["v2.1", "2.x", "2..1", "2.", ".2", "abc", "2 1"] {
+            #expect(throws: MinClientVersionGateError.self, "\(raw) should be rejected") {
+                try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": raw])
+            }
+        }
+    }
+
+    @Test("Well-formed MIN_CLIENT_VERSION values parse")
+    func wellFormedVersionsParse() throws {
+        for raw in ["2", "2.1", "2.1.0", "10.20.30"] {
+            let gate = try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION": raw])
+            #expect(gate?.minVersion == raw, "\(raw) should be accepted")
+        }
+    }
+
     @Test("MIN_CLIENT_VERSION_REJECT_UNKNOWN opts in (1/true/yes, case-insensitive)")
-    func rejectUnknownTruthy() {
+    func rejectUnknownTruthy() throws {
         for raw in ["1", "true", "TRUE", "Yes", "yes"] {
-            let gate = MinClientVersionGate.fromEnvironment([
+            let gate = try MinClientVersionGate.fromEnvironment([
                 "MIN_CLIENT_VERSION": "2.1",
                 "MIN_CLIENT_VERSION_REJECT_UNKNOWN": raw,
             ])
@@ -38,9 +55,9 @@ struct MinClientVersionGateTests {
     }
 
     @Test("MIN_CLIENT_VERSION_REJECT_UNKNOWN stays off for other values")
-    func rejectUnknownFalsy() {
+    func rejectUnknownFalsy() throws {
         for raw in ["0", "false", "no", "off", ""] {
-            let gate = MinClientVersionGate.fromEnvironment([
+            let gate = try MinClientVersionGate.fromEnvironment([
                 "MIN_CLIENT_VERSION": "2.1",
                 "MIN_CLIENT_VERSION_REJECT_UNKNOWN": raw,
             ])
@@ -49,8 +66,8 @@ struct MinClientVersionGateTests {
     }
 
     @Test("REJECT_UNKNOWN alone (no MIN_CLIENT_VERSION) → still disabled")
-    func rejectUnknownWithoutMinIsDisabled() {
-        #expect(MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION_REJECT_UNKNOWN": "true"]) == nil)
+    func rejectUnknownWithoutMinIsDisabled() throws {
+        #expect(try MinClientVersionGate.fromEnvironment(["MIN_CLIENT_VERSION_REJECT_UNKNOWN": "true"]) == nil)
     }
 
     // MARK: - allows(clientVersion:)
@@ -64,6 +81,21 @@ struct MinClientVersionGateTests {
         #expect(gate.allows(clientVersion: "2.10")) // numeric, not lexical (2.10 > 2.1)
         #expect(!gate.allows(clientVersion: "2.0")) // older
         #expect(!gate.allows(clientVersion: "1.9")) // older
+    }
+
+    @Test("Reported clientVersion is trimmed before comparison")
+    func clientVersionIsTrimmed() {
+        let gate = MinClientVersionGate(minVersion: "2.1", rejectUnknown: false)
+        #expect(gate.allows(clientVersion: "  2.1 ")) // padded but new enough
+        #expect(!gate.allows(clientVersion: " 2.0 ")) // padded but too old
+    }
+
+    @Test("Whitespace-only clientVersion counts as unknown")
+    func whitespaceCountsAsUnknown() {
+        let allowUnknown = MinClientVersionGate(minVersion: "2.1", rejectUnknown: false)
+        #expect(allowUnknown.allows(clientVersion: "   "))
+        let refuseUnknown = MinClientVersionGate(minVersion: "2.1", rejectUnknown: true)
+        #expect(!refuseUnknown.allows(clientVersion: "   "))
     }
 
     @Test("Unknown version follows rejectUnknown = false (allowed)")

@@ -131,7 +131,7 @@ If you skip APNs configuration, the server runs without push notifications—dev
 
 By default the relay is a dumb end-to-end-encrypted router that never inspects client versions—the host and viewer negotiate compatibility peer-to-peer (each tells an older peer to update). That handshake can't help an *old-host + old-viewer* pair, and it can't let the relay refuse a client on its own. The optional server-side gate closes that gap:
 
-- Set `MIN_CLIENT_VERSION` (e.g. `2.1`) and the relay refuses any client reporting a marketing version below it, closing the WebSocket with a "please update" error. Clients report their version in a pre-E2EE query parameter the relay can already read; it never decrypts message contents.
+- Set `MIN_CLIENT_VERSION` (e.g. `2.1`) and the relay refuses any client reporting a marketing version below it, closing the WebSocket with a "please update" error. Clients report their version in a pre-E2EE query parameter the relay can already read; it never decrypts message contents. The value must be a clean dot-separated numeric version (`2`, `2.1`, `2.1.0`); a malformed value like `v2.1` fails the relay at boot rather than silently parsing to a near-zero minimum that accepts almost everything.
 - Leave it unset (the default) and every client is accepted—self-hosting needs no configuration here.
 
 The relay can only enforce against clients new enough to *report* a version. Builds predating this feature send none; `MIN_CLIENT_VERSION_REJECT_UNKNOWN` chooses the policy for them:
