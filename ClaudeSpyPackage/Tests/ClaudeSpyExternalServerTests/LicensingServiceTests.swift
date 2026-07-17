@@ -12,6 +12,7 @@ final class StubLicenseAPIClient: LicenseAPIClient, @unchecked Sendable {
     private var _deactivateResult: Result<LSDeactivateResponse, Error>
     private(set) var validateCallCount = 0
     private(set) var deactivateCallCount = 0
+    private(set) var lastActivateLicenseKey: String?
 
     init(
         activate: Result<LSLicenseResponse, Error> = .failure(DisabledLicenseAPIClient.LicensingDisabledError()),
@@ -30,7 +31,10 @@ final class StubLicenseAPIClient: LicenseAPIClient, @unchecked Sendable {
     }
 
     func activate(licenseKey: String, instanceName: String) async throws -> LSLicenseResponse {
-        try lock.withLock { try _activateResult.get() }
+        try lock.withLock {
+            lastActivateLicenseKey = licenseKey
+            return try _activateResult.get()
+        }
     }
 
     func validate(licenseKey: String, instanceId: String) async throws -> LSLicenseResponse {
@@ -228,6 +232,27 @@ struct LicensingServiceActivationTests {
         #expect(status.state == .active)
         #expect(status.activationLimit == 3)
         #expect(await service.checkEntitlement(hostDeviceId: "host-1") == .licensed)
+    }
+
+    @Test("Activation strips whitespace and invisible characters pasted into the key")
+    func activateSanitizesPastedKey() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(activated: true))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+
+        // Keys copied from the LS receipt email arrive with wrap artifacts —
+        // embedded newlines/spaces and zero-width characters that make LS
+        // respond "license_key not found".
+        _ = try await service.activate(
+            licenseKey: " 084A4570-4DD0-49DF-\n9214-86565DFC8959\u{200B}",
+            deviceId: "host-1", deviceName: "My Mac"
+        )
+        #expect(stub.lastActivateLicenseKey == "084A4570-4DD0-49DF-9214-86565DFC8959")
     }
 
     @Test("Activation-limit failure surfaces LS's message")
