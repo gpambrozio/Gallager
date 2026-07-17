@@ -395,6 +395,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         TrialStatusToolbarBadgeScenario.scenario,
         AutoSelectActiveWindowScenario.scenario,
         PromptEditorResizeScenario.scenario,
+        ServerMinClientVersionGateScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {

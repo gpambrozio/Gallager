@@ -24,7 +24,11 @@ public actor ServerDriver {
     /// again, so scenarios that start the server without the parameter always
     /// run with licensing disabled — even in the same process, right after a
     /// licensing scenario.
-    public func start(port: Int = 8_765, licensedTrialDays: Int? = nil) async throws {
+    public func start(
+        port: Int = 8_765,
+        licensedTrialDays: Int? = nil,
+        minClientVersion: String? = nil
+    ) async throws {
         self.port = port
         logger.info("Starting test server on port \(port)")
 
@@ -49,6 +53,17 @@ public actor ServerDriver {
             // Defensive: a previous aborted run could have leaked the env in
             // this process; half-set ids would even fail configure() at boot.
             Self.clearLicensingEnv()
+        }
+
+        // Server-side minimum-client-version gate (issue #659). Applied before
+        // `configure(app)` runs (that's where `MinClientVersionGate
+        // .fromEnvironment()` reads it) and cleared on `stop()`, so scenarios
+        // using plain `startServer` always boot with the gate disabled.
+        if let minClientVersion {
+            setenv("MIN_CLIENT_VERSION", minClientVersion, 1)
+            logger.info("Min-client-version gate applied (MIN_CLIENT_VERSION=\(minClientVersion))")
+        } else {
+            Self.clearMinClientVersionEnv()
         }
 
         // Wire the relay's APNs push log file. APNsService picks this up via
@@ -108,6 +123,16 @@ public actor ServerDriver {
         // next scenario's relay boots with licensing disabled by default.
         Self.removeLicensingStateFile(logger: logger)
         Self.clearLicensingEnv()
+        Self.clearMinClientVersionEnv()
+    }
+
+    // MARK: - Min-Client-Version Gate Env
+
+    /// Env vars a `start(port:minClientVersion:)` call applies; cleared on every
+    /// `stop()` so the gate never leaks into subsequent scenarios.
+    private static func clearMinClientVersionEnv() {
+        unsetenv("MIN_CLIENT_VERSION")
+        unsetenv("MIN_CLIENT_VERSION_REJECT_UNKNOWN")
     }
 
     // MARK: - Licensing Env + State

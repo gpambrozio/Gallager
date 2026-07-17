@@ -402,6 +402,9 @@ public actor TestOrchestrator {
         case let .startServerLicensed(trialDays):
             try await serverDriver.start(port: serverPort, licensedTrialDays: trialDays)
 
+        case let .startServerWithMinClientVersion(minVersion):
+            try await serverDriver.start(port: serverPort, minClientVersion: minVersion)
+
         case .verifyServerHealth:
             try await serverDriver.waitForHealthy()
 

@@ -41,7 +41,7 @@ extension EnvSerializedSuites {
                 let viewer = TextCollector()
                 let viewerWS = try await connectClient(
                     port: port,
-                    query: "pairId=\(pairId)&deviceType=viewer&deviceId=viewer-1&clientVersion=2.0",
+                    query: "pairId=\(pairId)&deviceType=viewer&deviceId=viewer-1&clientVersion=1.9",
                     collector: viewer
                 )
 

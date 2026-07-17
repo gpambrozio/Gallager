@@ -849,6 +849,17 @@ final public class ViewerRelayClient {
                 await cleanupConnection()
                 setState(.disconnected)
                 await onUnpaired?()
+            } else if errorMessage.code == ErrorMessage.clientTooOldCode {
+                // The relay's server-side version gate refused us (issue #659).
+                // Stop reconnecting and KEEP the message visible: calling
+                // `disconnect()` here resets the state to `.disconnected` and
+                // hides the "please update" text — reproducing the opaque
+                // disconnect the gate exists to replace. Mirrors the terminal
+                // handling in `handleVersionMismatch`.
+                logger.error("Relay rejected our version: \(errorMessage.message)")
+                shouldReconnect = false
+                await cleanupConnection()
+                setState(.error(errorMessage.message))
             } else {
                 logger.error("Server error: \(errorMessage.message)")
                 if !errorMessage.recoverable {
