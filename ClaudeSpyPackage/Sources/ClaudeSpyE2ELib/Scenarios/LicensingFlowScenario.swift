@@ -22,8 +22,10 @@ import Foundation
 /// 3. **Activate** — typing the stub-accepted key and clicking Activate flips
 ///    the section to Active (1 of 3 Macs); activation auto-resumes the pair
 ///    the relay blocked (host reconnects through the still-TRIAL_DAYS=0
-///    gate — so it's the license doing the unblocking) and a new
-///    registration (Try Again) now yields a code sheet.
+///    gate — so it's the license doing the unblocking) AND auto-retries the
+///    registration the relay blocked: the pairing section flips from the
+///    sticky "Subscription required" error straight to a fresh pairing code
+///    without clicking Try Again (`retryAfterSubscriptionRestored`).
 ///
 /// Licensing env is applied by `startServerLicensed` before `configure(app)`
 /// runs and cleared on every server stop, so scenarios using plain
@@ -155,8 +157,12 @@ public enum LicensingFlowScenario {
         // 10. Activation auto-resumes the pair the relay blocked
         //     (onActivationSuccess → enableReconnectAndRetryAll): the host
         //     reconnects through the still-TRIAL_DAYS=0 gate — the license,
-        //     not a trial, is doing the unblocking. iOS's connection goes
-        //     fully green once the host is back.
+        //     not a trial, is doing the unblocking. It ALSO auto-retries the
+        //     registration the relay blocked (retryAfterSubscriptionRestored):
+        //     the pairing section flips from the sticky "Subscription
+        //     required" error straight to a fresh code, no Try Again click.
+        //     iOS's connection goes fully green once the host is back.
+        TestStep.macWaitForElement(titled: "Enter this code on your iPhone:", timeout: 10)
         TestStep.waitForHostConnected(timeout: 15)
         TestStep.waitForViewerConnected(timeout: 15)
         TestStep.iosWaitForElement(.label("Connected"), timeout: 15)
@@ -168,14 +174,14 @@ public enum LicensingFlowScenario {
         TestStep.macScrollWheel(deltaY: -10, count: 10)
         TestStep.wait(seconds: 0.5)
         // tolerance: 5 — recording (ScreenCaptureKit) shifts rendering ~3.3%
-        // on Settings-window shots.
+        // on Settings-window shots, and this shot includes the auto-opened
+        // pairing code + ticking expiry countdown (random per run, same as
+        // FreshPairing's code-generated shot).
         TestStep.macScreenshot(label: "mac-license-active", tolerance: 5)
 
-        // 11. Registration is unblocked too: the pairing section still holds
-        //     the blocked-register error, and "Try Again" now yields a code.
+        // 11. Cancel the auto-opened code flow; the section settles back to
+        //     the paired list with Add Viewer available.
         TestStep.macScrollWheel(deltaY: 10, count: 10)
-        TestStep.macClickButton(titled: "Try Again")
-        TestStep.macWaitForElement(titled: "Enter this code on your iPhone:", timeout: 10)
         TestStep.macClickButton(titled: "Cancel")
         TestStep.macWaitForElement(titled: "Add Viewer", timeout: 5)
 

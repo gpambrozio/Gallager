@@ -2757,10 +2757,15 @@
             // `LicenseManager.onActivationSuccess`. `ConnectedViewer.disconnect()`
             // sets `shouldReconnect = false` on a relay-initiated block and
             // nothing else re-enables it, so without this a resubscribed host
-            // would stay disconnected until the app relaunches.
+            // would stay disconnected until the app relaunches. A registration
+            // the relay blocked the same way (the sticky "Subscription
+            // required" error in the pairing section) retries immediately too.
             licenseManager.onActivationSuccess = { [weak self] in
                 Task { [weak self] in
                     await self?.connectedViewerManager?.enableReconnectAndRetryAll()
+                }
+                Task { [weak self] in
+                    await self?.pairingManager?.retryAfterSubscriptionRestored()
                 }
             }
 

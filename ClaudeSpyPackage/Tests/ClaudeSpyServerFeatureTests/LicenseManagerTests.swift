@@ -76,8 +76,10 @@
             ))
             manager.licenseKeyField = "KEY-42"
             await manager.activate()
-            #expect(manager.actionState
-                == .error("This license key has reached the activation limit."))
+            #expect(
+                manager.actionState
+                    == .error("This license key has reached the activation limit.")
+            )
             withExtendedLifetime(settings) { }
         }
 
@@ -97,6 +99,44 @@
             #expect(manager.status?.state == LicenseStatus.State.none)
             let stored = try await secrets.loadSecret(LicenseKeychainAccounts.licenseKey)
             #expect(stored == nil)
+            withExtendedLifetime(settings) { }
+        }
+
+        @Test("activate fires onActivationSuccess")
+        func activateFiresCallback() async {
+            let (manager, settings) = makeManager(client: LicensingClient(
+                activate: { _, _, _, _ in LicenseStatus(state: .active) },
+                deactivate: { _, _ in },
+                status: { _, _ in LicenseStatus(state: .active) }
+            ))
+            let fired = LockIsolated(0)
+            manager.onActivationSuccess = { fired.withValue { $0 += 1 } }
+            manager.licenseKeyField = "KEY-42"
+            await manager.activate()
+            #expect(fired.value == 1)
+            withExtendedLifetime(settings) { }
+        }
+
+        @Test("refreshStatus observing expired→active fires onActivationSuccess")
+        func refreshExpiredToActiveFiresCallback() async {
+            let statusResponse = LockIsolated(LicenseStatus(state: .expired))
+            let (manager, settings) = makeManager(client: LicensingClient(
+                activate: { _, _, _, _ in LicenseStatus(state: .active) },
+                deactivate: { _, _ in },
+                status: { _, _ in statusResponse.value }
+            ))
+            let fired = LockIsolated(0)
+            manager.onActivationSuccess = { fired.withValue { $0 += 1 } }
+
+            await manager.refreshStatus() // none → expired
+            #expect(fired.value == 0)
+
+            statusResponse.setValue(LicenseStatus(state: .active))
+            await manager.refreshStatus() // expired → active: resubscribed externally
+            #expect(fired.value == 1)
+
+            await manager.refreshStatus() // active → active: no re-fire
+            #expect(fired.value == 1)
             withExtendedLifetime(settings) { }
         }
 
@@ -144,19 +184,27 @@
         @Test("48h threshold fires inside the window, once")
         func fires48() {
             let now = expiry.addingTimeInterval(-47 * 3_600)
-            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
-                == [.hours48])
-            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
-                .isEmpty)
+            #expect(
+                TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
+                    == [.hours48]
+            )
+            #expect(
+                TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
+                    .isEmpty
+            )
         }
 
         @Test("Inside 24h, both unfired thresholds apply, most urgent first")
         func fires24AndCatchUp() {
             let now = expiry.addingTimeInterval(-20 * 3_600)
-            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
-                == [.hours24, .hours48])
-            #expect(TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
-                == [.hours24])
+            #expect(
+                TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [])
+                    == [.hours24, .hours48]
+            )
+            #expect(
+                TrialAlertPlanner.thresholdsToFire(now: now, expiresAt: expiry, alreadyFired: [48])
+                    == [.hours24]
+            )
         }
 
         @Test("Nothing fires after expiry")
