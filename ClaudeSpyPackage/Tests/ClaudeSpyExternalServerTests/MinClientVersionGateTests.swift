@@ -87,6 +87,7 @@ struct MinClientVersionGateTests {
     func clientVersionIsTrimmed() {
         let gate = MinClientVersionGate(minVersion: "2.1", rejectUnknown: false)
         #expect(gate.allows(clientVersion: "  2.1 ")) // padded but new enough
+        // swiftlint:disable:next custom_no_number_decimals
         #expect(!gate.allows(clientVersion: " 2.0 ")) // padded but too old
     }
 
