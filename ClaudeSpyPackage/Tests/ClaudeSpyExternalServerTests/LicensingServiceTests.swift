@@ -255,6 +255,24 @@ struct LicensingServiceActivationTests {
         #expect(stub.lastActivateLicenseKey == "084A4570-4DD0-49DF-9214-86565DFC8959")
     }
 
+    @Test("LS's machine-worded not-found error surfaces as a friendly message")
+    func activateNotFoundFriendlyMessage() async throws {
+        let dir = try LicensingTestSupport.tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stub = StubLicenseAPIClient(
+            activate: .success(LicensingTestSupport.activeResponse(
+                activated: false, error: "license_key not found."
+            ))
+        )
+        let service = LicensingService(
+            config: LicensingTestSupport.config, apiClient: stub, dataDirectory: dir
+        )
+
+        await #expect(throws: LicensingError.activationFailed("Invalid key")) {
+            try await service.activate(licenseKey: "NO-SUCH-KEY", deviceId: "host-1", deviceName: "My Mac")
+        }
+    }
+
     @Test("Activation-limit failure surfaces LS's message")
     func activateLimitReached() async throws {
         let dir = try LicensingTestSupport.tempDirectory()

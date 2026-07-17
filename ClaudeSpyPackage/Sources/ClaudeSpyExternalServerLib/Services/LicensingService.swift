@@ -248,7 +248,7 @@ actor LicensingService {
         let response = try await apiClient.activate(licenseKey: licenseKey, instanceName: deviceName)
         guard response.activated == true else {
             Task { await metricsService?.incrementLicenseValidationFailures() }
-            throw LicensingError.activationFailed(response.error ?? "Activation failed")
+            throw LicensingError.activationFailed(Self.friendlyLSError(response.error))
         }
         guard Self.matchesConfiguredProduct(response.meta, config: config) else {
             logger.warning("Rejected key from foreign store/product", metadata: [
@@ -304,6 +304,15 @@ actor LicensingService {
 
     private static func matchesConfiguredProduct(_ meta: LSMeta?, config: LicensingConfiguration) -> Bool {
         meta?.storeId == config.storeId && meta?.productId == config.productId
+    }
+
+    /// LS's not-found error leaks an API field name ("license_key not found.")
+    /// — the one machine-worded message in an otherwise sentence-form API
+    /// (e.g. "This license key has reached the activation limit." passes
+    /// through as-is).
+    private static func friendlyLSError(_ error: String?) -> String {
+        guard let error, !error.isEmpty else { return "Activation failed" }
+        return error.lowercased().contains("license_key not found") ? "Invalid key" : error
     }
 
     /// Keys copied from the LS receipt email carry wrap artifacts — embedded
