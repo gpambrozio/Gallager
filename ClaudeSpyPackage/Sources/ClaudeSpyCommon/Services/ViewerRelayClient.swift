@@ -551,6 +551,9 @@ final public class ViewerRelayClient {
             URLQueryItem(name: "pairId", value: pairId),
             URLQueryItem(name: "deviceType", value: "viewer"),
             URLQueryItem(name: "deviceId", value: deviceId),
+            // Report our version so the relay's optional minimum-client-version
+            // gate (issue #659) can refuse an out-of-date client on connect.
+            URLQueryItem(name: "clientVersion", value: VersionCompatibility.currentAppVersion),
         ]
 
         guard let wsURL = components?.url else {
@@ -846,6 +849,17 @@ final public class ViewerRelayClient {
                 await cleanupConnection()
                 setState(.disconnected)
                 await onUnpaired?()
+            } else if errorMessage.code == ErrorMessage.clientTooOldCode {
+                // The relay's server-side version gate refused us (issue #659).
+                // Stop reconnecting and KEEP the message visible: calling
+                // `disconnect()` here resets the state to `.disconnected` and
+                // hides the "please update" text — reproducing the opaque
+                // disconnect the gate exists to replace. Mirrors the terminal
+                // handling in `handleVersionMismatch`.
+                logger.error("Relay rejected our version: \(errorMessage.message)")
+                shouldReconnect = false
+                await cleanupConnection()
+                setState(.error(errorMessage.message))
             } else {
                 logger.error("Server error: \(errorMessage.message)")
                 if !errorMessage.recoverable {

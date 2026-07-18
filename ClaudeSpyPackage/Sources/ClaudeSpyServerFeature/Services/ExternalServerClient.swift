@@ -341,6 +341,9 @@ final public class ExternalServerClient {
             URLQueryItem(name: "pairId", value: pairId),
             URLQueryItem(name: "deviceType", value: "host"),
             URLQueryItem(name: "deviceId", value: deviceId),
+            // Report our version so the relay's optional minimum-client-version
+            // gate (issue #659) can refuse an out-of-date client on connect.
+            URLQueryItem(name: "clientVersion", value: VersionCompatibility.currentAppVersion),
         ]
 
         guard let wsURL = components?.url else {
@@ -562,7 +565,17 @@ final public class ExternalServerClient {
 
         case let .error(errorMessage):
             logger.error("Server error: \(errorMessage.message)")
-            if !errorMessage.recoverable {
+            if errorMessage.code == ErrorMessage.clientTooOldCode {
+                // The relay's server-side version gate refused us (issue #659).
+                // Stop reconnecting and KEEP the message visible: `disconnect()`
+                // would reset the state to `.disconnected` and hide the "please
+                // update" text — the opaque disconnect the gate exists to replace.
+                shouldReconnect = false
+                reconnectionDelayTask?.cancel()
+                reconnectionDelayTask = nil
+                await cleanupConnection()
+                await updateState(.error(errorMessage.message))
+            } else if !errorMessage.recoverable {
                 await updateState(.error(errorMessage.message))
                 await disconnect()
             }

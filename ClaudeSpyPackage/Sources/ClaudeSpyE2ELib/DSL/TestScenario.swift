@@ -83,6 +83,13 @@ public enum TestStep: Sendable {
     /// cleared when the server stops, so scenarios using plain `startServer`
     /// are untouched.
     case startServerLicensed(trialDays: Int)
+    /// Start the in-process Vapor relay server with the optional server-side
+    /// minimum-client-version gate enabled (issue #659): `MIN_CLIENT_VERSION` is
+    /// set to `minVersion` before `configure(app)` runs, so any client reporting
+    /// a version below it is refused on WebSocket connect with a `CLIENT_TOO_OLD`
+    /// error. Cleared when the server stops, so scenarios using plain
+    /// `startServer` are unaffected.
+    case startServerWithMinClientVersion(minVersion: String)
     /// Verify the server is healthy
     case verifyServerHealth
     /// Verify the number of active pairings

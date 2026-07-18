@@ -24,6 +24,30 @@ struct WebSocketController: RouteCollection {
             return
         }
 
+        // Optional server-side minimum-client-version gate (issue #659). The client
+        // reports its marketing version in the pre-E2EE `clientVersion` query param;
+        // a client below the configured minimum is refused here — before the
+        // connection is registered or any message is processed — with a typed
+        // CLIENT_TOO_OLD error, then the socket is closed (mirroring the invalidPair
+        // / subscriptionRequired rejection flow). Disabled (nil) unless
+        // MIN_CLIENT_VERSION is set, so self-hosting is unaffected. This can only
+        // enforce against clients new enough to report a version; older builds send
+        // none and follow the gate's `rejectUnknown` policy (default: allowed).
+        if let gate = req.application.minClientVersionGate {
+            let clientVersion = req.query[String.self, at: "clientVersion"]
+            if !gate.allows(clientVersion: clientVersion) {
+                req.logger.info(
+                    "WebSocket connection rejected: client version \(clientVersion ?? "<none>") below minimum \(gate.minVersion) (\(deviceType) for pair \(pairId))"
+                )
+                let errorMessage = WebSocketMessage.error(.clientTooOld(minVersion: gate.minVersion))
+                if let data = try? JSONEncoder().encode(errorMessage) {
+                    try? await ws.send(raw: data, opcode: .text)
+                }
+                try? await ws.close(code: .policyViolation)
+                return
+            }
+        }
+
         let pairingService = req.application.pairingService
         let connectionHub = req.application.connectionHub
         let relayService = req.application.relayService

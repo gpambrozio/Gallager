@@ -80,6 +80,10 @@ Create a `.env` file based on `.env.example`:
 LOG_LEVEL=warning              # debug, info, notice, warning, error, critical
 PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
 
+# Minimum client version gate (optional — leave unset to accept every client)
+MIN_CLIENT_VERSION=            # e.g. 2.1; refuse clients older than this on connect
+MIN_CLIENT_VERSION_REJECT_UNKNOWN=false  # also refuse clients that report no version
+
 # Licensing (leave unset for self-hosting — see docs above)
 LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
 LEMONSQUEEZY_PRODUCT_ID=       # From Lemon Squeezy dashboard
@@ -122,6 +126,18 @@ Push notifications allow the iOS app to receive alerts when not connected via We
    ```
 
 If you skip APNs configuration, the server runs without push notifications—devices communicate only when both are actively connected.
+
+### Minimum Client Version Gate (Optional)
+
+By default the relay is a dumb end-to-end-encrypted router that never inspects client versions—the host and viewer negotiate compatibility peer-to-peer (each tells an older peer to update). That handshake can't help an *old-host + old-viewer* pair, and it can't let the relay refuse a client on its own. The optional server-side gate closes that gap:
+
+- Set `MIN_CLIENT_VERSION` (e.g. `2.1`) and the relay refuses any client reporting a marketing version below it, closing the WebSocket with a "please update" error. Clients report their version in a pre-E2EE query parameter the relay can already read; it never decrypts message contents. The value must be a clean dot-separated numeric version (`2`, `2.1`, `2.1.0`); a malformed value like `v2.1` fails the relay at boot rather than silently parsing to a near-zero minimum that accepts almost everything.
+- Leave it unset (the default) and every client is accepted—self-hosting needs no configuration here.
+
+The relay can only enforce against clients new enough to *report* a version. Builds predating this feature send none; `MIN_CLIENT_VERSION_REJECT_UNKNOWN` chooses the policy for them:
+
+- `false` (default) — unknown-version clients are allowed through, so turning the gate on doesn't break the entire pre-reporting fleet at once. Clean enforcement becomes available for the *next* release that breaks the wire, once a version-reporting build is universal.
+- `true` — unknown-version clients are also refused. Only safe once every deployed client reports its version.
 
 ## Reverse Proxy Setup
 

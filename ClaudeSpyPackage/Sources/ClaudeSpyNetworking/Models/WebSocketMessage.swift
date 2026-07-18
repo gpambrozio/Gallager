@@ -166,6 +166,21 @@ public struct ErrorMessage: Codable, Sendable {
         )
     }
 
+    /// Error code sent when the relay's optional server-side minimum-client-version
+    /// gate (issue #659) refuses a client older than the configured minimum. Unlike
+    /// the peer-to-peer version handshake in `peerHello`, this is enforced by the
+    /// relay itself against the pre-E2EE `clientVersion` it can already read.
+    public static let clientTooOldCode = "CLIENT_TOO_OLD"
+
+    public static func clientTooOld(minVersion: String) -> ErrorMessage {
+        ErrorMessage(
+            code: clientTooOldCode,
+            message: "This app version is no longer supported by the server. " +
+                "Please update to version \(minVersion) or later.",
+            recoverable: false
+        )
+    }
+
     public static func notConnected(_ device: String) -> ErrorMessage {
         ErrorMessage(code: "NOT_CONNECTED", message: "\(device) is not connected")
     }
