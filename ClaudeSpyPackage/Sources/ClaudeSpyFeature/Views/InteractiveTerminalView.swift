@@ -245,9 +245,9 @@
         /// macOS host translate it to `tmux send-keys S-Enter`, delivering the
         /// proper extended-key sequence to the pane.
         ///
-        /// `pressesBegan` is `public` (not `open`) on SwiftTerm's TerminalView
-        /// so direct override from another module is blocked; `keyCommands` is
-        /// `open` on UIResponder and is the supported extension point.
+        /// `keyCommands` matches before `pressesBegan` runs, so SwiftTerm
+        /// never sees the event — cleaner than a `pressesBegan` override that
+        /// would need to call `super` and coordinate with SwiftTerm's handling.
         override var keyCommands: [UIKeyCommand]? {
             var commands = super.keyCommands ?? []
             let shiftReturn = UIKeyCommand(
