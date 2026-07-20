@@ -34,8 +34,8 @@ than silently falling back; with both ids unset, the other licensing variables a
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/ClaudeSpy.git
-cd ClaudeSpy/ClaudeSpyPackage
+git clone https://github.com/your-username/Gallager.git
+cd Gallager/ClaudeSpyPackage
 ```
 
 ### 2. Configure Environment

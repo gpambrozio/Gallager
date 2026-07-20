@@ -50,7 +50,7 @@ Flags:
 - `--results-repo SLUG` (default `gpambrozio/ClaudeSpyTestResults`)
 - `--release-tag TAG` (default `e2e-videos`)
 - `--grace-days N` (default `3`)
-- `--repo SLUG` — the PR repo (default `gpambrozio/ClaudeSpy`)
+- `--repo SLUG` — the PR repo (default `gpambrozio/Gallager`)
 - `--dry-run` — print what would be deleted/edited; mutate nothing
 
 Tokens: all results-repo calls use `RESULTS_REPO_TOKEN` when set (falling back
@@ -101,7 +101,7 @@ precedent.
 Fine-grained PAT scoped to **only** `ClaudeSpyTestResults`, permission
 **Contents: read/write** (release assets fall under Contents). Created
 manually in the GitHub UI; stored with
-`gh secret set RESULTS_REPO_TOKEN --repo gpambrozio/ClaudeSpy`.
+`gh secret set RESULTS_REPO_TOKEN --repo gpambrozio/Gallager`.
 
 ## Edge cases
 

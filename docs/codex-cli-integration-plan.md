@@ -1,6 +1,6 @@
 # Codex CLI Integration Plan
 
-Status: ✅ **Shipped** — Phases 0–4 landed via [PR #549](https://github.com/gpambrozio/ClaudeSpy/pull/549) on branch `feat/codex-cli-integration`.
+Status: ✅ **Shipped** — Phases 0–4 landed via [PR #549](https://github.com/gpambrozio/Gallager/pull/549) on branch `feat/codex-cli-integration`.
 Last updated: 2026-05-22
 
 > **Upstream source:** Codex CLI is open source at <https://github.com/openai/codex> (Rust workspace under `codex-rs/`). When behavior, hook payload shape, theme handling, or terminal-background detection is ambiguous, read the upstream code directly — Codex's release cadence is fast and the published docs lag. Useful entry points:

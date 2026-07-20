@@ -1121,7 +1121,7 @@ private enum BrowserPreviewSample {
     }
 
     // swiftlint:disable:next force_unwrapping
-    static let pullRequestURL = URL(string: "https://github.com/gpambrozio/ClaudeSpy/pull/499")!
+    static let pullRequestURL = URL(string: "https://github.com/gpambrozio/Gallager/pull/499")!
 }
 
 #Preview("BrowserTabContentView") {
@@ -1138,7 +1138,7 @@ private enum BrowserPreviewSample {
 #Preview("BrowserURLField") {
     // Interactive: click the field to see the whole URL select (issue #651),
     // click again to position the caret, type to replace the selection.
-    @Previewable @State var url = "https://github.com/gpambrozio/ClaudeSpy"
+    @Previewable @State var url = "https://github.com/gpambrozio/Gallager"
     BrowserURLField(text: $url, focusRequest: 0, onSubmit: { })
         .frame(width: 420)
         .padding()

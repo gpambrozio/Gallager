@@ -7,8 +7,8 @@
     "email": "gustavo@gustavo.eng.br",
     "url": "https://github.com/gpambrozio"
   },
-  "homepage": "https://github.com/gpambrozio/ClaudeSpy",
-  "repository": "https://github.com/gpambrozio/ClaudeSpy",
+  "homepage": "https://github.com/gpambrozio/Gallager",
+  "repository": "https://github.com/gpambrozio/Gallager",
   "license": "MIT",
   "keywords": ["codex", "tmux", "monitoring", "gallager"],
   "interface": {
@@ -18,7 +18,7 @@
     "developerName": "Gustavo Ambrozio",
     "category": "Productivity",
     "capabilities": ["Interactive"],
-    "websiteURL": "https://github.com/gpambrozio/ClaudeSpy",
+    "websiteURL": "https://github.com/gpambrozio/Gallager",
     "brandColor": "#3B82F6"
   }
 }

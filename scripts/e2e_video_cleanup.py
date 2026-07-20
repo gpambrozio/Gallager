@@ -196,7 +196,7 @@ def main():
     )
     parser.add_argument(
         "--repo",
-        default="gpambrozio/ClaudeSpy",
+        default="gpambrozio/Gallager",
         help="owner/repo the PRs live on (default: %(default)s)",
     )
     parser.add_argument(
