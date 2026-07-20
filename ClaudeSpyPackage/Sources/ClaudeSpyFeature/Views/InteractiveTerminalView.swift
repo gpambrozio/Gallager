@@ -241,13 +241,11 @@
         /// Shift+Enter unless the inner app has pushed kitty mode — which it
         /// can't here, since it talks to tmux's PTY rather than directly to
         /// SwiftTerm. A `UIKeyCommand` matches before `pressesBegan` runs, so
-        /// SwiftTerm never sees the event. Routing as `.shiftEnter` lets the
-        /// macOS host translate it to `tmux send-keys S-Enter`, delivering the
-        /// proper extended-key sequence to the pane.
-        ///
-        /// `pressesBegan` is `public` (not `open`) on SwiftTerm's TerminalView
-        /// so direct override from another module is blocked; `keyCommands` is
-        /// `open` on UIResponder and is the supported extension point.
+        /// SwiftTerm never sees the event — cleaner than a `pressesBegan`
+        /// override that would need to call `super` and coordinate with
+        /// SwiftTerm's handling. Routing as `.shiftEnter` lets the macOS host
+        /// translate it to `tmux send-keys S-Enter`, delivering the proper
+        /// extended-key sequence to the pane.
         override var keyCommands: [UIKeyCommand]? {
             var commands = super.keyCommands ?? []
             let shiftReturn = UIKeyCommand(
