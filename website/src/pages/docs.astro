@@ -1,0 +1,66 @@
+---
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+
+const steps = [
+  { n: "01", title: "Install the Mac app", body: "Download the DMG or use Homebrew. Gallager lives in your menu bar and needs tmux (it will offer to install it).", code: "brew install --cask gallager" },
+  { n: "02", title: "Connect your agents", body: "Open Settings → Agents. Gallager auto-detects Claude Code and Codex CLI, and installs bundled plugins for opencode and pi with one click.", code: null },
+  { n: "03", title: "Pair your iPhone", body: "Install the iOS app, then enter the 6-character code shown on your Mac. Keys are exchanged directly between devices — this is the whole setup.", code: null },
+  { n: "04", title: "Optional: self-host the relay", body: "Point both apps at your own domain in Settings → Relay. No license needed.", code: "git clone https://github.com/gpambrozio/Gallager\ncd gallager/ClaudeSpyPackage\ncp .env.example .env && docker compose up -d" },
+];
+
+const guides = [
+  { href: "#", title: "Self-hosting the relay", body: "Docker Compose, TLS via Caddy, and optional APNs push notifications on your own server." },
+  { href: "#", title: "Agent plugins", body: "How the Claude Code, Codex, opencode and pi integrations hook session events." },
+  { href: "/security/", title: "Security model", body: "X25519 pairing, HKDF key derivation, and what the relay can and can't see." },
+  { href: "#", title: "Push notifications", body: "When they fire, how badges aggregate, and delivering them through a self-hosted relay." },
+  { href: "#", title: "Multi-pane layouts", body: "Splitting, resizing and persisting layouts across Mac and iOS." },
+  { href: "#", title: "Troubleshooting", body: "Pairing issues, tmux quirks, and reconnecting after your Mac sleeps." },
+];
+---
+
+<Base
+  title="Docs — Gallager"
+  description="Install the Mac app, pair your phone, and point it at your agents — self-hosting the relay is optional and takes one more command."
+>
+  <Hero
+    eyebrow="Documentation"
+    title="Up and running in five minutes"
+    lede="Install the Mac app, pair your phone, point it at your agents. Self-hosting the relay is optional and takes one more command."
+  />
+
+  <div class="container" style="padding:0 var(--space-4) var(--space-6);">
+    <div style="max-width:800px;">
+      {
+        steps.map((s) => (
+          <div style="border-top:2px solid var(--color-divider);padding:var(--space-4) 0 var(--space-6);display:grid;grid-template-columns:64px 1fr;gap:var(--space-4);">
+            <div class="mono" style="font-size:15px;color:var(--color-accent);font-weight:600;">{s.n}</div>
+            <div>
+              <h4 style="font-size:17px;margin:0 0 var(--space-2);">{s.title}</h4>
+              <p class="text-muted" style="font-size:14.5px;line-height:1.7;margin:0 0 var(--space-3);">{s.body}</p>
+              {s.code && (
+                <div class="mono" style="font-size:13px;line-height:1.9;background:var(--color-surface);border:1px solid var(--color-divider);padding:var(--space-3) var(--space-4);overflow-x:auto;white-space:pre;">{s.code}</div>
+              )}
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="container" style="padding:0 var(--space-4) var(--space-8);">
+    <hr class="hr" style="margin:0 0 var(--space-6);" />
+    <h2 style="margin-bottom:var(--space-4);">Guides</h2>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);">
+      {
+        guides.map((g) => (
+          <a href={g.href} class="card" style="padding:var(--space-4);color:inherit;text-decoration:none;">
+            <div class="card-title" style="font-size:15px;">{g.title}</div>
+            <p class="card-body" style="font-size:13px;line-height:1.6;">{g.body}</p>
+            <div class="card-meta" style="color:var(--color-accent);">Read →</div>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</Base>
