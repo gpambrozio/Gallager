@@ -1,0 +1,22 @@
+---
+const links = [
+  { href: "/docs/", label: "Docs" },
+  { href: "/pricing/", label: "Pricing" },
+  { href: "/security/", label: "Security" },
+];
+const path = Astro.url.pathname;
+---
+
+<footer class="footer">
+  <div class="container footer-inner">
+    <span class="mono text-muted">gallager.app</span>
+    <div style="flex:1;"></div>
+    {
+      links
+        .filter((l) => l.href !== path)
+        .map((l) => <a href={l.href}>{l.label}</a>)
+    }
+    <a href="https://github.com/gpambrozio/Gallager">GitHub</a>
+    <span class="text-muted">MIT licensed</span>
+  </div>
+</footer>

@@ -39,6 +39,13 @@ STAGING_HEALTH_URL="${STAGING_HEALTH_URL:-https://staging.gallager.app/health}"
 # `cd $STAGING_REMOTE_DIR`.
 STAGING_COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml -p ${STAGING_PROJECT}"
 
+# Website configuration (used by the `website` command). Static marketing site
+# (gallager.app) built locally with Astro from website/ and served by Caddy as
+# plain files — no container involved.
+WEBSITE_REMOTE_DIR="${WEBSITE_REMOTE_DIR:-/opt/gallager-website}"
+WEBSITE_CADDY_FILE="website.caddy"
+WEBSITE_URL="${WEBSITE_URL:-https://gallager.app}"
+
 # Print colored output
 info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
@@ -496,6 +503,47 @@ staging_logs() {
 staging_status() { compose_status "$STAGING_REMOTE_DIR" "$STAGING_COMPOSE" "Gallager STAGING relay"; }
 staging_stop()   { compose_down   "$STAGING_REMOTE_DIR" "$STAGING_COMPOSE" "Gallager STAGING relay"; }
 
+# Deploy the static marketing website (gallager.app). Builds the Astro site
+# locally (needs node/npm), rsyncs website/dist/ to the server, installs the
+# Caddy vhost and reloads Caddy. One-time prerequisite: DNS for gallager.app
+# and www.gallager.app must point at the server (see website/README.md).
+deploy_website() {
+    local website_dir
+    website_dir="$(cd "$(dirname "$0")/../website" && pwd)"
+
+    info "Building website..."
+    (cd "$website_dir" && npm ci && npm run build)
+
+    if [ ! -f "$website_dir/dist/index.html" ]; then
+        error "Build produced no dist/index.html — aborting."
+        exit 1
+    fi
+
+    resolve_remote_host
+    info "Deploying website to $SERVER_HOST:$WEBSITE_REMOTE_DIR..."
+    remote "mkdir -p $WEBSITE_REMOTE_DIR"
+    rsync -az --delete -e ssh "$website_dir/dist/" "$REMOTE_HOST:$WEBSITE_REMOTE_DIR/"
+
+    if remote "test -d $CADDY_CONF_D" 2>/dev/null; then
+        info "Installing Caddy configuration ($WEBSITE_CADDY_FILE)..."
+        rsync -az -e ssh "$(package_dir)/caddy/$WEBSITE_CADDY_FILE" "$REMOTE_HOST:$CADDY_CONF_D/"
+        if remote "systemctl is-active --quiet caddy" 2>/dev/null; then
+            remote "systemctl reload caddy"
+        else
+            warn "Caddy is not running on the server; skipping reload."
+        fi
+    else
+        warn "Caddy conf.d not found on server; configure your web server manually."
+    fi
+
+    info "Verifying deployment..."
+    if curl -sf -o /dev/null "$WEBSITE_URL"; then
+        info "Website deployed: $WEBSITE_URL"
+    else
+        warn "Could not fetch $WEBSITE_URL — if this is the first deploy, check DNS for gallager.app."
+    fi
+}
+
 # Show prod logs (warnings and errors only by default)
 logs() {
     resolve_remote_host
@@ -536,6 +584,7 @@ usage() {
     echo "  staging-logs    Follow staging container logs"
     echo "  staging-status  Show staging container status + recent logs"
     echo "  staging-stop    Stop the staging relay (prod untouched)"
+    echo "  website         Build the Astro site and deploy it to gallager.app"
     echo "  logs          Show warnings and errors only (follow mode)"
     echo "  logs all      Show all logs including info level"
     echo "  logs debug    Restart with debug logging (use 'restart' to restore)"
@@ -556,6 +605,10 @@ usage() {
     echo "  STAGING_REMOTE_DIR  Staging install dir (default: /opt/claudespy-staging)"
     echo "  STAGING_PROJECT     Compose project name (default: claudespy-staging)"
     echo "  STAGING_HEALTH_URL  Staging health URL (default: https://staging.gallager.app/health)"
+    echo ""
+    echo "  # Website (gallager.app static site):"
+    echo "  WEBSITE_REMOTE_DIR  Website install dir (default: /opt/gallager-website)"
+    echo "  WEBSITE_URL         Post-deploy check URL (default: https://gallager.app)"
     echo ""
     echo "  # Legacy Hetzner Cloud support:"
     echo "  HCLOUD_SERVER_NAME  Hetzner server name (alternative to DEPLOY_HOST)"
@@ -586,6 +639,9 @@ case "${1:-deploy}" in
         ;;
     staging-stop)
         staging_stop
+        ;;
+    website)
+        deploy_website
         ;;
     logs)
         logs "$2"

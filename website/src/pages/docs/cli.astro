@@ -1,0 +1,66 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="The gallager CLI — Gallager"
+  description="Drive Gallager from the shell: create sessions and panes, send input, fire notifications from scripts, and manage plugins."
+  heroTitle="The gallager CLI"
+  lede="Everything the app can do to sessions, windows and panes, scriptable from the shell — including push notifications that tap through to the right pane."
+>
+  <h2>Install</h2>
+  <p>
+    The CLI ships inside the app. Pick <strong>Gallager menu → Install Command Line
+    Tool…</strong> and, after one admin prompt, <code>gallager</code> is on your
+    <code>PATH</code> (zsh completions optional). It talks to the running app over a
+    local socket, so the app must be open. If you move the app, re-run the installer.
+  </p>
+
+  <h2>A taste of it</h2>
+  <pre># Notify when a long build finishes — --push mirrors it to your iPhone,
+# and tapping the notification jumps back to this exact pane
+make build && gallager notify --title "Build done" --body "All green" --push
+
+# Bootstrap a named session (no-op if it already exists)
+gallager new-session --name work --path ~/code/proj --if-missing --color blue
+
+# Split the current window and start tailing logs in the new pane
+new=$(gallager split-pane right --json | jq -r '.result.id')
+gallager send $'tail -f /tmp/build.log\n' --pane "$new"
+
+# Show progress on the session row while a task runs
+gallager set-progress indeterminate; ./long-task.sh; gallager set-progress clear
+
+# At login: wait for the app, then launch an agent in a project
+gallager wait-ready && gallager start-project ~/code/proj</pre>
+
+  <h2>The command families</h2>
+  <table>
+    <tbody>
+      <tr><td><strong>Sessions</strong></td><td><code>list-sessions</code>, <code>new-session</code>, <code>select-session</code>, <code>close-session</code>, plus per-session flair: <code>set-title</code>, <code>set-color</code>, <code>set-emoji</code>, <code>session-state</code>, <code>set-progress</code></td></tr>
+      <tr><td><strong>Windows &amp; panes</strong></td><td><code>new-window</code>, <code>split-pane</code>, <code>select-pane</code>, <code>capture-pane --scrollback</code>, rename and close</td></tr>
+      <tr><td><strong>Input</strong></td><td><code>send &lt;text&gt;</code> (literal — add <code>--enter</code> to actually run it) and <code>send-key</code> for enter/tab/escape/arrows</td></tr>
+      <tr><td><strong>Notifications</strong></td><td><code>notify --title … --body …</code>, with <code>--push</code> to deliver to paired iPhones</td></tr>
+      <tr><td><strong>Editor</strong></td><td><code>edit &lt;file&gt;</code> — opens the file in Gallager's editor and blocks until you submit or cancel</td></tr>
+      <tr><td><strong>Projects</strong></td><td><code>list-projects</code>, <code>start-project &lt;path&gt;</code> to launch an agent session</td></tr>
+      <tr><td><strong>Plugins</strong></td><td><code>plugin list / install / update / enable / disable / logs / remove</code></td></tr>
+      <tr><td><strong>Layouts</strong></td><td><code>apply &lt;file&gt;</code> — build whole sessions from a YAML/JSON description (a tmuxp superset), with <code>--dry-run</code></td></tr>
+    </tbody>
+  </table>
+  <p>
+    Every command takes <code>--json</code> for scripting (errors come back as a
+    structured envelope with a non-zero exit) and <code>--pane</code> /
+    <code>--window</code> / <code>--session</code> to target explicitly.
+  </p>
+
+  <h2>How targeting works</h2>
+  <p>
+    Run inside a Gallager-managed pane and commands target <em>that</em> pane
+    automatically (via <code>$TMUX_PANE</code>). Outside tmux, they fall back to the
+    currently active pane — pass an explicit <code>--pane</code> in scripts. And since
+    Gallager is real tmux underneath, every id you see (<code>work</code>,
+    <code>work:0</code>, <code>%3</code>) is an ordinary tmux primitive; the
+    <code>tmux</code> command itself remains the escape hatch for anything the CLI
+    doesn't expose.
+  </p>
+</Guide>

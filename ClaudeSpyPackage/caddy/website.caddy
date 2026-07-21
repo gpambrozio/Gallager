@@ -1,0 +1,44 @@
+# Gallager marketing site (gallager.app)
+# Installed into /etc/caddy/conf.d/ by `scripts/deploy.sh website` (NOT by the
+# relay deploy — this file only reaches the server when the website deploys,
+# so edits here ship with the site they style).
+#
+# Serves the static Astro build from /opt/gallager-website, uploaded by
+# scripts/deploy.sh website over rsync/SSH. One-time prerequisite: DNS A
+# records for gallager.app and www.gallager.app pointing at this server
+# (Caddy then provisions Let's Encrypt certs per hostname automatically).
+
+www.gallager.app {
+    redir https://gallager.app{uri} 308
+}
+
+gallager.app {
+    root * /opt/gallager-website
+    file_server
+    encode gzip
+
+    # Access logging (separate file from the relay + updates)
+    log {
+        output file /var/log/caddy/gallager-website-access.log
+        format json
+    }
+
+    # Security headers
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+    }
+
+    # Astro emits content-hashed assets under /_astro/; fonts change only by
+    # being renamed. Both are safe to cache forever.
+    @immutable path /_astro/* /fonts/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+    # file_server's default 404 is a bare status; serve the site's 404 page
+    # instead (response keeps status 404).
+    handle_errors 404 {
+        rewrite * /404.html
+        file_server
+    }
+}

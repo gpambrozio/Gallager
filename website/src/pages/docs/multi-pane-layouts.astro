@@ -1,0 +1,41 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="Multi-pane layouts — Gallager"
+  description="Splitting, resizing and persisting terminal layouts on the Mac, and how the iPhone mirrors them."
+  heroTitle="Multi-pane layouts"
+  lede="Real tmux panes in native windows: split and arrange them on the Mac, and your iPhone mirrors the layout live."
+>
+  <h2>On the Mac</h2>
+  <p>
+    Every pane is a real tmux pane rendered in a native window. Split horizontally or
+    vertically, resize by dragging, reorder panes, and spread sessions across as many
+    windows as you like. Agents keep running inside tmux regardless of what the windows
+    are doing.
+  </p>
+
+  <h2>Layouts persist per project</h2>
+  <p>
+    Each project folder remembers its workbench: the split arrangement, open file tabs,
+    browser tabs and sidebar state. It's saved automatically as you work and restored
+    the next time you open that folder — no "save layout" button to remember.
+  </p>
+
+  <h2>On the iPhone</h2>
+  <p>
+    The phone live-mirrors the Mac's layout: the same panes, tiled the same way,
+    updating as the arrangement changes. Tap a pane to focus and type into it, and
+    split panes right from the phone. Resizing and reordering are done on the Mac —
+    the mirror follows instantly.
+  </p>
+
+  <h2>Viewing another Mac</h2>
+  <p>
+    A Mac can also be the remote viewer for another Mac. In that case the viewer keeps
+    its own layout per remote folder — browser tabs and split arrangement — stored
+    locally on the viewing machine, so your setup at the desk and on the laptop can
+    differ without fighting each other.
+  </p>
+</Guide>

@@ -1,0 +1,70 @@
+---
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+
+const points = [
+  { title: "Private keys never leave your devices", body: "Long-term X25519 key pairs are generated on first launch and stored in your Keychain. The relay stores device IDs, public keys and push tokens — never your private keys." },
+  { title: "What gets encrypted", body: "Terminal streams, keystrokes, hook events (tool inputs and outputs, project paths, session IDs), command responses and session state. Basically everything with content in it." },
+  { title: "What the relay can see", body: "Connection state, message timing, payload sizes, and the pairing metadata it needs to route: device IDs and names, public keys, push tokens. Enough to route messages between two paired devices, not enough to know what you're building." },
+  { title: "Compromising the relay yields nothing", body: "Session keys are derived on-device and are never sent anywhere. Breaching the relay — or recording its traffic — yields ciphertext, not your terminal." },
+  { title: "No accounts, no cloud storage", body: "No user database and none of your content: the relay keeps only pairing records (device IDs, public keys, push tokens) — plus subscription state on the hosted plan. Your terminal content is never stored or logged, anywhere." },
+];
+---
+
+<Base
+  title="Security — Gallager"
+  description="Agent sessions carry API keys, source code and passwords — Gallager encrypts everything sensitive on-device, so the relay only ever forwards ciphertext."
+>
+  <Hero
+    class="page-hero--tight"
+    eyebrow="Security model"
+    title="Your terminal is your secrets. We treat it that way."
+    lede="Agent sessions carry API keys, source code, file paths and passwords. Gallager encrypts everything sensitive on-device, so the relay — ours or yours — only ever forwards ciphertext."
+    titleMaxWidth="860px"
+    ledeMaxWidth="680px"
+  />
+
+  <div class="container" style="padding:var(--space-6) var(--space-4) 0;">
+    <div
+      class="mono"
+      style="border:2px solid var(--color-divider);background:var(--color-surface);padding:var(--space-6);font-size:13px;line-height:2;overflow-x:auto;max-width:800px;"
+    >
+      <div class="text-muted">// pairing — happens once</div>
+      <div>Mac ⇄ iPhone &nbsp;exchange X25519 public keys via short pairing code</div>
+      <div>shared secret = ECDH(privateKey, peerPublicKey)</div>
+      <div>sessionKey &nbsp;&nbsp;&nbsp;= HKDF-SHA256(sharedSecret, salt: "ClaudeSpy-E2EE-v1")</div>
+      <div class="text-muted" style="margin-top:var(--space-3);">// every message after that</div>
+      <div>ciphertext = ChaCha20-Poly1305.seal(payload, sessionKey)</div>
+      <div>
+        Mac → relay → iPhone &nbsp;<span style="color:var(--color-accent-700);"
+          >relay sees: ciphertext, nothing else</span
+        >
+      </div>
+    </div>
+  </div>
+
+  <div class="container" style="padding:var(--space-8) var(--space-4) var(--space-4);">
+    <div style="max-width:800px;">
+      {
+        points.map((p) => (
+          <div style="border-top:2px solid var(--color-divider);padding:var(--space-4) 0 var(--space-6);display:grid;grid-template-columns:240px 1fr;gap:var(--space-4);">
+            <h4 style="font-size:17px;margin:0;">{p.title}</h4>
+            <p class="text-muted" style="font-size:14.5px;line-height:1.7;margin:0;">{p.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="container" style="padding:0 var(--space-4) var(--space-8);">
+    <div
+      style="border:2px solid var(--color-accent);padding:var(--space-4) var(--space-6);max-width:800px;font-size:14.5px;line-height:1.7;"
+    >
+      <strong style="font-family:var(--font-heading);">Don't take our word for it.</strong><br />
+      <span class="text-muted"
+        >The E2EE core is about five hundred lines of CryptoKit. Read it, audit it, or run your own
+        relay so the question never comes up.</span
+      > <a href="https://github.com/gpambrozio/Gallager">Source on GitHub →</a>
+    </div>
+  </div>
+</Base>
