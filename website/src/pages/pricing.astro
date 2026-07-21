@@ -1,0 +1,117 @@
+---
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+---
+
+<Base
+  title="Pricing — Gallager"
+  description="Gallager's Mac and iOS apps are open source and free forever — you only pay if you want us to run the relay server for you."
+>
+  <Hero
+    eyebrow="Pricing"
+    title="The software is free. The relay is a choice."
+    lede="Both apps are open source and free forever. You only pay if you want us to run the relay server for you."
+    ledeMaxWidth="620px"
+  />
+
+  <div
+    class="container"
+    style="padding:0 var(--space-4) var(--space-8);display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);align-items:stretch;"
+  >
+    <div class="card" style="padding:var(--space-6);gap:0;">
+      <div
+        class="card-kicker"
+        style="color:var(--color-neutral-700);margin-bottom:var(--space-3);"
+      >
+        Self-hosted
+      </div>
+      <div
+        style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:44px;"
+      >
+        $0
+      </div>
+      <div class="text-muted" style="font-size:13.5px;margin-bottom:var(--space-6);">
+        forever · no license keys
+      </div>
+      <ul
+        style="list-style:none;margin:0 0 var(--space-6);padding:0;display:grid;gap:var(--space-3);font-size:14.5px;flex:1;"
+      >
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Full Mac + iOS apps, every feature
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Run the relay on your own server
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Push notifications (with your APNs key)
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Unlimited devices &amp; sessions
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>512MB RAM is plenty
+        </li>
+      </ul>
+      <a href="/docs/" class="btn btn-secondary btn-block">Read the self-hosting guide</a>
+    </div>
+
+    <div
+      class="card"
+      style="padding:var(--space-6);gap:0;border:2px solid var(--color-accent);background:var(--color-bg);"
+    >
+      <div class="card-kicker" style="margin-bottom:var(--space-3);">
+        Hosted relay — zero setup
+      </div>
+      <div
+        style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:44px;"
+      >
+        $5<span
+          style="font-size:16px;font-weight:400;color:var(--color-neutral-600);"
+        > / month</span
+        >
+      </div>
+      <div class="text-muted" style="font-size:13.5px;margin-bottom:var(--space-6);">
+        or $50/year
+      </div>
+      <ul
+        style="list-style:none;margin:0 0 var(--space-6);padding:0;display:grid;gap:var(--space-3);font-size:14.5px;flex:1;"
+      >
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Everything in self-hosted
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>We run and monitor the relay 24/7
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Push notifications, no Apple developer
+          account needed
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Still end-to-end encrypted — we can't read
+          your traffic
+        </li>
+        <li style="display:flex;gap:var(--space-2);">
+          <span style="color:var(--color-accent);">—</span>Support the project's development
+        </li>
+      </ul>
+      <a
+        href="https://gallager.lemonsqueezy.com/checkout/buy/f4d3ed9c-b96c-4830-9e51-7eec8131eeb3"
+        class="btn btn-primary btn-block">Get a license</a
+      >
+    </div>
+  </div>
+
+  <div class="container" style="padding:0 var(--space-4) var(--space-8);">
+    <div
+      style="border-top:2px solid var(--color-divider);padding-top:var(--space-4);max-width:800px;font-size:14.5px;line-height:1.7;"
+    >
+      <strong style="font-family:var(--font-heading);">Why is there a hosted option at all?</strong
+      ><br />
+      <span class="text-muted"
+        >Because the relay needs a public address, TLS, and an APNs key to deliver push
+        notifications. Some people enjoy running that; most don't. Either way the relay only ever
+        forwards ciphertext — see the <a href="/security/">security model</a>.</span
+      >
+    </div>
+  </div>
+</Base>
