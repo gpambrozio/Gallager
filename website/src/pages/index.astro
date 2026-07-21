@@ -11,17 +11,17 @@ const features = [
   {
     kicker: "Layouts",
     title: "Multi-pane, multi-window",
-    body: "Split, resize and reorder panes on Mac and iPhone. Layouts persist per project and sync between devices.",
+    body: "Split, resize and reorder panes on your Mac — your iPhone mirrors the layout live and can split panes too. Layouts persist per project.",
   },
   {
     kicker: "Review",
-    title: "File & git browser on iOS",
-    body: "Review the diff an agent just produced from your phone: browse files, search text, inspect git status and staged changes.",
+    title: "Built-in file & git browser",
+    body: "Review the diff an agent just produced without leaving Gallager: browse files, inspect git status and staged changes right next to the terminal.",
   },
   {
-    kicker: "Continuity",
-    title: "Clipboard sync",
-    body: "Copy on your Mac, paste on your phone — and back. Error messages, tokens and snippets travel with you.",
+    kicker: "Telemetry",
+    title: "Token & cost meter",
+    body: "A live per-session meter of tokens, cost and latency, fed by each agent's OpenTelemetry stream — know what a session cost at a glance.",
   },
   {
     kicker: "Infrastructure",
@@ -38,15 +38,15 @@ const features = [
 const faqs = [
   {
     q: "Which coding agents does Gallager support?",
-    a: "Claude Code and Codex CLI ship with first-class integrations; opencode and pi are supported through bundled plugins. Anything that runs in tmux can still be mirrored and streamed as a plain terminal.",
+    a: "Claude Code and Codex CLI work out of the box; opencode and pi are supported through sidecar plugins. Anything that runs in tmux can still be mirrored and streamed as a plain terminal.",
   },
   {
     q: "Do I need an account?",
-    a: "No. Pairing is a short one-time code between your Mac and iPhone. The relay never learns who you are — it just forwards encrypted blobs between two device IDs.",
+    a: "No accounts, no email. Pairing is a short one-time code between your Mac and iPhone — the relay just routes encrypted blobs between the two paired devices.",
   },
   {
     q: "What can the relay server see?",
-    a: "Ciphertext, timestamps and connection state. Terminal content, keystrokes, file paths and hook events are all encrypted end-to-end with keys that exist only on your devices.",
+    a: "Ciphertext, timing and the pairing metadata it needs to route — device IDs and names, public keys, push tokens. Terminal content, keystrokes, file paths and hook events are all encrypted end-to-end with keys that exist only on your devices.",
   },
   {
     q: "Does my Mac need to stay awake?",
@@ -58,7 +58,7 @@ const faqs = [
   },
   {
     q: "Is this a chat wrapper around the agents?",
-    a: "No — it's the real terminal. Full PTY streams over tmux, with scrollback, mouse support, kitty keyboard protocol and multi-pane layouts, mirrored bit-for-bit to your phone.",
+    a: "No — it's the real terminal. Full PTY streams over tmux, with scrollback, mouse support and multi-pane layouts, mirrored bit-for-bit to your phone.",
   },
   {
     q: "Why is it called Gallager?",
@@ -710,9 +710,9 @@ const faqs = [
     >
       <div><span class="text-muted">$</span> git clone https://github.com/gpambrozio/Gallager</div>
       <div><span class="text-muted">$</span> cd Gallager/ClaudeSpyPackage</div>
-      <div><span class="text-muted">$</span> docker compose up -d</div>
+      <div><span class="text-muted">$</span> cp .env.example .env && docker compose up -d</div>
       <div style="color:var(--color-accent-700);">✓ relay running on your own domain</div>
-      <div class="text-muted">{`{"status":"ok"} — that's all it ever knows`}</div>
+      <div class="text-muted">{`{"status":"ok"} — your code is ciphertext to it`}</div>
     </div>
   </section>
 

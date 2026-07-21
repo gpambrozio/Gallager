@@ -3,11 +3,11 @@ import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
 
 const points = [
-  { title: "Keys never leave your devices", body: "Long-term X25519 key pairs are generated on first launch and stored in the Keychain (Secure Enclave-backed where available). The relay stores device IDs and push tokens — never key material." },
+  { title: "Private keys never leave your devices", body: "Long-term X25519 key pairs are generated on first launch and stored in your Keychain. The relay stores device IDs, public keys and push tokens — never your private keys." },
   { title: "What gets encrypted", body: "Terminal streams, keystrokes, hook events (tool inputs and outputs, project paths, session IDs), command responses and session state. Basically everything with content in it." },
-  { title: "What the relay can see", body: "Connection state, message timing and encrypted payload sizes. Enough to route messages between two paired devices, not enough to know what you're building." },
-  { title: "Forward secrecy", body: "Session keys are derived per pairing and can be rotated. Compromising the relay — or recording its traffic — doesn't yield historical plaintext." },
-  { title: "No accounts, no cloud storage", body: "There is nothing to breach on our side: no user database, no stored sessions, no logs of your terminal content. Pairing is a short-lived code, and the relay is stateless beyond active connections." },
+  { title: "What the relay can see", body: "Connection state, message timing, payload sizes, and the pairing metadata it needs to route: device IDs and names, public keys, push tokens. Enough to route messages between two paired devices, not enough to know what you're building." },
+  { title: "Compromising the relay yields nothing", body: "Session keys are derived on-device and are never sent anywhere. Breaching the relay — or recording its traffic — yields ciphertext, not your terminal." },
+  { title: "No accounts, no cloud storage", body: "No user database and none of your content: the relay keeps only pairing records (device IDs, public keys, push tokens) — plus subscription state on the hosted plan. Your terminal content is never stored or logged, anywhere." },
 ];
 ---
 
@@ -62,7 +62,7 @@ const points = [
     >
       <strong style="font-family:var(--font-heading);">Don't take our word for it.</strong><br />
       <span class="text-muted"
-        >The crypto lives in a few hundred lines of CryptoKit. Read it, audit it, or run your own
+        >The E2EE core is about five hundred lines of CryptoKit. Read it, audit it, or run your own
         relay so the question never comes up.</span
       > <a href="https://github.com/gpambrozio/Gallager">Source on GitHub →</a>
     </div>

@@ -3,10 +3,10 @@ import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
 
 const steps = [
-  { n: "01", title: "Install the Mac app", body: "Download the DMG or use Homebrew. Gallager lives in your menu bar and needs tmux (it will offer to install it).", code: "brew install --cask gallager" },
-  { n: "02", title: "Connect your agents", body: "Open Settings → Agents. Gallager auto-detects Claude Code and Codex CLI, and installs bundled plugins for opencode and pi with one click.", code: null },
+  { n: "01", title: "Install the Mac app", body: "Download the DMG and drag Gallager to Applications. It lives in your menu bar and needs tmux — if tmux is missing, the app walks you through installing it.", code: null },
+  { n: "02", title: "Connect your agents", body: "Open Settings → Agents. Claude Code and Codex CLI work out of the box; add opencode, pi or any other agent by installing its sidecar plugin.", code: null },
   { n: "03", title: "Pair your iPhone", body: "Install the iOS app, then enter the 6-character code shown on your Mac. Keys are exchanged directly between devices — this is the whole setup.", code: null },
-  { n: "04", title: "Optional: self-host the relay", body: "Point both apps at your own domain in Settings → Relay. No license needed.", code: "git clone https://github.com/gpambrozio/Gallager\ncd Gallager/ClaudeSpyPackage\ncp .env.example .env && docker compose up -d" },
+  { n: "04", title: "Optional: self-host the relay", body: "Point both apps at your own domain in Settings → Remote Access. No license needed.", code: "git clone https://github.com/gpambrozio/Gallager\ncd Gallager/ClaudeSpyPackage\ncp .env.example .env && docker compose up -d" },
 ];
 
 const guides = [
