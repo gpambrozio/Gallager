@@ -1,0 +1,54 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="The prompt editor (Ctrl-G) — Gallager"
+  description="Press Ctrl-G in a Claude Code or Codex pane and the prompt opens in a real editor overlay instead of a terminal editor."
+  heroTitle="The prompt editor (Ctrl-G)"
+  lede="Long prompts deserve better than a terminal input line. Ctrl-G opens them in a real editor, right on top of the pane."
+>
+  <h2>What it does</h2>
+  <p>
+    Claude Code and Codex both have an "open this prompt in your editor" key:
+    <strong>Ctrl-G</strong>. In a terminal that normally drops you into vim. In a
+    Gallager pane it opens a resizable editor overlay on top of the terminal —
+    type comfortably, then <strong>⌘Return</strong> to submit the edited prompt back
+    to the agent, or <strong>Escape</strong> to cancel and leave it untouched.
+  </p>
+  <p>
+    There's nothing to set up: Gallager points <code>$VISUAL</code> at its own tiny
+    editor shim in every session it manages, so Ctrl-G just works. It never touches
+    your shell configuration.
+  </p>
+
+  <h2>If you already set $VISUAL</h2>
+  <p>
+    If your shell profile exports its own <code>$VISUAL</code>, it wins inside login
+    shells — so Gallager probes for that conflict and asks what you prefer the first
+    time you create a session. Your choices, changeable later under
+    <strong>Settings → Editors → Prompt editor (Ctrl-G)</strong>:
+  </p>
+  <ul>
+    <li><strong>Use Gallager's editor in Gallager sessions</strong> — your editor
+      stays the default everywhere else. The recommended route is a one-line guard in
+      your profile so your export skips Gallager-managed shells.</li>
+    <li><strong>Keep your editor</strong> — Ctrl-G opens your GUI editor on the Mac
+      instead of the overlay.</li>
+  </ul>
+
+  <h2>From a remote viewer</h2>
+  <p>
+    Viewing your Mac from another Mac? The same overlay appears on the viewer, and
+    either machine can finish the edit — first submit wins. On the iPhone the overlay
+    isn't available; prompt editing stays a desktop feature.
+  </p>
+
+  <h2>Beyond agents</h2>
+  <p>
+    The shim is an ordinary command — <code>gallager edit &lt;file&gt;</code> — so any
+    tool that shells out to <code>$VISUAL</code> inside a Gallager pane gets the same
+    treatment, and you can use it directly from scripts: it blocks until you submit or
+    cancel, just like an editor should.
+  </p>
+</Guide>

@@ -1,0 +1,53 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="Token & cost meter — Gallager"
+  description="A live per-session meter of tokens, cost and latency, fed by each agent's telemetry — on the Mac and on your phone."
+  heroTitle="Token &amp; cost meter"
+  lede="Every session wears its price tag: live tokens, dollars and latency, straight from the agent's own telemetry."
+>
+  <h2>Where it shows up</h2>
+  <p>
+    Each session's meter — <code>⚡ 12.4k · $0.42</code> — appears on its sidebar row
+    next to the model name, and in a status bar under the terminal panes. Open the
+    session info panel for the full breakdown: input and output tokens, cache reads
+    and writes, cost, model, permission mode, last-turn latency with a sparkline of
+    recent turns, plus running counters like active time, tool calls, lines changed,
+    commits and PRs. All of it is mirrored to the iPhone too.
+  </p>
+
+  <h2>Setup per agent</h2>
+  <ul>
+    <li><strong>Claude Code</strong> — automatic. Gallager configures OpenTelemetry in
+      the sessions it launches; you get tokens, cost, latency and model with zero
+      setup. The telemetry is content-free — usage numbers, never your prompts.</li>
+    <li><strong>Codex CLI</strong> — on by default, with an "Export telemetry" opt-out
+      in Settings → Agents. Codex reports tokens and latency but no cost, so the meter
+      shows tokens alone. Your <code>~/.codex/config.toml</code> is never touched.</li>
+    <li><strong>opencode and pi</strong> — included with their plugins; installing the
+      plugin is the whole setup.</li>
+  </ul>
+
+  <h2>How it counts</h2>
+  <p>
+    The meter is per <em>session</em>, not per pane: it follows whatever session is
+    live in the pane and starts fresh when that changes — <code>/clear</code>, a
+    resume, or a new session. The headline number is input + output tokens and
+    deliberately excludes cache reads and writes (agents re-report the whole cached
+    context every turn, which would inflate the number several-fold); the full cache
+    figures are in the info panel. Costs under a cent display as
+    <code>&lt;$0.01</code>.
+  </p>
+
+  <h2>Good to know</h2>
+  <ul>
+    <li>Everything flows over a local loopback receiver on your Mac — telemetry never
+      leaves the machine except encrypted to your own paired devices.</li>
+    <li>Only sessions Gallager launches are instrumented; a <code>claude</code> you
+      start in some other terminal won't report here.</li>
+    <li>The live meter resets with its session. Longer-horizon per-project usage is
+      aggregated separately and survives restarts.</li>
+  </ul>
+</Guide>

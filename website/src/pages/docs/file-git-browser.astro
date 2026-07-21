@@ -1,0 +1,62 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="File & git browser — Gallager"
+  description="Review the diff an agent just produced without leaving Gallager: file tree, content search, and a full git workbench beside the terminal."
+  heroTitle="File &amp; git browser"
+  lede="An agent just wrote a bunch of code. Review it — files, diffs, staged changes — right beside the terminal it's still running in."
+>
+  <h2>The tab strip</h2>
+  <p>
+    Every session has a tab strip above its terminal. Alongside the terminal windows
+    you'll find a <strong>Files</strong> tab and a <strong>Git</strong> tab, and any tab
+    can be sent to a side-by-side split — so a diff or a file can sit next to the live
+    terminal while the agent keeps working. Cycle tabs with <strong>⌘⇧[</strong> and
+    <strong>⌘⇧]</strong>.
+  </p>
+
+  <h2>Files</h2>
+  <p>
+    The Files tab is a two-pane browser rooted at the session's working directory: a
+    file tree on the left, a viewer on the right that renders text, Markdown, images,
+    PDFs and video — live-reloading as files change on disk, which is exactly what you
+    want while an agent is writing them. Right-click to open a file in its own tab,
+    reveal it in Finder, copy its path, or open it in your configured external editor
+    (viewing is in-app; editing hands off to a real editor).
+  </p>
+  <p>
+    Search has two modes — file <strong>names</strong> (fuzzy) or file
+    <strong>contents</strong>, with results grouped by file and the matched line
+    highlighted. <strong>⌘⇧F</strong> jumps straight into content search.
+  </p>
+
+  <h2>Git</h2>
+  <p>
+    The Git tab is a full workbench, not a status readout: staged and unstaged changes
+    with unified or split diffs, history, and stashes. You can stage, unstage,
+    discard, commit, pull, push, fetch and switch branches without touching the
+    terminal — review what the agent did, stage the parts you like, and commit.
+  </p>
+  <p>
+    You don't need the tab open to know something changed: it wears a badge with the
+    count of modified files, kept live by a repository watcher, so a glance at the
+    strip tells you a session has uncommitted work.
+  </p>
+
+  <h2>There's a web browser in there too</h2>
+  <p>
+    The "+" menu in the strip can open real browser tabs — handy for a dev server
+    preview next to the agent that's building it. Links printed in the terminal can
+    route into an in-app tab or your default browser; set the global default and
+    per-domain rules under <strong>Settings → Browser</strong>.
+  </p>
+
+  <h2>Remote viewers</h2>
+  <p>
+    File and git browsing are host-Mac features: a remote viewer deliberately gets
+    neither (your filesystem stays on your machine). Browser tabs work on a viewing
+    Mac — they browse from the viewer itself.
+  </p>
+</Guide>
