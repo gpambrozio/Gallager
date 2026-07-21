@@ -1,0 +1,55 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="Push notifications — Gallager"
+  description="When Gallager notifies you, how notification content stays end-to-end encrypted, and how badges stay accurate."
+  heroTitle="Push notifications"
+  lede="Pings only when an agent actually needs you — and the relay can't read a single one of them."
+>
+  <h2>When they fire</h2>
+  <ul>
+    <li>An agent requests <strong>permission</strong> to do something</li>
+    <li>An agent <strong>asks you a question</strong> or presents a plan to approve</li>
+    <li>A session <strong>finishes</strong> or stops waiting for your input (with a summary of what it did)</li>
+    <li>An agent reports an <strong>error</strong>, or a new session starts</li>
+  </ul>
+  <p>
+    That's the whole list. Tool calls, streaming output and token counts never
+    notify — those are visible in the app when you want them, not pushed at you.
+    Tapping a notification deep-links straight to the session that needs you.
+  </p>
+
+  <h2>Encrypted end to end</h2>
+  <p>
+    Notification content is sealed on your Mac with the pairing's session key before it
+    goes anywhere. The relay sends APNs a placeholder alert plus the encrypted payload;
+    a Notification Service Extension on your iPhone decrypts it on-device and rewrites
+    the title and body just before display. Neither the relay nor Apple's push service
+    ever sees what your agent said.
+  </p>
+
+  <h2>Badges</h2>
+  <p>
+    The app icon badge is the number of sessions waiting on you, summed across every
+    paired Mac. Clears are delivered too: when you handle a session on the Mac, a
+    silent background push updates the badge — so it stays truthful without opening
+    the app.
+  </p>
+
+  <h2>Connected vs. away</h2>
+  <p>
+    Pushes exist for when the app isn't actively connected. With Gallager open and
+    streaming, state changes show up live over the WebSocket; backgrounded but still
+    connected, a local notification fills the same role without a round-trip through
+    APNs.
+  </p>
+
+  <h2>Self-hosting?</h2>
+  <p>
+    The hosted relay delivers pushes out of the box. A self-hosted relay needs your own
+    APNs key — see <a href="/docs/self-hosting/">the self-hosting guide</a>. Without
+    one, everything else works; you just won't get pushes while the phone is away.
+  </p>
+</Guide>

@@ -373,6 +373,38 @@ body {
   font-family: ui-monospace, Menlo, monospace;
 }
 
+/* Guide pages: long-form prose under /docs/. */
+.prose { max-width: 760px; font-size: 15px; line-height: 1.7; }
+.prose h2 {
+  font-size: 24px;
+  border-top: 2px solid var(--color-divider);
+  padding-top: var(--space-4);
+  margin: var(--space-6) 0 var(--space-3);
+}
+.prose h3 { font-size: 17px; margin: var(--space-5) 0 var(--space-2); }
+.prose p, .prose ul, .prose ol { margin: 0 0 var(--space-3); }
+.prose ul, .prose ol { padding-left: 1.3em; }
+.prose li { margin-bottom: var(--space-1); }
+.prose pre, .prose code { font-family: ui-monospace, Menlo, monospace; }
+.prose pre {
+  font-size: 13px; line-height: 1.9;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  margin: 0 0 var(--space-3);
+}
+.prose :not(pre) > code {
+  font-size: 13px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm, 4px);
+}
+.prose table { border-collapse: collapse; font-size: 13.5px; margin: 0 0 var(--space-3); width: 100%; }
+.prose th, .prose td { border: 1px solid var(--color-divider); padding: var(--space-2) var(--space-3); text-align: left; vertical-align: top; }
+.prose th { font-family: var(--font-heading); font-weight: var(--font-heading-weight); }
+
 .nav-brand {
   display: flex;
   align-items: center;

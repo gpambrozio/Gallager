@@ -1,0 +1,78 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="Self-hosting the relay — Gallager"
+  description="Run the Gallager relay on your own server with Docker Compose, TLS via Caddy, and optional push notifications."
+  heroTitle="Self-hosting the relay"
+  lede="One lightweight Vapor server behind any TLS reverse proxy. Free, no license keys, and your traffic never touches infrastructure you don't own."
+>
+  <h2>What you need</h2>
+  <ul>
+    <li>A Linux server (Ubuntu 22.04+ recommended) with Docker and Docker Compose</li>
+    <li>1 CPU core and 512&nbsp;MB RAM minimum — 1&nbsp;GB is comfortable</li>
+    <li>A domain name pointed at the server (the apps connect over WSS, so HTTPS is required)</li>
+  </ul>
+
+  <h2>Quick start</h2>
+  <pre>git clone https://github.com/gpambrozio/Gallager
+cd Gallager/ClaudeSpyPackage
+cp .env.example .env
+docker compose up -d
+
+curl http://localhost:8080/health
+# &#123;"status":"ok"&#125;</pre>
+  <p>
+    An unedited <code>.env</code> works — every variable has a sane default, licensing is
+    entirely disabled unless you opt in, and push notifications simply stay off until
+    configured. The container binds to <code>127.0.0.1:8080</code> only, so nothing is
+    exposed until your reverse proxy is in front of it.
+  </p>
+
+  <h2>TLS with Caddy</h2>
+  <p>
+    Any reverse proxy that forwards WebSocket upgrades works (the repo's
+    self-hosting doc also has nginx and Traefik configs). Caddy is the least
+    configuration — it provisions Let's Encrypt certificates automatically:
+  </p>
+  <pre>your-domain.com &#123;
+    reverse_proxy localhost:8080
+&#125;</pre>
+  <p>
+    Verify from outside: <code>curl https://your-domain.com/health</code>.
+  </p>
+
+  <h2>Point the apps at it</h2>
+  <p>
+    On the Mac: <strong>Settings → Remote Access → Server URL</strong>. Pair (or re-pair)
+    your iPhone and it uses the same server from then on. No license is needed —
+    the subscription only exists for the hosted relay.
+  </p>
+
+  <h2>Optional: push notifications</h2>
+  <p>
+    Without APNs configured, everything works while the apps are connected — you just
+    don't get pushes when the phone is away. Enabling them requires an Apple Developer
+    account: create an APNs auth key, drop the <code>.p8</code> under
+    <code>secrets/</code>, and set <code>APNS_KEY_PATH</code>, <code>APNS_KEY_ID</code>,
+    <code>APNS_TEAM_ID</code>, <code>APNS_BUNDLE_ID</code> and
+    <code>APNS_ENVIRONMENT</code> in <code>.env</code>. Note that APNs only accepts
+    pushes signed by the developer team that built the iOS app you're running, so
+    bringing your own key pairs naturally with building the iOS app yourself.
+  </p>
+
+  <h2>Useful knobs</h2>
+  <table>
+    <tbody>
+      <tr><td><code>LOG_LEVEL</code></td><td>Defaults to <code>warning</code>; the relay logs routing metadata only, never message content.</td></tr>
+      <tr><td><code>PAIRING_CODE_EXPIRY_SECONDS</code></td><td>How long pairing codes live. Default 300 (5 minutes).</td></tr>
+      <tr><td><code>MIN_CLIENT_VERSION</code></td><td>Optional gate that refuses app versions below a minimum at connect. Unset by default — every client is accepted.</td></tr>
+      <tr><td><code>METRICS_TOKEN</code></td><td>Set to enable a bearer-token-protected Prometheus <code>/metrics</code> endpoint.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Updating</h2>
+  <pre>git pull
+docker compose down && docker compose build && docker compose up -d</pre>
+</Guide>

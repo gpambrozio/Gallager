@@ -1,0 +1,78 @@
+---
+import Guide from "../../layouts/Guide.astro";
+---
+
+<Guide
+  title="Troubleshooting — Gallager"
+  description="Pairing codes, connection issues, missing notifications, sleep, and other common fixes."
+  heroTitle="Troubleshooting"
+  lede="The short list of things that actually go wrong, and what fixes them."
+>
+  <h2>Pairing code rejected or expired</h2>
+  <p>
+    Codes are 6 letters (uppercase, with easily-confused I and O never used) and expire
+    after 5 minutes — generate a fresh one from the Mac's Remote Access settings if it
+    sat around. Both devices must be talking to the <em>same</em> relay: if you
+    self-host, check the Server URL on the Mac before pairing.
+  </p>
+
+  <h2>Can't connect to a self-hosted relay</h2>
+  <p>
+    First verify the relay itself: <code>curl https://your-domain.com/health</code>
+    should return <code>&#123;"status":"ok"&#125;</code>. If that works but the apps
+    don't, your reverse proxy is likely not forwarding WebSocket upgrades — the
+    <code>Upgrade</code> and <code>Connection</code> headers must pass through. Note
+    the iPhone requires WSS (HTTPS); plain HTTP relays are Mac-only.
+  </p>
+
+  <h2>"Please update" on connect</h2>
+  <p>
+    The relay can enforce a minimum app version. If you see a too-old error, update
+    the Mac or iOS app — the message names the version required.
+  </p>
+
+  <h2>No push notifications</h2>
+  <ul>
+    <li>Check iOS notification permission for Gallager.</li>
+    <li>On the hosted relay, check your trial/subscription state in the Mac's Remote Access settings.</li>
+    <li>Self-hosting? Pushes need your APNs key configured — check the relay logs for
+      "APNs client initialized", and make sure <code>APNS_ENVIRONMENT</code> matches
+      your build (development for Xcode builds, production for TestFlight/App&nbsp;Store).</li>
+  </ul>
+
+  <h2>License won't activate</h2>
+  <p>
+    "license_key not found" after pasting a key usually means an invisible line break or
+    space came along from the email — embedded whitespace makes it a different string.
+    Re-copy the key carefully, or paste it into a plain-text field first to check.
+  </p>
+
+  <h2>The Mac went to sleep</h2>
+  <p>
+    While sessions are active, Gallager holds a sleep-prevention assertion so an
+    open-lid Mac stays awake ("Prevent sleep during active sessions" in Settings).
+    Closing the lid on battery still sleeps the machine. Agents live inside tmux, so
+    nothing is lost either way — when the Mac wakes and reconnects, sessions are
+    exactly where they were.
+  </p>
+
+  <h2>tmux missing</h2>
+  <p>
+    Gallager needs tmux and will walk you through installing it on first launch —
+    it detects Homebrew or MacPorts, shows the right command with a copy button, and
+    continues automatically once tmux appears.
+  </p>
+
+  <h2>A TUI's keyboard acts differently in Gallager</h2>
+  <p>
+    The mirrored terminal intentionally stays in standard keyboard mode: kitty
+    keyboard-protocol negotiation is stripped so panes render identically on Mac and
+    iPhone. Apps that probe for it will fall back to normal key handling.
+  </p>
+
+  <h2>Where the logs are</h2>
+  <ul>
+    <li>Relay (self-hosted): <code>docker compose logs -f</code> on the server.</li>
+    <li>Agent plugins: <code>~/.gallager/state/plugins/&lt;id&gt;/logs/</code> on the Mac.</li>
+  </ul>
+</Guide>
