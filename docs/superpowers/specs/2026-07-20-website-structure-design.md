@@ -93,10 +93,12 @@ privacy stance). The `@font-face` blocks live in `modernist.css` and point at
 
 ## Interactivity — no framework
 
-- Index FAQ accordion: styled `<details>`/`<summary>` if it can match the
-  current look, else a few lines of vanilla JS in a page `<script>`.
-- Pricing monthly/annual toggle: small vanilla `<script>` swapping
-  price/period/note text.
+- Index FAQ accordion: a few lines of vanilla JS in a page `<script>`,
+  reproducing the current one-open-at-a-time grid-rows animation.
+- Pricing needs **no JS**: the `annualBilling` flag turned out to be an
+  artifact-editor prop with no on-page toggle UI — visitors always see the
+  monthly price with the "or $50/year" note, so those values are baked in
+  statically.
 - React, ReactDOM, and the 66KB dc-runtime are dropped. No client framework.
 
 Net effect: pages go from ~380KB requiring JS to render, to roughly 15–50KB of
