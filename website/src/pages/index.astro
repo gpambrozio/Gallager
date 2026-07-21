@@ -97,6 +97,7 @@ const faqs = [
 
   <div class="container" style="padding:0 var(--space-4) var(--space-8);">
     <div
+      aria-hidden="true"
       style="border-radius:12px;overflow:hidden;box-shadow:var(--shadow-lg);border:1px solid var(--color-divider);background:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
     >
       <div
@@ -399,9 +400,9 @@ const faqs = [
     style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-8);align-items:center;"
   >
     <div>
-      <h6 style="color:var(--color-accent);margin-bottom:var(--space-3);">
+      <p class="eyebrow" style="color:var(--color-accent);margin-bottom:var(--space-3);">
         01 · On your desk
-      </h6>
+      </p>
       <h2 style="margin-bottom:var(--space-3);">
         Every agent in one place, not twelve terminal tabs
       </h2>
@@ -433,6 +434,7 @@ const faqs = [
       </ul>
     </div>
     <div
+      aria-hidden="true"
       style="background:#F2F2F7;border:1px solid var(--color-divider);border-radius:14px;padding:22px 18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;box-shadow:var(--shadow-md);"
     >
       <div style="display:flex;align-items:center;padding:0 8px 10px;">
@@ -497,6 +499,7 @@ const faqs = [
   >
     <div style="display:flex;justify-content:flex-start;">
       <div
+        aria-hidden="true"
         style="width:300px;background:#F2F2F7;border-radius:44px;border:1px solid var(--color-divider);box-shadow:var(--shadow-lg);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
       >
         <div style="display:flex;align-items:center;padding:14px 24px 4px;">
@@ -614,9 +617,9 @@ const faqs = [
       </div>
     </div>
     <div>
-      <h6 style="color:var(--color-accent);margin-bottom:var(--space-3);">
+      <p class="eyebrow" style="color:var(--color-accent);margin-bottom:var(--space-3);">
         02 · In your pocket
-      </h6>
+      </p>
       <h2 style="margin-bottom:var(--space-3);">
         Your agents keep working. You keep living.
       </h2>
@@ -652,9 +655,9 @@ const faqs = [
   <div class="container section-rule"><hr class="hr" /></div>
 
   <section class="container section">
-    <h6 style="color:var(--color-accent);margin-bottom:var(--space-3);">
+    <p class="eyebrow" style="color:var(--color-accent);margin-bottom:var(--space-3);">
       03 · Everything else
-    </h6>
+    </p>
     <h2 style="margin-bottom:var(--space-6);max-width:560px;">
       Built by people who actually run agents all day
     </h2>
@@ -680,7 +683,7 @@ const faqs = [
     style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-8);align-items:center;"
   >
     <div>
-      <h6 style="color:var(--color-accent);margin-bottom:var(--space-3);">Security</h6>
+      <p class="eyebrow" style="color:var(--color-accent);margin-bottom:var(--space-3);">Security</p>
       <h2 style="margin-bottom:var(--space-3);">
         The relay can't read your code. By design.
       </h2>
@@ -701,8 +704,8 @@ const faqs = [
       class="mono"
       style="font-size:13px;line-height:1.9;background:var(--color-surface);border:2px solid var(--color-divider);padding:var(--space-6);"
     >
-      <div><span class="text-muted">$</span> git clone github.com/gpambrozio/Gallager</div>
-      <div><span class="text-muted">$</span> cd gallager/ClaudeSpyPackage</div>
+      <div><span class="text-muted">$</span> git clone https://github.com/gpambrozio/Gallager</div>
+      <div><span class="text-muted">$</span> cd Gallager/ClaudeSpyPackage</div>
       <div><span class="text-muted">$</span> docker compose up -d</div>
       <div style="color:var(--color-accent-700);">✓ relay running on your own domain</div>
       <div class="text-muted">{`{"status":"ok"} — that's all it ever knows`}</div>

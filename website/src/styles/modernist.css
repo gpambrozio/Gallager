@@ -1,4 +1,4 @@
-/* Modernist — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
+/* Modernist — design-system tokens and component classes. This file is the source of truth for the site's look; retune it here (see website/README.md). */
 /* vietnamese */
 @font-face {
   font-family: 'Archivo';
@@ -164,8 +164,7 @@ h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-headi
 
 /* ══════════════════════════════════════════════════════════════════════════
    Components — built with the tokens above. Plain CSS
-   on plain HTML: no JavaScript, no build step. Each class is documented in
-   readme.md and demonstrated in foundations/ and components/.
+   on plain HTML: no JavaScript, no build step.
    ══════════════════════════════════════════════════════════════════════ */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -181,6 +180,13 @@ h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 h6 { font-size: 13px; }
 h6 { letter-spacing: 0.08em; text-transform: uppercase; }
+/* Eyebrow kicker: h6 typography on a non-heading element, so section intros
+   don't start the heading outline at h6. */
+.eyebrow {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 13px; line-height: 1.12; letter-spacing: 0.08em;
+  text-transform: uppercase; margin: 0 0 var(--space-2);
+}
 p { margin: 0 0 var(--space-3); }
 a { color: var(--color-accent); text-underline-offset: 3px; }
 img { display: block; max-width: 100%; }

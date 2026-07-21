@@ -527,7 +527,11 @@ deploy_website() {
     if remote "test -d $CADDY_CONF_D" 2>/dev/null; then
         info "Installing Caddy configuration ($WEBSITE_CADDY_FILE)..."
         rsync -az -e ssh "$(package_dir)/caddy/$WEBSITE_CADDY_FILE" "$REMOTE_HOST:$CADDY_CONF_D/"
-        remote "systemctl reload caddy"
+        if remote "systemctl is-active --quiet caddy" 2>/dev/null; then
+            remote "systemctl reload caddy"
+        else
+            warn "Caddy is not running on the server; skipping reload."
+        fi
     else
         warn "Caddy conf.d not found on server; configure your web server manually."
     fi
