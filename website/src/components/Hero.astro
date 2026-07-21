@@ -1,0 +1,37 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  lede?: string;
+  class?: string;
+  titleMaxWidth?: string;
+  ledeMaxWidth?: string;
+}
+
+const {
+  eyebrow,
+  title,
+  lede,
+  class: className,
+  titleMaxWidth,
+  ledeMaxWidth,
+} = Astro.props;
+---
+
+<header class:list={["container", "page-hero", className]}>
+  <h6 class="eyebrow">{eyebrow}</h6>
+  <h1 style={titleMaxWidth ? `max-width:${titleMaxWidth}` : undefined}>
+    {title}
+  </h1>
+  {
+    lede && (
+      <p
+        class="text-muted lede"
+        style={ledeMaxWidth ? `max-width:${ledeMaxWidth}` : undefined}
+      >
+        {lede}
+      </p>
+    )
+  }
+  <slot />
+</header>

@@ -367,6 +367,14 @@ body {
   font-family: ui-monospace, Menlo, monospace;
 }
 
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
 .nav-brand img {
   width: 28px;
   height: 28px;

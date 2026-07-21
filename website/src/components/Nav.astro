@@ -1,0 +1,24 @@
+---
+const links = [
+  { href: "/docs/", label: "Docs" },
+  { href: "/pricing/", label: "Pricing" },
+  { href: "/security/", label: "Security" },
+];
+const path = Astro.url.pathname;
+---
+
+<nav class="nav container">
+  <a href="/" class="nav-brand">
+    <img src="/logo.png" alt="Gallager" width="28" height="28" />
+    Gallager
+  </a>
+  {
+    links.map((l) => (
+      <a href={l.href} aria-current={path === l.href ? "page" : undefined}>
+        {l.label}
+      </a>
+    ))
+  }
+  <a href="https://github.com/gpambrozio/Gallager">GitHub</a>
+  <a href="/#download" class="btn btn-primary">Download</a>
+</nav>
