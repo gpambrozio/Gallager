@@ -599,6 +599,39 @@ struct StripOSCColorQueriesTests {
         #expect(result == input)
     }
 
+    @Test("Passes through OSC with a huge digit run (no Int overflow trap)")
+    func handlesHugeCodeDigitRun() {
+        // ESC ] 9…(×40) ; ? BEL — pane bytes are arbitrary (e.g. cat-ing
+        // binary), so a long digit run must not trap on Int overflow.
+        var input = Data([0x1B, 0x5D])
+        input.append(contentsOf: Array(repeating: 0x39, count: 40))
+        input.append(contentsOf: [0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("CAN aborts the OSC so later unrelated output is preserved")
+    func canAbortsOSCScan() {
+        // ESC ] 11 ; CAN "real ? output" BEL — CAN (0x18) aborts the OSC
+        // (xterm behavior), so the later ? and BEL belong to legitimate
+        // output and nothing may be stripped.
+        var input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x18])
+        input.append(contentsOf: Data("real ? output".utf8))
+        input.append(0x07)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("SUB aborts the OSC so later unrelated output is preserved")
+    func subAbortsOSCScan() {
+        // Same as CAN but with SUB (0x1A).
+        var input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x1A])
+        input.append(contentsOf: Data("real ? output".utf8))
+        input.append(0x07)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
     @Test("Handles empty data")
     func handlesEmptyData() {
         let result = TerminalResponseFilter.stripOSCColorQueries(Data())
@@ -835,6 +868,15 @@ struct IsTerminalResponseTests {
     func rejectsOSC104() {
         // ESC ] 1 0 4 ; — reset; code 104 ≠ 10
         let data: [UInt8] = [0x1B, 0x5D, 0x31, 0x30, 0x34, 0x3B]
+        #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Rejects OSC with a huge digit run (no Int overflow trap)")
+    func rejectsHugeOSCCodeDigitRun() {
+        // ESC ] 9…(×40) ; — reachable from paste, must not trap on overflow
+        var data: [UInt8] = [0x1B, 0x5D]
+        data.append(contentsOf: Array(repeating: 0x39, count: 40))
+        data.append(0x3B)
         #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
     }
 

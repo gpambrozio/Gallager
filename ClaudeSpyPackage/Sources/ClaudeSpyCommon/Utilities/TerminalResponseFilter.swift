@@ -313,7 +313,9 @@ public enum TerminalResponseFilter {
     ///
     /// Only the query form (`?` present) is stripped; color-*set* commands for the
     /// same codes carry a value (`rgb:…`, `#…`) and never a `?`, so they pass
-    /// through untouched and the mirror still tracks the real colors.
+    /// through untouched and the mirror still tracks the real colors. One caveat:
+    /// a single OSC 4 that mixes set and query params (`ESC ] 4 ; 1 ; rgb:… ; 2 ; ?`)
+    /// is stripped whole, set portion included — real TUIs query all-or-nothing.
     ///
     /// Like the other feed-level strippers, this matches within a single read
     /// chunk and does not buffer across reads: a query split across two chunks
@@ -350,7 +352,10 @@ public enum TerminalResponseFilter {
             var code = 0
             var sawCodeDigit = false
             while j < data.endIndex, data[j] >= 0x30, data[j] <= 0x39 {
-                code = code * 10 + Int(data[j] - 0x30)
+                // Capped: pane bytes are untrusted and an unbounded digit run
+                // would trap on Int overflow; a capped value can't match
+                // oscColorQueryCodes anyway.
+                code = min(code * 10 + Int(data[j] - 0x30), 10_000)
                 sawCodeDigit = true
                 j += 1
             }
@@ -369,6 +374,9 @@ public enum TerminalResponseFilter {
                 let b = data[k]
                 if b == 0x07 { // BEL
                     terminatorEnd = k + 1
+                    break
+                }
+                if b == 0x18 || b == 0x1A { // CAN / SUB abort the OSC (xterm)
                     break
                 }
                 if b == 0x1B { // possible ST: ESC \
@@ -499,6 +507,8 @@ public enum TerminalResponseFilter {
 
         // OSC color report: ESC ] <4|10|11|12> ; … — defense-in-depth for the
         // color queries stripped at the feed level by stripOSCColorQueries.
+        // Also matches the raw *query* form (`ESC ] 11 ; ?`), so a pasted query
+        // is swallowed — same accepted paste trade-off as the CSI `?` catch-all.
         if secondByte == 0x5D { return isOSCColorResponse(data) } // ]
 
         guard secondByte == 0x5B else { return false } // [
@@ -531,7 +541,10 @@ public enum TerminalResponseFilter {
         var code = 0
         var sawDigit = false
         while j < data.endIndex, data[j] >= 0x30, data[j] <= 0x39 {
-            code = code * 10 + Int(data[j] - 0x30)
+            // Capped: reachable from paste, and an unbounded digit run would
+            // trap on Int overflow; a capped value can't match
+            // oscColorQueryCodes anyway.
+            code = min(code * 10 + Int(data[j] - 0x30), 10_000)
             sawDigit = true
             j += 1
         }
