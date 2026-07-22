@@ -97,6 +97,9 @@
 --disable blankLinesAroundMark
 --disable redundantInit
 --disable redundantRawValues
+# Keep @Suite("…") display names on Swift Testing suites (repo convention).
+# Newer SwiftFormat (0.60+) enables this rule by default and would strip them.
+--disable redundantSwiftTestingSuite
 --disable sortedSwitchCases
 --disable strongOutlets
 --disable wrapMultilineStatementBraces
