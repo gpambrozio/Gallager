@@ -74,11 +74,27 @@ The wrinkle: `session.status` / `session.idle` deliberately **omit `parentID`**
 event alone can't tell a subagent's idle from the main session's. The only events
 that carry `info.parentID` are `session.created` / `session.updated`. So the
 bridge forwards those two (they map to no state themselves), the sidecar records
-any session with a `parentID` in a `CHILD` set, and it then **drops all lifecycle
-events** (`session.status` / `session.idle` / `session.error`) belonging to a
-child session. Only the **root** session (no `parentID`) drives the pane's
+each child in a `CHILD` map (child id → parent id), and it then **drops all
+lifecycle events** (`session.status` / `session.idle` / `session.error`) belonging
+to a child session. Only the **root** session (no `parentID`) drives the pane's
 working / done state and its turn-completion notification — so one turn using N
 subagents yields exactly **one** "Finished working", when the main agent finishes.
+
+Two refinements on top of the drop rule:
+
+- **Ordering** — opencode dispatches plugin `event` hooks without awaiting them,
+  so the bridge pushes every ingress frame through a FIFO send chain (and the
+  `event` hook awaits it). That guarantees a child's `session.created` reaches
+  the sidecar before the child's own busy/idle churn — the learn-then-drop logic
+  can't lose the race.
+- **Permissions / questions are NOT dropped** — a subagent *can* raise its own
+  `permission.asked` / `question.asked` (its ruleset only denies `todowrite` /
+  `task`), and opencode's TUI renders a child's pending prompt in the **root
+  session's view**, blocking the whole turn on it. The sidecar forwards these,
+  **re-keyed to the root session** (`CHILD` is a map precisely so the parent
+  chain can be walked, including nested subagents), so the remote form appears
+  and keystroke answers land in the pane — without the child id ever becoming
+  the pane's session.
 
 > Re-install note: because the *bridge* now forwards `session.created` /
 > `session.updated`, an already-installed bridge must be re-installed (Agents

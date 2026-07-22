@@ -155,18 +155,23 @@ def state_awaiting_replies(request, request_id):
 # WORKING: sessions mid-turn (saw `busy`, not yet `idle`).
 # SEEN:    sessions we've ever emitted a state for (to tell a fresh session's
 #          first idle from a turn-ending idle, so we never clear attention).
-# CHILD:   subagent (task-tool) session ids. opencode runs each subagent in its
-#          own child session (info.parentID set) that emits its own busy/idle;
-#          we drop that churn so only the main session drives the pane and its
-#          "finished" notification (issue #670). session.status / session.idle
-#          omit parentID (opencode #30043), so we learn it from the
-#          session.created / session.updated events that DO carry info.parentID.
+# CHILD:   subagent (task-tool) session id → parent session id. opencode runs
+#          each subagent in its own child session (info.parentID set) that
+#          emits its own busy/idle; we drop that churn so only the main session
+#          drives the pane and its "finished" notification (issue #670).
+#          session.status / session.idle omit parentID (opencode #30043), so we
+#          learn child-ness from the session.created / session.updated events
+#          that DO carry info.parentID — and the bridge serializes its ingress
+#          frames (FIFO send chain), so created/updated always land here before
+#          the child's own churn. Child permission/question prompts are NOT
+#          dropped (see handle_translate_event); they're re-keyed to the root
+#          session via _root_session.
 # PENDING: gallager-requestID → {server_url, permission_id, session_id} so a
 #          later deliver_response can answer the right opencode permission.
 # ---------------------------------------------------------------------------
 WORKING = set()
 SEEN = set()
-CHILD = set()
+CHILD = {}
 PENDING = {}
 SESSION_PENDING = {}  # session_id → set(request_id)
 
@@ -206,6 +211,16 @@ def _clear_session_pending(session_id):
     for rid in list(SESSION_PENDING.get(session_id, set())):
         PENDING.pop(rid, None)
     SESSION_PENDING.pop(session_id, None)
+
+
+def _root_session(session_id):
+    """Resolve a (possibly nested — subagent_depth > 1) child session to its
+    top-level ancestor. The hop cap guards against a pathological parent cycle."""
+    hops = 0
+    while session_id in CHILD and hops < 8:
+        session_id = CHILD[session_id]
+        hops += 1
+    return session_id
 
 
 # ---------------------------------------------------------------------------
@@ -361,12 +376,22 @@ def handle_translate_event(req_id, params):
     # lifecycle should drive the pane.
     if etype in ("session.created", "session.updated"):
         if info.get("parentID"):
-            CHILD.add(session_id)
+            CHILD[session_id] = info["parentID"]
         respond(req_id, None)  # tracking-only — never a state/notification itself
         return
     if session_id in CHILD and etype in ("session.status", "session.idle", "session.error"):
         respond(req_id, None)  # subagent churn — the main session drives the pane
         return
+
+    # A subagent CAN raise its own permission/question (verified in opencode's
+    # source: Permission.ask / Question.ask publish with the *asking* session's
+    # id, and the task tool's child ruleset only denies todowrite/task), and
+    # opencode's TUI surfaces a child's pending prompt in the ROOT session's
+    # view, blocking the whole turn on it — so those events must pass through,
+    # not be dropped. Re-key them to the root session: the prompt is rendered
+    # and answered (keystrokes) in this same pane, and the child id must never
+    # become the pane's session — the #670 failure class.
+    session_id = _root_session(session_id)
 
     state = None
     notification = None

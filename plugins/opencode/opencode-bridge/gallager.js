@@ -92,9 +92,8 @@ function debug(line) {
  * Write one length-prefixed frame to Gallager's ingress socket.
  *
  * Returns a Promise that resolves once the frame has flushed (socket closed) or
- * the attempt gave up (Gallager not running / timeout) — never rejects. Event-bus
- * callers fire-and-forget (ignore the Promise); the `dispose` hook awaits it so
- * opencode's shutdown waits for the final "stopped" frame to land before exiting.
+ * the attempt gave up (Gallager not running / timeout) — never rejects. Callers
+ * go through enqueue() below, never call this directly — frame ORDER matters.
  */
 function forward(event, context) {
   return new Promise((resolve) => {
@@ -143,6 +142,20 @@ function forward(event, context) {
       done()
     }
   })
+}
+
+// FIFO send chain — every ingress frame flows through here. forward() opens a
+// fresh socket per frame, and opencode dispatches plugin `event` hooks WITHOUT
+// awaiting them (`void hook.event(...)`, packages/opencode/src/plugin/index.ts),
+// so two in-flight frames could otherwise flush out of order. Order matters:
+// the sidecar must see a child's `session.created` before that child's own
+// busy/idle churn to know it's a subagent (issue #670). Hook bodies DO start
+// synchronously in event order, so chaining each send onto the previous one
+// preserves bus order end-to-end. forward() never rejects → the chain can't wedge.
+let sendChain = Promise.resolve()
+function enqueue(event, context) {
+  sendChain = sendChain.then(() => forward(event, context))
+  return sendChain
 }
 
 // --- OTLP telemetry (issue #617) ----------------------------------------------
@@ -256,9 +269,9 @@ export const GallagerMonitor = async ({ serverUrl, directory, worktree, project 
 
   // Announce the session the moment opencode loads us — opencode emits nothing on
   // a fresh idle launch, so this is what makes the (idle) session appear in the
-  // sidebar before the first turn. Fire-and-forget; the process is alive and will
-  // keep sending.
-  forward(LIFECYCLE_STARTED, context)
+  // sidebar before the first turn. Not awaited (nothing to sequence against yet);
+  // it heads the send chain, so it lands before any event frame regardless.
+  enqueue(LIFECYCLE_STARTED, context)
 
   return {
     event: async ({ event }) => {
@@ -271,17 +284,21 @@ export const GallagerMonitor = async ({ serverUrl, directory, worktree, project 
         return
       }
       if (!FORWARD.has(event.type)) return
-      forward(event, context)
+      // enqueue() (not bare forward()) is what guarantees frames reach the
+      // ingress socket in event order; the await additionally keeps this hook's
+      // promise honest — it settles only once the frame has actually flushed.
+      await enqueue(event, context)
     },
     // opencode runs this finalizer on a graceful shutdown (the quit command,
     // `/exit`, Ctrl-C). It's the only exit signal we get — the bridge dies with
-    // the process — so tell Gallager to drop the session. Awaited so opencode
-    // waits for the frame to flush. A hard kill (SIGKILL/crash) skips finalizers
-    // and so won't fire this; that's the one uncovered case.
+    // the process — so tell Gallager to drop the session. Awaited (behind any
+    // still-pending frames on the send chain) so opencode's shutdown waits for
+    // the final "stopped" frame to land. A hard kill (SIGKILL/crash) skips
+    // finalizers and so won't fire this; that's the one uncovered case.
     dispose: async () => {
       debug("dispose → lifecycle.stopped")
       try {
-        await forward(LIFECYCLE_STOPPED, context)
+        await enqueue(LIFECYCLE_STOPPED, context)
       } catch {
         /* never throw out of dispose */
       }
