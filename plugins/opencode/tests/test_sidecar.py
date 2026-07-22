@@ -187,6 +187,49 @@ class TranslateEventTests(unittest.TestCase):
         self.assertEqual(r["state"], {"doneWorking": {"summary": "boom"}})
         self.assertEqual(r["notification"]["body"], "boom")
 
+    # --- Subagents (issue #670) -------------------------------------------------
+    # opencode runs each task-tool subagent in a child session (info.parentID set).
+    # Its busy/idle churn must NOT drive the pane or fire a "finished" notification;
+    # only the main (root) session's lifecycle should.
+    def test_session_created_root_is_noop(self):
+        # A root session (no parentID) → tracking event, no state, not suppressed later.
+        r = self.evt("session.created", {"sessionID": "root", "info": {"id": "root"}})
+        self.assertIsNone(r)
+        r = self.evt("session.status", {"sessionID": "root", "status": {"type": "busy"}})
+        self.assertEqual(r["state"], {"working": {}})  # root still drives the pane
+
+    def test_subagent_created_is_tracked_not_stated(self):
+        r = self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(r)  # tracking-only, no state/notification
+
+    def test_subagent_idle_is_suppressed(self):
+        # Learn the child, then its busy/idle churn is dropped entirely.
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "busy"}}))
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "idle"}}))
+
+    def test_subagent_finishing_does_not_notify_while_main_works(self):
+        # The reported bug: a subagent finishing must not fire "Finished working"
+        # while the main session is still mid-turn — only the main session's own
+        # idle does.
+        self.evt("session.status", {"sessionID": "root", "status": {"type": "busy"}})  # main working
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.evt("session.status", {"sessionID": "sub", "status": {"type": "busy"}})
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "idle"}}))  # no notify
+        r = self.evt("session.status", {"sessionID": "root", "status": {"type": "idle"}})  # main done
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_subagent_learned_via_session_updated(self):
+        # If session.created was missed, session.updated also carries parentID.
+        self.evt("session.updated", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(self.evt("session.idle", {"sessionID": "sub"}))
+
+    def test_subagent_error_is_suppressed(self):
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        r = self.evt("session.error", {"sessionID": "sub", "error": {"data": {"message": "sub boom"}}})
+        self.assertIsNone(r)  # a subagent's error must not surface as the pane's "done"
+
     def test_permission_asked_builds_form(self):
         r = self.evt("permission.asked", {
             "id": "per_abc",
@@ -436,7 +479,7 @@ class InstallTests(unittest.TestCase):
                 dest = os.path.join(proj, ".opencode", "plugin", "gallager.js")
                 self.assertTrue(os.path.exists(dest))
                 self.assertEqual(sc.request("install_status", {"configRoot": proj}).get("result"),
-                                 {"installed": {"version": "0.2.0"}})
+                                 {"installed": {"version": "0.2.1"}})
             finally:
                 sc.close()
 
@@ -468,7 +511,7 @@ class InstallTests(unittest.TestCase):
                 self.assertIn("GallagerMonitor", content)
 
                 self.assertEqual(sc.request("install_status").get("result"),
-                                 {"installed": {"version": "0.2.0"}})
+                                 {"installed": {"version": "0.2.1"}})
 
                 sc.request("uninstall")
                 self.assertFalse(os.path.exists(dest))

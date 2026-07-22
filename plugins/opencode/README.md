@@ -45,6 +45,7 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
 | opencode event | → Gallager state |
 |---|---|
 | `gallager.lifecycle.started` (synthetic, on bridge load) | `idle` (session appears) |
+| `session.created` / `session.updated` | *(tracking only — learns subagent sessions; see below)* |
 | `session.status` `busy` / `retry` | `working` |
 | `session.status` `idle` (after a turn) | `doneWorking` + notification |
 | `session.status` `idle` (fresh session) | `idle` |
@@ -58,6 +59,31 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
 The sidecar keeps a per-session `working`/`seen` flag so a turn-ending `idle`
 becomes `doneWorking` (raising attention) while a brand-new session's first
 `idle` stays `idle`, and a stray second `idle` never clears the attention badge.
+
+## Subagents (issue #670)
+
+opencode runs each `task`-tool **subagent** in its own **child session** — a real
+session node whose `info.parentID` points at the session that spawned it. That
+child emits its own `session.status` `busy` → `idle` churn, structurally identical
+to the main session's. If Gallager surfaced it, **every finished subagent would
+fire a spurious "Finished working" notification** (and briefly re-stamp the pane
+onto a now-dead child session), even though the main agent is still mid-turn.
+
+The wrinkle: `session.status` / `session.idle` deliberately **omit `parentID`**
+(opencode [#30043](https://github.com/sst/opencode/issues/30043)), so the status
+event alone can't tell a subagent's idle from the main session's. The only events
+that carry `info.parentID` are `session.created` / `session.updated`. So the
+bridge forwards those two (they map to no state themselves), the sidecar records
+any session with a `parentID` in a `CHILD` set, and it then **drops all lifecycle
+events** (`session.status` / `session.idle` / `session.error`) belonging to a
+child session. Only the **root** session (no `parentID`) drives the pane's
+working / done state and its turn-completion notification — so one turn using N
+subagents yields exactly **one** "Finished working", when the main agent finishes.
+
+> Re-install note: because the *bridge* now forwards `session.created` /
+> `session.updated`, an already-installed bridge must be re-installed (Agents
+> settings → **Install**) for the fix to take effect. Until then behavior is
+> unchanged (the old bug), never worse.
 
 ## Session lifecycle (start / exit)
 
@@ -211,7 +237,7 @@ works out of the box:
 ## Test
 
 ```bash
-python3 tests/test_sidecar.py     # 36 tests: mapping, lifecycle, forms, install, telemetry, projects
+python3 tests/test_sidecar.py     # 42 tests: mapping, lifecycle, subagents, forms, install, telemetry, projects
 node --check opencode-bridge/gallager.js
 ```
 

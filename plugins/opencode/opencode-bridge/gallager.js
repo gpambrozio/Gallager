@@ -56,6 +56,12 @@ const DEBUG_LOG =
 // declared in the published SDK types (`permission.updated`) so we stay correct
 // across opencode versions; the sidecar parses whichever actually arrives.
 const FORWARD = new Set([
+  // session.created / session.updated carry info.parentID — the ONLY events that
+  // do (session.status / session.idle omit it, opencode #30043). The sidecar uses
+  // them to learn which sessions are task-tool subagents so it can drop their
+  // busy/idle churn and only notify when the MAIN session finishes (issue #670).
+  "session.created",
+  "session.updated",
   "session.status",
   "session.idle",
   "session.error",

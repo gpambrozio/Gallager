@@ -155,11 +155,18 @@ def state_awaiting_replies(request, request_id):
 # WORKING: sessions mid-turn (saw `busy`, not yet `idle`).
 # SEEN:    sessions we've ever emitted a state for (to tell a fresh session's
 #          first idle from a turn-ending idle, so we never clear attention).
+# CHILD:   subagent (task-tool) session ids. opencode runs each subagent in its
+#          own child session (info.parentID set) that emits its own busy/idle;
+#          we drop that churn so only the main session drives the pane and its
+#          "finished" notification (issue #670). session.status / session.idle
+#          omit parentID (opencode #30043), so we learn it from the
+#          session.created / session.updated events that DO carry info.parentID.
 # PENDING: gallager-requestID → {server_url, permission_id, session_id} so a
 #          later deliver_response can answer the right opencode permission.
 # ---------------------------------------------------------------------------
 WORKING = set()
 SEEN = set()
+CHILD = set()
 PENDING = {}
 SESSION_PENDING = {}  # session_id → set(request_id)
 
@@ -342,6 +349,24 @@ def handle_translate_event(req_id, params):
     session_id = props.get("sessionID") or info.get("id") or tmux_pane or "unknown"
     if not project_path:
         project_path = info.get("directory")
+
+    # Subagent handling (issue #670). opencode runs each task-tool subagent in a
+    # CHILD session whose info carries a parentID; that child emits its own
+    # busy→idle churn exactly like the main session. session.created /
+    # session.updated are the only events that carry info.parentID (session.status
+    # / session.idle omit it — opencode #30043), so learn a session's child-ness
+    # here, then drop the child's lifecycle events below. Without this, every
+    # finished subagent fires a spurious "Finished working" notification and
+    # re-stamps the pane onto a now-dead child session; only the root session's
+    # lifecycle should drive the pane.
+    if etype in ("session.created", "session.updated"):
+        if info.get("parentID"):
+            CHILD.add(session_id)
+        respond(req_id, None)  # tracking-only — never a state/notification itself
+        return
+    if session_id in CHILD and etype in ("session.status", "session.idle", "session.error"):
+        respond(req_id, None)  # subagent churn — the main session drives the pane
+        return
 
     state = None
     notification = None
@@ -755,7 +780,7 @@ def handle_refresh_projects(req_id, params):
 # ---------------------------------------------------------------------------
 # Remaining RPC handlers.
 # ---------------------------------------------------------------------------
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.2.1"
 
 
 def _store_settings(value):
