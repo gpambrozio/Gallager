@@ -12,9 +12,7 @@ The issue is reproducible. A tmux-rec recording of the same session replayed via
 
 ## Evidence
 
-- `terminal-debug/garbled.png` — screenshot from the ClaudeSpy mirror (text displaced, colors wrong)
-- `terminal-debug/correct.png` — screenshot from tmux-rec replay of the same session (correct rendering)
-- Both show the same tmux session at roughly the same point in time
+- Side-by-side screenshots of the same tmux session at roughly the same point in time — the ClaudeSpy mirror (text displaced, colors wrong) vs. a tmux-rec replay (correct rendering) — confirmed the mirror was at fault. (The screenshots contained a real working session and were removed from the repo before open-sourcing.)
 - E2E scenario screenshots in `E2ETests/16-terminal-rendering-bugs/` visually confirm H17 and scrollback corruption
 
 ## Architecture Summary: How Data Flows
