@@ -331,8 +331,14 @@
             let kittyFiltered = TerminalResponseFilter.stripKittyKeyboardProtocol(decrqmFiltered)
             guard !kittyFiltered.isEmpty else { return }
 
+            // Strip OSC color queries (background/foreground/cursor/palette probes)
+            // so mirroring SwiftTerm instances never emit a color report that would
+            // leak back into the pane as typed input (e.g. `11;rgb:…`) — issue #669.
+            let oscFiltered = TerminalResponseFilter.stripOSCColorQueries(kittyFiltered)
+            guard !oscFiltered.isEmpty else { return }
+
             // Parse and strip OSC 9/777 notification sequences
-            let parseResult = notificationParser.parse(kittyFiltered)
+            let parseResult = notificationParser.parse(oscFiltered)
 
             // Determine what (if any) data goes to the live delegate; for
             // buffering mode we append synchronously so the buffer's order

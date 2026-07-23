@@ -455,6 +455,198 @@ struct StripKittyKeyboardProtocolTests {
     }
 }
 
+// MARK: - stripOSCColorQueries
+
+@Suite("TerminalResponseFilter.stripOSCColorQueries")
+struct StripOSCColorQueriesTests {
+    @Test("Strips OSC 11 background query (BEL-terminated)")
+    func stripsBackgroundQueryBEL() {
+        // ESC ] 1 1 ; ? BEL
+        let input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips OSC 11 background query (ST-terminated)")
+    func stripsBackgroundQueryST() {
+        // ESC ] 1 1 ; ? ESC \
+        let input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x3F, 0x1B, 0x5C])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips OSC 10 foreground query")
+    func stripsForegroundQuery() {
+        // ESC ] 1 0 ; ? BEL
+        let input = Data([0x1B, 0x5D, 0x31, 0x30, 0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips OSC 12 cursor color query")
+    func stripsCursorQuery() {
+        // ESC ] 1 2 ; ? ESC \
+        let input = Data([0x1B, 0x5D, 0x31, 0x32, 0x3B, 0x3F, 0x1B, 0x5C])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips OSC 4 indexed palette query ESC]4;1;?")
+    func stripsPaletteQuery() {
+        // ESC ] 4 ; 1 ; ? BEL
+        let input = Data([0x1B, 0x5D, 0x34, 0x3B, 0x31, 0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips multi-color query ESC]10;?;?;? (fg+bg+cursor)")
+    func stripsMultiColorQuery() {
+        // ESC ] 1 0 ; ? ; ? ; ? BEL
+        let input = Data([0x1B, 0x5D, 0x31, 0x30, 0x3B, 0x3F, 0x3B, 0x3F, 0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result.isEmpty)
+    }
+
+    @Test("Strips OSC color query embedded in surrounding data")
+    func stripsEmbeddedQuery() {
+        var input = Data("before".utf8)
+        input.append(contentsOf: [0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x3F, 0x07]) // ESC]11;?BEL
+        input.append(Data("after".utf8))
+
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == Data("beforeafter".utf8))
+    }
+
+    @Test("Strips multiple OSC color queries from same chunk")
+    func stripsMultipleQueries() {
+        var input = Data([0x1B, 0x5D, 0x31, 0x30, 0x3B, 0x3F, 0x07]) // ESC]10;?BEL
+        input.append(Data("x".utf8))
+        input.append(contentsOf: [0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x3F, 0x1B, 0x5C]) // ESC]11;?ST
+
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == Data("x".utf8))
+    }
+
+    @Test("Preserves OSC 11 color *set* command (rgb value, no ?)")
+    func preservesBackgroundSet() {
+        // ESC ] 1 1 ; rgb:1a1a/1a1a/1a1a BEL — a set, not a query
+        var input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B])
+        input.append(Data("rgb:1a1a/1a1a/1a1a".utf8))
+        input.append(0x07) // BEL
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves OSC 4 palette *set* command")
+    func preservesPaletteSet() {
+        // ESC ] 4 ; 1 ; rgb:0000/0000/0000 BEL
+        var input = Data([0x1B, 0x5D, 0x34, 0x3B, 0x31, 0x3B])
+        input.append(Data("rgb:0000/0000/0000".utf8))
+        input.append(0x07) // BEL
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves OSC 0 title containing a ? (non-color code)")
+    func preservesTitleWithQuestionMark() {
+        // ESC ] 0 ; what? BEL — title, must not be stripped even with a '?'
+        var input = Data([0x1B, 0x5D, 0x30, 0x3B])
+        input.append(Data("what?".utf8))
+        input.append(0x07) // BEL
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves OSC 8 hyperlink with query string (? in URL)")
+    func preservesHyperlinkWithQueryString() {
+        // ESC ] 8 ; ; https://x.com/?a=b ESC \ — the ? is a URL query, not a color probe
+        var input = Data([0x1B, 0x5D, 0x38, 0x3B, 0x3B])
+        input.append(Data("https://x.com/?a=b".utf8))
+        input.append(contentsOf: [0x1B, 0x5C])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves OSC 104 reset (code prefix 10 but not a color query)")
+    func preservesResetCode() {
+        // ESC ] 1 0 4 BEL — reset color; code 104 ≠ 10, no ? anyway
+        let input = Data([0x1B, 0x5D, 0x31, 0x30, 0x34, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves normal data without ESC")
+    func preservesNormalData() {
+        let input = Data("normal terminal output".utf8)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Preserves other ESC sequences (CSI SGR)")
+    func preservesOtherEscapeSequences() {
+        // ESC [ 3 1 m (red foreground)
+        let input = Data([0x1B, 0x5B, 0x33, 0x31, 0x6D])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Passes through an unterminated OSC color query intact")
+    func passesThroughUnterminatedQuery() {
+        // ESC ] 1 1 ; ? with no terminator (split across a read boundary).
+        // Nothing is stripped so SwiftTerm eventually sees the full sequence.
+        let input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x3F])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Passes through OSC with a huge digit run (no Int overflow trap)")
+    func handlesHugeCodeDigitRun() {
+        // ESC ] 9…(×40) ; ? BEL — pane bytes are arbitrary (e.g. cat-ing
+        // binary), so a long digit run must not trap on Int overflow.
+        var input = Data([0x1B, 0x5D])
+        input.append(contentsOf: Array(repeating: 0x39, count: 40))
+        input.append(contentsOf: [0x3B, 0x3F, 0x07])
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("CAN aborts the OSC so later unrelated output is preserved")
+    func canAbortsOSCScan() {
+        // ESC ] 11 ; CAN "real ? output" BEL — CAN (0x18) aborts the OSC
+        // (xterm behavior), so the later ? and BEL belong to legitimate
+        // output and nothing may be stripped.
+        var input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x18])
+        input.append(contentsOf: Data("real ? output".utf8))
+        input.append(0x07)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("SUB aborts the OSC so later unrelated output is preserved")
+    func subAbortsOSCScan() {
+        // Same as CAN but with SUB (0x1A).
+        var input = Data([0x1B, 0x5D, 0x31, 0x31, 0x3B, 0x1A])
+        input.append(contentsOf: Data("real ? output".utf8))
+        input.append(0x07)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+
+    @Test("Handles empty data")
+    func handlesEmptyData() {
+        let result = TerminalResponseFilter.stripOSCColorQueries(Data())
+        #expect(result.isEmpty)
+    }
+
+    @Test("Handles lone ESC at end of data")
+    func handlesLoneESC() {
+        var input = Data("text".utf8)
+        input.append(0x1B)
+        let result = TerminalResponseFilter.stripOSCColorQueries(input)
+        #expect(result == input)
+    }
+}
+
 // MARK: - isMouseEscapeSequence
 
 @Suite("TerminalResponseFilter.isMouseEscapeSequence")
@@ -641,6 +833,51 @@ struct IsTerminalResponseTests {
     func detectsKittyProtocolResponse() {
         let data: [UInt8] = [0x1B, 0x5B, 0x3F, 0x31, 0x75] // ESC [ ? 1 u
         #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects OSC 11 background color report ESC]11;rgb:…")
+    func detectsOSCBackgroundReport() {
+        // ESC ] 1 1 ; r g b : 1 c 1 c … — leaked form reported in issue #669
+        var data: [UInt8] = [0x1B, 0x5D, 0x31, 0x31, 0x3B]
+        data.append(contentsOf: Array("rgb:1c1c/1c1c/1c1c".utf8))
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects OSC 10 foreground color report ESC]10;rgb:…")
+    func detectsOSCForegroundReport() {
+        var data: [UInt8] = [0x1B, 0x5D, 0x31, 0x30, 0x3B]
+        data.append(contentsOf: Array("rgb:ffff/ffff/ffff".utf8))
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Detects OSC 4 indexed palette report ESC]4;1;rgb:…")
+    func detectsOSCPaletteReport() {
+        var data: [UInt8] = [0x1B, 0x5D, 0x34, 0x3B, 0x31, 0x3B]
+        data.append(contentsOf: Array("rgb:0000/0000/0000".utf8))
+        #expect(TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Rejects OSC title report ESC]0;… (non-color code)")
+    func rejectsOSCTitle() {
+        // ESC ] 0 ; hi — a title set, never a leaked color response
+        let data: [UInt8] = [0x1B, 0x5D, 0x30, 0x3B, 0x68, 0x69]
+        #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Rejects OSC 104 (code prefix 10, not a color report)")
+    func rejectsOSC104() {
+        // ESC ] 1 0 4 ; — reset; code 104 ≠ 10
+        let data: [UInt8] = [0x1B, 0x5D, 0x31, 0x30, 0x34, 0x3B]
+        #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
+    }
+
+    @Test("Rejects OSC with a huge digit run (no Int overflow trap)")
+    func rejectsHugeOSCCodeDigitRun() {
+        // ESC ] 9…(×40) ; — reachable from paste, must not trap on overflow
+        var data: [UInt8] = [0x1B, 0x5D]
+        data.append(contentsOf: Array(repeating: 0x39, count: 40))
+        data.append(0x3B)
+        #expect(!TerminalResponseFilter.isTerminalResponse(data[...]))
     }
 
     @Test("Rejects regular CSI sequence")

@@ -18,10 +18,17 @@ import Foundation
 /// DA; `;1R` for DECXCPR with page=1) which would only appear if SwiftTerm's response
 /// leaked through.
 ///
+/// The same class of leak also covers OSC color queries: TUIs like opencode and pi
+/// probe the terminal's foreground/background color on startup for theme detection
+/// (`ESC]10;?`, `ESC]11;?`). SwiftTerm answers with an OSC color report
+/// (`ESC]10;rgb:…`); leaked, it appears as typed `]10;rgb:…` at the prompt (issue #669).
+///
 /// This test:
 /// 1. Pairs macOS and iOS, sets up a tmux pane mirrored on both
 /// 2. Sends Primary DA queries (ESC[c) via printf and asserts no DA leak
 /// 3. Sends DECXCPR queries (ESC[?6n) via printf and asserts no DSR leak
+/// 4. Sends a DECRQM query (ESC[?2026$p) via printf and asserts no DECRPM leak
+/// 5. Sends an OSC color query (ESC]10;?) via printf and asserts no color-report leak
 public enum DAResponseLeakScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "DA/DSR Response Leak",
@@ -166,5 +173,43 @@ public enum DAResponseLeakScenario {
 
         TestStep.macScreenshot(label: "mac-both-after-decrqm", compare: false)
         TestStep.iosScreenshot(label: "ios-after-decrqm", compare: false)
+
+        // ── Phase 9: Test OSC color query (ESC]10;?) with both mirrors active ─
+        // Modern TUIs (opencode, pi, …) probe the terminal's foreground/background
+        // color on startup for light/dark theme detection. The SwiftTerm mirror
+        // answers an OSC 10 (foreground) query with `ESC]10;rgb:RRRR/GGGG/BBBB ST`.
+        // If that reply leaks via send-keys / relay it appears typed into the pane
+        // as `]10;rgb:…` (issue #669).
+        //
+        // The mirror reports the app's configured foreground — `NSColor(0.9,0.9,0.9)`
+        // in dark mode → `rgb:e665/e665/e665`, `NSColor(0.1,0.1,0.1)` in light mode →
+        // `rgb:1999/1999/1999`. Those values are unique to the mirror: tmux's own
+        // OSC 10 reply (routed to the inner program's stdin) reflects the real outer
+        // terminal's foreground (e.g. `rgb:0000/…`), so asserting on the mirror's
+        // colors distinguishes a leaked mirror response from tmux's own. We check
+        // both appearance variants so the assertion is mode-independent, and don't
+        // assert on `]10;?` since the shell echoes the typed `printf`.
+        Shortcut.tmuxRunCommand(target: "e2e-da-leak:0", command: "clear")
+        TestStep.wait(seconds: 1)
+
+        TestStep.log("Sending OSC 10 foreground color query (ESC]10;?) — both mirrors active")
+        Shortcut.tmuxRunCommand(
+            target: "e2e-da-leak:0",
+            command: #"printf '\e]10;?\a' && sleep 1 && echo BOTH_OSC_DONE"#
+        )
+        TestStep.wait(seconds: 3)
+
+        TestStep.tmuxCapturePaneContent(target: "e2e-da-leak:0", storeAs: "bothOSC")
+        TestStep.assertStoredNotContains(key: "bothOSC", substring: "rgb:e665/e665/e665")
+        TestStep.assertStoredNotContains(key: "bothOSC", substring: "rgb:1999/1999/1999")
+
+        // Verify the terminal UI also shows the completion marker
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-%0"), .valueContains("BOTH_OSC_DONE")]),
+            timeout: 10
+        )
+
+        TestStep.macScreenshot(label: "mac-both-after-osc", compare: false)
+        TestStep.iosScreenshot(label: "ios-after-osc", compare: false)
     }
 }
