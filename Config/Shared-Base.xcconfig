@@ -7,8 +7,8 @@
 // Bumped to 2.0 for the plugin-system flag-day wire break: the host/viewer
 // minimum-compatible version (VersionCompatibility) is 2.0, so the app's own
 // marketing version must be >= 2.0 or same-version peers reject each other.
-MARKETING_VERSION = 2.5
-CURRENT_PROJECT_VERSION = 38
+MARKETING_VERSION = 2.6
+CURRENT_PROJECT_VERSION = 39
 
 // ==========================================
 // Build Performance
