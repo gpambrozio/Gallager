@@ -7,7 +7,7 @@
     "email": "gustavo@gustavo.eng.br",
     "url": "https://github.com/gpambrozio"
   },
-  "repository": "https://github.com/gpambrozio/claude-spy",
-  "license": "MIT",
+  "repository": "https://github.com/gpambrozio/Gallager",
+  "license": "AGPL-3.0",
   "keywords": ["claude", "ios", "tmux"]
 }

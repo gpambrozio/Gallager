@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/gpambrozio/Gallager",
   "repository": "https://github.com/gpambrozio/Gallager",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "keywords": ["codex", "tmux", "monitoring", "gallager"],
   "interface": {
     "displayName": "Gallager",
