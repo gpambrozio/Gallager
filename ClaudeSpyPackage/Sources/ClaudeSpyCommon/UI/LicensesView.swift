@@ -26,22 +26,28 @@ public struct LicenseRow: View {
     }
 }
 
-/// Full-screen list of the third-party open-source acknowledgements.
+/// Full-screen list of the third-party open-source acknowledgements: the
+/// ``ThirdPartyLicense/intro`` blurb followed by one section per
+/// ``ThirdPartyLicense/Usage`` (apps, build tools, website).
 ///
 /// Pushed from the iOS Settings "Licenses" row. The macOS About tab renders the
-/// same ``LicenseRow``s inline in its own `Form` instead of pushing this view,
-/// but both draw from the shared ``ThirdPartyLicense/all`` data.
+/// same structure inline in its own `Form` instead of pushing this view, but
+/// both draw from the shared ``ThirdPartyLicense/all`` data.
 public struct ThirdPartyLicensesView: View {
     public init() { }
 
     public var body: some View {
         Form {
             Section {
-                ForEach(ThirdPartyLicense.all) { license in
-                    LicenseRow(license)
+                Text(ThirdPartyLicense.intro)
+            }
+
+            ForEach(ThirdPartyLicense.Usage.allCases, id: \.self) { usage in
+                Section(usage.rawValue) {
+                    ForEach(ThirdPartyLicense.all(in: usage)) { license in
+                        LicenseRow(license)
+                    }
                 }
-            } footer: {
-                Text("Gallager is built on these open-source projects, each used under its own license. Full texts live in the linked repositories.")
             }
         }
         .formStyle(.grouped)

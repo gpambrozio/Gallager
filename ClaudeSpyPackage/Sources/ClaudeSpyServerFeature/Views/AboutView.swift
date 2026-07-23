@@ -43,13 +43,17 @@
                 }
 
                 Section {
-                    ForEach(ThirdPartyLicense.all) { license in
-                        LicenseRow(license)
-                    }
+                    Text(ThirdPartyLicense.intro)
                 } header: {
                     Text("Licenses")
-                } footer: {
-                    Text("Gallager is built on these open-source projects, each used under its own license. Full texts live in the linked repositories.")
+                }
+
+                ForEach(ThirdPartyLicense.Usage.allCases, id: \.self) { usage in
+                    Section(usage.rawValue) {
+                        ForEach(ThirdPartyLicense.all(in: usage)) { license in
+                            LicenseRow(license)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)

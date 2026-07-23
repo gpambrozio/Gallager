@@ -5,9 +5,11 @@ import Foundation
 /// "Licenses" pushed list).
 ///
 /// Both platforms render the same shared `ThirdPartyLicense.all` data through
-/// the shared `LicenseRow`, so a regression that drops the section, breaks the
-/// shared view, or unlinks a dependency shows up as a missing element (the
-/// `waitForElement` assertions) or a screenshot diff.
+/// the shared `LicenseRow`, grouped into one section per
+/// `ThirdPartyLicense.Usage` (apps, build tools, website) below an intro
+/// blurb, so a regression that drops a section, breaks the shared view, or
+/// unlinks a dependency shows up as a missing element (the `waitForElement`
+/// assertions) or a screenshot diff.
 ///
 /// Pairing is required only to reach the iOS Settings sheet (behind the
 /// Sessions toolbar, visible only after pairing). The macOS portion
@@ -29,13 +31,14 @@ public enum LicensesScenario {
 
         TestStep.macSelectSettingsTab("About")
 
-        // The Licenses section sits below the (tall) "Why Gallager" and
-        // "Links" sections, so its rows start off-screen. They're still in
-        // the AX tree, so assert the header + first/last rows exist before
-        // scrolling them into view for the baseline.
+        // The Licenses sections sit below the (tall) "Why Gallager" and
+        // "Links" sections, so their rows start off-screen. They're still in
+        // the AX tree, so assert the header plus the first row of the first
+        // section and the last row of the last section ("Website") exist
+        // before scrolling them into view for the baseline.
         TestStep.macWaitForElement(titled: "Licenses", timeout: 5)
         TestStep.macWaitForElement(titled: "SwiftTerm", timeout: 5)
-        TestStep.macWaitForElement(titled: "Unicode CLDR emoji data", timeout: 5)
+        TestStep.macWaitForElement(titled: "@astrojs/sitemap", timeout: 5)
         TestStep.wait(seconds: 0.5)
 
         // Scroll the About form to the bottom (deltaY clamps there, so the
