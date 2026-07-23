@@ -1,0 +1,62 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - Mac app
+        - iOS app
+        - Relay server (hosted)
+        - Relay server (self-hosted)
+        - CLI (gallager)
+        - Plugin (opencode / pi / custom sidecar)
+        - Website / docs
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Coding agent involved (if any)
+      multiple: true
+      options:
+        - Claude Code
+        - Codex CLI
+        - opencode
+        - pi
+        - Other / not agent-related
+  - type: input
+    id: version
+    attributes:
+      label: Gallager version
+      description: Mac app — menu bar icon → About. iOS — Settings screen.
+      placeholder: "2.6"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version(s)
+      placeholder: "macOS 15.5 / iOS 18.4"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Screenshots or recordings help a lot. Please check them for anything private before attaching — this is a public repo.

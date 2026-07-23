@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & help
+    url: https://github.com/gpambrozio/Gallager/discussions
+    about: Ask questions and discuss usage in Discussions — issues are for bugs and feature requests.
+  - name: Security vulnerability
+    url: https://github.com/gpambrozio/Gallager/security/advisories/new
+    about: Please report security issues privately, never as a public issue.
