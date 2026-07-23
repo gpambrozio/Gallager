@@ -596,6 +596,15 @@
                 } header: {
                     Text("Why \"Gallager\"?")
                 }
+
+                // Licenses Section
+                Section {
+                    NavigationLink {
+                        ThirdPartyLicensesView()
+                    } label: {
+                        Text("Licenses")
+                    }
+                }
             }
             .navigationTitle("Settings")
             .onAppear {

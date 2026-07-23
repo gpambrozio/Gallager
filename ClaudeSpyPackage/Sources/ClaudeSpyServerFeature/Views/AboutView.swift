@@ -41,10 +41,24 @@
                         }
                     }
                 }
+
+                Section {
+                    ForEach(ThirdPartyLicense.all) { license in
+                        LicenseRow(license)
+                    }
+                } header: {
+                    Text("Licenses")
+                } footer: {
+                    Text("Gallager is built on these open-source projects, each used under its own license. Full texts live in the linked repositories.")
+                }
             }
             .formStyle(.grouped)
             .frame(minWidth: 400, minHeight: 300)
             .navigationTitle("About")
         }
+    }
+
+    #Preview {
+        AboutView()
     }
 #endif
