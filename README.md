@@ -1,125 +1,64 @@
-# ClaudeSpy - iOS App
+<img src="website/public/logo.png" width="96" alt="Gallager logo">
 
-A modern iOS application using a **workspace + SPM package** architecture for clean separation between app shell and feature code.
+# Gallager
 
-## AI Assistant Rules Files
+Monitor and drive your coding-agent sessions — **Claude Code**, **Codex CLI**, **opencode**, and **pi** — from a Mac menu-bar app, with an iOS companion that works from anywhere over an end-to-end-encrypted relay.
 
-This template includes **opinionated rules files** for popular AI coding assistants. These files establish coding standards, architectural patterns, and best practices for modern iOS development using the latest APIs and Swift features.
+**Website & downloads: [gallager.app](https://gallager.app)**
 
-### Included Rules Files
-- **Claude Code**: `CLAUDE.md` - Claude Code rules
-- **Cursor**: `.cursor/*.mdc` - Cursor-specific rules
-- **GitHub Copilot**: `.github/copilot-instructions.md` - GitHub Copilot rules
+## What it does
 
-### Customization Options
-These rules files are **starting points** - feel free to:
-- ✅ **Edit them** to match your team's coding standards
-- ✅ **Delete them** if you prefer different approaches
-- ✅ **Add your own** rules for other AI tools
-- ✅ **Update them** as new iOS APIs become available
+- **Live tmux mirroring** — every agent session runs in a tmux pane that Gallager mirrors in real time, on your Mac and on your iPhone.
+- **Session awareness** — knows when an agent is working, finished, or waiting on you (permission prompts, questions, plan approvals) and raises badges and notifications instead of making you poll terminals.
+- **Remote control** — answer permission prompts, reply to questions, send keystrokes, and start new sessions from the iOS app.
+- **Workbench** — file browser, git status, and an in-app prompt editor (Ctrl-G from the terminal) around each session.
+- **Token/cost meter** — per-session token, cost, and latency tracking via OTLP telemetry.
+- **End-to-end encrypted** — the relay only routes ciphertext; it can't read your terminals. Self-host it or use the hosted one.
 
-### What Makes These Rules Opinionated
-- **No ViewModels**: Embraces pure SwiftUI state management patterns
-- **Swift 6+ Concurrency**: Enforces modern async/await over legacy patterns
-- **Latest APIs**: Recommends iOS 18+ features with optional iOS 26 guidelines
-- **Testing First**: Promotes Swift Testing framework over XCTest
-- **Performance Focus**: Emphasizes @Observable over @Published for better performance
+Anything that runs in tmux can be mirrored and streamed as a plain terminal; agents beyond the built-in ones are supported through [sidecar plugins](docs/plugins/sidecar-authoring.md) (see [`plugins/opencode`](plugins/opencode) and [`plugins/pi`](plugins/pi) for complete examples).
 
-**Note for AI assistants**: You MUST read the relevant rules files before making changes to ensure consistency with project standards.
+## Components
 
-## Project Architecture
+| Component | Description | Source |
+|---|---|---|
+| Mac app | tmux pane mirroring, agent hooks, workbench UI | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
+| Relay server | Vapor app (Docker/Linux): device pairing, WebSocket routing, E2EE passthrough | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
+| iOS app | Remote monitoring and command dispatch | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
 
-```
-ClaudeSpy/
-├── ClaudeSpy.xcworkspace/              # Open this file in Xcode
-├── ClaudeSpy.xcodeproj/                # App shell project
-├── ClaudeSpy/                          # App target (minimal)
-│   ├── Assets.xcassets/                # App-level assets (icons, colors)
-│   ├── ClaudeSpyApp.swift              # App entry point
-│   └── ClaudeSpy.xctestplan            # Test configuration
-├── ClaudeSpyPackage/                   # 🚀 Primary development area
-│   ├── Package.swift                   # Package configuration
-│   ├── Sources/ClaudeSpyFeature/       # Your feature code
-│   └── Tests/ClaudeSpyFeatureTests/    # Unit tests
-└── ClaudeSpyUITests/                   # UI automation tests
-```
+> Internal target and module names predate the rename to Gallager and still say "ClaudeSpy" — same project.
 
-## Key Architecture Points
+## Install
 
-### Workspace + SPM Structure
-- **App Shell**: `ClaudeSpy/` contains minimal app lifecycle code
-- **Feature Code**: `ClaudeSpyPackage/Sources/ClaudeSpyFeature/` is where most development happens
-- **Separation**: Business logic lives in the SPM package, app target just imports and displays it
+- **Mac app** — download from [gallager.app](https://gallager.app); updates arrive via Sparkle.
+- **iOS app** — [TestFlight](https://testflight.apple.com/join/yFQnxgDv).
 
-### Buildable Folders (Xcode 16)
-- Files added to the filesystem automatically appear in Xcode
-- No need to manually add files to project targets
-- Reduces project file conflicts in teams
+## Build from source
 
-## Development Notes
+Requires a recent Xcode (Swift 6.3+ toolchain), macOS 15+, and tmux.
 
-### Code Organization
-Most development happens in `ClaudeSpyPackage/Sources/ClaudeSpyFeature/` - organize your code as you prefer.
+- **Mac app** — open `ClaudeSpy.xcworkspace`, build the `ClaudeSpyServer` scheme.
+- **iOS app** — same workspace, `ClaudeSpy` scheme (iOS 17+).
+- **Relay server** —
+  ```sh
+  cd ClaudeSpyPackage
+  cp .env.example .env
+  docker compose up -d
+  ```
+- **Tests** — `swift test` in `ClaudeSpyPackage`; end-to-end suite via `./scripts/e2e-test.sh` (see [docs/e2e-testing.md](docs/e2e-testing.md)).
 
-### Public API Requirements
-Types exposed to the app target need `public` access:
-```swift
-public struct NewView: View {
-    public init() {}
-    
-    public var body: some View {
-        // Your view code
-    }
-}
-```
+Tip: the repo carries e2e screenshot baselines, so a blobless clone is much faster: `git clone --filter=blob:none https://github.com/gpambrozio/Gallager.git`
 
-### Adding Dependencies
-Edit `ClaudeSpyPackage/Package.swift` to add SPM dependencies:
-```swift
-dependencies: [
-    .package(url: "https://github.com/example/SomePackage", from: "1.0.0")
-],
-targets: [
-    .target(
-        name: "ClaudeSpyFeature",
-        dependencies: ["SomePackage"]
-    ),
-]
-```
+## Self-hosting
 
-### Test Structure
-- **Unit Tests**: `ClaudeSpyPackage/Tests/ClaudeSpyFeatureTests/` (Swift Testing framework)
-- **UI Tests**: `ClaudeSpyUITests/` (XCUITest framework)
-- **Test Plan**: `ClaudeSpy.xctestplan` coordinates all tests
+The relay is free to self-host — one lightweight Vapor server behind any TLS reverse proxy, no license keys. See [docs/self-hosting.md](docs/self-hosting.md). Prefer not to run a server? There's a [hosted relay](https://gallager.app/pricing/) with a paid subscription.
 
-## Configuration
+## Documentation
 
-### XCConfig Build Settings
-Build settings are managed through **XCConfig files** in `Config/`:
-- `Config/Shared.xcconfig` - Common settings (bundle ID, versions, deployment target)
-- `Config/Debug.xcconfig` - Debug-specific settings  
-- `Config/Release.xcconfig` - Release-specific settings
-- `Config/Tests.xcconfig` - Test-specific settings
+- [Architecture (Mac app)](docs/architecture.md) and [distributed architecture](docs/distributed-architecture-plan.md)
+- [End-to-end encryption design](docs/e2ee-encryption-plan.md)
+- [Sidecar plugin authoring](docs/plugins/sidecar-authoring.md)
+- [E2E testing](docs/e2e-testing.md)
 
-### Entitlements Management
-App capabilities are managed through a **declarative entitlements file**:
-- `Config/ClaudeSpy.entitlements` - All app entitlements and capabilities
-- AI agents can safely edit this XML file to add HealthKit, CloudKit, Push Notifications, etc.
-- No need to modify complex Xcode project files
+## License
 
-### Asset Management
-- **App-Level Assets**: `ClaudeSpy/Assets.xcassets/` (app icon, accent color)
-- **Feature Assets**: Add `Resources/` folder to SPM package if needed
-
-### SPM Package Resources
-To include assets in your feature package:
-```swift
-.target(
-    name: "ClaudeSpyFeature",
-    dependencies: [],
-    resources: [.process("Resources")]
-)
-```
-
-### Generated with XcodeBuildMCP
-This project was scaffolded using [XcodeBuildMCP](https://github.com/cameroncooke/XcodeBuildMCP), which provides tools for AI-assisted iOS development workflows.
+[AGPL-3.0](LICENSE). The apps and relay are open source; run them, audit them, fork them — if you offer a modified relay as a network service, share your changes.
