@@ -2,9 +2,12 @@ import Foundation
 
 /// Filters terminal query/response sequences to prevent feedback loops in mirrored terminals.
 ///
-/// Two complementary filters:
-/// - ``stripDAQueries(_:)`` removes DA *query* sequences from the feed data before SwiftTerm
-///   processes them, preventing it from generating responses in the first place.
+/// Two complementary layers:
+/// - Feed-level strippers remove *query* sequences from the feed data before SwiftTerm
+///   processes them, preventing it from generating responses in the first place:
+///   ``stripDAQueries(_:)`` (Device Attributes), ``stripDSRQueries(_:)`` (Device Status
+///   Report), ``stripDECRQMQueries(_:)`` (Request Mode), ``stripKittyKeyboardProtocol(_:)``,
+///   and ``stripOSCColorQueries(_:)`` (background/foreground/cursor/palette probes).
 /// - ``isTerminalResponse(_:)`` catches any auto-generated *response* sequences in the
 ///   `send()` delegate as a defense-in-depth fallback.
 public enum TerminalResponseFilter {
@@ -277,6 +280,130 @@ public enum TerminalResponseFilter {
         return result.count == data.count ? data : result
     }
 
+    // MARK: - Feed-level: strip OSC color queries
+
+    /// OSC codes whose *query* form (`?` payload) makes SwiftTerm emit a color
+    /// report back through its `send()` delegate:
+    /// - `4`  — indexed palette color (`ESC ] 4 ; n ; ? …`)
+    /// - `10` — foreground color     (`ESC ] 10 ; ? …`)
+    /// - `11` — background color     (`ESC ] 11 ; ? …`)
+    /// - `12` — cursor color         (`ESC ] 12 ; ? …`)
+    ///
+    /// Deliberately excludes OSC codes whose payload may legitimately contain a
+    /// `?` (e.g. `8` hyperlinks with query strings, `0`/`1`/`2` titles).
+    private static let oscColorQueryCodes: Set = [4, 10, 11, 12]
+
+    /// Strips OSC color *query* sequences from terminal output data so that
+    /// mirroring SwiftTerm instances never see them and never generate the
+    /// corresponding color report.
+    ///
+    /// Modern TUIs (opencode's Charm/Bubble Tea stack, pi's Node stack, etc.)
+    /// probe the terminal's background/foreground color on startup for light/dark
+    /// theme detection, e.g. `ESC ] 11 ; ? BEL`. SwiftTerm answers with
+    /// `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ST` via its `send()` delegate; forwarded to
+    /// tmux as input, that reply appears as typed garbage like `11;rgb:1c1c/…`
+    /// at the start of an agent session (issue #669).
+    ///
+    /// Matched queries — OSC introducer, one of ``oscColorQueryCodes``, a payload
+    /// that contains at least one `?`, terminated by BEL (`0x07`) or ST (`ESC \`):
+    /// - `ESC ] 10 ; ? <BEL|ST>`   (also multi: `ESC ] 10 ; ? ; ? ; ? …`)
+    /// - `ESC ] 11 ; ? <BEL|ST>`
+    /// - `ESC ] 12 ; ? <BEL|ST>`
+    /// - `ESC ] 4 ; n ; ? <BEL|ST>`
+    ///
+    /// Only the query form (`?` present) is stripped; color-*set* commands for the
+    /// same codes carry a value (`rgb:…`, `#…`) and never a `?`, so they pass
+    /// through untouched and the mirror still tracks the real colors. One caveat:
+    /// a single OSC 4 that mixes set and query params (`ESC ] 4 ; 1 ; rgb:… ; 2 ; ?`)
+    /// is stripped whole, set portion included — real TUIs query all-or-nothing.
+    ///
+    /// Like the other feed-level strippers, this matches within a single read
+    /// chunk and does not buffer across reads: a query split across two chunks
+    /// passes through and SwiftTerm completes it, but the resulting color report
+    /// is then caught by the send-level ``isTerminalResponse(_:)`` backstop.
+    ///
+    /// Returns the data with all matching sequences removed. If no queries are
+    /// found the original data is returned unchanged (no copy).
+    public static func stripOSCColorQueries(_ data: Data) -> Data {
+        // Fast path: no ESC byte → nothing to strip
+        guard data.contains(0x1B) else { return data }
+
+        var result = Data()
+        result.reserveCapacity(data.count)
+        var i = data.startIndex
+
+        while i < data.endIndex {
+            guard data[i] == 0x1B else {
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Need at least ESC ] (2 bytes)
+            let remaining = data.distance(from: i, to: data.endIndex)
+            guard remaining >= 2, data[i + 1] == 0x5D else { // ]
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Parse the numeric OSC code (digits right after `ESC ]`).
+            var j = i + 2
+            var code = 0
+            var sawCodeDigit = false
+            while j < data.endIndex, data[j] >= 0x30, data[j] <= 0x39 {
+                // Capped: pane bytes are untrusted and an unbounded digit run
+                // would trap on Int overflow; a capped value can't match
+                // oscColorQueryCodes anyway.
+                code = min(code * 10 + Int(data[j] - 0x30), 10_000)
+                sawCodeDigit = true
+                j += 1
+            }
+            guard sawCodeDigit, oscColorQueryCodes.contains(code) else {
+                result.append(data[i])
+                i = data.index(after: i)
+                continue
+            }
+
+            // Scan the payload for the terminator (BEL or ST), noting whether a
+            // `?` (query marker) appears before it.
+            var k = j
+            var sawQuery = false
+            var terminatorEnd: Data.Index?
+            while k < data.endIndex {
+                let b = data[k]
+                if b == 0x07 { // BEL
+                    terminatorEnd = k + 1
+                    break
+                }
+                if b == 0x18 || b == 0x1A { // CAN / SUB abort the OSC (xterm)
+                    break
+                }
+                if b == 0x1B { // possible ST: ESC \
+                    if k + 1 < data.endIndex, data[k + 1] == 0x5C {
+                        terminatorEnd = k + 2
+                    }
+                    // Either way the OSC ends here (a bare ESC aborts it).
+                    break
+                }
+                if b == 0x3F { sawQuery = true } // ?
+                k += 1
+            }
+
+            // Only strip a well-terminated *query*; anything else passes through
+            // so SwiftTerm sees a set command / partial sequence intact.
+            if let terminatorEnd, sawQuery {
+                i = terminatorEnd
+                continue
+            }
+
+            result.append(data[i])
+            i = data.index(after: i)
+        }
+
+        return result.count == data.count ? data : result
+    }
+
     // MARK: - Send-level: detect mouse escape sequences
 
     /// Detects mouse escape sequences generated by SwiftTerm when mouse mode is active.
@@ -352,17 +479,39 @@ public enum TerminalResponseFilter {
     /// Detects terminal auto-response sequences that SwiftTerm generates internally.
     /// Used as a fallback filter in the `send()` delegate path.
     ///
-    /// The catch-all `ESC [ ? …` rule covers all DEC private responses regardless of
-    /// terminator (Primary DA `?…c`, DECXCPR `?…R`, DECRPM `?…$y`, kitty `?…u`, etc.)
-    /// — these shapes are never legitimate user input from SwiftTerm's `send()`
-    /// delegate, so it's safe to drop them all. Individual non-`?` shapes are listed
-    /// explicitly below.
+    /// This is a best-effort *fallback*: the feed-level strippers are the primary
+    /// defense (SwiftTerm never sees the query, never generates the response), and
+    /// this only catches responses that slip through — e.g. a query split across
+    /// two feed reads that the stripper couldn't match. It matches two families:
+    /// - CSI (`ESC [ …`): the catch-all `ESC [ ? …` rule covers all DEC private
+    ///   responses regardless of terminator (Primary DA `?…c`, DECXCPR `?…R`,
+    ///   DECRPM `?…$y`, kitty `?…u`, etc.); individual non-`?` shapes are listed
+    ///   explicitly.
+    /// - OSC (`ESC ] …`): color reports for ``oscColorQueryCodes`` (`ESC ] 11 ; rgb:…`
+    ///   etc.).
+    ///
+    /// A SwiftTerm-generated response is byte-for-byte indistinguishable at the
+    /// send layer from a user *pasting* the same bytes (paste does flow through
+    /// `send()`), so dropping these can in theory swallow a paste that begins with
+    /// one of these sequences. That's an accepted trade-off — such a paste is
+    /// vanishingly rare, and the pre-existing CSI `?` catch-all already makes the
+    /// same call — kept tolerable because the feed-level strip means real
+    /// responses rarely reach here in the first place.
     public static func isTerminalResponse(_ data: ArraySlice<UInt8>) -> Bool {
         guard
             data.count >= 3,
-            data[data.startIndex] == 0x1B, // ESC
-            data[data.startIndex + 1] == 0x5B // [
+            data[data.startIndex] == 0x1B // ESC
         else { return false }
+
+        let secondByte = data[data.startIndex + 1]
+
+        // OSC color report: ESC ] <4|10|11|12> ; … — defense-in-depth for the
+        // color queries stripped at the feed level by stripOSCColorQueries.
+        // Also matches the raw *query* form (`ESC ] 11 ; ?`), so a pasted query
+        // is swallowed — same accepted paste trade-off as the CSI `?` catch-all.
+        if secondByte == 0x5D { return isOSCColorResponse(data) } // ]
+
+        guard secondByte == 0x5B else { return false } // [
 
         let thirdByte = data[data.startIndex + 2]
         let lastByte = data[data.index(before: data.endIndex)]
@@ -382,5 +531,25 @@ public enum TerminalResponseFilter {
         { return true } // digit...$y
 
         return false
+    }
+
+    /// Returns `true` if `data` begins with an OSC color report for one of
+    /// ``oscColorQueryCodes`` (`ESC ] <code> ; …`). Assumes `data` starts with
+    /// `ESC ]`.
+    private static func isOSCColorResponse(_ data: ArraySlice<UInt8>) -> Bool {
+        var j = data.startIndex + 2
+        var code = 0
+        var sawDigit = false
+        while j < data.endIndex, data[j] >= 0x30, data[j] <= 0x39 {
+            // Capped: reachable from paste, and an unbounded digit run would
+            // trap on Int overflow; a capped value can't match
+            // oscColorQueryCodes anyway.
+            code = min(code * 10 + Int(data[j] - 0x30), 10_000)
+            sawDigit = true
+            j += 1
+        }
+        // A separator (`;`) must follow the code for a color report payload.
+        guard sawDigit, j < data.endIndex, data[j] == 0x3B else { return false } // ;
+        return oscColorQueryCodes.contains(code)
     }
 }
