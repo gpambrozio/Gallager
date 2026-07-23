@@ -62,9 +62,13 @@ public enum LicensesScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.iosTap(.label("Licenses"))
 
-        // The pushed licenses list renders the same shared rows.
+        // The pushed licenses list renders the same shared rows. Assert on the
+        // first rows only: iOS's `List` is lazy, so rows below the fold (the
+        // tail of the table) aren't in the AX tree until scrolled into view.
+        // The macOS section already asserts the full range including the last
+        // row ("Unicode CLDR emoji data").
         TestStep.iosWaitForElement(.labelContains("SwiftTerm"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("Unicode CLDR"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Sparkle"), timeout: 5)
         TestStep.wait(seconds: 0.5)
         TestStep.iosScreenshot(label: "ios-licenses-list")
     }
