@@ -26,8 +26,10 @@ Always follow this exact sequence — skip steps whose target wasn't requested.
 Run this before the server deploy so credentials are available:
 
 ```bash
-op signin --account OKIDD7RZWVFWPDPZSBA4O4BSPI
+op signin
 ```
+
+(Add `--account <account-id>` if more than one 1Password account is configured.)
 
 Only needed when deploying the server.
 
