@@ -280,7 +280,7 @@ let products: [Product] = [
 let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
     .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
-    .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+    .package(url: "https://github.com/vapor/apns.git", from: "5.0.0"),
     .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
