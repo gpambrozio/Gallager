@@ -1,5 +1,5 @@
 {
-  "originHash" : "7b02b207bbf03a3af3f1b5efa02a4dd44ee5d0f71fb8fbc7dbc529849bc0307a",
+  "originHash" : "48fe4dae6969b96836390cbe27e95d525f494ee5da9a20bac62e65199f7fe935",
   "pins" : [
     {
       "identity" : "apns",
@@ -47,30 +47,12 @@
       }
     },
     {
-      "identity" : "gitworkbench",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gpambrozio/GitWorkbench",
-      "state" : {
-        "revision" : "dc58a1f4e661a1444c1696860e844606e9b946d8",
-        "version" : "1.6.0"
-      }
-    },
-    {
       "identity" : "multipart-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/multipart-kit.git",
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
-      }
-    },
-    {
-      "identity" : "projectnavigator",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mchakravarty/ProjectNavigator",
-      "state" : {
-        "revision" : "db61ea6f3e93157eb13356916514d18804c7e554",
-        "version" : "1.10.1"
       }
     },
     {
@@ -83,39 +65,12 @@
       }
     },
     {
-      "identity" : "sfsymbolsmacro",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gpambrozio/SFSymbolsMacro",
-      "state" : {
-        "branch" : "swift-syntax-602",
-        "revision" : "2d2f6d8527502dd18f6f433850291e3d67a413d3"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
-        "version" : "2.9.4"
-      }
-    },
-    {
       "identity" : "swift-algorithms",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-algorithms.git",
       "state" : {
         "revision" : "87e50f483c54e6efd60e885f7f5aa946cee68023",
         "version" : "1.2.1"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
-      "state" : {
-        "revision" : "c5d11a805e765f52ba34ec7284bd4fcd6ba68615",
-        "version" : "1.7.0"
       }
     },
     {
@@ -231,8 +186,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "a878e7f8f46cfc0e1125e565b5c08e7d5272dc9a",
+        "version" : "1.14.0"
       }
     },
     {
@@ -344,33 +299,6 @@
       }
     },
     {
-      "identity" : "swiftterm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
-      "state" : {
-        "revision" : "dd2fb8ac5b861e7bf617c872895e338f38165648",
-        "version" : "1.15.0"
-      }
-    },
-    {
-      "identity" : "swiftui-math",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/swiftui-math",
-      "state" : {
-        "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
-        "version" : "0.1.0"
-      }
-    },
-    {
-      "identity" : "textual",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/textual",
-      "state" : {
-        "revision" : "01b51875a5406eefc95f52a058cb059e7bc94dc4",
-        "version" : "0.5.0"
-      }
-    },
-    {
       "identity" : "vapor",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/vapor",
@@ -395,15 +323,6 @@
       "state" : {
         "revision" : "34e463e98ab8541c604af706c99bed7160f5ec70",
         "version" : "1.8.1"
-      }
-    },
-    {
-      "identity" : "yams",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jpsim/Yams",
-      "state" : {
-        "revision" : "3d6871d5b4a5cd519adf233fbb576e0a2af71c17",
-        "version" : "5.4.0"
       }
     }
   ],
