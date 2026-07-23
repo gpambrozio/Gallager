@@ -5,12 +5,8 @@ import VaporTesting
 
 /// Endpoint-level tests for the `/metrics` Prometheus exposition route.
 ///
-/// `.serialized` is required because we set `METRICS_TOKEN` via `setenv`,
-/// which mutates process-global state and would race under parallel execution.
-/// Nested under `EnvSerializedSuites` so it also serializes against the other
-/// suites that mutate process-global environment variables (the recursive
-/// `.serialized` trait covers cross-suite races; this suite's own trait keeps
-/// its tests serialized even if inspected in isolation).
+/// Nested under `EnvSerializedSuites` to bound how many full Vapor apps boot
+/// concurrently (see that container's doc for why setenv is banned here).
 extension EnvSerializedSuites {
     @Suite("Metrics endpoint", .serialized)
     struct MetricsEndpointTests {
@@ -21,20 +17,19 @@ extension EnvSerializedSuites {
         private func withConfiguredApp(
             _ test: (Application) async throws -> Void
         ) async throws {
-            setenv("METRICS_TOKEN", Self.token, 1)
             // Isolate PairingService persistence into a fresh temp dir so we don't
-            // pollute (or read from) the developer's local pairs.json.
+            // pollute (or read from) the developer's local pairs.json. Config is
+            // injected (never setenv — see `configure(_:env:)`).
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-metrics-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-                // Symmetric cleanup: avoid leaking process-env state into other suites.
-                unsetenv("METRICS_TOKEN")
-            }
-            try await withApp(configure: configure, test)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            try await withApp(configure: { app in
+                try await configure(app, env: [
+                    "METRICS_TOKEN": Self.token,
+                    "DATA_DIRECTORY": tempDir.path,
+                ])
+            }, test)
         }
 
         @Test("GET /metrics returns 401 without bearer token")

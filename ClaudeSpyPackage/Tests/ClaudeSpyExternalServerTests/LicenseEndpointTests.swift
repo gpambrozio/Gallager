@@ -8,8 +8,8 @@ import VaporTesting
 /// server is needed (activation flows are covered at the actor level in
 /// LicensingServiceTests; the full loop is covered by the E2E scenario).
 ///
-/// Nested under `EnvSerializedSuites` so it also serializes against the other
-/// suites that mutate process-global environment variables.
+/// Nested under `EnvSerializedSuites` to bound how many full Vapor apps boot
+/// concurrently (see that container's doc for why setenv is banned here).
 extension EnvSerializedSuites {
     @Suite("License endpoints", .serialized)
     struct LicenseEndpointTests {
@@ -17,47 +17,39 @@ extension EnvSerializedSuites {
             trialDays: String = "7",
             _ test: (Application) async throws -> Void
         ) async throws {
-            setenv("LEMONSQUEEZY_STORE_ID", "123", 1)
-            setenv("LEMONSQUEEZY_PRODUCT_ID", "456", 1)
-            setenv("TRIAL_DAYS", trialDays, 1)
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-                unsetenv("LEMONSQUEEZY_STORE_ID")
-                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
-                unsetenv("TRIAL_DAYS")
-            }
-            try await withApp(configure: configure, test)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            // Config is injected (never setenv — see `configure(_:env:)`): the
+            // explicit dict also makes the boot hermetic against a developer's
+            // local `.env`, which `Application.make(.testing)` loads into the
+            // process environment but `configure` no longer reads from.
+            try await withApp(configure: { app in
+                try await configure(app, env: [
+                    "LEMONSQUEEZY_STORE_ID": "123",
+                    "LEMONSQUEEZY_PRODUCT_ID": "456",
+                    "TRIAL_DAYS": trialDays,
+                    "DATA_DIRECTORY": tempDir.path,
+                ])
+            }, test)
         }
 
-        /// Boots the app with licensing DISABLED, hermetic against a developer's
-        /// local `.env`. `Application.make(.testing)` loads `.env` with
-        /// `overwrite: false`; if that file sets `LEMONSQUEEZY_STORE_ID`/
-        /// `LEMONSQUEEZY_PRODUCT_ID` (as a staging-deploy `.env` does) it would
+        /// Boots the app with licensing DISABLED: the injected env simply omits
+        /// `LEMONSQUEEZY_STORE_ID`/`LEMONSQUEEZY_PRODUCT_ID`, and because
+        /// `configure` reads only the injected dict a staging-deploy `.env`
+        /// (loaded into the process env by `Application.make(.testing)`) can't
         /// silently ENABLE licensing and break these "disabled relay" assertions.
-        /// Forcing the two ids present-but-EMPTY makes
-        /// `LicensingConfiguration.fromEnvironment()` read them as unset (empty is
-        /// trimmed to nil) AND stops the `.env` load from filling them in.
         private func withDisabledLicensingApp(
             _ test: (Application) async throws -> Void
         ) async throws {
-            setenv("LEMONSQUEEZY_STORE_ID", "", 1)
-            setenv("LEMONSQUEEZY_PRODUCT_ID", "", 1)
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-                unsetenv("LEMONSQUEEZY_STORE_ID")
-                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
-            }
-            try await withApp(configure: configure, test)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            try await withApp(configure: { app in
+                try await configure(app, env: ["DATA_DIRECTORY": tempDir.path])
+            }, test)
         }
 
         @Test("GET /api/license/status returns none for a fresh device and starts no trial")

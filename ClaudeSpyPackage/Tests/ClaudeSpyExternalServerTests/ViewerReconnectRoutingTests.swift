@@ -18,11 +18,8 @@ import VaporTesting
 /// routing and the host is never told the viewer left. `deviceId` isn't validated
 /// on upgrade, so distinct viewer sockets simply model "same viewer, new socket".
 ///
-/// `.serialized` because the helpers mutate the process-global `DATA_DIRECTORY`
-/// env var (via `setenv`) to isolate each run's `pairs.json`.
-///
-/// Nested under `EnvSerializedSuites` so it also serializes against the other
-/// suites that mutate process-global environment variables.
+/// Nested under `EnvSerializedSuites` to bound how many full Vapor apps boot
+/// concurrently (see that container's doc for why setenv is banned here).
 extension EnvSerializedSuites {
     @Suite("Viewer reconnect routing (#642)", .serialized)
     struct ViewerReconnectRoutingTests {
@@ -114,18 +111,16 @@ extension EnvSerializedSuites {
         private func withRunningRelay(
             _ body: (Application, Int) async throws -> Void
         ) async throws {
+            // Isolate each run's `pairs.json` into a fresh temp dir. Config is
+            // injected (never setenv — see `configure(_:env:)`).
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-reconnect-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-            }
+            defer { try? FileManager.default.removeItem(at: tempDir) }
 
             let app = try await Application.make(.testing)
             do {
-                try await configure(app)
+                try await configure(app, env: ["DATA_DIRECTORY": tempDir.path])
                 // Match the framework's own test flow (`testing()` calls `boot()` before
                 // starting a live server): run lifecycle handlers before binding.
                 try await app.asyncBoot()

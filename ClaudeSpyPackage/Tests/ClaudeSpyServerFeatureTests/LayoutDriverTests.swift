@@ -178,6 +178,9 @@
             let process = Process()
             process.executableURL = URL(fileURLWithPath: tmuxPath)
             process.arguments = ["-S", socketPath, "kill-server"]
+            // Explicit env: posix_spawn must not read the live `environ`, which
+            // other parallel tests mutate (a concurrent realloc EFAULTs the spawn).
+            process.environment = [:]
             process.standardError = Pipe()
             process.standardOutput = Pipe()
             try? process.run()

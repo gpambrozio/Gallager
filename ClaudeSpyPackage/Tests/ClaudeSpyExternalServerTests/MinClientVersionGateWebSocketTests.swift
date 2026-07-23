@@ -13,14 +13,13 @@ import VaporTesting
 /// all are allowed by default and refused only when the policy opts in.
 ///
 /// These drive the real WebSocket lifecycle against a running relay (modeled on
-/// `LicenseEnforcementWebSocketTests`). Licensing is forced OFF (empty
-/// `LEMONSQUEEZY_*`) so the only gate exercised here is the version gate — a host
-/// connecting with a new-enough version isn't independently blocked by licensing.
+/// `LicenseEnforcementWebSocketTests`). Licensing is left OFF (the injected env
+/// omits `LEMONSQUEEZY_*`) so the only gate exercised here is the version gate —
+/// a host connecting with a new-enough version isn't independently blocked by
+/// licensing.
 ///
-/// Nested under `EnvSerializedSuites` so it serializes against the other suites
-/// that mutate process-global environment variables (this one sets
-/// `MIN_CLIENT_VERSION` / `MIN_CLIENT_VERSION_REJECT_UNKNOWN` / `LEMONSQUEEZY_*`
-/// / `DATA_DIRECTORY`).
+/// Nested under `EnvSerializedSuites` to bound how many full Vapor apps boot
+/// concurrently (see that container's doc for why setenv is banned here).
 extension EnvSerializedSuites {
     @Suite(.serialized)
     struct MinClientVersionGateWebSocketTests {
@@ -170,36 +169,24 @@ extension EnvSerializedSuites {
             rejectUnknown: Bool = false,
             _ body: (Application, Int) async throws -> Void
         ) async throws {
-            // Force licensing OFF, hermetic against a developer's local `.env`
-            // (loaded with overwrite:false): empty ids read as unset.
-            setenv("LEMONSQUEEZY_STORE_ID", "", 1)
-            setenv("LEMONSQUEEZY_PRODUCT_ID", "", 1)
-
-            if let minClientVersion {
-                setenv("MIN_CLIENT_VERSION", minClientVersion, 1)
-                setenv("MIN_CLIENT_VERSION_REJECT_UNKNOWN", rejectUnknown ? "true" : "", 1)
-            } else {
-                // Blank reads as unset (gate disabled); can't be overwritten by `.env`.
-                setenv("MIN_CLIENT_VERSION", "", 1)
-                setenv("MIN_CLIENT_VERSION_REJECT_UNKNOWN", "", 1)
-            }
-
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-minversion-ws-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-                unsetenv("MIN_CLIENT_VERSION")
-                unsetenv("MIN_CLIENT_VERSION_REJECT_UNKNOWN")
-                unsetenv("LEMONSQUEEZY_STORE_ID")
-                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            // Config is injected (never setenv — see `configure(_:env:)`): the
+            // explicit dict leaves licensing and, when `minClientVersion` is nil,
+            // the version gate disabled by simply omitting their keys, hermetic
+            // against a developer's local `.env`.
+            var env = ["DATA_DIRECTORY": tempDir.path]
+            if let minClientVersion {
+                env["MIN_CLIENT_VERSION"] = minClientVersion
+                if rejectUnknown { env["MIN_CLIENT_VERSION_REJECT_UNKNOWN"] = "true" }
             }
 
             let app = try await Application.make(.testing)
             do {
-                try await configure(app)
+                try await configure(app, env: env)
                 try await app.asyncBoot()
                 try await app.server.start(address: .hostname("127.0.0.1", port: 0))
                 guard let port = app.http.server.shared.localAddress?.port else {

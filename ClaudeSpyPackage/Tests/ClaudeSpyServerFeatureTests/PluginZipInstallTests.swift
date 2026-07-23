@@ -68,6 +68,9 @@
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
         process.arguments = ["-r", dest.path, "."]
         process.currentDirectoryURL = src
+        // Explicit env: posix_spawn must not read the live `environ`, which other
+        // parallel tests mutate (a concurrent realloc EFAULTs the spawn).
+        process.environment = [:]
         try process.run()
         process.waitUntilExit()
         try? FileManager.default.removeItem(at: src)

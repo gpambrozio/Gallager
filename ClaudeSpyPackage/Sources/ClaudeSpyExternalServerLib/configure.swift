@@ -3,8 +3,16 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Vapor
 
-/// Configures the Vapor application
-public func configure(_ app: Application) async throws {
+/// Configures the Vapor application.
+///
+/// `env` overrides the configuration environment (defaults to the process
+/// environment). Unit tests MUST pass their vars here instead of `setenv`:
+/// mutating the process-global `environ` while parallel tests spawn
+/// subprocesses makes `posix_spawn` fail with EFAULT ("Bad address") when the
+/// array is realloc'd mid-spawn.
+public func configure(_ app: Application, env: [String: String]? = nil) async throws {
+    let env = env ?? ProcessInfo.processInfo.environment
+
     // Configure server
     app.http.server.configuration.hostname = "0.0.0.0"
     app.http.server.configuration.port = 8_080
@@ -19,14 +27,15 @@ public func configure(_ app: Application) async throws {
     ContentConfiguration.global.use(decoder: decoder, for: .json)
 
     // Initialize core services
-    let pairingService = PairingService()
+    let dataDirectory = env["DATA_DIRECTORY"].map { URL(fileURLWithPath: $0) }
+    let pairingService = PairingService(dataDirectory: dataDirectory)
     let connectionHub = ConnectionHub()
     let metricsService = MetricsService()
 
     // Licensing: enabled only when LEMONSQUEEZY_STORE_ID + LEMONSQUEEZY_PRODUCT_ID
     // are both set. Self-hosted relays leave them unset and run unrestricted.
     // Misconfiguration (half-set / non-integer) throws here — fail-loud at boot.
-    let licensingConfig = try LicensingConfiguration.fromEnvironment()
+    let licensingConfig = try LicensingConfiguration.fromEnvironment(env)
     let licenseAPIClient: any LicenseAPIClient
     if let licensingConfig {
         licenseAPIClient = LemonSqueezyAPIClient(baseURL: licensingConfig.apiBaseURL)
@@ -36,7 +45,8 @@ public func configure(_ app: Application) async throws {
     let licensingService = LicensingService(
         config: licensingConfig,
         apiClient: licenseAPIClient,
-        metricsService: metricsService
+        metricsService: metricsService,
+        dataDirectory: dataDirectory
     )
     if licensingConfig != nil {
         app.logger.info("Licensing ENABLED — hosted-relay hosts require a trial or license")
@@ -48,7 +58,7 @@ public func configure(_ app: Application) async throws {
     // (and, if MIN_CLIENT_VERSION_REJECT_UNKNOWN is on, clients reporting none).
     // A malformed MIN_CLIENT_VERSION throws here — fail-loud at boot rather than
     // logging the gate as enabled while it silently accepts almost everything.
-    let minClientVersionGate = try MinClientVersionGate.fromEnvironment()
+    let minClientVersionGate = try MinClientVersionGate.fromEnvironment(env)
     app.storage[MinClientVersionGateKey.self] = minClientVersionGate
     if let minClientVersionGate {
         let unknownNote = minClientVersionGate.rejectUnknown ? " (unknown-version clients also refused)" : ""
@@ -59,7 +69,7 @@ public func configure(_ app: Application) async throws {
 
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
-    let apnsEnvString = ProcessInfo.processInfo.environment["APNS_ENVIRONMENT"] ?? "development"
+    let apnsEnvString = env["APNS_ENVIRONMENT"] ?? "development"
     let apnsEnvironment: APNSEnvironment = apnsEnvString == "production" ? .production : .development
 
     let apnsService = await APNsService(
@@ -126,7 +136,7 @@ public func configure(_ app: Application) async throws {
     //   nil  → endpoint disabled (all requests get 401)
     //   set  → must be at least 32 characters; shorter values fatalError at boot
     //          to fail-loud rather than ship a brute-forceable production deploy.
-    let rawToken = (ProcessInfo.processInfo.environment["METRICS_TOKEN"] ?? "")
+    let rawToken = (env["METRICS_TOKEN"] ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let metricsToken: String?
     if rawToken.isEmpty {

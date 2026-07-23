@@ -35,6 +35,9 @@
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = ["-c", script]
+        // Explicit env: posix_spawn must not read the live `environ`, which other
+        // parallel tests mutate (a concurrent realloc EFAULTs the spawn).
+        process.environment = [:]
         let errPipe = Pipe()
         process.standardError = errPipe
         try process.run()
@@ -65,6 +68,7 @@
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = ["-c", script]
+        process.environment = [:]
         let errPipe = Pipe()
         process.standardError = errPipe
         try process.run()
@@ -118,6 +122,7 @@
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
         process.arguments = ["-r", dest.path, "."]
         process.currentDirectoryURL = src
+        process.environment = [:]
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
@@ -300,6 +305,7 @@
             let verifyUnzip = Process()
             verifyUnzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
             verifyUnzip.arguments = ["-o", "-q", evilZip.path, "-d", verifyStaging.path]
+            verifyUnzip.environment = [:]
             try verifyUnzip.run()
             verifyUnzip.waitUntilExit()
             let symlinkURL = verifyStaging.appendingPathComponent("evil")

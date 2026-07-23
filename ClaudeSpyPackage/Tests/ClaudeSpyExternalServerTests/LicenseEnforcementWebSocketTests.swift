@@ -13,16 +13,14 @@ import VaporTesting
 ///
 /// These tests drive the real WebSocket lifecycle against a running relay
 /// (modeled on `ViewerReconnectRoutingTests`), with `LEMONSQUEEZY_STORE_ID` /
-/// `LEMONSQUEEZY_PRODUCT_ID` / `TRIAL_DAYS` set so licensing enforcement is
-/// active at boot. Pairs are created directly through the real
+/// `LEMONSQUEEZY_PRODUCT_ID` / `TRIAL_DAYS` injected so licensing enforcement
+/// is active at boot. Pairs are created directly through the real
 /// `app.pairingService` actor (register + complete), the same pattern
 /// `ViewerReconnectRoutingTests.makePair` uses, since driving the HTTP pairing
 /// endpoints isn't the thing under test here.
 ///
-/// Nested under `EnvSerializedSuites` so it also serializes against the other
-/// suites that mutate process-global environment variables (this one sets
-/// `LEMONSQUEEZY_STORE_ID` / `LEMONSQUEEZY_PRODUCT_ID` / `TRIAL_DAYS` /
-/// `DATA_DIRECTORY`).
+/// Nested under `EnvSerializedSuites` to bound how many full Vapor apps boot
+/// concurrently (see that container's doc for why setenv is banned here).
 extension EnvSerializedSuites {
     @Suite("License enforcement over WebSocket (#392)", .serialized)
     struct LicenseEnforcementWebSocketTests {
@@ -237,40 +235,29 @@ extension EnvSerializedSuites {
         /// Boots the real relay on an ephemeral port, runs the body, and tears down
         /// both the HTTP server and the application. When `licensingTrialDays` is
         /// non-nil, `LEMONSQUEEZY_STORE_ID`/`LEMONSQUEEZY_PRODUCT_ID`/`TRIAL_DAYS`
-        /// are set so the app's own connect-time licensing gate is active; `nil`
-        /// leaves licensing disabled (unrestricted) for that gate.
+        /// are injected so the app's own connect-time licensing gate is active;
+        /// `nil` omits them, leaving licensing disabled (unrestricted) for that
+        /// gate. Config is injected (never setenv — see `configure(_:env:)`),
+        /// which also makes the boot hermetic against a developer's local `.env`.
         private func withRunningRelay(
             licensingTrialDays: String?,
             _ body: (Application, Int) async throws -> Void
         ) async throws {
-            if let licensingTrialDays {
-                setenv("LEMONSQUEEZY_STORE_ID", "123", 1)
-                setenv("LEMONSQUEEZY_PRODUCT_ID", "456", 1)
-                setenv("TRIAL_DAYS", licensingTrialDays, 1)
-            } else {
-                // Force the connect-time gate OFF, hermetic against a developer's
-                // local `.env`: `Application.make(.testing)` loads `.env` with
-                // `overwrite: false`, so a staging `.env` setting LEMONSQUEEZY_*
-                // would otherwise ENABLE licensing here. Empty ids read as unset
-                // (trimmed to nil) and the `.env` load can't overwrite them.
-                setenv("LEMONSQUEEZY_STORE_ID", "", 1)
-                setenv("LEMONSQUEEZY_PRODUCT_ID", "", 1)
-            }
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("claudespy-license-ws-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            setenv("DATA_DIRECTORY", tempDir.path, 1)
-            defer {
-                try? FileManager.default.removeItem(at: tempDir)
-                unsetenv("DATA_DIRECTORY")
-                unsetenv("LEMONSQUEEZY_STORE_ID")
-                unsetenv("LEMONSQUEEZY_PRODUCT_ID")
-                unsetenv("TRIAL_DAYS")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            var env = ["DATA_DIRECTORY": tempDir.path]
+            if let licensingTrialDays {
+                env["LEMONSQUEEZY_STORE_ID"] = "123"
+                env["LEMONSQUEEZY_PRODUCT_ID"] = "456"
+                env["TRIAL_DAYS"] = licensingTrialDays
             }
 
             let app = try await Application.make(.testing)
             do {
-                try await configure(app)
+                try await configure(app, env: env)
                 // Match the framework's own test flow (`testing()` calls `boot()` before
                 // starting a live server): run lifecycle handlers before binding.
                 try await app.asyncBoot()
