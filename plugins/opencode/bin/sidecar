@@ -155,11 +155,23 @@ def state_awaiting_replies(request, request_id):
 # WORKING: sessions mid-turn (saw `busy`, not yet `idle`).
 # SEEN:    sessions we've ever emitted a state for (to tell a fresh session's
 #          first idle from a turn-ending idle, so we never clear attention).
+# CHILD:   subagent (task-tool) session id → parent session id. opencode runs
+#          each subagent in its own child session (info.parentID set) that
+#          emits its own busy/idle; we drop that churn so only the main session
+#          drives the pane and its "finished" notification (issue #670).
+#          session.status / session.idle omit parentID (opencode #30043), so we
+#          learn child-ness from the session.created / session.updated events
+#          that DO carry info.parentID — and the bridge serializes its ingress
+#          frames (FIFO send chain), so created/updated always land here before
+#          the child's own churn. Child permission/question prompts are NOT
+#          dropped (see handle_translate_event); they're re-keyed to the root
+#          session via _root_session.
 # PENDING: gallager-requestID → {server_url, permission_id, session_id} so a
 #          later deliver_response can answer the right opencode permission.
 # ---------------------------------------------------------------------------
 WORKING = set()
 SEEN = set()
+CHILD = {}
 PENDING = {}
 SESSION_PENDING = {}  # session_id → set(request_id)
 
@@ -199,6 +211,16 @@ def _clear_session_pending(session_id):
     for rid in list(SESSION_PENDING.get(session_id, set())):
         PENDING.pop(rid, None)
     SESSION_PENDING.pop(session_id, None)
+
+
+def _root_session(session_id):
+    """Resolve a (possibly nested — subagent_depth > 1) child session to its
+    top-level ancestor. The hop cap guards against a pathological parent cycle."""
+    hops = 0
+    while session_id in CHILD and hops < 8:
+        session_id = CHILD[session_id]
+        hops += 1
+    return session_id
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +365,34 @@ def handle_translate_event(req_id, params):
     if not project_path:
         project_path = info.get("directory")
 
+    # Subagent handling (issue #670). opencode runs each task-tool subagent in a
+    # CHILD session whose info carries a parentID; that child emits its own
+    # busy→idle churn exactly like the main session. session.created /
+    # session.updated are the only events that carry info.parentID (session.status
+    # / session.idle omit it — opencode #30043), so learn a session's child-ness
+    # here, then drop the child's lifecycle events below. Without this, every
+    # finished subagent fires a spurious "Finished working" notification and
+    # re-stamps the pane onto a now-dead child session; only the root session's
+    # lifecycle should drive the pane.
+    if etype in ("session.created", "session.updated"):
+        if info.get("parentID"):
+            CHILD[session_id] = info["parentID"]
+        respond(req_id, None)  # tracking-only — never a state/notification itself
+        return
+    if session_id in CHILD and etype in ("session.status", "session.idle", "session.error"):
+        respond(req_id, None)  # subagent churn — the main session drives the pane
+        return
+
+    # A subagent CAN raise its own permission/question (verified in opencode's
+    # source: Permission.ask / Question.ask publish with the *asking* session's
+    # id, and the task tool's child ruleset only denies todowrite/task), and
+    # opencode's TUI surfaces a child's pending prompt in the ROOT session's
+    # view, blocking the whole turn on it — so those events must pass through,
+    # not be dropped. Re-key them to the root session: the prompt is rendered
+    # and answered (keystrokes) in this same pane, and the child id must never
+    # become the pane's session — the #670 failure class.
+    session_id = _root_session(session_id)
+
     state = None
     notification = None
     app_actions = []
@@ -356,8 +406,9 @@ def handle_translate_event(req_id, params):
         elif stype == "idle":
             if session_id in WORKING:
                 WORKING.discard(session_id)
-                state = state_done()
-                notification = {"title": "opencode", "body": _done_body(project_path)}
+                summary = _idle_summary(props)
+                state = state_done(summary)
+                notification = {"title": "opencode", "body": summary or _done_body(project_path)}
             elif session_id not in SEEN:
                 SEEN.add(session_id)
                 state = state_idle()
@@ -367,8 +418,9 @@ def handle_translate_event(req_id, params):
         # Deprecated alias for status:idle. Same turn-end semantics.
         if session_id in WORKING:
             WORKING.discard(session_id)
-            state = state_done()
-            notification = {"title": "opencode", "body": _done_body(project_path)}
+            summary = _idle_summary(props)
+            state = state_done(summary)
+            notification = {"title": "opencode", "body": summary or _done_body(project_path)}
 
     elif etype == "session.error":
         WORKING.discard(session_id)
@@ -453,6 +505,16 @@ def handle_translate_event(req_id, params):
 def _done_body(project_path):
     name = _project_name(project_path)
     return ("Finished — %s" % name) if name else "Finished working"
+
+
+# The bridge attaches the turn's last assistant text to the idle event as
+# properties.gallagerSummary (fetched via opencode's in-process SDK client —
+# idle events themselves carry no text). Absent on older bridges.
+def _idle_summary(props):
+    summary = props.get("gallagerSummary")
+    if isinstance(summary, str) and summary.strip():
+        return summary
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -755,7 +817,7 @@ def handle_refresh_projects(req_id, params):
 # ---------------------------------------------------------------------------
 # Remaining RPC handlers.
 # ---------------------------------------------------------------------------
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.2.1"
 
 
 def _store_settings(value):

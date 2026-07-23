@@ -187,6 +187,134 @@ class TranslateEventTests(unittest.TestCase):
         self.assertEqual(r["state"], {"doneWorking": {"summary": "boom"}})
         self.assertEqual(r["notification"]["body"], "boom")
 
+    # --- Turn summaries ----------------------------------------------------------
+    # At turn end the bridge fetches the session's last assistant text via
+    # opencode's in-process SDK client and attaches it to the idle event as
+    # properties.gallagerSummary; the sidecar surfaces it as doneWorking's
+    # summary and the notification body (like Claude's lastAssistantMessage).
+    def test_idle_with_summary_uses_it(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "Renamed the helper."},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": "Renamed the helper."}})
+        self.assertEqual(r["notification"]["body"], "Renamed the helper.")
+
+    def test_session_idle_alias_with_summary(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt("session.idle", {"sessionID": "s1", "gallagerSummary": "Done deal."})
+        self.assertEqual(r["state"], {"doneWorking": {"summary": "Done deal."}})
+        self.assertEqual(r["notification"]["body"], "Done deal.")
+
+    def test_idle_with_blank_summary_falls_back_to_project_body(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "   "},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_idle_with_non_string_summary_falls_back(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": 42},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_fresh_idle_ignores_summary(self):
+        # A summary must not promote a never-busy session's idle into doneWorking.
+        r = self.evt(
+            "session.status",
+            {"sessionID": "fresh", "status": {"type": "idle"}, "gallagerSummary": "stale"},
+        )
+        self.assertEqual(r["state"], {"idle": {}})
+
+    # --- Subagents (issue #670) -------------------------------------------------
+    # opencode runs each task-tool subagent in a child session (info.parentID set).
+    # Its busy/idle churn must NOT drive the pane or fire a "finished" notification;
+    # only the main (root) session's lifecycle should.
+    def test_session_created_root_is_noop(self):
+        # A root session (no parentID) → tracking event, no state, not suppressed later.
+        r = self.evt("session.created", {"sessionID": "root", "info": {"id": "root"}})
+        self.assertIsNone(r)
+        r = self.evt("session.status", {"sessionID": "root", "status": {"type": "busy"}})
+        self.assertEqual(r["state"], {"working": {}})  # root still drives the pane
+
+    def test_subagent_created_is_tracked_not_stated(self):
+        r = self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(r)  # tracking-only, no state/notification
+
+    def test_subagent_idle_is_suppressed(self):
+        # Learn the child, then its busy/idle churn is dropped entirely.
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "busy"}}))
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "idle"}}))
+
+    def test_subagent_finishing_does_not_notify_while_main_works(self):
+        # The reported bug: a subagent finishing must not fire "Finished working"
+        # while the main session is still mid-turn — only the main session's own
+        # idle does.
+        self.evt("session.status", {"sessionID": "root", "status": {"type": "busy"}})  # main working
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.evt("session.status", {"sessionID": "sub", "status": {"type": "busy"}})
+        self.assertIsNone(self.evt("session.status", {"sessionID": "sub", "status": {"type": "idle"}}))  # no notify
+        r = self.evt("session.status", {"sessionID": "root", "status": {"type": "idle"}})  # main done
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_subagent_learned_via_session_updated(self):
+        # If session.created was missed, session.updated also carries parentID.
+        self.evt("session.updated", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.assertIsNone(self.evt("session.idle", {"sessionID": "sub"}))
+
+    def test_subagent_error_is_suppressed(self):
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        r = self.evt("session.error", {"sessionID": "sub", "error": {"data": {"message": "sub boom"}}})
+        self.assertIsNone(r)  # a subagent's error must not surface as the pane's "done"
+
+    # A subagent CAN raise its own permission/question (its ruleset only denies
+    # todowrite/task), and opencode's TUI shows that prompt in the ROOT session's
+    # view, blocking the turn. So those events pass through — re-keyed to the
+    # root session so the child id never becomes the pane's session.
+    def test_subagent_permission_rekeyed_to_root(self):
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        r = self.evt("permission.asked", {
+            "id": "per_sub", "sessionID": "sub", "permission": "bash", "patterns": ["make"],
+        })
+        self.assertEqual(r["sessionID"], "root")
+        self.assertEqual(r["state"]["awaitingPermission"]["requestID"], "root:permission:per_sub")
+
+    def test_subagent_question_rekeyed_to_root(self):
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        r = self.evt("question.asked", {
+            "id": "q_sub", "sessionID": "sub",
+            "questions": [{"question": "Q", "header": "H", "options": []}],
+        })
+        self.assertEqual(r["sessionID"], "root")
+        self.assertEqual(r["state"]["awaitingReplies"]["requestID"], "root:question:q_sub")
+
+    def test_subagent_permission_replied_returns_root_to_working(self):
+        self.evt("session.created", {"sessionID": "sub", "info": {"id": "sub", "parentID": "root"}})
+        self.evt("permission.asked", {"id": "per_sub", "sessionID": "sub", "permission": "bash", "patterns": ["x"]})
+        r = self.evt("permission.replied", {"sessionID": "sub", "requestID": "per_sub", "reply": "once"})
+        self.assertEqual(r["sessionID"], "root")
+        self.assertEqual(r["state"], {"working": {}})
+        # The re-keyed permission marked the ROOT working, so the turn-ending
+        # idle still resolves to doneWorking + notification.
+        r = self.evt("session.status", {"sessionID": "root", "status": {"type": "idle"}})
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+
+    def test_nested_subagent_resolves_to_top_root(self):
+        # subagent_depth > 1: a child of a child re-keys all the way up.
+        self.evt("session.created", {"sessionID": "mid", "info": {"id": "mid", "parentID": "root"}})
+        self.evt("session.created", {"sessionID": "leaf", "info": {"id": "leaf", "parentID": "mid"}})
+        r = self.evt("permission.asked", {"id": "per_n", "sessionID": "leaf", "permission": "bash", "patterns": ["x"]})
+        self.assertEqual(r["sessionID"], "root")
+
     def test_permission_asked_builds_form(self):
         r = self.evt("permission.asked", {
             "id": "per_abc",
@@ -436,7 +564,7 @@ class InstallTests(unittest.TestCase):
                 dest = os.path.join(proj, ".opencode", "plugin", "gallager.js")
                 self.assertTrue(os.path.exists(dest))
                 self.assertEqual(sc.request("install_status", {"configRoot": proj}).get("result"),
-                                 {"installed": {"version": "0.2.0"}})
+                                 {"installed": {"version": "0.2.1"}})
             finally:
                 sc.close()
 
@@ -468,7 +596,7 @@ class InstallTests(unittest.TestCase):
                 self.assertIn("GallagerMonitor", content)
 
                 self.assertEqual(sc.request("install_status").get("result"),
-                                 {"installed": {"version": "0.2.0"}})
+                                 {"installed": {"version": "0.2.1"}})
 
                 sc.request("uninstall")
                 self.assertFalse(os.path.exists(dest))
