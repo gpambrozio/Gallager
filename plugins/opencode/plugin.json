@@ -3,7 +3,7 @@
   "id": "opencode",
   "display_name": "opencode",
   "short_name": "opencode",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "process_names": ["opencode"],
   "runtime": "sidecar",
   "sidecar": {

@@ -47,9 +47,9 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
 | `gallager.lifecycle.started` (synthetic, on bridge load) | `idle` (session appears) |
 | `session.created` / `session.updated` | *(tracking only — learns subagent sessions; see below)* |
 | `session.status` `busy` / `retry` | `working` |
-| `session.status` `idle` (after a turn) | `doneWorking` + notification |
+| `session.status` `idle` (after a turn) | `doneWorking(summary)` + notification (see [Turn summaries](#turn-summaries)) |
 | `session.status` `idle` (fresh session) | `idle` |
-| `session.idle` (deprecated alias) | `doneWorking` (turn end) |
+| `session.idle` (deprecated alias) | `doneWorking(summary)` (turn end) |
 | `session.error` | `doneWorking(summary)` + notification |
 | `permission.asked` / `permission.updated` | `awaitingPermission` (form) + notification |
 | `permission.replied` | `working` (form cleared) |
@@ -100,6 +100,33 @@ Two refinements on top of the drop rule:
 > `session.updated`, an already-installed bridge must be re-installed (Agents
 > settings → **Install**) for the fix to take effect. Until then behavior is
 > unchanged (the old bug), never worse.
+
+## Turn summaries
+
+Claude Code's "Finished working" notifications carry the agent's last message
+(`lastAssistantMessage` from its Stop hook); opencode's turn-end events carry
+**no text at all**. So at turn end the bridge fetches it: when a **root** session
+that previously went `busy` reports `idle`, the bridge calls
+`client.session.messages({ path: { id } })` on the **in-process SDK client**
+(every opencode plugin receives one; it works even though opencode's server
+listens on a unix socket, which is what makes the server unreachable from the
+*sidecar*) and attaches the last assistant message's visible text — synthetic /
+ignored parts filtered, trimmed to 300 chars like the pi bridge — to the idle
+event as `properties.gallagerSummary`. The sidecar surfaces it as
+`doneWorking`'s summary (shown in the sidebar row) and the notification body,
+falling back to the old "Finished — *project*" copy when absent.
+
+Ordering: the fetch is kicked off when the idle event arrives (capturing the
+messages as they stand at turn end) but its result is awaited **inside the FIFO
+send chain** — awaiting it in the hook body instead would let a new turn's
+`busy` frame overtake the still-fetching idle frame and fire a spurious
+"finished". The fetch self-times-out after 2s and never rejects; on any failure
+the idle frame goes out untouched. Subagent idles (dropped by the sidecar
+anyway) and session-switch idles (no turn ended) skip the fetch entirely.
+
+> Re-install note: the summary fetch lives in the *bridge*, so an
+> already-installed bridge must be re-installed (Agents settings → **Install**)
+> to start carrying summaries. Older sidecars simply ignore the extra field.
 
 ## Session lifecycle (start / exit)
 

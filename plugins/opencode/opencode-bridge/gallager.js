@@ -152,10 +152,75 @@ function forward(event, context) {
 // busy/idle churn to know it's a subagent (issue #670). Hook bodies DO start
 // synchronously in event order, so chaining each send onto the previous one
 // preserves bus order end-to-end. forward() never rejects → the chain can't wedge.
+//
+// summaryPromise (idle frames only): the turn-summary fetch result, awaited
+// INSIDE the chain step — never before enqueueing. Awaiting it in the hook body
+// instead would let a new turn's `busy` frame overtake the still-fetching idle
+// frame, and the sidecar would see busy→idle and fire a spurious "finished".
+// The promise never rejects and self-times-out (fetchIdleSummary), so it can't
+// wedge the chain.
 let sendChain = Promise.resolve()
-function enqueue(event, context) {
-  sendChain = sendChain.then(() => forward(event, context))
+function enqueue(event, context, summaryPromise) {
+  sendChain = sendChain.then(async () => {
+    let payload = event
+    if (summaryPromise) {
+      const summary = await summaryPromise
+      // Copy — the same event object is dispatched to every subscribed plugin.
+      if (summary) payload = { ...event, properties: { ...(event.properties || {}), gallagerSummary: summary } }
+    }
+    return forward(payload, context)
+  })
   return sendChain
+}
+
+// --- Turn summaries -----------------------------------------------------------
+// opencode's idle events carry no text, so at turn end the bridge fetches the
+// session's messages via the in-process SDK client (works even though the
+// server listens on a unix socket — the client dispatches in-process) and
+// attaches the last assistant message's visible text to the idle frame as
+// properties.gallagerSummary. The sidecar surfaces it as doneWorking's summary
+// and the notification body, matching Claude Code's lastAssistantMessage.
+//
+// BUSY_IDS gates the fetch to real turn ends (a session-switch idle has no new
+// text worth fetching); CHILD_IDS skips task-tool subagent idles, whose
+// lifecycle the sidecar drops anyway (issue #670). Both mirror the sidecar's
+// WORKING/CHILD tracking — kept bridge-side purely to avoid pointless fetches.
+const CHILD_IDS = new Set()
+const BUSY_IDS = new Set()
+const SUMMARY_MAX = 300
+const SUMMARY_TIMEOUT_MS = 2000
+
+/** The last assistant message's visible text, trimmed for a notification body. */
+function lastAssistantText(entries) {
+  if (!Array.isArray(entries)) return undefined
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]
+    if (!entry || !entry.info || entry.info.role !== "assistant") continue
+    const text = (Array.isArray(entry.parts) ? entry.parts : [])
+      .filter((p) => p && p.type === "text" && typeof p.text === "string" && !p.synthetic && !p.ignored)
+      .map((p) => p.text)
+      .join("\n")
+      .trim()
+    if (text) return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 3)}…` : text
+    return undefined // last assistant message had no text (e.g. pure tool call)
+  }
+  return undefined
+}
+
+/** Resolves to the session's summary text, undefined on any failure. Never rejects. */
+async function fetchIdleSummary(client, sessionID) {
+  if (!client || !client.session || typeof client.session.messages !== "function") return undefined
+  try {
+    const res = await Promise.race([
+      client.session.messages({ path: { id: sessionID } }),
+      new Promise((resolve) => setTimeout(resolve, SUMMARY_TIMEOUT_MS)),
+    ])
+    if (!res) return undefined // timeout
+    // hey-api clients wrap the body in {data}; tolerate a bare array too.
+    return lastAssistantText(Array.isArray(res) ? res : res.data)
+  } catch {
+    return undefined // summaries are best-effort — never break the idle frame
+  }
 }
 
 // --- OTLP telemetry (issue #617) ----------------------------------------------
@@ -253,7 +318,7 @@ function emitTelemetry(info, context) {
 const LIFECYCLE_STARTED = { id: "gallager-started", type: "gallager.lifecycle.started", properties: {} }
 const LIFECYCLE_STOPPED = { id: "gallager-stopped", type: "gallager.lifecycle.stopped", properties: {} }
 
-export const GallagerMonitor = async ({ serverUrl, directory, worktree, project }) => {
+export const GallagerMonitor = async ({ client, serverUrl, directory, worktree, project }) => {
   // Captured once per opencode process. TMUX_PANE is how Gallager routes the
   // event to the right pane; serverUrl lets the sidecar answer permission
   // prompts via opencode's HTTP API; the directory seeds the project name.
@@ -266,6 +331,14 @@ export const GallagerMonitor = async ({ serverUrl, directory, worktree, project 
   if (projectDir) context.OPENCODE_PROJECT_DIR = projectDir
 
   debug(`bridge loaded sock=${SOCKET_PATH} id=${PLUGIN_ID} pane=${tmuxPane} server=${serverURLString}`)
+
+  // Only real turn ends (session went busy) of non-subagent sessions get a
+  // summary fetch; everything else forwards the idle frame untouched.
+  const maybeFetchSummary = (sid) => {
+    if (!sid || CHILD_IDS.has(sid) || !BUSY_IDS.has(sid)) return undefined
+    BUSY_IDS.delete(sid)
+    return fetchIdleSummary(client, sid)
+  }
 
   // Announce the session the moment opencode loads us — opencode emits nothing on
   // a fresh idle launch, so this is what makes the (idle) session appear in the
@@ -284,10 +357,29 @@ export const GallagerMonitor = async ({ serverUrl, directory, worktree, project 
         return
       }
       if (!FORWARD.has(event.type)) return
+
+      // Turn-summary bookkeeping (see fetchIdleSummary). The fetch is KICKED OFF
+      // here — capturing the messages as they stand at idle time — but its result
+      // is awaited inside the send chain so frame order is preserved.
+      const props = event.properties || {}
+      const sid = props.sessionID
+      let summaryPromise
+      if (event.type === "session.created" || event.type === "session.updated") {
+        if (props.info && props.info.id && props.info.parentID) CHILD_IDS.add(props.info.id)
+      } else if (event.type === "session.status") {
+        const status = (props.status || {}).type
+        if (sid && (status === "busy" || status === "retry")) BUSY_IDS.add(sid)
+        else if (status === "idle") summaryPromise = maybeFetchSummary(sid)
+      } else if (event.type === "session.idle") {
+        summaryPromise = maybeFetchSummary(sid)
+      } else if (event.type === "session.error" && sid) {
+        BUSY_IDS.delete(sid) // errored turns end without an eligible idle
+      }
+
       // enqueue() (not bare forward()) is what guarantees frames reach the
       // ingress socket in event order; the await additionally keeps this hook's
       // promise honest — it settles only once the frame has actually flushed.
-      await enqueue(event, context)
+      await enqueue(event, context, summaryPromise)
     },
     // opencode runs this finalizer on a graceful shutdown (the quit command,
     // `/exit`, Ctrl-C). It's the only exit signal we get — the bridge dies with

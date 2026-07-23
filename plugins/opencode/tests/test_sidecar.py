@@ -187,6 +187,52 @@ class TranslateEventTests(unittest.TestCase):
         self.assertEqual(r["state"], {"doneWorking": {"summary": "boom"}})
         self.assertEqual(r["notification"]["body"], "boom")
 
+    # --- Turn summaries ----------------------------------------------------------
+    # At turn end the bridge fetches the session's last assistant text via
+    # opencode's in-process SDK client and attaches it to the idle event as
+    # properties.gallagerSummary; the sidecar surfaces it as doneWorking's
+    # summary and the notification body (like Claude's lastAssistantMessage).
+    def test_idle_with_summary_uses_it(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "Renamed the helper."},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": "Renamed the helper."}})
+        self.assertEqual(r["notification"]["body"], "Renamed the helper.")
+
+    def test_session_idle_alias_with_summary(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt("session.idle", {"sessionID": "s1", "gallagerSummary": "Done deal."})
+        self.assertEqual(r["state"], {"doneWorking": {"summary": "Done deal."}})
+        self.assertEqual(r["notification"]["body"], "Done deal.")
+
+    def test_idle_with_blank_summary_falls_back_to_project_body(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "   "},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_idle_with_non_string_summary_falls_back(self):
+        self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
+        r = self.evt(
+            "session.status",
+            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": 42},
+        )
+        self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
+        self.assertIn("AcmeApp", r["notification"]["body"])
+
+    def test_fresh_idle_ignores_summary(self):
+        # A summary must not promote a never-busy session's idle into doneWorking.
+        r = self.evt(
+            "session.status",
+            {"sessionID": "fresh", "status": {"type": "idle"}, "gallagerSummary": "stale"},
+        )
+        self.assertEqual(r["state"], {"idle": {}})
+
     # --- Subagents (issue #670) -------------------------------------------------
     # opencode runs each task-tool subagent in a child session (info.parentID set).
     # Its busy/idle churn must NOT drive the pane or fire a "finished" notification;
