@@ -25,17 +25,9 @@ struct OSLogHandler: LogHandler {
         self.osLogger = os.Logger(subsystem: subsystem, category: category)
     }
 
-    func log(
-        level: Logging.Logger.Level,
-        message: Logging.Logger.Message,
-        metadata: Logging.Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
-        let osLevel = level.osLogType
-        let formattedMessage = formatMessage(message, metadata: metadata)
+    func log(event: LogEvent) {
+        let osLevel = event.level.osLogType
+        let formattedMessage = formatMessage(event.message, metadata: event.metadata)
         osLogger.log(level: osLevel, "\(formattedMessage, privacy: .public)")
     }
 
