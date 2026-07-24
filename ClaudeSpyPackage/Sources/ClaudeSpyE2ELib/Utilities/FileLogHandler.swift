@@ -21,17 +21,9 @@ struct FileLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
-    func log(
-        level: Logging.Logger.Level,
-        message: Logging.Logger.Message,
-        metadata: Logging.Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
+    func log(event: LogEvent) {
         let timestamp = Self.formatter.string(from: Date())
-        let line = "\(timestamp) \(level) \(label): \(message)\n"
+        let line = "\(timestamp) \(event.level) \(label): \(event.message)\n"
         fileHandle.write(Data(line.utf8))
     }
 
