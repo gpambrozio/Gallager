@@ -41,10 +41,28 @@
                         }
                     }
                 }
+
+                Section {
+                    Text(ThirdPartyLicense.intro)
+                } header: {
+                    Text("Licenses")
+                }
+
+                ForEach(ThirdPartyLicense.Usage.allCases, id: \.self) { usage in
+                    Section(usage.rawValue) {
+                        ForEach(ThirdPartyLicense.all(in: usage)) { license in
+                            LicenseRow(license)
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
             .frame(minWidth: 400, minHeight: 300)
             .navigationTitle("About")
         }
+    }
+
+    #Preview {
+        AboutView()
     }
 #endif

@@ -894,6 +894,19 @@ main() {
     REVERT_COMMITS=0
     RELEASE_TAG=""
 
+    # Publish a GitHub release on the freshly-pushed tag. Non-fatal: the
+    # release itself already shipped (DMG + appcast uploaded), so a GitHub
+    # hiccup only costs the public release notes. The DMG is attached because
+    # the appcast keeps only the last 2 versions — GitHub is the archive.
+    log_info "Creating GitHub release v$version..."
+    if gh release create "v$version" "$dmg_path" \
+        --title "v$version" \
+        --notes "$RELEASE_NOTES"; then
+        log_success "GitHub release v$version published"
+    else
+        log_warning "GitHub release failed — create manually: gh release create v$version"
+    fi
+
     rm -rf "$BUILD_DIR"
 
     if [ "$SKIP_UPLOAD" != true ]; then
