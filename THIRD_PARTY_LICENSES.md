@@ -4,6 +4,12 @@ Gallager is built on these open-source projects. Each is used under its own
 license; full texts live in the linked repositories. Thank you to all of their
 authors and contributors.
 
+> **Maintainers:** the apps surface this entire list in-app (macOS Settings →
+> About, iOS Settings → Licenses), grouped by where each project is used
+> (apps & relay, build tools, website). When you change any rows below, mirror
+> the change in `ThirdPartyLicense.all`
+> (`ClaudeSpyPackage/Sources/ClaudeSpyCommon/Constants/ThirdPartyLicenses.swift`).
+
 ## Swift packages (apps + relay)
 
 | Project | License |
