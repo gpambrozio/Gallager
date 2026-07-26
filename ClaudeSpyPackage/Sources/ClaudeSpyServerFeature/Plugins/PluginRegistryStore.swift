@@ -11,6 +11,12 @@ public struct PluginRegistryEntry: Codable, Sendable, Equatable {
     public let manifestURL: URL?
     public let bundleURL: URL?
     public let bundleSHA256: String?
+    /// Host-side preference: include this plugin in automatic update checks.
+    /// Only meaningful for `.url` entries; defaults to true.
+    public var autoUpdate: Bool
+    /// Set when an update installed while the plugin had active sessions, so
+    /// agent-side bridge files still need re-installing (done at next launch).
+    public var needsBridgeRefresh: Bool
 
     /// The origin of the plugin: bundled with the app, fetched from a URL, or a local folder.
     public enum Source: String, Codable, Sendable {
@@ -27,7 +33,9 @@ public struct PluginRegistryEntry: Codable, Sendable, Equatable {
         enabled: Bool,
         manifestURL: URL?,
         bundleURL: URL?,
-        bundleSHA256: String?
+        bundleSHA256: String?,
+        autoUpdate: Bool = true,
+        needsBridgeRefresh: Bool = false
     ) {
         self.id = id
         self.version = version
@@ -37,6 +45,22 @@ public struct PluginRegistryEntry: Codable, Sendable, Equatable {
         self.manifestURL = manifestURL
         self.bundleURL = bundleURL
         self.bundleSHA256 = bundleSHA256
+        self.autoUpdate = autoUpdate
+        self.needsBridgeRefresh = needsBridgeRefresh
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.version = try c.decode(String.self, forKey: .version)
+        self.source = try c.decode(Source.self, forKey: .source)
+        self.runtime = try c.decode(Runtime.self, forKey: .runtime)
+        self.enabled = try c.decode(Bool.self, forKey: .enabled)
+        self.manifestURL = try c.decodeIfPresent(URL.self, forKey: .manifestURL)
+        self.bundleURL = try c.decodeIfPresent(URL.self, forKey: .bundleURL)
+        self.bundleSHA256 = try c.decodeIfPresent(String.self, forKey: .bundleSHA256)
+        self.autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? true
+        self.needsBridgeRefresh = try c.decodeIfPresent(Bool.self, forKey: .needsBridgeRefresh) ?? false
     }
 }
 

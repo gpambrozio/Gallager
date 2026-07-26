@@ -52,5 +52,39 @@
             #expect(back.plugins.isEmpty)
             #expect(back.schemaVersion == 1)
         }
+
+        @Test("legacy registry JSON without update fields decodes with defaults")
+        func legacyEntryDecodesWithUpdateDefaults() throws {
+            let json = """
+            {"schemaVersion":1,"plugins":[{"id":"pi","version":"1.0.0","source":"url","runtime":"sidecar","enabled":true,"manifestURL":"https://example.com/pi/plugin.json","bundleURL":"https://cdn.example.com/pi.zip","bundleSHA256":"abc"}]}
+            """
+            let file = try JSONDecoder().decode(PluginRegistryFile.self, from: Data(json.utf8))
+            let entry = try #require(file.plugins.first)
+            #expect(entry.autoUpdate == true)
+            #expect(entry.needsBridgeRefresh == false)
+        }
+
+        @Test("autoUpdate=false and needsBridgeRefresh=true survive a save/load round-trip")
+        func updateFieldsRoundTrip() throws {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("registry-roundtrip-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let url = dir.appendingPathComponent("registry.json")
+
+            let entry = PluginRegistryEntry(
+                id: "pi", version: "1.0.0", source: .url, runtime: .sidecar, enabled: true,
+                manifestURL: URL(string: "https://example.com/pi/plugin.json"),
+                bundleURL: URL(string: "https://cdn.example.com/pi.zip"),
+                bundleSHA256: "abc",
+                autoUpdate: false,
+                needsBridgeRefresh: true
+            )
+            try PluginRegistryStore.save(PluginRegistryFile(schemaVersion: 1, plugins: [entry]), to: url)
+            let loaded = PluginRegistryStore.load(url)
+            let roundTripped = try #require(loaded.plugins.first)
+            #expect(roundTripped.autoUpdate == false)
+            #expect(roundTripped.needsBridgeRefresh == true)
+        }
     }
 #endif
