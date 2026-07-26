@@ -136,7 +136,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macSendHookEvent(_, _, _, _, instance):
             return .macOS(instance: instance)
-        case let .macStageSidecarFixture(_, instance, _):
+        case let .macStageSidecarFixture(_, instance, _, _):
             return .macOS(instance: instance)
         case let .macStageSidecarZip(_, _, _, instance):
             return .macOS(instance: instance)

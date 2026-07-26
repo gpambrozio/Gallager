@@ -1111,8 +1111,13 @@ public actor TestOrchestrator {
             )
 
         // Sidecar Fixture Staging
-        case let .macStageSidecarFixture(id, instance, otlpNamespace):
-            try stageSidecarFixture(id: id, instance: instance, otlpNamespace: otlpNamespace)
+        case let .macStageSidecarFixture(id, instance, otlpNamespace, displayName):
+            try stageSidecarFixture(
+                id: id,
+                instance: instance,
+                otlpNamespace: otlpNamespace,
+                displayName: displayName
+            )
 
         case let .macStageSidecarZip(id, displayName, storeAs, instance):
             let zipPath = try stageSidecarZip(id: id, displayName: displayName, instance: instance)
@@ -1251,7 +1256,12 @@ public actor TestOrchestrator {
     ///
     /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
     /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
-    private func stageSidecarFixture(id: String, instance: Int, otlpNamespace: String? = nil) throws {
+    private func stageSidecarFixture(
+        id: String,
+        instance: Int,
+        otlpNamespace: String? = nil,
+        displayName: String = "Echo Sidecar (E2E)"
+    ) throws {
         // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
         let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
         let gallagerRoot = stateRoot.deletingLastPathComponent()
@@ -1281,7 +1291,7 @@ public actor TestOrchestrator {
         {
             "schema_version": 1,
             "id": "\(id)",
-            "display_name": "Echo Sidecar (E2E)",
+            "display_name": "\(displayName)",
             "short_name": "Echo",
             "version": "0.0.1",
             "process_names": [],

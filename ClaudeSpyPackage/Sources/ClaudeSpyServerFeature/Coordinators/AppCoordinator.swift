@@ -718,28 +718,43 @@
             try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
 
             // Plugin auto-update orchestration (spec 2026-07-25). Automatic
-            // triggers are off in e2e so scenarios drive checks deterministically.
+            // triggers are off in e2e so scenarios drive checks deterministically,
+            // and the registry/check/install callbacks answer from the e2e stubs
+            // below (`e2eUpdatableRegistry` / `e2ePendingUpdate`) — the real
+            // pipeline is HTTPS-only, which a scenario can't serve.
             let updateManager = PluginUpdateManager(
                 callbacks: PluginUpdateManager.Callbacks(
                     loadRegistry: { [weak self] in
-                        guard let paths = self?.gallagerPaths else {
+                        guard let self, let paths = gallagerPaths else {
                             return PluginRegistryFile(schemaVersion: 1, plugins: [])
                         }
-                        return PluginRegistryStore.load(paths.registryPath)
+                        let file = PluginRegistryStore.load(paths.registryPath)
+                        guard isE2ETest else { return file }
+                        return Self.e2eUpdatableRegistry(file)
                     },
                     saveRegistry: { [weak self] file in
                         guard let paths = self?.gallagerPaths else { return }
                         try? PluginRegistryStore.save(file, to: paths.registryPath)
                     },
-                    checkUpdates: { entries in
-                        await PluginUpdateChecker.check(entries, session: URLSession.shared)
+                    checkUpdates: { [weak self] entries in
+                        if self?.isE2ETest == true {
+                            return entries.compactMap(Self.e2ePendingUpdate(for:))
+                        }
+                        return await PluginUpdateChecker.check(entries, session: URLSession.shared)
                     },
-                    checkUpdate: { entry in
-                        try await PluginUpdateChecker.checkOne(entry, session: URLSession.shared)
+                    checkUpdate: { [weak self] entry in
+                        if self?.isE2ETest == true {
+                            return Self.e2ePendingUpdate(for: entry)
+                        }
+                        return try await PluginUpdateChecker.checkOne(entry, session: URLSession.shared)
                     },
                     installFromURL: { [weak self] url in
                         guard let self else { return .failure(.invalidSchema) }
-                        return await self.installPluginFromURL(url, trustConfirmed: true)
+                        // No download in e2e — the real pipeline is HTTPS-only, so
+                        // the "install" is reported as done and the apply path
+                        // continues into the hot-restart + bridge-refresh steps.
+                        if isE2ETest { return .success(.installed(id: Self.e2eUpdatablePluginID)) }
+                        return await installPluginFromURL(url, trustConfirmed: true)
                     },
                     hasActiveSessions: { [weak self] id in
                         self?.windowManager.sortedSessions.contains { $0.pluginID == id } ?? false
@@ -1335,6 +1350,59 @@
 
         private func e2eInstallKey(_ id: String, _ configRoot: String?) -> String {
             "\(id)|\(configRoot ?? "")"
+        }
+
+        /// The staged sidecar fixture (`macStageSidecarFixture`) that E2E presents
+        /// as URL-installed so the Agents "Updates" section, Check Now, and the
+        /// restart banner are drivable. The real update pipeline is HTTPS-only by
+        /// design, so a scenario can never exercise it against a live host; the
+        /// registry entry is rewritten and the check/install callbacks answer from
+        /// here instead. Only this one id is affected — a dedicated id, so the
+        /// other fixture-staging scenarios keep seeing an honest `.folder` entry
+        /// with no Updates section.
+        private static let e2eUpdatablePluginID = "update-test-sidecar"
+
+        /// The version the synthetic pending update reports for that fixture.
+        private static let e2eUpdateNewVersion = "9.9.9"
+
+        /// Present the staged fixture as URL-installed (`source: .url` + a
+        /// manifest URL) so `PluginUpdateManager.isUpdatable` is true for it. Any
+        /// persisted `autoUpdate` / `needsBridgeRefresh` is carried over, so the
+        /// toggle and the busy-defer flag still round-trip through the real
+        /// registry file. A no-op when the fixture isn't staged — every other E2E
+        /// scenario sees the registry exactly as written.
+        private static func e2eUpdatableRegistry(_ file: PluginRegistryFile) -> PluginRegistryFile {
+            var file = file
+            guard let index = file.plugins.firstIndex(where: { $0.id == e2eUpdatablePluginID }) else {
+                return file
+            }
+            let prior = file.plugins[index]
+            file.plugins[index] = PluginRegistryEntry(
+                id: prior.id,
+                version: prior.version,
+                source: .url,
+                runtime: prior.runtime,
+                enabled: prior.enabled,
+                manifestURL: URL(string: "https://e2e.invalid/\(e2eUpdatablePluginID)/plugin.json"),
+                bundleURL: prior.bundleURL,
+                bundleSHA256: prior.bundleSHA256,
+                autoUpdate: prior.autoUpdate,
+                needsBridgeRefresh: prior.needsBridgeRefresh
+            )
+            return file
+        }
+
+        /// The synthetic pending update for the staged fixture: a newer version
+        /// served from the same host, so the apply path runs end to end (a
+        /// `sourceChanged` update would stop at the manual Review flow).
+        private static func e2ePendingUpdate(for entry: PluginRegistryEntry) -> PluginUpdate? {
+            guard entry.id == e2eUpdatablePluginID else { return nil }
+            return PluginUpdate(
+                id: entry.id,
+                currentVersion: entry.version,
+                newVersion: e2eUpdateNewVersion,
+                sourceChanged: false
+            )
         }
 
         /// Ensure a plugin's core is enabled, then query its install status for

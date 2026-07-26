@@ -531,7 +531,17 @@ public enum TestStep: Sendable {
     /// `otlpNamespace` adds an `otlp` declaration to the staged manifest
     /// (issue #617), so records named `<otlpNamespace>.api_request` POSTed to
     /// the instance's OTLP receiver aggregate into the plugin session's meter.
-    case macStageSidecarFixture(id: String, instance: Int = 0, otlpNamespace: String? = nil)
+    ///
+    /// `displayName` is the manifest's `display_name` — the picker segment title
+    /// and the name the per-agent form interpolates into its labels. Override it
+    /// when a scenario stages a second fixture that must be told apart from the
+    /// default one.
+    case macStageSidecarFixture(
+        id: String,
+        instance: Int = 0,
+        otlpNamespace: String? = nil,
+        displayName: String = "Echo Sidecar (E2E)"
+    )
 
     /// Build a self-contained sidecar `.zip` bundle (the `EchoPluginSidecar`
     /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the
