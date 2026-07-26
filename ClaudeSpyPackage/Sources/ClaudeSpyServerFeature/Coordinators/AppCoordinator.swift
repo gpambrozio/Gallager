@@ -132,6 +132,10 @@
         /// `onChange` selection). Observed.
         public private(set) var lastInstalledPluginID: String?
 
+        /// Orchestrates plugin auto-update checks/installs. Created during plugin
+        /// boot; nil only before startup completes.
+        public private(set) var pluginUpdateManager: PluginUpdateManager?
+
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
         @ObservationIgnored
@@ -712,6 +716,64 @@
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
             try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
+
+            // Plugin auto-update orchestration (spec 2026-07-25). Automatic
+            // triggers are off in e2e so scenarios drive checks deterministically.
+            let updateManager = PluginUpdateManager(
+                callbacks: PluginUpdateManager.Callbacks(
+                    loadRegistry: { [weak self] in
+                        guard let paths = self?.gallagerPaths else {
+                            return PluginRegistryFile(schemaVersion: 1, plugins: [])
+                        }
+                        return PluginRegistryStore.load(paths.registryPath)
+                    },
+                    saveRegistry: { [weak self] file in
+                        guard let paths = self?.gallagerPaths else { return }
+                        try? PluginRegistryStore.save(file, to: paths.registryPath)
+                    },
+                    checkUpdates: { entries in
+                        await PluginUpdateChecker.check(entries, session: URLSession.shared)
+                    },
+                    checkUpdate: { entry in
+                        try await PluginUpdateChecker.checkOne(entry, session: URLSession.shared)
+                    },
+                    installFromURL: { [weak self] url in
+                        guard let self else { return .failure(.invalidSchema) }
+                        return await self.installPluginFromURL(url, trustConfirmed: true)
+                    },
+                    hasActiveSessions: { [weak self] id in
+                        self?.windowManager.sortedSessions.contains { $0.pluginID == id } ?? false
+                    },
+                    disablePlugin: { [weak self] id in
+                        _ = await self?.disablePluginViaCLI(id)
+                    },
+                    enablePlugin: { [weak self] id in
+                        _ = await self?.enablePluginViaCLI(id)
+                    },
+                    installStatus: { [weak self] id, root in
+                        await self?.pluginInstallStatus(id: id, configRoot: root) ?? .agentUnavailable
+                    },
+                    installBridge: { [weak self] id, root in
+                        await self?.installPlugin(id: id, configRoot: root)
+                    },
+                    additionalConfigFolders: { [weak self] id in
+                        guard let self else { return [] }
+                        return SidecarPluginSettings.decode(from: self.pluginSettingsData(id: id))
+                            .additionalConfigFolders
+                    },
+                    displayName: { [weak self] id in
+                        self?.pluginRegistry?.manifest(id)?.displayName ?? id
+                    },
+                    currentAppVersion: { VersionCompatibility.currentAppVersion },
+                    notify: { body in
+                        @Dependency(PluginUpdateNotificationService.self) var notificationService
+                        notificationService.showUpdateNotification(body)
+                    }
+                ),
+                automaticTriggersEnabled: !isE2ETest
+            )
+            pluginUpdateManager = updateManager
+            updateManager.start()
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
