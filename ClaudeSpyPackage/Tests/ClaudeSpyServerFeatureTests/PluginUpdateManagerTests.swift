@@ -124,4 +124,115 @@
             }
         }
     }
+
+    // MARK: - Apply
+
+    @Suite("PluginUpdateManager applyUpdate")
+    @MainActor
+    struct PluginUpdateManagerApplyTests {
+        func makeUpdate(id: String = "pi", newVersion: String = "2.0.0", sourceChanged: Bool = false) -> PluginUpdate {
+            PluginUpdate(id: id, currentVersion: "1.0.0", newVersion: newVersion, sourceChanged: sourceChanged)
+        }
+
+        @Test("idle plugin: install, then disable→enable, then bridges refreshed only where installed")
+        func idlePluginHotRestartsAndRefreshesBridges() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                harness.additionalFolders["pi"] = ["/proj/a", "/proj/b"]
+                harness.installedRoots["pi"] = ["default", "/proj/b"] // /proj/a never opted in
+                let manager = harness.makeManager()
+
+                let result = await manager.applyUpdate(makeUpdate())
+
+                #expect(result == .applied(needsAppRestart: false))
+                #expect(harness.log == [
+                    "install:https://example.com/pi/plugin.json",
+                    "disable:pi",
+                    "enable:pi",
+                    "bridge:pi:default",
+                    "bridge:pi:/proj/b",
+                ])
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == false)
+                #expect(manager.restartNotices == [
+                    PluginRestartNotice(pluginID: "pi", displayName: "Pi", newVersion: "2.0.0", needsAppRestart: false),
+                ])
+                #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: false))
+            }
+        }
+
+        @Test("busy plugin: install only, needsBridgeRefresh persisted, app restart required")
+        func busyPluginDefersBridgeRefresh() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                harness.activePlugins = ["pi"]
+                harness.installedRoots["pi"] = ["default"]
+                let manager = harness.makeManager()
+
+                let result = await manager.applyUpdate(makeUpdate())
+
+                #expect(result == .applied(needsAppRestart: true))
+                #expect(harness.log == ["install:https://example.com/pi/plugin.json"]) // no disable/enable/bridge
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == true)
+                #expect(manager.restartNotices.first?.needsAppRestart == true)
+            }
+        }
+
+        @Test("sourceChanged update is never installed")
+        func sourceChangedSkipped() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                let manager = harness.makeManager()
+
+                let result = await manager.applyUpdate(makeUpdate(sourceChanged: true))
+
+                #expect(result == .skippedSourceChanged)
+                #expect(harness.log.isEmpty)
+                #expect(manager.inlineStatus["pi"] == .updateAvailableNewSource(version: "2.0.0"))
+                #expect(manager.restartNotices.isEmpty)
+            }
+        }
+
+        @Test("install failure reports failed and leaves no notice")
+        func installFailureReported() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                harness.installResults["https://example.com/pi/plugin.json"] = .failure(.hashMismatch)
+                let manager = harness.makeManager()
+
+                let result = await manager.applyUpdate(makeUpdate())
+
+                guard case .failed = result else {
+                    Issue.record("expected .failed, got \(result)")
+                    return
+                }
+                #expect(manager.restartNotices.isEmpty)
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == false)
+            }
+        }
+
+        @Test("boot sweep refreshes bridges for flagged entries and clears the flag")
+        func sweepRefreshesAndClearsFlag() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "2.0.0", needsBridgeRefresh: true)])
+                harness.installedRoots["pi"] = ["default"]
+                let manager = harness.makeManager(automaticTriggers: false)
+
+                manager.start()
+                await manager.waitForPendingRuns()
+
+                #expect(harness.log == ["bridge:pi:default"])
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == false)
+            }
+        }
+    }
 #endif

@@ -171,6 +171,100 @@
             callbacks.saveRegistry(file)
         }
 
+        // MARK: - Apply
+
+        /// Apply one update through the installer pipeline, then hot-restart the
+        /// sidecar if the plugin is idle and refresh agent-side bridges. Records
+        /// the restart notice + inline status. Also the CLI apply path's engine.
+        public func applyUpdate(_ update: PluginUpdate) async -> ApplyResult {
+            let result = await applyUpdateCore(update)
+            switch result {
+            case let .applied(needsAppRestart):
+                let notice = PluginRestartNotice(
+                    pluginID: update.id,
+                    displayName: callbacks.displayName(update.id),
+                    newVersion: update.newVersion,
+                    needsAppRestart: needsAppRestart
+                )
+                restartNotices.removeAll { $0.pluginID == update.id }
+                restartNotices.append(notice)
+                inlineStatus[update.id] = .updated(version: update.newVersion, needsAppRestart: needsAppRestart)
+            case .skippedSourceChanged:
+                inlineStatus[update.id] = .updateAvailableNewSource(version: update.newVersion)
+            case let .failed(message):
+                inlineStatus[update.id] = .failed(message)
+            }
+            return result
+        }
+
+        private func applyUpdateCore(_ update: PluginUpdate) async -> ApplyResult {
+            // A changed bundle host needs the manual trust flow — never auto-install.
+            guard !update.sourceChanged else { return .skippedSourceChanged }
+            guard let manifestURL = entry(update.id)?.manifestURL else {
+                return .failed("no manifestURL in registry")
+            }
+            switch await callbacks.installFromURL(manifestURL) {
+            case let .failure(error):
+                logger.warning("Plugin update failed for '\(update.id)': \(error)")
+                return .failed(String(describing: error))
+            case .success(.needsTrust):
+                // installFromURL is always called trustConfirmed on this path.
+                return .failed("unexpected trust prompt")
+            case .success(.installed):
+                if callbacks.hasActiveSessions(update.id) {
+                    // Live sessions would lose sidecar state on a hot swap; the
+                    // old process keeps running and the bridge refresh happens on
+                    // next launch (sweepPendingBridgeRefreshes).
+                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
+                    return .applied(needsAppRestart: true)
+                }
+                // Explicit disable-first: enable() early-returns for an active
+                // core, so a bare enable would leave the old process running.
+                await callbacks.disablePlugin(update.id)
+                await callbacks.enablePlugin(update.id)
+                await refreshBridges(update.id)
+                return .applied(needsAppRestart: false)
+            }
+        }
+
+        /// Re-run the sidecar's `install` RPC in every location whose bridge is
+        /// currently installed (default root + additional config folders). Must
+        /// only run while the NEW sidecar is up — the RPC writes the bridge
+        /// template shipped in the bundle.
+        private func refreshBridges(_ id: String) async {
+            let roots: [String?] = [nil] + callbacks.additionalConfigFolders(id)
+            for root in roots {
+                if case .installed = await callbacks.installStatus(id, root) {
+                    _ = await callbacks.installBridge(id, root)
+                }
+            }
+        }
+
+        /// Boot-time sweep: finish bridge refreshes deferred because the plugin
+        /// was busy when its update landed. The app has restarted since, so the
+        /// running sidecar is the new one.
+        private func sweepPendingBridgeRefreshes() async {
+            for entry in callbacks.loadRegistry().plugins where entry.needsBridgeRefresh {
+                await refreshBridges(entry.id)
+                mutateEntry(entry.id) { $0.needsBridgeRefresh = false }
+            }
+        }
+
+        // MARK: - Triggers
+
+        /// Called once at boot, after all plugins are enabled.
+        public func start() {
+            scheduleRun { await self.sweepPendingBridgeRefreshes() }
+        }
+
+        private func scheduleRun(_ op: @escaping @MainActor () async -> Void) {
+            let prior = currentRun
+            currentRun = Task {
+                await prior?.value
+                await op()
+            }
+        }
+
         // MARK: - Test support
 
         /// Await completion of any scheduled check/apply run (tests only).
