@@ -303,9 +303,61 @@
 
         // MARK: - Triggers
 
-        /// Called once at boot, after all plugins are enabled.
+        /// Called once at boot, after all plugins are enabled. Finishes any
+        /// deferred bridge refreshes, then runs the automatic triggers:
+        /// app-version change (plugin releases usually ride app releases),
+        /// >24h-stale fallback, and a daily re-check loop while running.
         public func start() {
-            scheduleRun { await self.sweepPendingBridgeRefreshes() }
+            scheduleRun { [weak self] in
+                await self?.sweepPendingBridgeRefreshes()
+            }
+            guard automaticTriggersEnabled else { return }
+
+            let current = callbacks.currentAppVersion()
+            let lastRun = preferences.string(Keys.lastRunAppVersion)
+            preferences.setString(current, Keys.lastRunAppVersion)
+            let stale = lastCheckDate.map { date.now.timeIntervalSince($0) > Self.checkInterval } ?? true
+            if lastRun != current || stale {
+                scheduleRun { [weak self] in
+                    await self?.runAutomaticCheck()
+                }
+            }
+
+            loopTask = Task { [weak self] in
+                while let clock = self?.clock {
+                    try? await clock.sleep(for: .seconds(Self.checkInterval))
+                    if Task.isCancelled { return }
+                    self?.scheduleRun { [weak self] in
+                        await self?.runAutomaticCheck()
+                    }
+                }
+            }
+        }
+
+        /// Cancel the daily loop (tests / teardown).
+        public func stop() {
+            loopTask?.cancel()
+            loopTask = nil
+        }
+
+        /// One automatic (best-effort, silent-on-error) pass over every
+        /// autoUpdate-enabled entry, with a single combined notification for
+        /// everything that applied.
+        private func runAutomaticCheck() async {
+            let entries = callbacks.loadRegistry().plugins.filter(\.autoUpdate)
+            let updates = await callbacks.checkUpdates(entries)
+            stampLastCheck()
+
+            var applied: [PluginRestartNotice] = []
+            for update in updates {
+                if case .applied = await applyUpdate(update),
+                   let notice = restartNotices.first(where: { $0.pluginID == update.id }) {
+                    applied.append(notice)
+                }
+            }
+            if !applied.isEmpty {
+                callbacks.notify(Self.notificationBody(applied))
+            }
         }
 
         private func scheduleRun(_ op: @escaping @MainActor () async -> Void) {

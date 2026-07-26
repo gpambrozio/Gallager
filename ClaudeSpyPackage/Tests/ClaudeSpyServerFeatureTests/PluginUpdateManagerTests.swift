@@ -301,4 +301,173 @@
             }
         }
     }
+
+    // MARK: - Automatic triggers
+
+    @Suite("PluginUpdateManager triggers")
+    @MainActor
+    struct PluginUpdateManagerTriggerTests {
+        func checksRun(_ harness: UpdateHarness) -> Int {
+            harness.log.filter { $0.hasPrefix("check:") }.count
+        }
+
+        @Test("first launch (no stored version) checks immediately and stores the version")
+        func firstLaunchChecks() async throws {
+            try await withMainSerialExecutor {
+                let prefs = PreferencesService.inMemory()
+                try await withDependencies {
+                    $0[PreferencesService.self] = prefs
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 1)
+                    #expect(prefs.string(PluginUpdateManager.Keys.lastRunAppVersion) == "2.0.0")
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("same version + recent check does not trigger")
+        func sameVersionRecentCheckSkips() async throws {
+            try await withMainSerialExecutor {
+                let now = Date(timeIntervalSince1970: 1_000_000)
+                let prefs = PreferencesService.inMemory()
+                prefs.setString("2.0.0", PluginUpdateManager.Keys.lastRunAppVersion)
+                prefs.setDouble(now.timeIntervalSince1970 - 3600, PluginUpdateManager.Keys.lastCheckAt) // 1h ago
+                try await withDependencies {
+                    $0[PreferencesService.self] = prefs
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(now)
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 0)
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("same version but stale (>24h) check triggers the daily check")
+        func staleCheckTriggersDaily() async throws {
+            try await withMainSerialExecutor {
+                let now = Date(timeIntervalSince1970: 1_000_000)
+                let prefs = PreferencesService.inMemory()
+                prefs.setString("2.0.0", PluginUpdateManager.Keys.lastRunAppVersion)
+                prefs.setDouble(now.timeIntervalSince1970 - 25 * 3600, PluginUpdateManager.Keys.lastCheckAt)
+                try await withDependencies {
+                    $0[PreferencesService.self] = prefs
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(now)
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 1)
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("automatic checks include only autoUpdate-enabled url entries")
+        func automaticChecksFilterByToggle() async throws {
+            try await withMainSerialExecutor {
+                try await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [
+                        urlEntry(id: "pi", version: "1.0.0"),
+                        urlEntry(id: "opencode", version: "1.0.0", autoUpdate: false),
+                    ])
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(harness.log.contains("check:pi"))
+                    #expect(!harness.log.contains { $0.contains("opencode") })
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("the 24h loop re-checks after the clock advances a day")
+        func dailyLoopReChecks() async throws {
+            try await withMainSerialExecutor {
+                let clock = TestClock()
+                try await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                    $0.continuousClock = clock
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 1) // version-change check
+
+                    await clock.advance(by: .seconds(PluginUpdateManager.checkInterval))
+                    await Task.yield()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 2)
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("automatic pass with two updates emits one combined notification")
+        func automaticBatchNotification() async throws {
+            try await withMainSerialExecutor {
+                try await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [
+                        urlEntry(id: "pi", version: "1.0.0"),
+                        urlEntry(id: "opencode", version: "1.0.0"),
+                    ])
+                    harness.updates = [
+                        PluginUpdate(id: "pi", currentVersion: "1.0.0", newVersion: "2.0.0", sourceChanged: false),
+                        PluginUpdate(id: "opencode", currentVersion: "1.0.0", newVersion: "3.0.0", sourceChanged: false),
+                    ]
+                    harness.activePlugins = ["opencode"] // busy → app-restart wording
+                    let manager = harness.makeManager(automaticTriggers: true)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+
+                    #expect(harness.notifications.count == 1)
+                    let body = try #require(harness.notifications.first)
+                    #expect(body.contains("Pi 2.0.0"))
+                    #expect(body.contains("restart your Pi sessions"))
+                    #expect(body.contains("restart Gallager and any Opencode sessions"))
+                    manager.stop()
+                }
+            }
+        }
+
+        @Test("automaticTriggersEnabled=false runs only the sweep")
+        func disabledTriggersOnlySweep() async throws {
+            try await withMainSerialExecutor {
+                try await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                    let manager = harness.makeManager(automaticTriggers: false)
+                    manager.start()
+                    await manager.waitForPendingRuns()
+                    #expect(checksRun(harness) == 0)
+                    manager.stop()
+                }
+            }
+        }
+    }
 #endif
