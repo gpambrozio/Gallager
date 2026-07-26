@@ -2706,7 +2706,7 @@
                             "newVersion": .string(update.newVersion),
                             "sourceChanged": .bool(update.sourceChanged),
                         ]
-                        switch await manager.applyUpdate(update) {
+                        switch await manager.applyUpdateSerialized(update) {
                         case let .applied(needsAppRestart):
                             row["applied"] = .bool(true)
                             if needsAppRestart {

@@ -175,7 +175,11 @@
 
         /// Apply one update through the installer pipeline, then hot-restart the
         /// sidecar if the plugin is idle and refresh agent-side bridges. Records
-        /// the restart notice + inline status. Also the CLI apply path's engine.
+        /// the restart notice + inline status. Called from inside already-chained
+        /// runs (`runManualCheck`, `runAutomaticCheck`) — never chain on
+        /// `currentRun` here, or a call from within a chained run would deadlock
+        /// waiting on itself. Out-of-band callers (the CLI) must go through
+        /// `applyUpdateSerialized` instead.
         public func applyUpdate(_ update: PluginUpdate) async -> ApplyResult {
             let result = await applyUpdateCore(update)
             switch result {
@@ -195,6 +199,22 @@
                 inlineStatus[update.id] = .failed(message)
             }
             return result
+        }
+
+        /// Serialized entry point for out-of-band apply requests (the CLI path).
+        /// Chains on the same run queue as every automatic/manual check so a CLI
+        /// `gallager plugin update --apply` can never interleave with an
+        /// in-flight check/apply — two concurrent `PluginInstaller.install` runs
+        /// for one id would race on the shared deterministic staging dir.
+        public func applyUpdateSerialized(_ update: PluginUpdate) async -> ApplyResult {
+            let prior = currentRun
+            let task = Task { [weak self] () -> ApplyResult in
+                await prior?.value
+                guard let self else { return .failed("Manager deallocated") }
+                return await self.applyUpdate(update)
+            }
+            currentRun = Task { _ = await task.value }
+            return await task.value
         }
 
         private func applyUpdateCore(_ update: PluginUpdate) async -> ApplyResult {

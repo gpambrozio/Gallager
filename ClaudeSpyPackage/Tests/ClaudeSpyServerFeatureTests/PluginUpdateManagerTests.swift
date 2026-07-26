@@ -28,6 +28,24 @@
         var log: [String] = []
         var notifications: [String] = []
 
+        /// When true, `installBridge`/`checkUpdates` suspend on an unstructured
+        /// gate instead of returning immediately, so a test can observe what
+        /// runs (or doesn't) while a scheduled op is mid-flight.
+        var gateBridge = false
+        var gateChecks = false
+        private var bridgeGate: CheckedContinuation<Void, Never>?
+        private var checkGate: CheckedContinuation<Void, Never>?
+
+        func releaseBridgeGate() {
+            bridgeGate?.resume()
+            bridgeGate = nil
+        }
+
+        func releaseCheckGate() {
+            checkGate?.resume()
+            checkGate = nil
+        }
+
         init(entries: [PluginRegistryEntry]) {
             registry = PluginRegistryFile(schemaVersion: 1, plugins: entries)
         }
@@ -39,6 +57,9 @@
                     saveRegistry: { self.registry = $0 },
                     checkUpdates: { entries in
                         self.log.append("check:\(entries.map(\.id).sorted().joined(separator: ","))")
+                        if self.gateChecks {
+                            await withCheckedContinuation { self.checkGate = $0 }
+                        }
                         return self.updates.filter { update in entries.contains { $0.id == update.id } }
                     },
                     checkUpdate: { entry in
@@ -62,6 +83,9 @@
                     },
                     installBridge: { id, root in
                         self.log.append("bridge:\(id):\(root ?? "default")")
+                        if self.gateBridge {
+                            await withCheckedContinuation { self.bridgeGate = $0 }
+                        }
                         return nil
                     },
                     additionalConfigFolders: { self.additionalFolders[$0] ?? [] },
@@ -465,6 +489,81 @@
                     manager.start()
                     await manager.waitForPendingRuns()
                     #expect(checksRun(harness) == 0)
+                    manager.stop()
+                }
+            }
+        }
+    }
+
+    // MARK: - CLI apply serialization
+
+    @Suite("PluginUpdateManager CLI apply serialization")
+    @MainActor
+    struct PluginUpdateManagerCLISerializationTests {
+        /// Proves `applyUpdateSerialized` (the CLI path) chains behind whatever
+        /// check/apply is already in flight, and that the in-flight chain itself
+        /// stays properly ordered — a CLI apply must never start installing
+        /// while an automatic check (or the sweep ahead of it) is still running,
+        /// since two concurrent `PluginInstaller.install` runs for one id would
+        /// race on the shared deterministic staging dir.
+        @Test("CLI apply waits for an in-flight automatic check, which itself waits for the boot sweep")
+        func cliApplyWaitsForInFlightChain() async throws {
+            try await withMainSerialExecutor {
+                try await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                    $0.continuousClock = TestClock()
+                    $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0", needsBridgeRefresh: true)])
+                    harness.installedRoots["pi"] = ["default"]
+                    harness.gateBridge = true
+                    harness.gateChecks = true
+                    let manager = harness.makeManager(automaticTriggers: true)
+
+                    // start() schedules two chained ops: the boot sweep (gated in
+                    // installBridge, since "pi" needs a bridge refresh) then the
+                    // automatic check (gated in checkUpdates, first launch).
+                    manager.start()
+                    await Task.megaYield()
+
+                    // If scheduleRun's `await prior?.value` were dropped, the
+                    // automatic check would start concurrently with the sweep
+                    // instead of waiting for it, and "check:pi" would already be
+                    // in the log here.
+                    #expect(harness.log == ["bridge:pi:default"])
+
+                    let update = PluginUpdate(id: "pi", currentVersion: "1.0.0", newVersion: "2.0.0", sourceChanged: false)
+                    let applyTask = Task { await manager.applyUpdateSerialized(update) }
+                    await Task.megaYield()
+
+                    // If applyUpdateSerialized's own `await prior?.value` were
+                    // dropped, the CLI apply would skip straight to
+                    // installFromURL and "install:..." would already be logged
+                    // here, even though the sweep is still mid-flight.
+                    #expect(harness.log == ["bridge:pi:default"])
+
+                    harness.releaseBridgeGate() // sweep finishes -> automatic check starts and blocks
+                    await Task.megaYield()
+
+                    #expect(harness.log == ["bridge:pi:default", "check:pi"])
+                    // Still nothing installed: the CLI apply is still chained
+                    // behind the now-running automatic check.
+
+                    // Only the boot sweep's bridge call should gate; let the CLI
+                    // apply's own post-install bridge refresh finish normally.
+                    harness.gateBridge = false
+                    harness.releaseCheckGate() // automatic check finishes -> CLI apply proceeds
+                    let result = await applyTask.value
+
+                    #expect(result == .applied(needsAppRestart: false))
+                    #expect(harness.log == [
+                        "bridge:pi:default",
+                        "check:pi",
+                        "install:https://example.com/pi/plugin.json",
+                        "disable:pi",
+                        "enable:pi",
+                        "bridge:pi:default",
+                    ])
                     manager.stop()
                 }
             }
