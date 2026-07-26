@@ -14,6 +14,31 @@
         return dir
     }
 
+    /// Decode a minimal sidecar `PluginManifest`, optionally including
+    /// distribution fields (`manifest_url` / `bundle_url` / `bundle_sha256`).
+    private func decodeManifest(id: String, version: String, withDistribution: Bool) throws -> PluginManifest {
+        let distribution = withDistribution ? """
+        "manifest_url": "https://example.com/\(id)/plugin.json",
+        "bundle_url": "https://cdn.example.com/\(id).zip",
+        "bundle_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        """ : ""
+        let json = """
+        {
+          "schema_version": 1,
+          "id": "\(id)",
+          "display_name": "Test Plugin",
+          "short_name": "TP",
+          "version": "\(version)",
+          "runtime": "sidecar",
+          "sidecar": {"executable": "bin/sidecar"},
+          \(distribution)
+          "process_names": [],
+          "ui": {}
+        }
+        """
+        return try JSONDecoder().decode(PluginManifest.self, from: Data(json.utf8))
+    }
+
     /// Build a zip archive containing a SYMLINK entry whose target is outside the
     /// extraction root. macOS `unzip` materializes symlinks (unlike `../` path
     /// entries, which it silently strips), so this drives the enumerator's
@@ -475,6 +500,52 @@
             #expect(result.manifestURL == nil)
             #expect(result.bundleURL == nil)
             #expect(result.bundleSHA256 == nil)
+        }
+    }
+
+    @Suite("PluginInstaller.registryEntry merge")
+    struct RegistryEntryMergeTests {
+        @Test("prior .url entry rediscovered as folder keeps source, urls, and update fields")
+        func urlEntryPreservedAcrossFolderRediscovery() throws {
+            let manifest = try decodeManifest(id: "pi", version: "1.0.0", withDistribution: false)
+            let prior = PluginRegistryEntry(
+                id: "pi", version: "1.0.0", source: .url, runtime: .sidecar, enabled: true,
+                manifestURL: URL(string: "https://example.com/pi/plugin.json"),
+                bundleURL: URL(string: "https://cdn.example.com/pi.zip"),
+                bundleSHA256: "abc", autoUpdate: false, needsBridgeRefresh: true
+            )
+            let cliEntry = PluginRegistry.CLIEntry(id: "pi", version: "1.0.0", enabled: true, source: "folder")
+            let merged = PluginInstaller.registryEntry(cliEntry: cliEntry, manifest: manifest, prior: prior)
+            #expect(merged.source == .url)
+            #expect(merged.manifestURL == prior.manifestURL)
+            #expect(merged.bundleURL == prior.bundleURL)
+            #expect(merged.bundleSHA256 == "abc")
+            #expect(merged.autoUpdate == false)
+            #expect(merged.needsBridgeRefresh == true)
+        }
+
+        @Test("no prior entry produces defaults (autoUpdate on, no pending refresh)")
+        func noPriorEntryProducesDefaults() throws {
+            let manifest = try decodeManifest(id: "new", version: "0.1.0", withDistribution: true)
+            let cliEntry = PluginRegistry.CLIEntry(id: "new", version: "0.1.0", enabled: true, source: "url")
+            let merged = PluginInstaller.registryEntry(cliEntry: cliEntry, manifest: manifest, prior: nil)
+            #expect(merged.source == .url)
+            #expect(merged.autoUpdate == true)
+            #expect(merged.needsBridgeRefresh == false)
+            #expect(merged.manifestURL == URL(string: "https://example.com/new/plugin.json"))
+        }
+
+        @Test("bundled source is never upgraded to url")
+        func bundledStaysBundled() throws {
+            let manifest = try decodeManifest(id: "claude-code", version: "1.0.0", withDistribution: false)
+            let prior = PluginRegistryEntry(
+                id: "claude-code", version: "1.0.0", source: .url, runtime: .sidecar, enabled: true,
+                manifestURL: URL(string: "https://example.com/x.json"), bundleURL: nil, bundleSHA256: nil
+            )
+            let cliEntry = PluginRegistry.CLIEntry(id: "claude-code", version: "1.0.0", enabled: true, source: "bundled")
+            let merged = PluginInstaller.registryEntry(cliEntry: cliEntry, manifest: manifest, prior: prior)
+            #expect(merged.source == .bundled)
+            #expect(merged.manifestURL == nil)
         }
     }
 #endif

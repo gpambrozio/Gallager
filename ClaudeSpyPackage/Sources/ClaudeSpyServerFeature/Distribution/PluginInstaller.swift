@@ -140,6 +140,36 @@
             return (.folder, nil, nil, nil)
         }
 
+        /// Build the persisted registry entry for one plugin, carrying forward
+        /// URL-install metadata and host-side update preferences from the prior
+        /// persisted entry. Every registry.json rewrite goes through this so a
+        /// rewrite can never downgrade a `.url` entry to `.folder`, strip its
+        /// urls, or reset `autoUpdate` / `needsBridgeRefresh`.
+        static func registryEntry(
+            cliEntry: PluginRegistry.CLIEntry,
+            manifest: PluginManifest,
+            prior: PluginRegistryEntry?
+        ) -> PluginRegistryEntry {
+            let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
+            let effectiveSource: PluginRegistryEntry.Source =
+                (prior?.source == .url && source != .bundled) ? .url : source
+            let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
+            let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
+            let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
+            return PluginRegistryEntry(
+                id: cliEntry.id,
+                version: cliEntry.version,
+                source: effectiveSource,
+                runtime: manifest.runtime,
+                enabled: cliEntry.enabled,
+                manifestURL: manifestURL,
+                bundleURL: bundleURL,
+                bundleSHA256: bundleSHA256,
+                autoUpdate: prior?.autoUpdate ?? true,
+                needsBridgeRefresh: prior?.needsBridgeRefresh ?? false
+            )
+        }
+
         /// Enumerate the immediate subdirectories of `pluginsDir`, load `plugin.json`
         /// from each, and return the valid sidecar plugins.
         ///
@@ -975,19 +1005,13 @@
         /// Persist the current registry state to disk. Best-effort; never traps.
         @MainActor
         static func persistRegistry(registry: PluginRegistry, paths: GallagerPaths) {
-            let cliEntries = registry.listEntries()
-            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+            let prior = PluginRegistryStore.load(paths.registryPath)
+            let entries = registry.listEntries().compactMap { cliEntry -> PluginRegistryEntry? in
                 guard let manifest = registry.manifest(cliEntry.id) else { return nil }
-                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
-                return PluginRegistryEntry(
-                    id: cliEntry.id,
-                    version: cliEntry.version,
-                    source: source,
-                    runtime: manifest.runtime,
-                    enabled: cliEntry.enabled,
-                    manifestURL: manifest.manifestURL,
-                    bundleURL: manifest.bundleURL,
-                    bundleSHA256: manifest.bundleSHA256
+                return registryEntry(
+                    cliEntry: cliEntry,
+                    manifest: manifest,
+                    prior: prior.plugins.first { $0.id == cliEntry.id }
                 )
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
@@ -997,19 +1021,13 @@
         /// Persist the registry to disk, omitting the entry for `id`. Best-effort.
         @MainActor
         static func persistRegistryExcluding(id: String, registry: PluginRegistry, paths: GallagerPaths) {
-            let cliEntries = registry.listEntries().filter { $0.id != id }
-            let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
+            let prior = PluginRegistryStore.load(paths.registryPath)
+            let entries = registry.listEntries().filter { $0.id != id }.compactMap { cliEntry -> PluginRegistryEntry? in
                 guard let manifest = registry.manifest(cliEntry.id) else { return nil }
-                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
-                return PluginRegistryEntry(
-                    id: cliEntry.id,
-                    version: cliEntry.version,
-                    source: source,
-                    runtime: manifest.runtime,
-                    enabled: cliEntry.enabled,
-                    manifestURL: manifest.manifestURL,
-                    bundleURL: manifest.bundleURL,
-                    bundleSHA256: manifest.bundleSHA256
+                return registryEntry(
+                    cliEntry: cliEntry,
+                    manifest: manifest,
+                    prior: prior.plugins.first { $0.id == cliEntry.id }
                 )
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)

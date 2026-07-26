@@ -704,22 +704,10 @@
             let cliEntries = registry.listEntries()
             let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
                 guard let manifest = registry.manifest(cliEntry.id) else { return nil }
-                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
-                let prior = loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
-                let effectiveSource: PluginRegistryEntry.Source =
-                    (prior?.source == .url && source != .bundled) ? .url : source
-                let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
-                let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
-                let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
-                return PluginRegistryEntry(
-                    id: cliEntry.id,
-                    version: cliEntry.version,
-                    source: effectiveSource,
-                    runtime: manifest.runtime,
-                    enabled: cliEntry.enabled,
-                    manifestURL: manifestURL,
-                    bundleURL: bundleURL,
-                    bundleSHA256: bundleSHA256
+                return PluginInstaller.registryEntry(
+                    cliEntry: cliEntry,
+                    manifest: manifest,
+                    prior: loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
                 )
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
