@@ -284,13 +284,16 @@ let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.14.0"),
-    // Only the `Clocks` trait is enabled — the app's sole built-in dependency
-    // value is `\.continuousClock` (Clocks gates that). Dropping the default
-    // `CombineSchedulers`/`Foundation`/`FoundationNetworking` traits removes the
-    // combine-schedulers package from the graph. Requires a Swift 6.3+ toolchain
-    // (the only swift-dependencies manifest that declares traits is its 6.3 one);
-    // the relay Dockerfile is pinned to swift:6.3 to match.
-    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.14.1", traits: ["Clocks"]),
+    // Only `Clocks` + `Foundation` traits are enabled — the app's built-in
+    // dependency values are `\.continuousClock` (Clocks) and `\.date`
+    // (Foundation, added for PluginUpdateManager's testable "now"). Dropping the
+    // default `CombineSchedulers`/`FoundationNetworking` traits removes the
+    // combine-schedulers package from the graph; Foundation is a system module,
+    // not an extra package, so enabling it doesn't grow the dependency graph.
+    // Requires a Swift 6.3+ toolchain (the only swift-dependencies manifest that
+    // declares traits is its 6.3 one); the relay Dockerfile is pinned to
+    // swift:6.3 to match.
+    .package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.14.1", traits: ["Clocks", "Foundation"]),
     .package(url: "https://github.com/pointfreeco/swift-clocks", from: "1.0.4"),
     .package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0"),
 ] + macOnlyDependencies()
