@@ -395,6 +395,12 @@
             await setupPluginRuntime()
             await setupAPIServer()
             await setupConnectedViewerManager()
+            // Start update triggers only now: setupConnectedViewerManager's
+            // initial refreshPanes/detectAgentPanes pass has populated the pane
+            // states that hasActiveSessions consults, so the launch-time check
+            // can no longer hot-restart a sidecar under a live-but-undiscovered
+            // session.
+            pluginUpdateManager?.start()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
@@ -738,9 +744,9 @@
                     },
                     checkUpdates: { [weak self] entries in
                         if self?.isE2ETest == true {
-                            return entries.compactMap(Self.e2ePendingUpdate(for:))
+                            return (entries.compactMap(Self.e2ePendingUpdate(for:)), true)
                         }
-                        return await PluginUpdateChecker.check(entries, session: URLSession.shared)
+                        return await PluginUpdateChecker.checkDetailed(entries, session: URLSession.shared)
                     },
                     checkUpdate: { [weak self] entry in
                         if self?.isE2ETest == true {
@@ -758,16 +764,21 @@
                         if isE2ETest, url == Self.e2eUpdateManifestURL {
                             return .success(.installed(id: Self.e2eUpdatablePluginID))
                         }
-                        return await installPluginFromURL(url, trustConfirmed: true)
+                        // selectInUI: false — a background update must not yank
+                        // the Agents picker to the updated plugin mid-edit.
+                        return await installPluginFromURL(url, trustConfirmed: true, selectInUI: false)
                     },
                     hasActiveSessions: { [weak self] id in
                         self?.windowManager.sortedSessions.contains { $0.pluginID == id } ?? false
+                    },
+                    isPluginEnabled: { [weak self] id in
+                        self?.pluginRegistry?.isEnabled(id) ?? false
                     },
                     disablePlugin: { [weak self] id in
                         _ = await self?.disablePluginViaCLI(id)
                     },
                     enablePlugin: { [weak self] id in
-                        _ = await self?.enablePluginViaCLI(id)
+                        await self?.enablePluginViaCLI(id) == true
                     },
                     installStatus: { [weak self] id, root in
                         await self?.pluginInstallStatus(id: id, configRoot: root) ?? .agentUnavailable
@@ -792,7 +803,11 @@
                 automaticTriggersEnabled: !isE2ETest
             )
             pluginUpdateManager = updateManager
-            updateManager.start()
+            // NOTE: start() is deliberately deferred to the boot sequence, after
+            // setupConnectedViewerManager() has populated windowManager's pane
+            // states — the launch-time check's hasActiveSessions consult would
+            // otherwise race initial agent-pane discovery and hot-restart a
+            // sidecar underneath live sessions.
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
@@ -996,9 +1011,13 @@
         /// Thin wrapper: delegates all logic to `PluginInstaller.install` and
         /// supplies the registry, paths, session, and host/env factories from
         /// coordinator state. Not unit-tested directly — integration / E2E covered.
+        /// `selectInUI: false` suppresses the `lastInstalledPluginID` bump so a
+        /// background auto-update doesn't yank the Agents picker (and discard
+        /// in-progress form edits) over to the updated plugin.
         public func installPluginFromURL(
             _ url: URL,
-            trustConfirmed: Bool
+            trustConfirmed: Bool,
+            selectInUI: Bool = true
         ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
             guard
                 let registry = pluginRegistry, let paths = gallagerPaths,
@@ -1032,7 +1051,9 @@
             )
             if case let .success(.installed(installedID)) = result {
                 pluginCatalogRevision += 1
-                lastInstalledPluginID = installedID
+                if selectInUI {
+                    lastInstalledPluginID = installedID
+                }
                 // The installer enabled the new plugin; refresh the OTLP
                 // namespace table so its declared telemetry classifies (issue #617).
                 await refreshOTLPPluginNamespaces()

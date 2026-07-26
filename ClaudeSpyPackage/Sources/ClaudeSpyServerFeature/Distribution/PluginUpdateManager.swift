@@ -55,16 +55,25 @@
             public var loadRegistry: @MainActor () -> PluginRegistryFile
             public var saveRegistry: @MainActor (PluginRegistryFile) -> Void
             /// Batch, best-effort check (automatic passes) — fetch errors skip
-            /// the entry, matching PluginUpdateChecker.check.
-            public var checkUpdates: @MainActor ([PluginRegistryEntry]) async -> [PluginUpdate]
+            /// the entry, matching PluginUpdateChecker.check. Also reports
+            /// whether at least one manifest fetch actually completed, so an
+            /// all-failed pass (offline) is distinguishable from "no updates".
+            public var checkUpdates: @MainActor ([PluginRegistryEntry]) async
+                -> (updates: [PluginUpdate], anyFetchSucceeded: Bool)
             /// Single-entry check for the manual Check Now path. THROWS on fetch
             /// errors so the UI can surface them inline (spec: manual failures
             /// are visible; automatic ones stay silent).
             public var checkUpdate: @MainActor (PluginRegistryEntry) async throws -> PluginUpdate?
             public var installFromURL: @MainActor (URL) async -> Result<PluginInstaller.InstallOutcome, InstallError>
             public var hasActiveSessions: @MainActor (String) -> Bool
+            /// Live enabled state from the in-memory registry — NOT the persisted
+            /// `enabled` field, which can lag a CLI `plugin disable` until the
+            /// next boot rewrite.
+            public var isPluginEnabled: @MainActor (String) -> Bool
             public var disablePlugin: @MainActor (String) async -> Void
-            public var enablePlugin: @MainActor (String) async -> Void
+            /// Returns whether the plugin ended up enabled (a new bundle whose
+            /// sidecar fails `initialize` reports false).
+            public var enablePlugin: @MainActor (String) async -> Bool
             public var installStatus: @MainActor (String, String?) async -> PluginInstallStatus
             public var installBridge: @MainActor (String, String?) async -> String?
             public var additionalConfigFolders: @MainActor (String) -> [String]
@@ -75,12 +84,14 @@
             public init(
                 loadRegistry: @escaping @MainActor () -> PluginRegistryFile,
                 saveRegistry: @escaping @MainActor (PluginRegistryFile) -> Void,
-                checkUpdates: @escaping @MainActor ([PluginRegistryEntry]) async -> [PluginUpdate],
+                checkUpdates: @escaping @MainActor ([PluginRegistryEntry]) async
+                    -> (updates: [PluginUpdate], anyFetchSucceeded: Bool),
                 checkUpdate: @escaping @MainActor (PluginRegistryEntry) async throws -> PluginUpdate?,
                 installFromURL: @escaping @MainActor (URL) async -> Result<PluginInstaller.InstallOutcome, InstallError>,
                 hasActiveSessions: @escaping @MainActor (String) -> Bool,
+                isPluginEnabled: @escaping @MainActor (String) -> Bool,
                 disablePlugin: @escaping @MainActor (String) async -> Void,
-                enablePlugin: @escaping @MainActor (String) async -> Void,
+                enablePlugin: @escaping @MainActor (String) async -> Bool,
                 installStatus: @escaping @MainActor (String, String?) async -> PluginInstallStatus,
                 installBridge: @escaping @MainActor (String, String?) async -> String?,
                 additionalConfigFolders: @escaping @MainActor (String) -> [String],
@@ -94,6 +105,7 @@
                 self.checkUpdate = checkUpdate
                 self.installFromURL = installFromURL
                 self.hasActiveSessions = hasActiveSessions
+                self.isPluginEnabled = isPluginEnabled
                 self.disablePlugin = disablePlugin
                 self.enablePlugin = enablePlugin
                 self.installStatus = installStatus
@@ -226,23 +238,44 @@
             switch await callbacks.installFromURL(manifestURL) {
             case let .failure(error):
                 logger.warning("Plugin update failed for '\(update.id)': \(error)")
-                return .failed(String(describing: error))
+                return .failed(Self.userFacingMessage(for: error))
             case .success(.needsTrust):
                 // installFromURL is always called trustConfirmed on this path.
                 return .failed("unexpected trust prompt")
-            case .success(.installed):
-                if callbacks.hasActiveSessions(update.id) {
-                    // Live sessions would lose sidecar state on a hot swap; the
-                    // old process keeps running and the bridge refresh happens on
-                    // next launch (sweepPendingBridgeRefreshes).
+            case let .success(.installed(installedID)):
+                // A manifest that redeclares its id would install plugin B while
+                // every follow-up step (session check, restart, notices) names
+                // plugin A — refuse the mismatch outright.
+                guard installedID == update.id else {
+                    return .failed("manifest id mismatch: expected '\(update.id)', got '\(installedID)'")
+                }
+                if callbacks.hasActiveSessions(update.id) || !callbacks.isPluginEnabled(update.id) {
+                    // Busy: live sessions would lose sidecar state on a hot
+                    // swap. Disabled: the enable step would respawn a plugin
+                    // the user turned off. Either way the running state stays
+                    // untouched and the bridge refresh happens on next launch
+                    // (sweepPendingBridgeRefreshes).
                     mutateEntry(update.id) { $0.needsBridgeRefresh = true }
                     return .applied(needsAppRestart: true)
                 }
                 // Explicit disable-first: enable() early-returns for an active
                 // core, so a bare enable would leave the old process running.
                 await callbacks.disablePlugin(update.id)
-                await callbacks.enablePlugin(update.id)
-                await refreshBridges(update.id)
+                guard await callbacks.enablePlugin(update.id) else {
+                    // The old process is already gone and the new bundle failed
+                    // to start — surface it instead of celebrating, and flag the
+                    // bridge refresh so the next successful enable (usually next
+                    // launch) finishes the job.
+                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
+                    return .failed("new version failed to start — restart Gallager to retry")
+                }
+                let bridgesRefreshed = await refreshBridges(update.id)
+                if !bridgesRefreshed {
+                    // Sidecar is current but at least one agent-side bridge
+                    // re-install failed; keep it retryable at next launch
+                    // rather than stranding a stale bridge forever.
+                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
+                }
                 return .applied(needsAppRestart: false)
             }
         }
@@ -250,23 +283,32 @@
         /// Re-run the sidecar's `install` RPC in every location whose bridge is
         /// currently installed (default root + additional config folders). Must
         /// only run while the NEW sidecar is up — the RPC writes the bridge
-        /// template shipped in the bundle.
-        private func refreshBridges(_ id: String) async {
+        /// template shipped in the bundle. Returns false when any attempted
+        /// re-install reported an error.
+        private func refreshBridges(_ id: String) async -> Bool {
+            var allSucceeded = true
             let roots: [String?] = [nil] + callbacks.additionalConfigFolders(id)
             for root in roots {
                 if case .installed = await callbacks.installStatus(id, root) {
-                    _ = await callbacks.installBridge(id, root)
+                    if let error = await callbacks.installBridge(id, root) {
+                        logger.warning("Bridge refresh failed for '\(id)' at \(root ?? "default"): \(error)")
+                        allSucceeded = false
+                    }
                 }
             }
+            return allSucceeded
         }
 
         /// Boot-time sweep: finish bridge refreshes deferred because the plugin
         /// was busy when its update landed. The app has restarted since, so the
-        /// running sidecar is the new one.
+        /// running sidecar is the new one. The flag clears only on success —
+        /// clearing unconditionally would strand a stale bridge forever after
+        /// one failed sweep.
         private func sweepPendingBridgeRefreshes() async {
             for entry in callbacks.loadRegistry().plugins where entry.needsBridgeRefresh {
-                await refreshBridges(entry.id)
-                mutateEntry(entry.id) { $0.needsBridgeRefresh = false }
+                if await refreshBridges(entry.id) {
+                    mutateEntry(entry.id) { $0.needsBridgeRefresh = false }
+                }
             }
         }
 
@@ -290,8 +332,9 @@
             do {
                 update = try await callbacks.checkUpdate(entry)
             } catch {
-                stampLastCheck()
-                inlineStatus[id] = .failed(String(describing: error))
+                // A failed fetch is not a completed check — leaving
+                // lastCheckDate alone keeps the launch staleness trigger armed.
+                inlineStatus[id] = .failed(Self.userFacingMessage(for: error))
                 return
             }
             stampLastCheck()
@@ -303,6 +346,15 @@
                let notice = restartNotices.first(where: { $0.pluginID == id }) {
                 callbacks.notify(Self.notificationBody([notice]))
             }
+        }
+
+        /// Human-readable rendering of a check/install error for the Updates
+        /// section (a raw `String(describing:)` would show NSError dumps).
+        static func userFacingMessage(for error: any Error) -> String {
+            if let installError = error as? InstallError {
+                return installError.uiDescription
+            }
+            return (error as NSError).localizedDescription
         }
 
         static func notificationBody(_ notices: [PluginRestartNotice]) -> String {
@@ -361,12 +413,20 @@
         }
 
         /// One automatic (best-effort, silent-on-error) pass over every
-        /// autoUpdate-enabled entry, with a single combined notification for
-        /// everything that applied.
+        /// autoUpdate-enabled, currently-enabled entry, with a single combined
+        /// notification for everything that applied. Disabled plugins are
+        /// skipped so the apply path's enable step can't respawn them.
         private func runAutomaticCheck() async {
-            let entries = callbacks.loadRegistry().plugins.filter(\.autoUpdate)
-            let updates = await callbacks.checkUpdates(entries)
-            stampLastCheck()
+            let entries = callbacks.loadRegistry().plugins.filter {
+                $0.autoUpdate && callbacks.isPluginEnabled($0.id)
+            }
+            let (updates, anyFetchSucceeded) = await callbacks.checkUpdates(entries)
+            // Stamp only when a fetch actually completed (or there was nothing
+            // to fetch): an all-failed pass (offline) must not suppress the
+            // staleness trigger for the next 24h.
+            if anyFetchSucceeded || entries.isEmpty {
+                stampLastCheck()
+            }
 
             var applied: [PluginRestartNotice] = []
             for update in updates {

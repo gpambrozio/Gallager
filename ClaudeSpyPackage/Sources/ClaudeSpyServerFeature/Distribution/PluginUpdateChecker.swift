@@ -52,15 +52,36 @@
             _ entries: [PluginRegistryEntry],
             session: any URLSessionProtocol
         ) async -> [PluginUpdate] {
+            await checkDetailed(entries, session: session).updates
+        }
+
+        /// Like `check`, but also reports whether at least one manifest fetch
+        /// actually completed. From `check` alone, a pass where every fetch
+        /// failed (offline, DNS down) is indistinguishable from "everything is
+        /// up to date" — callers that stamp a last-checked timestamp need the
+        /// difference.
+        public static func checkDetailed(
+            _ entries: [PluginRegistryEntry],
+            session: any URLSessionProtocol
+        ) async -> (updates: [PluginUpdate], anyFetchSucceeded: Bool) {
             var updates: [PluginUpdate] = []
+            var anyFetchSucceeded = false
 
             for entry in entries {
-                if let update = try? await checkOne(entry, session: session) {
-                    updates.append(update)
+                // Mirror checkOne's own eligibility guard so a skipped entry
+                // (bundled/folder source) doesn't count as a successful fetch.
+                guard entry.source == .url, entry.manifestURL != nil else { continue }
+                do {
+                    if let update = try await checkOne(entry, session: session) {
+                        updates.append(update)
+                    }
+                    anyFetchSucceeded = true
+                } catch {
+                    continue
                 }
             }
 
-            return updates
+            return (updates, anyFetchSucceeded)
         }
 
         /// Check a single entry, propagating fetch/decode errors (the manual
