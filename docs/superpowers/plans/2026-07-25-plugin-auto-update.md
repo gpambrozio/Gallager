@@ -1444,7 +1444,9 @@ Notes: `PreferencesService.inMemory()` is created OUTSIDE `withDependencies` whe
 
 - [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: PluginUpdateManager automatic triggers (version change + daily loop)"`
 
----### Task 8: AppCoordinator wiring
+---
+
+### Task 8: AppCoordinator wiring
 
 **Files:**
 - Modify: `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Coordinators/AppCoordinator.swift`
