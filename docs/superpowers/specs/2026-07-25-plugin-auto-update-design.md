@@ -112,9 +112,10 @@ write the old template.
    reporting the sidecar's version constant instead of the on-disk bridge
    version.
 3. **Deferred refresh:** the manager sweeps entries with
-   `needsBridgeRefresh == true` after boot-time plugin enabling completes and
-   after any hot-restart it performs, runs the same refresh, and clears the
-   flag. Bridges can never be left stale.
+   `needsBridgeRefresh == true` after boot-time plugin enabling completes
+   (by then the app has restarted, so each flagged plugin's running sidecar is
+   the new one), runs the same refresh, and clears the flag. Bridges can never
+   be left stale.
 4. Record a `RestartNotice` and fire one macOS notification per update batch.
 
 ## UI
