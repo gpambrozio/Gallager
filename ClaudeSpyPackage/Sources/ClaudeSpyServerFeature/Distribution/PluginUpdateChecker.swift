@@ -55,43 +55,35 @@
             var updates: [PluginUpdate] = []
 
             for entry in entries {
-                // Only check URL-installed entries that have a manifest URL.
-                guard entry.source == .url, let manifestURL = entry.manifestURL else {
-                    continue
+                if let update = try? await checkOne(entry, session: session) {
+                    updates.append(update)
                 }
-
-                // Fetch the remote manifest. Skip on any error (best-effort).
-                let fetched: PluginManifest
-                do {
-                    (fetched, _) = try await PluginInstaller.fetchManifest(manifestURL, session: session)
-                } catch {
-                    continue
-                }
-
-                // Compare versions. A newer version is any string that differs and
-                // sorts after the current one under semantic-version ordering
-                // (simple string comparison is acceptable per the brief).
-                guard isNewer(fetched.version, than: entry.version) else {
-                    continue
-                }
-
-                // Check whether the bundle host changed.
-                let sourceChanged = bundleHostChanged(
-                    existingBundleURL: entry.bundleURL,
-                    fetchedBundleURL: fetched.bundleURL
-                )
-
-                updates.append(
-                    PluginUpdate(
-                        id: entry.id,
-                        currentVersion: entry.version,
-                        newVersion: fetched.version,
-                        sourceChanged: sourceChanged
-                    )
-                )
             }
 
             return updates
+        }
+
+        /// Check a single entry, propagating fetch/decode errors (the manual
+        /// Check Now path surfaces them inline; the batch `check` stays
+        /// best-effort). Returns nil for non-URL entries and when already up to
+        /// date.
+        public static func checkOne(
+            _ entry: PluginRegistryEntry,
+            session: any URLSessionProtocol
+        ) async throws -> PluginUpdate? {
+            guard entry.source == .url, let manifestURL = entry.manifestURL else { return nil }
+            let (fetched, _) = try await PluginInstaller.fetchManifest(manifestURL, session: session)
+            guard isNewer(fetched.version, than: entry.version) else { return nil }
+            let sourceChanged = bundleHostChanged(
+                existingBundleURL: entry.bundleURL,
+                fetchedBundleURL: fetched.bundleURL
+            )
+            return PluginUpdate(
+                id: entry.id,
+                currentVersion: entry.version,
+                newVersion: fetched.version,
+                sourceChanged: sourceChanged
+            )
         }
 
         // MARK: - Version comparison

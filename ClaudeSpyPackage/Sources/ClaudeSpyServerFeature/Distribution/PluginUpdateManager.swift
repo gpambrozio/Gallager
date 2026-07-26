@@ -250,6 +250,57 @@
             }
         }
 
+        // MARK: - Checks
+
+        /// Manual per-plugin check (the Check Now button). Ignores the
+        /// autoUpdate toggle and applies any found update — the press is consent.
+        public func checkNow(_ id: String) {
+            inlineStatus[id] = .checking
+            scheduleRun { [weak self] in
+                await self?.runManualCheck(id)
+            }
+        }
+
+        private func runManualCheck(_ id: String) async {
+            guard let entry = entry(id) else {
+                inlineStatus[id] = .failed("Plugin is not installed")
+                return
+            }
+            let update: PluginUpdate?
+            do {
+                update = try await callbacks.checkUpdate(entry)
+            } catch {
+                stampLastCheck()
+                inlineStatus[id] = .failed(String(describing: error))
+                return
+            }
+            stampLastCheck()
+            guard let update else {
+                inlineStatus[id] = .upToDate
+                return
+            }
+            if case .applied = await applyUpdate(update),
+               let notice = restartNotices.first(where: { $0.pluginID == id }) {
+                callbacks.notify(Self.notificationBody([notice]))
+            }
+        }
+
+        static func notificationBody(_ notices: [PluginRestartNotice]) -> String {
+            notices.map { notice in
+                let action = notice.needsAppRestart
+                    ? "restart Gallager and any \(notice.displayName) sessions"
+                    : "restart your \(notice.displayName) sessions"
+                return "\(notice.displayName) \(notice.newVersion) — \(action)"
+            }
+            .joined(separator: "; ")
+        }
+
+        private func stampLastCheck() {
+            let now = date.now
+            lastCheckDate = now
+            preferences.setDouble(now.timeIntervalSince1970, Keys.lastCheckAt)
+        }
+
         // MARK: - Triggers
 
         /// Called once at boot, after all plugins are enabled.

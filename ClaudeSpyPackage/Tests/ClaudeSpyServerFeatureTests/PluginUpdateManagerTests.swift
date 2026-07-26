@@ -235,4 +235,70 @@
             }
         }
     }
+
+    // MARK: - Manual check
+
+    @Suite("PluginUpdateManager manual check")
+    @MainActor
+    struct PluginUpdateManagerCheckTests {
+        @Test("checkNow on an up-to-date plugin reports upToDate and stamps lastCheckDate")
+        func checkNowUpToDate() async throws {
+            let fixedNow = Date(timeIntervalSince1970: 1_000_000)
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0.date = .constant(fixedNow)
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                let manager = harness.makeManager()
+
+                manager.checkNow("pi")
+                #expect(manager.inlineStatus["pi"] == .checking)
+                await manager.waitForPendingRuns()
+
+                #expect(manager.inlineStatus["pi"] == .upToDate)
+                #expect(manager.lastCheckDate == fixedNow)
+                #expect(harness.notifications.isEmpty)
+            }
+        }
+
+        @Test("checkNow works even when autoUpdate is off, applies, and notifies")
+        func checkNowIgnoresToggle() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0", autoUpdate: false)])
+                harness.updates = [PluginUpdate(id: "pi", currentVersion: "1.0.0", newVersion: "2.0.0", sourceChanged: false)]
+                let manager = harness.makeManager()
+
+                manager.checkNow("pi")
+                await manager.waitForPendingRuns()
+
+                #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: false))
+                #expect(harness.notifications.count == 1)
+                #expect(harness.log.contains("checkOne:pi"))
+            }
+        }
+
+        @Test("checkNow surfaces fetch errors inline")
+        func checkNowSurfacesError() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+                $0.date = .constant(Date(timeIntervalSince1970: 1_000_000))
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                harness.failingChecks = ["pi"]
+                let manager = harness.makeManager()
+
+                manager.checkNow("pi")
+                await manager.waitForPendingRuns()
+
+                guard case .failed = manager.inlineStatus["pi"] else {
+                    Issue.record("expected .failed, got \(String(describing: manager.inlineStatus["pi"]))")
+                    return
+                }
+                #expect(harness.notifications.isEmpty)
+            }
+        }
+    }
 #endif
