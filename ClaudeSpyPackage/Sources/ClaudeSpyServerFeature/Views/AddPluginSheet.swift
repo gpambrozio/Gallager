@@ -52,8 +52,9 @@
         @State private var urlText = ""
         @State private var phase: Phase
 
-        init(source: InstallSource = .url) {
+        init(source: InstallSource = .url, initialURLString: String? = nil) {
             self.source = source
+            _urlText = State(initialValue: initialURLString ?? "")
             // A zip source has no entry field — start by peeking the manifest.
             _phase = State(initialValue: source == .url ? .entry : .fetching)
         }
