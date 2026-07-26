@@ -523,6 +523,40 @@ Fetches the manifest from the stored `manifest_url`, repeats the download/verify
 flow, and atomically replaces the installed directory. The update checker does not
 currently send `If-None-Match` (a v2.x follow-on).
 
+#### Auto-update contract (for plugin authors)
+
+URL-installed plugins are also checked automatically, with no user action needed:
+once when Gallager first launches after an app-version change, and at most once daily
+thereafter while Gallager keeps running. Each plugin has an opt-out toggle in
+Settings → Agents (`autoUpdate` on the plugin's `registry.json` entry, default `true`);
+users can also force an immediate check with "Check Now".
+
+Automatic updates go through the exact same manifest-fetch → SHA-256 → zip-validation →
+atomic-commit pipeline as `gallager plugin update`. **A changed bundle host is never
+auto-installed:** if the freshly-fetched manifest's `bundle_url` host differs from the
+one recorded when the plugin was installed, Gallager shows "Update _version_ is served
+from a new source" with a "Review…" button and requires the user to go through the
+manual trust flow instead of silently trusting a new host.
+
+Once an update lands on disk, Gallager brings the running sidecar up to date:
+- **No active sessions:** the sidecar is hot-restarted (disable → enable), then
+  Gallager re-invokes your `install` RPC for every config root that currently reports
+  `install_status: installed` — this re-lays the hook/bridge files for the new version
+  without any user action.
+- **Active sessions:** the old sidecar process is left running so live sessions aren't
+  disrupted, and the bridge refresh is deferred until Gallager's next launch.
+
+**Implication for plugin authors:** your `install` RPC handler must be safe to call
+repeatedly against a target that's already installed — idempotent, and atomic so a
+refresh landing mid-write never leaves a half-written bridge file behind. Write to a
+temp path in the same directory and `os.replace()` (or equivalent) it into place, the
+way the pi and opencode reference sidecars do (`plugins/pi/bin/sidecar` and
+`plugins/opencode/bin/sidecar`, both `handle_install`).
+
+Recommended: bake your plugin's version string into the bridge file you write (e.g. as
+a comment or constant near the top). It costs nothing and makes a stale bridge — one
+that missed a refresh — diagnosable by inspection instead of guesswork.
+
 ### Uninstall
 
 ```
