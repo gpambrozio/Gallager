@@ -2615,63 +2615,30 @@
                         }
                     }
 
-                    // Apply path: for each update, look up its manifestURL from the registry file
-                    // and re-invoke installPluginFromURL.
-                    guard let paths = await self.gallagerPaths else { return [] }
-                    let registryFile = PluginRegistryStore.load(paths.registryPath)
+                    guard let manager = await self.pluginUpdateManager else { return [] }
                     var results: [[String: JSONValue]] = []
 
                     for update in filtered {
-                        // Source-changed means a new host — we can't auto-trust silently.
-                        // Skip it and report with applied:false + a note.
-                        if update.sourceChanged {
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(true),
-                                "applied": .bool(false),
-                                "note": .string("source-changed: needs manual re-install to trust new source"),
-                            ])
-                            continue
+                        var row: [String: JSONValue] = [
+                            "id": .string(update.id),
+                            "currentVersion": .string(update.currentVersion),
+                            "newVersion": .string(update.newVersion),
+                            "sourceChanged": .bool(update.sourceChanged),
+                        ]
+                        switch await manager.applyUpdate(update) {
+                        case let .applied(needsAppRestart):
+                            row["applied"] = .bool(true)
+                            if needsAppRestart {
+                                row["note"] = .string("restart Gallager to load the new sidecar")
+                            }
+                        case .skippedSourceChanged:
+                            row["applied"] = .bool(false)
+                            row["note"] = .string("source-changed: needs manual re-install to trust new source")
+                        case let .failed(message):
+                            row["applied"] = .bool(false)
+                            row["note"] = .string(message)
                         }
-
-                        // Look up the manifestURL from the registry file (PluginRegistryEntry).
-                        guard
-                            let entry = registryFile.plugins.first(where: { $0.id == update.id }),
-                            let manifestURL = entry.manifestURL else {
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(false),
-                                "note": .string("no manifestURL in registry"),
-                            ])
-                            continue
-                        }
-
-                        // Re-run install (trustConfirmed: true — same source, previously trusted).
-                        let outcome = await self.installPluginFromURL(manifestURL, trustConfirmed: true)
-                        switch outcome {
-                        case .success:
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(true),
-                            ])
-                        case let .failure(error):
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(false),
-                                "note": .string(String(describing: error)),
-                            ])
-                        }
+                        results.append(row)
                     }
                     return results
                 }
