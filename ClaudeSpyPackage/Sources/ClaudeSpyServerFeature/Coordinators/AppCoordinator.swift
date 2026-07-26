@@ -750,10 +750,14 @@
                     },
                     installFromURL: { [weak self] url in
                         guard let self else { return .failure(.invalidSchema) }
-                        // No download in e2e — the real pipeline is HTTPS-only, so
-                        // the "install" is reported as done and the apply path
-                        // continues into the hot-restart + bridge-refresh steps.
-                        if isE2ETest { return .success(.installed(id: Self.e2eUpdatablePluginID)) }
+                        // No download for the e2e fixture — the real pipeline is
+                        // HTTPS-only, so its "install" is reported as done and the
+                        // apply path continues into the hot-restart + bridge-refresh
+                        // steps. Scoped to the fixture's own manifest URL: any other
+                        // URL still goes through the real installer.
+                        if isE2ETest, url == Self.e2eUpdateManifestURL {
+                            return .success(.installed(id: Self.e2eUpdatablePluginID))
+                        }
                         return await installPluginFromURL(url, trustConfirmed: true)
                     },
                     hasActiveSessions: { [weak self] id in
@@ -1365,6 +1369,15 @@
         /// The version the synthetic pending update reports for that fixture.
         private static let e2eUpdateNewVersion = "9.9.9"
 
+        /// The manifest URL stamped onto the fixture's registry entry. It is also
+        /// the only URL the stubbed `installFromURL` answers for, so any other URL
+        /// (a genuinely `.url`-installed plugin, a CLI `plugin update --apply`)
+        /// still goes through the real installer instead of being handed a
+        /// fabricated success under this fixture's id.
+        private static let e2eUpdateManifestURL = URL(
+            string: "https://e2e.invalid/\(e2eUpdatablePluginID)/plugin.json"
+        )
+
         /// Present the staged fixture as URL-installed (`source: .url` + a
         /// manifest URL) so `PluginUpdateManager.isUpdatable` is true for it. Any
         /// persisted `autoUpdate` / `needsBridgeRefresh` is carried over, so the
@@ -1383,7 +1396,7 @@
                 source: .url,
                 runtime: prior.runtime,
                 enabled: prior.enabled,
-                manifestURL: URL(string: "https://e2e.invalid/\(e2eUpdatablePluginID)/plugin.json"),
+                manifestURL: e2eUpdateManifestURL,
                 bundleURL: prior.bundleURL,
                 bundleSHA256: prior.bundleSHA256,
                 autoUpdate: prior.autoUpdate,
