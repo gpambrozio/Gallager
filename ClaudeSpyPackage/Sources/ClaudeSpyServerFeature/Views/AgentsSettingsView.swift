@@ -150,9 +150,12 @@
         }
 
         private func restartText(_ notice: PluginRestartNotice) -> String {
+            // needsAppRestart == false ⇒ the sidecar was hot-swapped while no
+            // sessions were active, so there is nothing to tell the user to
+            // restart — just report the update.
             notice.needsAppRestart
                 ? "\(notice.displayName) updated to \(notice.newVersion) — restart Gallager and your \(notice.displayName) sessions"
-                : "\(notice.displayName) updated to \(notice.newVersion) — restart your \(notice.displayName) sessions"
+                : "\(notice.displayName) updated to \(notice.newVersion)"
         }
 
         /// Present an open panel for a local `.zip` bundle; on selection, trigger
@@ -497,7 +500,7 @@
                 Text(
                     needsAppRestart
                         ? "Updated to \(version) — restart Gallager and your \(agentDisplayName) sessions"
-                        : "Updated to \(version) — restart your \(agentDisplayName) sessions"
+                        : "Updated to \(version)"
                 )
                 .font(.caption)
                 .foregroundStyle(.orange)

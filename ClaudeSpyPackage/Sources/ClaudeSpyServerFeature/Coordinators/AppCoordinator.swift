@@ -766,7 +766,11 @@
                         }
                         // selectInUI: false — a background update must not yank
                         // the Agents picker to the updated plugin mid-edit.
-                        return await installPluginFromURL(url, trustConfirmed: true, selectInUI: false)
+                        // postInstall: false — the apply flow calling this runs
+                        // the post-install steps itself on the same queued run.
+                        return await installPluginFromURL(
+                            url, trustConfirmed: true, selectInUI: false, postInstall: false
+                        )
                     },
                     hasActiveSessions: { [weak self] id in
                         self?.windowManager.sortedSessions.contains { $0.pluginID == id } ?? false
@@ -1014,16 +1018,23 @@
         /// `selectInUI: false` suppresses the `lastInstalledPluginID` bump so a
         /// background auto-update doesn't yank the Agents picker (and discard
         /// in-progress form edits) over to the updated plugin.
+        ///
+        /// `postInstall: false` skips the manager's `finishReinstall` hook —
+        /// only for calls made FROM the manager's own apply flow, which runs
+        /// those post-install steps itself (and would deadlock its run queue
+        /// if this scheduled a second, chained run mid-apply).
         public func installPluginFromURL(
             _ url: URL,
             trustConfirmed: Bool,
-            selectInUI: Bool = true
+            selectInUI: Bool = true,
+            postInstall: Bool = true
         ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
             guard
                 let registry = pluginRegistry, let paths = gallagerPaths,
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
+            let preexistingIDs = Set(PluginRegistryStore.load(paths.registryPath).plugins.map(\.id))
             let result = await PluginInstaller.install(
                 manifestURL: url,
                 trustConfirmed: trustConfirmed,
@@ -1057,6 +1068,15 @@
                 // The installer enabled the new plugin; refresh the OTLP
                 // namespace table so its declared telemetry classifies (issue #617).
                 await refreshOTLPPluginNamespaces()
+                // Replacing an already-installed plugin (Review… trust sheet,
+                // CLI `plugin install`, Add Plugin sheet) leaves the OLD
+                // sidecar running and the agent-side bridges stale — the
+                // installer's enable step early-returns for an active plugin.
+                // Hand post-install to the manager: hot-restart if idle +
+                // bridge refresh, else the deferred needsBridgeRefresh flag.
+                if postInstall, preexistingIDs.contains(installedID) {
+                    pluginUpdateManager?.finishReinstall(installedID)
+                }
             }
             return result
         }
@@ -1073,6 +1093,7 @@
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
+            let preexistingIDs = Set(PluginRegistryStore.load(paths.registryPath).plugins.map(\.id))
             let result = await PluginInstaller.installFromZip(
                 zip: zip,
                 trustConfirmed: trustConfirmed,
@@ -1101,6 +1122,10 @@
                 pluginCatalogRevision += 1
                 lastInstalledPluginID = installedID
                 await refreshOTLPPluginNamespaces()
+                // Same reinstall-over-running-plugin gap as the URL path.
+                if preexistingIDs.contains(installedID) {
+                    pluginUpdateManager?.finishReinstall(installedID)
+                }
             }
             return result
         }

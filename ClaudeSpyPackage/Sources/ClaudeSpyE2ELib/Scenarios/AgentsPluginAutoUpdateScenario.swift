@@ -51,21 +51,22 @@ public enum AgentsPluginAutoUpdateScenario {
         TestStep.wait(seconds: 0.5)
         TestStep.macScreenshot(label: "mac-agents-updates-section")
 
-        // 4. Check Now finds 9.9.9 and applies it. Waits are on the FULL status
-        //    strings — a substring wait gets shadowed by the sibling banner text,
-        //    which starts with the same display name.
+        // 4. Check Now finds 9.9.9 and applies it via an idle hot-swap, so the
+        //    status carries no restart advice (nothing was running to restart).
+        //    Waits are on the FULL status strings — a substring wait gets
+        //    shadowed by the sibling banner text, which starts with the same
+        //    display name.
         TestStep.macClickButton(titled: "Check Now")
         TestStep.macWaitForElement(
-            titled: "Updated to 9.9.9 — restart your Update Test Sidecar sessions",
+            titled: "Updated to 9.9.9",
             timeout: 20
         )
 
-        // 5. The restart-required banner appears at the top of the tab and stays
-        //    until the app restarts (restarting IS the remedy — the notice list is
-        //    in-memory).
+        // 5. The update banner appears at the top of the tab and stays until
+        //    the app restarts (the notice list is in-memory).
         TestStep.macWaitForElementQuery(.identifier("pluginRestartBanner"), timeout: 10)
         TestStep.macWaitForElement(
-            titled: "Update Test Sidecar updated to 9.9.9 — restart your Update Test Sidecar sessions",
+            titled: "Update Test Sidecar updated to 9.9.9",
             timeout: 10
         )
         TestStep.wait(seconds: 0.5)

@@ -431,6 +431,17 @@ exposed as `coordinator.pluginUpdateManager`.
   is the CLI's out-of-band entry point); source-changed updates are never
   auto-installed. Observable `restartNotices`/`inlineStatus`/`lastCheckDate`
   drive the Agents settings banner and Updates section.
+- `finishReinstall(id)` is the out-of-band reinstall hook: any install that
+  replaces an already-installed plugin outside the manager's own apply flow
+  (the source-changed Review… trust sheet, CLI `gallager plugin install`, the
+  Add Plugin sheet, zip installs) triggers the same post-install steps via
+  `AppCoordinator.installPluginFromURL`/`installPluginFromZip` — hot-restart
+  if idle + bridge refresh, else the deferred flag. The manager's own install
+  callback opts out (`postInstall: false`) to avoid double-applying.
+- Notice wording: `needsAppRestart == false` means the sidecar was hot-swapped
+  while nothing was running, so banner/inline/notification show a plain
+  "updated to X" with no restart advice; only the busy/deferred path says
+  "restart Gallager and your <agent> sessions".
 
 ### LayoutStore (`ClaudeSpyServerFeature/Services/LayoutPersistence/LayoutStore.swift`)
 

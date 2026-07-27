@@ -642,8 +642,10 @@
 
                     #expect(harness.notifications.count == 1)
                     let body = try #require(harness.notifications.first)
-                    #expect(body.contains("Pi 2.0.0"))
-                    #expect(body.contains("restart your Pi sessions"))
+                    // Hot-swapped (idle) plugin: nothing is left to restart, so
+                    // no restart advice — just the fact of the update.
+                    #expect(body.contains("Pi updated to 2.0.0"))
+                    #expect(!body.contains("restart your Pi sessions"))
                     #expect(body.contains("restart Gallager and any Opencode sessions"))
                     manager.stop()
                 }
@@ -739,6 +741,134 @@
                         "bridge:pi:default",
                     ])
                     manager.stop()
+                }
+            }
+        }
+    }
+
+    // MARK: - Out-of-band reinstall post-install
+
+    @Suite("PluginUpdateManager finishReinstall")
+    @MainActor
+    struct PluginUpdateManagerFinishReinstallTests {
+        @Test("idle plugin: reinstall hot-restarts, refreshes bridges, records notice + notification")
+        func idleReinstallHotRestartsAndRefreshesBridges() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "2.0.0")])
+                harness.installedRoots["pi"] = ["default"]
+                let manager = harness.makeManager()
+
+                manager.finishReinstall("pi")
+                await manager.waitForPendingRuns()
+
+                // No install step: the out-of-band installer (Review… sheet,
+                // CLI plugin install) already replaced the bundle on disk.
+                #expect(harness.log == ["disable:pi", "enable:pi", "bridge:pi:default"])
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == false)
+                #expect(manager.restartNotices == [
+                    PluginRestartNotice(pluginID: "pi", displayName: "Pi", newVersion: "2.0.0", needsAppRestart: false),
+                ])
+                #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: false))
+                let body = try #require(harness.notifications.first)
+                #expect(body == "Pi updated to 2.0.0")
+            }
+        }
+
+        @Test("busy plugin: reinstall defers the swap — flag persisted, app-restart notice")
+        func busyReinstallDefersBridgeRefresh() async throws {
+            try await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "2.0.0")])
+                harness.activePlugins = ["pi"]
+                harness.installedRoots["pi"] = ["default"]
+                let manager = harness.makeManager()
+
+                manager.finishReinstall("pi")
+                await manager.waitForPendingRuns()
+
+                #expect(harness.log.isEmpty) // no hot swap, no bridge touch
+                #expect(harness.registry.plugins.first?.needsBridgeRefresh == true)
+                #expect(manager.restartNotices.first?.needsAppRestart == true)
+                #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: true))
+                let body = try #require(harness.notifications.first)
+                #expect(body.contains("restart Gallager and any Pi sessions"))
+            }
+        }
+
+        @Test("a reinstall replaces a stale updateAvailableNewSource status")
+        func reinstallClearsStaleNewSourceStatus() async throws {
+            await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                harness.installedRoots["pi"] = ["default"]
+                let manager = harness.makeManager()
+
+                // Check Now found a source-changed update → Review… row shown.
+                let update = PluginUpdate(id: "pi", currentVersion: "1.0.0", newVersion: "2.0.0", sourceChanged: true)
+                _ = await manager.applyUpdate(update)
+                #expect(manager.inlineStatus["pi"] == .updateAvailableNewSource(version: "2.0.0"))
+
+                // The user completed the trust-sheet install (registry now 2.0.0).
+                harness.registry = PluginRegistryFile(
+                    schemaVersion: 1,
+                    plugins: [urlEntry(id: "pi", version: "2.0.0")]
+                )
+                manager.finishReinstall("pi")
+                await manager.waitForPendingRuns()
+
+                #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: false))
+            }
+        }
+
+        @Test("an id missing from the registry is a no-op")
+        func unknownIDIsNoOp() async throws {
+            await withDependencies {
+                $0[PreferencesService.self] = .inMemory()
+            } operation: { @MainActor in
+                let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "1.0.0")])
+                let manager = harness.makeManager()
+
+                manager.finishReinstall("ghost")
+                await manager.waitForPendingRuns()
+
+                #expect(harness.log.isEmpty)
+                #expect(manager.restartNotices.isEmpty)
+                #expect(harness.notifications.isEmpty)
+            }
+        }
+
+        @Test("finishReinstall chains behind an in-flight run")
+        func reinstallChainsBehindInFlightRun() async throws {
+            await withMainSerialExecutor {
+                await withDependencies {
+                    $0[PreferencesService.self] = .inMemory()
+                } operation: { @MainActor in
+                    let harness = UpdateHarness(entries: [urlEntry(id: "pi", version: "2.0.0")])
+                    harness.installedRoots["pi"] = ["default"]
+                    harness.gateBridge = true
+                    let manager = harness.makeManager()
+
+                    manager.finishReinstall("pi")
+                    await Task.megaYield()
+                    #expect(harness.log == ["disable:pi", "enable:pi", "bridge:pi:default"])
+
+                    // A second reinstall must not start its swap while the
+                    // first run is still suspended in its bridge refresh.
+                    manager.finishReinstall("pi")
+                    await Task.megaYield()
+                    #expect(harness.log == ["disable:pi", "enable:pi", "bridge:pi:default"])
+
+                    harness.gateBridge = false
+                    harness.releaseBridgeGate()
+                    await manager.waitForPendingRuns()
+                    #expect(harness.log == [
+                        "disable:pi", "enable:pi", "bridge:pi:default",
+                        "disable:pi", "enable:pi", "bridge:pi:default",
+                    ])
                 }
             }
         }

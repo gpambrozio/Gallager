@@ -194,23 +194,53 @@
         /// `applyUpdateSerialized` instead.
         public func applyUpdate(_ update: PluginUpdate) async -> ApplyResult {
             let result = await applyUpdateCore(update)
+            recordOutcome(id: update.id, newVersion: update.newVersion, result: result)
+            return result
+        }
+
+        /// Update the banner/inline state for one apply (or reinstall) outcome.
+        private func recordOutcome(id: String, newVersion: String, result: ApplyResult) {
             switch result {
             case let .applied(needsAppRestart):
                 let notice = PluginRestartNotice(
-                    pluginID: update.id,
-                    displayName: callbacks.displayName(update.id),
-                    newVersion: update.newVersion,
+                    pluginID: id,
+                    displayName: callbacks.displayName(id),
+                    newVersion: newVersion,
                     needsAppRestart: needsAppRestart
                 )
-                restartNotices.removeAll { $0.pluginID == update.id }
+                restartNotices.removeAll { $0.pluginID == id }
                 restartNotices.append(notice)
-                inlineStatus[update.id] = .updated(version: update.newVersion, needsAppRestart: needsAppRestart)
+                inlineStatus[id] = .updated(version: newVersion, needsAppRestart: needsAppRestart)
             case .skippedSourceChanged:
-                inlineStatus[update.id] = .updateAvailableNewSource(version: update.newVersion)
+                inlineStatus[id] = .updateAvailableNewSource(version: newVersion)
             case let .failed(message):
-                inlineStatus[update.id] = .failed(message)
+                inlineStatus[id] = .failed(message)
             }
-            return result
+        }
+
+        /// Out-of-band reinstall hook: called after an install that replaced an
+        /// already-installed plugin OUTSIDE the manager's own apply flow — the
+        /// source-changed Review… trust sheet, CLI `gallager plugin install`,
+        /// the Add Plugin sheet, and zip installs. The installer has already
+        /// committed the new bundle + registry entry, but it cannot swap a
+        /// running sidecar (its enable step early-returns for an active plugin)
+        /// or refresh agent-side bridges. Run the same post-install steps as an
+        /// auto-applied update and record the same notice/inline status,
+        /// serialized on the run queue with every check/apply.
+        public func finishReinstall(_ id: String) {
+            scheduleRun { [weak self] in
+                await self?.runFinishReinstall(id)
+            }
+        }
+
+        private func runFinishReinstall(_ id: String) async {
+            guard let entry = entry(id) else { return }
+            let result = await finishSwap(id)
+            recordOutcome(id: id, newVersion: entry.version, result: result)
+            if case .applied = result,
+               let notice = restartNotices.first(where: { $0.pluginID == id }) {
+                callbacks.notify(Self.notificationBody([notice]))
+            }
         }
 
         /// Serialized entry point for out-of-band apply requests (the CLI path).
@@ -249,35 +279,43 @@
                 guard installedID == update.id else {
                     return .failed("manifest id mismatch: expected '\(update.id)', got '\(installedID)'")
                 }
-                if callbacks.hasActiveSessions(update.id) || !callbacks.isPluginEnabled(update.id) {
-                    // Busy: live sessions would lose sidecar state on a hot
-                    // swap. Disabled: the enable step would respawn a plugin
-                    // the user turned off. Either way the running state stays
-                    // untouched and the bridge refresh happens on next launch
-                    // (sweepPendingBridgeRefreshes).
-                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
-                    return .applied(needsAppRestart: true)
-                }
-                // Explicit disable-first: enable() early-returns for an active
-                // core, so a bare enable would leave the old process running.
-                await callbacks.disablePlugin(update.id)
-                guard await callbacks.enablePlugin(update.id) else {
-                    // The old process is already gone and the new bundle failed
-                    // to start — surface it instead of celebrating, and flag the
-                    // bridge refresh so the next successful enable (usually next
-                    // launch) finishes the job.
-                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
-                    return .failed("new version failed to start — restart Gallager to retry")
-                }
-                let bridgesRefreshed = await refreshBridges(update.id)
-                if !bridgesRefreshed {
-                    // Sidecar is current but at least one agent-side bridge
-                    // re-install failed; keep it retryable at next launch
-                    // rather than stranding a stale bridge forever.
-                    mutateEntry(update.id) { $0.needsBridgeRefresh = true }
-                }
-                return .applied(needsAppRestart: false)
+                return await finishSwap(update.id)
             }
+        }
+
+        /// Post-install steps shared by every path that replaces an installed
+        /// plugin's bundle (the manager's own applies and out-of-band
+        /// reinstalls): hot-restart the sidecar when idle, then refresh
+        /// bridges; otherwise defer both to the next launch.
+        private func finishSwap(_ id: String) async -> ApplyResult {
+            if callbacks.hasActiveSessions(id) || !callbacks.isPluginEnabled(id) {
+                // Busy: live sessions would lose sidecar state on a hot
+                // swap. Disabled: the enable step would respawn a plugin
+                // the user turned off. Either way the running state stays
+                // untouched and the bridge refresh happens on next launch
+                // (sweepPendingBridgeRefreshes).
+                mutateEntry(id) { $0.needsBridgeRefresh = true }
+                return .applied(needsAppRestart: true)
+            }
+            // Explicit disable-first: enable() early-returns for an active
+            // core, so a bare enable would leave the old process running.
+            await callbacks.disablePlugin(id)
+            guard await callbacks.enablePlugin(id) else {
+                // The old process is already gone and the new bundle failed
+                // to start — surface it instead of celebrating, and flag the
+                // bridge refresh so the next successful enable (usually next
+                // launch) finishes the job.
+                mutateEntry(id) { $0.needsBridgeRefresh = true }
+                return .failed("new version failed to start — restart Gallager to retry")
+            }
+            let bridgesRefreshed = await refreshBridges(id)
+            if !bridgesRefreshed {
+                // Sidecar is current but at least one agent-side bridge
+                // re-install failed; keep it retryable at next launch
+                // rather than stranding a stale bridge forever.
+                mutateEntry(id) { $0.needsBridgeRefresh = true }
+            }
+            return .applied(needsAppRestart: false)
         }
 
         /// Re-run the sidecar's `install` RPC in every location whose bridge is
@@ -359,10 +397,12 @@
 
         static func notificationBody(_ notices: [PluginRestartNotice]) -> String {
             notices.map { notice in
-                let action = notice.needsAppRestart
-                    ? "restart Gallager and any \(notice.displayName) sessions"
-                    : "restart your \(notice.displayName) sessions"
-                return "\(notice.displayName) \(notice.newVersion) — \(action)"
+                // needsAppRestart == false means the sidecar was hot-swapped
+                // while the plugin had no active sessions — nothing is left to
+                // restart, so no restart advice.
+                notice.needsAppRestart
+                    ? "\(notice.displayName) \(notice.newVersion) — restart Gallager and any \(notice.displayName) sessions"
+                    : "\(notice.displayName) updated to \(notice.newVersion)"
             }
             .joined(separator: "; ")
         }

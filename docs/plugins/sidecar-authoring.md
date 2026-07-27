@@ -538,7 +538,10 @@ one recorded when the plugin was installed, Gallager shows "Update _version_ is 
 from a new source" with a "Review…" button and requires the user to go through the
 manual trust flow instead of silently trusting a new host.
 
-Once an update lands on disk, Gallager brings the running sidecar up to date:
+Once an update lands on disk — via any path that replaces an already-installed
+plugin: an automatic or "Check Now" apply, `gallager plugin update`, completing the
+source-changed Review… trust flow, `gallager plugin install` over an existing id, or
+a zip reinstall — Gallager brings the running sidecar up to date:
 - **No active sessions:** the sidecar is hot-restarted (disable → enable), then
   Gallager re-invokes your `install` RPC for every config root that currently reports
   `install_status: installed` — this re-lays the hook/bridge files for the new version
