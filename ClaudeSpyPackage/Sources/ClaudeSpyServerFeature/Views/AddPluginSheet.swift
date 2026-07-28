@@ -52,8 +52,9 @@
         @State private var urlText = ""
         @State private var phase: Phase
 
-        init(source: InstallSource = .url) {
+        init(source: InstallSource = .url, initialURLString: String? = nil) {
             self.source = source
+            _urlText = State(initialValue: initialURLString ?? "")
             // A zip source has no entry field — start by peeking the manifest.
             _phase = State(initialValue: source == .url ? .entry : .fetching)
         }
@@ -368,39 +369,4 @@
         }
     #endif
 
-    // MARK: - InstallError UI description
-
-    private extension InstallError {
-        /// Human-readable message for display in the sheet.
-        var uiDescription: String {
-            switch self {
-            case .notHTTPS:
-                return "URL must use HTTPS"
-            case .manifestTooLarge:
-                return "Plugin manifest is too large (limit: 1 MiB)"
-            case .invalidSchema:
-                return "Invalid plugin manifest format"
-            case .missingBundleReference:
-                return "This manifest can't be installed from a URL — it's missing "
-                    + "bundle_url / bundle_sha256. (A bundle-internal plugin.json can "
-                    + "only be installed with \"Install from Zip…\".)"
-            case .invalidID:
-                return "Plugin manifest contains an invalid ID"
-            case .bundleTooLarge:
-                return "Plugin bundle exceeds the size limit"
-            case .hashMismatch:
-                return "Bundle integrity check failed (SHA-256 mismatch)"
-            case let .zipSlip(path):
-                return "Unsafe bundle path: \(path)"
-            case .bundleMissing:
-                return "Plugin bundle is missing from the archive"
-            case .notInstalled:
-                return "Plugin is not installed"
-            case let .treeValidationFailed(reason):
-                return "Bundle validation failed: \(reason)"
-            case let .enableFailed(reason):
-                return "Plugin could not be enabled: \(reason)"
-            }
-        }
-    }
 #endif

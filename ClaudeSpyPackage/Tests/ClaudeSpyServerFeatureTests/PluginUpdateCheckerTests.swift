@@ -232,5 +232,38 @@
         func isNewerOlder() {
             #expect(!PluginUpdateChecker.isNewer("1.0.0", than: "2.0.0"))
         }
+
+        // MARK: checkOne
+
+        @Test("checkOne throws on a fetch failure instead of swallowing it")
+        func checkOneThrowsOnFetchFailure() async throws {
+            let manifestURL = try #require(URL(string: "https://example.com/broken/plugin.json"))
+            let entry = makeEntry(id: "broken", version: "1.0.0", manifestURL: manifestURL)
+            let session = UpdateStubSession(responses: [:]) // empty body → decode failure
+
+            await #expect(throws: (any Error).self) {
+                _ = try await PluginUpdateChecker.checkOne(entry, session: session)
+            }
+        }
+
+        @Test("checkOne returns nil when up to date and the update when newer")
+        func checkOneReturnsUpdateOrNil() async throws {
+            let manifestURL = try #require(URL(string: "https://example.com/test-plugin/plugin.json"))
+            let entry = makeEntry(id: "test-plugin", version: "1.0.0", manifestURL: manifestURL)
+
+            let sameSession = UpdateStubSession(
+                responses: [manifestURL: makeManifestData(id: "test-plugin", version: "1.0.0")]
+            )
+            let same = try await PluginUpdateChecker.checkOne(entry, session: sameSession)
+            #expect(same == nil)
+
+            let newerSession = UpdateStubSession(
+                responses: [manifestURL: makeManifestData(id: "test-plugin", version: "1.1.0")]
+            )
+            let newer = try await PluginUpdateChecker.checkOne(entry, session: newerSession)
+            #expect(newer == PluginUpdate(
+                id: "test-plugin", currentVersion: "1.0.0", newVersion: "1.1.0", sourceChanged: false
+            ))
+        }
     }
 #endif

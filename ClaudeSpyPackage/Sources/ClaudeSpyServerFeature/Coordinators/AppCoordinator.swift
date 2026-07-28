@@ -132,6 +132,10 @@
         /// `onChange` selection). Observed.
         public private(set) var lastInstalledPluginID: String?
 
+        /// Orchestrates plugin auto-update checks/installs. Created during plugin
+        /// boot; nil only before startup completes.
+        public private(set) var pluginUpdateManager: PluginUpdateManager?
+
         /// The single agent-blind event dispatcher; its sinks are wired to the
         /// local adapter methods (status/notification/app-action) below.
         @ObservationIgnored
@@ -391,6 +395,12 @@
             await setupPluginRuntime()
             await setupAPIServer()
             await setupConnectedViewerManager()
+            // Start update triggers only now: setupConnectedViewerManager's
+            // initial refreshPanes/detectAgentPanes pass has populated the pane
+            // states that hasActiveSessions consults, so the launch-time check
+            // can no longer hot-restart a sidecar under a live-but-undiscovered
+            // session.
+            pluginUpdateManager?.start()
             await setupViewerConnectionManager()
             await autoConnectIfConfigured()
 
@@ -704,26 +714,104 @@
             let cliEntries = registry.listEntries()
             let entries = cliEntries.compactMap { cliEntry -> PluginRegistryEntry? in
                 guard let manifest = registry.manifest(cliEntry.id) else { return nil }
-                let source = PluginRegistryEntry.Source(rawValue: cliEntry.source) ?? .bundled
-                let prior = loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
-                let effectiveSource: PluginRegistryEntry.Source =
-                    (prior?.source == .url && source != .bundled) ? .url : source
-                let manifestURL = effectiveSource == .url ? (manifest.manifestURL ?? prior?.manifestURL) : nil
-                let bundleURL = effectiveSource == .url ? (manifest.bundleURL ?? prior?.bundleURL) : nil
-                let bundleSHA256 = effectiveSource == .url ? (manifest.bundleSHA256 ?? prior?.bundleSHA256) : nil
-                return PluginRegistryEntry(
-                    id: cliEntry.id,
-                    version: cliEntry.version,
-                    source: effectiveSource,
-                    runtime: manifest.runtime,
-                    enabled: cliEntry.enabled,
-                    manifestURL: manifestURL,
-                    bundleURL: bundleURL,
-                    bundleSHA256: bundleSHA256
+                return PluginInstaller.registryEntry(
+                    cliEntry: cliEntry,
+                    manifest: manifest,
+                    prior: loadedRegistry.plugins.first(where: { $0.id == cliEntry.id })
                 )
             }
             let registryFile = PluginRegistryFile(schemaVersion: 1, plugins: entries)
             try? PluginRegistryStore.save(registryFile, to: paths.registryPath)
+
+            // Plugin auto-update orchestration (spec 2026-07-25). Automatic
+            // triggers are off in e2e so scenarios drive checks deterministically,
+            // and the registry/check/install callbacks answer from the e2e stubs
+            // below (`e2eUpdatableRegistry` / `e2ePendingUpdate`) — the real
+            // pipeline is HTTPS-only, which a scenario can't serve.
+            let updateManager = PluginUpdateManager(
+                callbacks: PluginUpdateManager.Callbacks(
+                    loadRegistry: { [weak self] in
+                        guard let self, let paths = gallagerPaths else {
+                            return PluginRegistryFile(schemaVersion: 1, plugins: [])
+                        }
+                        let file = PluginRegistryStore.load(paths.registryPath)
+                        guard isE2ETest else { return file }
+                        return Self.e2eUpdatableRegistry(file)
+                    },
+                    saveRegistry: { [weak self] file in
+                        guard let paths = self?.gallagerPaths else { return }
+                        try? PluginRegistryStore.save(file, to: paths.registryPath)
+                    },
+                    checkUpdates: { [weak self] entries in
+                        if self?.isE2ETest == true {
+                            return (entries.compactMap(Self.e2ePendingUpdate(for:)), true)
+                        }
+                        return await PluginUpdateChecker.checkDetailed(entries, session: URLSession.shared)
+                    },
+                    checkUpdate: { [weak self] entry in
+                        if self?.isE2ETest == true {
+                            return Self.e2ePendingUpdate(for: entry)
+                        }
+                        return try await PluginUpdateChecker.checkOne(entry, session: URLSession.shared)
+                    },
+                    installFromURL: { [weak self] url in
+                        guard let self else { return .failure(.invalidSchema) }
+                        // No download for the e2e fixture — the real pipeline is
+                        // HTTPS-only, so its "install" is reported as done and the
+                        // apply path continues into the hot-restart + bridge-refresh
+                        // steps. Scoped to the fixture's own manifest URL: any other
+                        // URL still goes through the real installer.
+                        if isE2ETest, url == Self.e2eUpdateManifestURL {
+                            return .success(.installed(id: Self.e2eUpdatablePluginID))
+                        }
+                        // selectInUI: false — a background update must not yank
+                        // the Agents picker to the updated plugin mid-edit.
+                        // postInstall: false — the apply flow calling this runs
+                        // the post-install steps itself on the same queued run.
+                        return await installPluginFromURL(
+                            url, trustConfirmed: true, selectInUI: false, postInstall: false
+                        )
+                    },
+                    hasActiveSessions: { [weak self] id in
+                        self?.windowManager.sortedSessions.contains { $0.pluginID == id } ?? false
+                    },
+                    isPluginEnabled: { [weak self] id in
+                        self?.pluginRegistry?.isEnabled(id) ?? false
+                    },
+                    disablePlugin: { [weak self] id in
+                        _ = await self?.disablePluginViaCLI(id)
+                    },
+                    enablePlugin: { [weak self] id in
+                        await self?.enablePluginViaCLI(id) == true
+                    },
+                    installStatus: { [weak self] id, root in
+                        await self?.pluginInstallStatus(id: id, configRoot: root) ?? .agentUnavailable
+                    },
+                    installBridge: { [weak self] id, root in
+                        await self?.installPlugin(id: id, configRoot: root)
+                    },
+                    additionalConfigFolders: { [weak self] id in
+                        guard let self else { return [] }
+                        return SidecarPluginSettings.decode(from: self.pluginSettingsData(id: id))
+                            .additionalConfigFolders
+                    },
+                    displayName: { [weak self] id in
+                        self?.pluginRegistry?.manifest(id)?.displayName ?? id
+                    },
+                    currentAppVersion: { VersionCompatibility.currentAppVersion },
+                    notify: { body in
+                        @Dependency(PluginUpdateNotificationService.self) var notificationService
+                        notificationService.showUpdateNotification(body)
+                    }
+                ),
+                automaticTriggersEnabled: !isE2ETest
+            )
+            pluginUpdateManager = updateManager
+            // NOTE: start() is deliberately deferred to the boot sequence, after
+            // setupConnectedViewerManager() has populated windowManager's pane
+            // states — the launch-time check's hasActiveSessions consult would
+            // otherwise race initial agent-pane discovery and hot-restart a
+            // sidecar underneath live sessions.
 
             // Ingress socket: route frames by pluginID to the enabled core.
             let server = IngressSocketServer(
@@ -927,15 +1015,26 @@
         /// Thin wrapper: delegates all logic to `PluginInstaller.install` and
         /// supplies the registry, paths, session, and host/env factories from
         /// coordinator state. Not unit-tested directly — integration / E2E covered.
+        /// `selectInUI: false` suppresses the `lastInstalledPluginID` bump so a
+        /// background auto-update doesn't yank the Agents picker (and discard
+        /// in-progress form edits) over to the updated plugin.
+        ///
+        /// `postInstall: false` skips the manager's `finishReinstall` hook —
+        /// only for calls made FROM the manager's own apply flow, which runs
+        /// those post-install steps itself (and would deadlock its run queue
+        /// if this scheduled a second, chained run mid-apply).
         public func installPluginFromURL(
             _ url: URL,
-            trustConfirmed: Bool
+            trustConfirmed: Bool,
+            selectInUI: Bool = true,
+            postInstall: Bool = true
         ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
             guard
                 let registry = pluginRegistry, let paths = gallagerPaths,
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
+            let preexistingIDs = Set(PluginRegistryStore.load(paths.registryPath).plugins.map(\.id))
             let result = await PluginInstaller.install(
                 manifestURL: url,
                 trustConfirmed: trustConfirmed,
@@ -963,10 +1062,21 @@
             )
             if case let .success(.installed(installedID)) = result {
                 pluginCatalogRevision += 1
-                lastInstalledPluginID = installedID
+                if selectInUI {
+                    lastInstalledPluginID = installedID
+                }
                 // The installer enabled the new plugin; refresh the OTLP
                 // namespace table so its declared telemetry classifies (issue #617).
                 await refreshOTLPPluginNamespaces()
+                // Replacing an already-installed plugin (Review… trust sheet,
+                // CLI `plugin install`, Add Plugin sheet) leaves the OLD
+                // sidecar running and the agent-side bridges stale — the
+                // installer's enable step early-returns for an active plugin.
+                // Hand post-install to the manager: hot-restart if idle +
+                // bridge refresh, else the deferred needsBridgeRefresh flag.
+                if postInstall, preexistingIDs.contains(installedID) {
+                    pluginUpdateManager?.finishReinstall(installedID)
+                }
             }
             return result
         }
@@ -983,6 +1093,7 @@
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
+            let preexistingIDs = Set(PluginRegistryStore.load(paths.registryPath).plugins.map(\.id))
             let result = await PluginInstaller.installFromZip(
                 zip: zip,
                 trustConfirmed: trustConfirmed,
@@ -1011,6 +1122,10 @@
                 pluginCatalogRevision += 1
                 lastInstalledPluginID = installedID
                 await refreshOTLPPluginNamespaces()
+                // Same reinstall-over-running-plugin gap as the URL path.
+                if preexistingIDs.contains(installedID) {
+                    pluginUpdateManager?.finishReinstall(installedID)
+                }
             }
             return result
         }
@@ -1285,6 +1400,68 @@
 
         private func e2eInstallKey(_ id: String, _ configRoot: String?) -> String {
             "\(id)|\(configRoot ?? "")"
+        }
+
+        /// The staged sidecar fixture (`macStageSidecarFixture`) that E2E presents
+        /// as URL-installed so the Agents "Updates" section, Check Now, and the
+        /// restart banner are drivable. The real update pipeline is HTTPS-only by
+        /// design, so a scenario can never exercise it against a live host; the
+        /// registry entry is rewritten and the check/install callbacks answer from
+        /// here instead. Only this one id is affected — a dedicated id, so the
+        /// other fixture-staging scenarios keep seeing an honest `.folder` entry
+        /// with no Updates section.
+        private static let e2eUpdatablePluginID = "update-test-sidecar"
+
+        /// The version the synthetic pending update reports for that fixture.
+        private static let e2eUpdateNewVersion = "9.9.9"
+
+        /// The manifest URL stamped onto the fixture's registry entry. It is also
+        /// the only URL the stubbed `installFromURL` answers for, so any other URL
+        /// (a genuinely `.url`-installed plugin, a CLI `plugin update --apply`)
+        /// still goes through the real installer instead of being handed a
+        /// fabricated success under this fixture's id.
+        private static let e2eUpdateManifestURL = URL(
+            string: "https://e2e.invalid/\(e2eUpdatablePluginID)/plugin.json"
+        )
+
+        /// Present the staged fixture as URL-installed (`source: .url` + a
+        /// manifest URL) so `PluginUpdateManager.isUpdatable` is true for it. Any
+        /// persisted `autoUpdate` / `needsBridgeRefresh` is carried over, so the
+        /// toggle and the busy-defer flag still round-trip through the real
+        /// registry file. A no-op when the fixture isn't staged — every other E2E
+        /// scenario sees the registry exactly as written.
+        private static func e2eUpdatableRegistry(_ file: PluginRegistryFile) -> PluginRegistryFile {
+            var file = file
+            guard let index = file.plugins.firstIndex(where: { $0.id == e2eUpdatablePluginID }) else {
+                return file
+            }
+            let prior = file.plugins[index]
+            file.plugins[index] = PluginRegistryEntry(
+                id: prior.id,
+                version: prior.version,
+                source: .url,
+                runtime: prior.runtime,
+                enabled: prior.enabled,
+                manifestURL: e2eUpdateManifestURL,
+                bundleURL: prior.bundleURL,
+                bundleSHA256: prior.bundleSHA256,
+                autoUpdate: prior.autoUpdate,
+                needsBridgeRefresh: prior.needsBridgeRefresh
+            )
+            return file
+        }
+
+        /// The synthetic pending update for the staged fixture: a newer version
+        /// served from the same host, so the apply path runs end to end (a
+        /// `sourceChanged` update would stop at the manual Review flow).
+        private static func e2ePendingUpdate(for entry: PluginRegistryEntry) -> PluginUpdate? {
+            guard entry.id == e2eUpdatablePluginID else { return nil }
+            return PluginUpdate(
+                id: entry.id,
+                currentVersion: entry.version,
+                newVersion: e2eUpdateNewVersion,
+                sourceChanged: false
+            )
         }
 
         /// Ensure a plugin's core is enabled, then query its install status for
@@ -2565,63 +2742,30 @@
                         }
                     }
 
-                    // Apply path: for each update, look up its manifestURL from the registry file
-                    // and re-invoke installPluginFromURL.
-                    guard let paths = await self.gallagerPaths else { return [] }
-                    let registryFile = PluginRegistryStore.load(paths.registryPath)
+                    guard let manager = await self.pluginUpdateManager else { return [] }
                     var results: [[String: JSONValue]] = []
 
                     for update in filtered {
-                        // Source-changed means a new host — we can't auto-trust silently.
-                        // Skip it and report with applied:false + a note.
-                        if update.sourceChanged {
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(true),
-                                "applied": .bool(false),
-                                "note": .string("source-changed: needs manual re-install to trust new source"),
-                            ])
-                            continue
+                        var row: [String: JSONValue] = [
+                            "id": .string(update.id),
+                            "currentVersion": .string(update.currentVersion),
+                            "newVersion": .string(update.newVersion),
+                            "sourceChanged": .bool(update.sourceChanged),
+                        ]
+                        switch await manager.applyUpdateSerialized(update) {
+                        case let .applied(needsAppRestart):
+                            row["applied"] = .bool(true)
+                            if needsAppRestart {
+                                row["note"] = .string("restart Gallager to load the new sidecar")
+                            }
+                        case .skippedSourceChanged:
+                            row["applied"] = .bool(false)
+                            row["note"] = .string("source-changed: needs manual re-install to trust new source")
+                        case let .failed(message):
+                            row["applied"] = .bool(false)
+                            row["note"] = .string(message)
                         }
-
-                        // Look up the manifestURL from the registry file (PluginRegistryEntry).
-                        guard
-                            let entry = registryFile.plugins.first(where: { $0.id == update.id }),
-                            let manifestURL = entry.manifestURL else {
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(false),
-                                "note": .string("no manifestURL in registry"),
-                            ])
-                            continue
-                        }
-
-                        // Re-run install (trustConfirmed: true — same source, previously trusted).
-                        let outcome = await self.installPluginFromURL(manifestURL, trustConfirmed: true)
-                        switch outcome {
-                        case .success:
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(true),
-                            ])
-                        case let .failure(error):
-                            results.append([
-                                "id": .string(update.id),
-                                "currentVersion": .string(update.currentVersion),
-                                "newVersion": .string(update.newVersion),
-                                "sourceChanged": .bool(false),
-                                "applied": .bool(false),
-                                "note": .string(String(describing: error)),
-                            ])
-                        }
+                        results.append(row)
                     }
                     return results
                 }

@@ -28,6 +28,22 @@
 
         public var body: some View {
             VStack(spacing: 0) {
+                // Restart-required banner: one line per applied update, until
+                // the app restarts (restarting IS the remedy — state is in-memory).
+                if let updateManager = coordinator.pluginUpdateManager,
+                   !updateManager.restartNotices.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(updateManager.restartNotices) { notice in
+                            Label(restartText(notice), symbol: .exclamationmarkTriangle)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, 12)
+                    .accessibilityIdentifier("pluginRestartBanner")
+                }
+
                 let agents = coordinator.agentPluginList()
 
                 // Segmented picker at the top
@@ -48,10 +64,16 @@
                     // Not yet loaded — show nothing (task below will set it)
                     Spacer()
                 } else {
-                    PluginAgentForm(pluginID: selectedAgentID) {
-                        pluginToRemove = selectedAgentID
-                        showRemoveConfirmation = true
-                    }
+                    PluginAgentForm(
+                        pluginID: selectedAgentID,
+                        onRemove: {
+                            pluginToRemove = selectedAgentID
+                            showRemoveConfirmation = true
+                        },
+                        onReviewUpdate: { url in
+                            addPlugin = .urlPrefilled(url.absoluteString)
+                        }
+                    )
                 }
 
                 Divider()
@@ -86,6 +108,8 @@
                     AddPluginSheet()
                 case let .zip(url):
                     AddPluginSheet(source: .zip(url))
+                case let .urlPrefilled(urlString):
+                    AddPluginSheet(initialURLString: urlString)
                 }
             }
             .confirmationDialog(
@@ -125,6 +149,15 @@
             coordinator.agentPluginList().first { $0.id == id }?.name ?? id
         }
 
+        private func restartText(_ notice: PluginRestartNotice) -> String {
+            // needsAppRestart == false ⇒ the sidecar was hot-swapped while no
+            // sessions were active, so there is nothing to tell the user to
+            // restart — just report the update.
+            notice.needsAppRestart
+                ? "\(notice.displayName) updated to \(notice.newVersion) — restart Gallager and your \(notice.displayName) sessions"
+                : "\(notice.displayName) updated to \(notice.newVersion)"
+        }
+
         /// Present an open panel for a local `.zip` bundle; on selection, trigger
         /// the trust + install sheet for that zip.
         @MainActor
@@ -160,11 +193,13 @@
     private enum AddPluginPresentation: Identifiable {
         case url
         case zip(URL)
+        case urlPrefilled(String)
 
         var id: String {
             switch self {
             case .url: "url"
             case let .zip(url): "zip:\(url.path)"
+            case let .urlPrefilled(string): "url:\(string)"
             }
         }
     }
@@ -180,6 +215,9 @@
         /// confirmation dialog and selection reset, since removal mutates the
         /// outer `selectedAgentID`.
         let onRemove: () -> Void
+        /// Invoked from the source-changed "Review…" button with the plugin's
+        /// manifest URL; the parent presents the trust sheet prefilled.
+        let onReviewUpdate: (URL) -> Void
 
         @Environment(AppCoordinator.self) private var coordinator
 
@@ -338,6 +376,45 @@
                     }
                 }
 
+                // Updates (URL-installed plugins only — bundled and
+                // folder-dropped plugins have no update source)
+                if let updateManager = coordinator.pluginUpdateManager,
+                   updateManager.isUpdatable(pluginID) {
+                    Section("Updates") {
+                        Toggle(
+                            "Check for updates automatically",
+                            isOn: Binding(
+                                get: { updateManager.autoUpdateEnabled(pluginID) },
+                                set: { updateManager.setAutoUpdate(pluginID, enabled: $0) }
+                            )
+                        )
+                        .accessibilityIdentifier("agentAutoUpdate-\(pluginID)")
+
+                        HStack(spacing: 8) {
+                            Button("Check Now") {
+                                updateManager.checkNow(pluginID)
+                            }
+                            .disabled(updateManager.inlineStatus[pluginID] == .checking)
+                            .accessibilityIdentifier("agentCheckUpdates-\(pluginID)")
+
+                            if updateManager.inlineStatus[pluginID] == .checking {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+
+                            Spacer()
+
+                            if let lastCheck = updateManager.lastCheckDate {
+                                Text("Last checked \(lastCheck, format: .relative(presentation: .named))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        updateStatusRow(updateManager)
+                    }
+                }
+
                 // Config folders
                 Section {
                     // Default root row (not removable)
@@ -409,6 +486,49 @@
 
         private var agentDisplayName: String {
             coordinator.agentPluginList().first { $0.id == pluginID }?.name ?? pluginID
+        }
+
+        @ViewBuilder
+        private func updateStatusRow(_ updateManager: PluginUpdateManager) -> some View {
+            switch updateManager.inlineStatus[pluginID] {
+            case .upToDate:
+                Text("Up to date")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("agentUpdateStatus-\(pluginID)")
+            case let .updated(version, needsAppRestart):
+                Text(
+                    needsAppRestart
+                        ? "Updated to \(version) — restart Gallager and your \(agentDisplayName) sessions"
+                        : "Updated to \(version)"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("agentUpdateStatus-\(pluginID)")
+            case let .updateAvailableNewSource(version):
+                HStack(spacing: 8) {
+                    Label(
+                        "Update \(version) is served from a new source",
+                        symbol: .exclamationmarkTriangle
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    Button("Review…") {
+                        if let url = updateManager.manifestURL(pluginID) {
+                            onReviewUpdate(url)
+                        }
+                    }
+                    .accessibilityIdentifier("agentReviewUpdate-\(pluginID)")
+                }
+                .accessibilityIdentifier("agentUpdateStatus-\(pluginID)")
+            case let .failed(message):
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("agentUpdateStatus-\(pluginID)")
+            case .checking, nil:
+                EmptyView()
+            }
         }
 
         /// Help text for the Apple-Intelligence completion-check toggle. Built

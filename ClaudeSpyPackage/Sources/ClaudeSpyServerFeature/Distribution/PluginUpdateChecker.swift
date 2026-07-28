@@ -52,46 +52,59 @@
             _ entries: [PluginRegistryEntry],
             session: any URLSessionProtocol
         ) async -> [PluginUpdate] {
+            await checkDetailed(entries, session: session).updates
+        }
+
+        /// Like `check`, but also reports whether at least one manifest fetch
+        /// actually completed. From `check` alone, a pass where every fetch
+        /// failed (offline, DNS down) is indistinguishable from "everything is
+        /// up to date" — callers that stamp a last-checked timestamp need the
+        /// difference.
+        public static func checkDetailed(
+            _ entries: [PluginRegistryEntry],
+            session: any URLSessionProtocol
+        ) async -> (updates: [PluginUpdate], anyFetchSucceeded: Bool) {
             var updates: [PluginUpdate] = []
+            var anyFetchSucceeded = false
 
             for entry in entries {
-                // Only check URL-installed entries that have a manifest URL.
-                guard entry.source == .url, let manifestURL = entry.manifestURL else {
-                    continue
-                }
-
-                // Fetch the remote manifest. Skip on any error (best-effort).
-                let fetched: PluginManifest
+                // Mirror checkOne's own eligibility guard so a skipped entry
+                // (bundled/folder source) doesn't count as a successful fetch.
+                guard entry.source == .url, entry.manifestURL != nil else { continue }
                 do {
-                    (fetched, _) = try await PluginInstaller.fetchManifest(manifestURL, session: session)
+                    if let update = try await checkOne(entry, session: session) {
+                        updates.append(update)
+                    }
+                    anyFetchSucceeded = true
                 } catch {
                     continue
                 }
-
-                // Compare versions. A newer version is any string that differs and
-                // sorts after the current one under semantic-version ordering
-                // (simple string comparison is acceptable per the brief).
-                guard isNewer(fetched.version, than: entry.version) else {
-                    continue
-                }
-
-                // Check whether the bundle host changed.
-                let sourceChanged = bundleHostChanged(
-                    existingBundleURL: entry.bundleURL,
-                    fetchedBundleURL: fetched.bundleURL
-                )
-
-                updates.append(
-                    PluginUpdate(
-                        id: entry.id,
-                        currentVersion: entry.version,
-                        newVersion: fetched.version,
-                        sourceChanged: sourceChanged
-                    )
-                )
             }
 
-            return updates
+            return (updates, anyFetchSucceeded)
+        }
+
+        /// Check a single entry, propagating fetch/decode errors (the manual
+        /// Check Now path surfaces them inline; the batch `check` stays
+        /// best-effort). Returns nil for non-URL entries and when already up to
+        /// date.
+        public static func checkOne(
+            _ entry: PluginRegistryEntry,
+            session: any URLSessionProtocol
+        ) async throws -> PluginUpdate? {
+            guard entry.source == .url, let manifestURL = entry.manifestURL else { return nil }
+            let (fetched, _) = try await PluginInstaller.fetchManifest(manifestURL, session: session)
+            guard isNewer(fetched.version, than: entry.version) else { return nil }
+            let sourceChanged = bundleHostChanged(
+                existingBundleURL: entry.bundleURL,
+                fetchedBundleURL: fetched.bundleURL
+            )
+            return PluginUpdate(
+                id: entry.id,
+                currentVersion: entry.version,
+                newVersion: fetched.version,
+                sourceChanged: sourceChanged
+            )
         }
 
         // MARK: - Version comparison
