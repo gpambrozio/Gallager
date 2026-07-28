@@ -70,6 +70,8 @@ v17.1.8):
 | `agent_end`, `stopReason: aborted` (Esc) | `doneWorking("Interrupted")` + notification |
 | `tool_approval_requested` | `awaitingPermission` form (see below) |
 | `tool_approval_resolved` | `working` (form cleared; the turn continues either way) |
+| `tool_execution_start` for the `ask` tool | `awaitingReplies` form (see below) |
+| `tool_execution_end` for the `ask` tool | `working` (form cleared) |
 | `session_shutdown` | `sessionEnded` (session removed, keyed by pane) |
 
 The `agent_end` summary is the last assistant message's visible text (trimmed
@@ -98,8 +100,39 @@ forwards `tool_approval_requested` and the sidecar opens an
 - No "always allow" suggestion — omp's dialog has no such option.
 
 If the user answers in the TUI instead, `tool_approval_resolved` clears the
-form. Question (`ask`-tool) prompts and plan approvals have no extension event
-surface in omp today, so no `awaitingReplies`/`awaitingPlanApproval` forms.
+form.
+
+## Ask-tool question forms
+
+omp's `ask` tool blocks the turn on an interactive question dialog (one tab
+per question, options plus an "Other (type your own)" row, a Submit tab when
+there is more than one question or any multi-select). It has no dedicated
+extension event, but the observability events
+`tool_execution_start`/`tool_execution_end` bracket exactly the blocking
+window and carry the full `questions` payload in `args` — so the bridge
+forwards those and the sidecar raises an `awaitingReplies` form on the Mac/iOS
+viewer (with options, descriptions, previews, multi-select, and free text),
+plus a "Question: …" notification/push.
+
+Answers are **keystrokes** into the rich ask dialog (verified against
+v17.1.8's `ask-dialog.ts`):
+
+- The cursor starts on the `recommended` option and Up/Down **clamp** at the
+  edges (no wrap), so the sidecar first normalizes with Up × rowCount, then
+  navigates Down to the target row deterministically.
+- Single-select: Enter picks and auto-advances (a lone single question submits
+  outright). Multi-select: Space toggles each pick, then Right advances.
+- Free text ("Other") opens omp's prompt editor: Enter, a settle delay, the
+  text, Enter.
+- Multi-question / multi-select dialogs are confirmed with a final Enter on
+  the Submit tab.
+
+The original questions ride the sidecar's pending map (keyed by `toolCallId`,
+which is the form's `requestID`) so `deliver_response` can translate Gallager
+option ids (`q<i>-o<j>`) back into row navigation. If the user answers in the
+TUI instead — or omp's ask **timeout** auto-selects the recommended option —
+`tool_execution_end` clears the form. Plan approvals have no event surface in
+omp, so no `awaitingPlanApproval` forms.
 
 ## Telemetry (token / cost / latency meter)
 
@@ -174,7 +207,7 @@ The plugin uses Gallager's generic sidecar settings:
 ## Test
 
 ```bash
-python3 tests/test_sidecar.py     # 39 tests: mapping, approval forms, keystrokes, install, projects, settings
+python3 tests/test_sidecar.py     # 48 tests: mapping, approval + ask forms, keystrokes, install, projects, settings
 ```
 
 For a live smoke test of the bridge without Gallager, load it explicitly and
@@ -214,9 +247,13 @@ plugins/omp/
   reconciles (graceful quit paths are covered).
 - The baked OTLP endpoint goes stale if the receiver later binds a different
   port (re-run Install to re-bake).
-- Approval keystrokes assume omp's default keybindings (`tui.select.*`:
-  arrows + Enter). A user who re-bound those keys would need to answer in the
-  TUI (the form still clears via `tool_approval_resolved`).
+- Approval and ask keystrokes assume omp's default keybindings (arrows,
+  Space, Enter, Tab). A user who re-bound those keys would need to answer in
+  the TUI (the form still clears via `tool_approval_resolved` /
+  `tool_execution_end`).
+- If the user had a non-empty prompt draft when the ask dialog opened, omp's
+  input guard routes keys to the draft editor until it's cleared — injected
+  answers would land there instead. Answer in the TUI in that case.
 - `omp --profile <name>` keeps state under `~/.omp/profiles/<name>/agent/` —
   the install and project scan only cover the default profile.
 - Event names and shapes confirmed against omp v17.1.8 (can1357/oh-my-pi).

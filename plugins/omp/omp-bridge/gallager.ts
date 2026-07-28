@@ -150,6 +150,43 @@ function summarize(messages: any[] | undefined): string | undefined {
   return undefined
 }
 
+/** Trim helper for forwarded ask-question payloads (labels stay readable, a
+ *  runaway preview can't bloat the ingress frame). */
+function trim(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string" || !value) return undefined
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/** The `questions` array of an ask-tool call, compacted for the ingress frame.
+ *  Shape mirrors omp's ask schema: {id, question, header?, options[{label,
+ *  description?, preview?}], multi?, recommended?}. Returns undefined when the
+ *  args don't look like an ask payload (defensive against schema drift). */
+function compactAskQuestions(args: any): any[] | undefined {
+  try {
+    const questions = args?.questions
+    if (!Array.isArray(questions) || questions.length === 0) return undefined
+    const out: any[] = []
+    for (const q of questions) {
+      const options = Array.isArray(q?.options) ? q.options : []
+      out.push({
+        id: trim(q?.id, 100),
+        question: trim(q?.question, 1000),
+        header: trim(q?.header, 100),
+        multi: !!q?.multi,
+        recommended: typeof q?.recommended === "number" ? q.recommended : undefined,
+        options: options.map((o: any) => ({
+          label: trim(o?.label, 300),
+          description: trim(o?.description, 500),
+          preview: trim(o?.preview, 2000),
+        })),
+      })
+    }
+    return out
+  } catch {
+    return undefined
+  }
+}
+
 /** A one-line description of a tool call's input, for the approval form body. */
 function describeToolInput(toolName: string, input: any): string | undefined {
   try {
@@ -418,6 +455,43 @@ export default function GallagerOmpBridge(omp: ExtensionAPI) {
           toolCallId: event?.toolCallId,
           approved: !!event?.approved,
         },
+        contextFor(ctx),
+      )
+    } catch {}
+  })
+
+  // The ask tool blocks the turn on an interactive question dialog with NO
+  // approval/extension event of its own — but the observability events
+  // tool_execution_start/end bracket exactly the blocking window and carry the
+  // full questions payload in `args`. Forward them so the sidecar can raise an
+  // awaitingReplies form (answered remotely by keystroke injection) and clear
+  // it when the dialog resolves (locally, remotely, or by omp's ask timeout).
+  omp.on("tool_execution_start", async (event: any, ctx: any) => {
+    try {
+      if (!isMainSession(ctx)) return
+      if (event?.toolName !== "ask") return
+      const questions = compactAskQuestions(event?.args)
+      if (!questions) return
+      debug(`ask_started call=${event?.toolCallId} questions=${questions.length}`)
+      forward(
+        {
+          type: "ask_started",
+          sessionId: sessionIdOf(ctx),
+          toolCallId: event?.toolCallId,
+          questions,
+        },
+        contextFor(ctx),
+      )
+    } catch {}
+  })
+
+  omp.on("tool_execution_end", async (event: any, ctx: any) => {
+    try {
+      if (!isMainSession(ctx)) return
+      if (event?.toolName !== "ask") return
+      debug(`ask_ended call=${event?.toolCallId}`)
+      forward(
+        { type: "ask_ended", sessionId: sessionIdOf(ctx), toolCallId: event?.toolCallId },
         contextFor(ctx),
       )
     } catch {}

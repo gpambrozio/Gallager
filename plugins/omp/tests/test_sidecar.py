@@ -305,6 +305,142 @@ class ApprovalFormTests(unittest.TestCase):
         self.assertEqual(keys, [])
 
 
+class AskFormTests(unittest.TestCase):
+    """ask_started/ask_ended → awaitingReplies → deliver_response keystrokes.
+    Rich-dialog layout (per-question tabs + Submit tab when >1 question or any
+    multi; options + an Other row; clamped cursor starting on `recommended`)
+    verified against omp v17.1.8's ask-dialog.ts."""
+
+    def setUp(self):
+        self.sc = Sidecar()
+        self.sc.request("initialize", {})
+
+    def tearDown(self):
+        self.sc.close()
+
+    def evt(self, etype, extra=None):
+        payload = {"type": etype, "sessionId": SESSION}
+        if extra:
+            payload.update(extra)
+        return self.sc.translate(payload, CTX)
+
+    def start_ask(self, questions, tool_call_id="ask-1"):
+        return self.evt("ask_started", {"toolCallId": tool_call_id, "questions": questions})
+
+    def deliver(self, answers, request_id="ask-1"):
+        resp, keys = self.sc.request_capture("deliver_response", {
+            "sessionID": SESSION, "requestID": request_id,
+            "response": {"askUserQuestion": {"answers": answers}},
+        }, "send_keys")
+        self.assertEqual(resp["result"], {})
+        return keys
+
+    @staticmethod
+    def real_keys(captured):
+        """The emitted keys with pacing/explicit delays stripped."""
+        return [k for k in captured[0]["keys"] if "delay" not in k]
+
+    def q(self, n_options, multi=False, question="Which?", recommended=None):
+        opts = [{"label": "opt %d" % j, "description": "d%d" % j} for j in range(n_options)]
+        out = {"id": "x", "question": question, "options": opts, "multi": multi}
+        if recommended is not None:
+            out["recommended"] = recommended
+        return out
+
+    def test_ask_started_opens_replies_form(self):
+        r = self.start_ask([{
+            "id": "pick", "question": "Which approach?", "header": "Approach",
+            "multi": False, "recommended": 1,
+            "options": [
+                {"label": "Rewrite", "description": "from scratch", "preview": "code"},
+                {"label": "Patch"},
+            ],
+        }])
+        awaiting = r["state"]["awaitingReplies"]
+        self.assertEqual(awaiting["requestID"], "ask-1")
+        qs = awaiting["_0"]["questions"]
+        self.assertEqual(len(qs), 1)
+        self.assertEqual(qs[0]["id"], "q0")
+        self.assertEqual(qs[0]["question"], "Which approach?")
+        self.assertEqual(qs[0]["header"], "Approach")
+        self.assertFalse(qs[0]["multiSelect"])
+        self.assertTrue(qs[0]["allowsFreeText"])
+        self.assertEqual(qs[0]["options"][0]["id"], "q0-o0")
+        self.assertEqual(qs[0]["options"][0]["label"], "Rewrite")
+        self.assertEqual(qs[0]["options"][0]["preview"], "code")
+        self.assertEqual(qs[0]["options"][1]["description"], "")
+        self.assertEqual(r["notification"]["title"], "omp")
+        self.assertIn("Which approach?", r["notification"]["body"])
+
+    def test_ask_header_falls_back_to_numbered_chip(self):
+        r = self.start_ask([self.q(2), self.q(2)])
+        qs = r["state"]["awaitingReplies"]["_0"]["questions"]
+        self.assertEqual([x["header"] for x in qs], ["Question 1", "Question 2"])
+
+    def test_ask_started_without_questions_is_ignored(self):
+        self.assertIsNone(self.evt("ask_started", {"toolCallId": "ask-1", "questions": []}))
+
+    def test_ask_ended_returns_to_working(self):
+        self.start_ask([self.q(2)])
+        r = self.evt("ask_ended", {"toolCallId": "ask-1"})
+        self.assertEqual(r["state"], {"working": {}})
+
+    def test_single_select_answer_keys(self):
+        # 3 options → 4 rows with Other. Lone single-select question has no
+        # Submit tab: normalize Up×4, Down to row 1, Enter picks + submits.
+        self.start_ask([self.q(3)])
+        keys = self.deliver([{"questionID": "q0", "selectedOptionIDs": ["q0-o1"], "freeText": None}])
+        self.assertEqual(self.real_keys(keys), [
+            {"up": {}}, {"up": {}}, {"up": {}}, {"up": {}},
+            {"down": {}}, {"enter": {}},
+        ])
+
+    def test_single_free_text_keys(self):
+        # Free text → navigate to the Other row (index 3 of 4), Enter opens the
+        # prompt editor, type + Enter accepts (and auto-advances/submits).
+        self.start_ask([self.q(3)])
+        keys = self.deliver([{"questionID": "q0", "selectedOptionIDs": [], "freeText": "my own"}])
+        self.assertEqual(self.real_keys(keys), [
+            {"up": {}}, {"up": {}}, {"up": {}}, {"up": {}},
+            {"down": {}}, {"down": {}}, {"down": {}},
+            {"enter": {}}, {"text": {"_0": "my own"}}, {"enter": {}},
+        ])
+
+    def test_multi_select_keys(self):
+        # A multi question forces the Submit tab even when it's the only
+        # question: Space toggles each pick, Right advances, Enter submits.
+        self.start_ask([self.q(3, multi=True)])
+        keys = self.deliver([{"questionID": "q0", "selectedOptionIDs": ["q0-o0", "q0-o2"], "freeText": None}])
+        self.assertEqual(self.real_keys(keys), [
+            {"up": {}}, {"up": {}}, {"up": {}}, {"up": {}},
+            {"space": {}},
+            {"down": {}}, {"down": {}}, {"space": {}},
+            {"right": {}}, {"enter": {}},
+        ])
+
+    def test_two_questions_keys(self):
+        # q0 single-select auto-advances to q1's tab; q1 multi needs an explicit
+        # Right onto the Submit tab; final Enter submits.
+        self.start_ask([self.q(2), self.q(2, multi=True)])
+        keys = self.deliver([
+            {"questionID": "q0", "selectedOptionIDs": ["q0-o1"], "freeText": None},
+            {"questionID": "q1", "selectedOptionIDs": ["q1-o0"], "freeText": None},
+        ])
+        self.assertEqual(self.real_keys(keys), [
+            {"up": {}}, {"up": {}}, {"up": {}},
+            {"down": {}}, {"enter": {}},
+            {"up": {}}, {"up": {}}, {"up": {}},
+            {"space": {}},
+            {"right": {}}, {"enter": {}},
+        ])
+
+    def test_answer_after_ask_ended_sends_no_keys(self):
+        self.start_ask([self.q(2)])
+        self.evt("ask_ended", {"toolCallId": "ask-1"})
+        keys = self.deliver([{"questionID": "q0", "selectedOptionIDs": ["q0-o0"], "freeText": None}])
+        self.assertEqual(keys, [])
+
+
 class LaunchAndSettingsTests(unittest.TestCase):
     def setUp(self):
         self.sc = Sidecar()

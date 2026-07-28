@@ -155,16 +155,22 @@ def state_awaiting_permission(request, request_id):
     return {"awaitingPermission": {"_0": request, "requestID": request_id}}
 
 
+def state_awaiting_replies(request, request_id):
+    return {"awaitingReplies": {"_0": request, "requestID": request_id}}
+
+
 # ---------------------------------------------------------------------------
-# Pending approval forms. omp's approval dialog blocks the agent loop; the
-# form's requestID is the toolCallId (unique + stable per prompt, so a re-sent
-# event collapses to one form). PENDING lets a later deliver_response find the
-# session to key its keystrokes by, and per-session tracking lets lifecycle
-# events sweep stale entries (a form the TUI already resolved locally is
-# cleared by tool_approval_resolved; a session that ends mid-prompt must not
+# Pending forms (approval prompts AND ask-tool question dialogs). Both block
+# the agent loop; the form's requestID is the toolCallId (unique + stable per
+# prompt, so a re-sent event collapses to one form). PENDING lets a later
+# deliver_response find the session to key its keystrokes by — and, for ask
+# forms, the original questions (option counts, multi flags) needed to build
+# the keystroke navigation. Per-session tracking lets lifecycle events sweep
+# stale entries (a form the TUI already resolved locally is cleared by
+# tool_approval_resolved / ask_ended; a session that ends mid-prompt must not
 # leak its mapping).
 # ---------------------------------------------------------------------------
-PENDING = {}  # request_id → session_id
+PENDING = {}  # request_id → {"session_id": …, "questions": […] | None}
 SESSION_PENDING = {}  # session_id → set(request_id)
 
 # Current plugin settings (snake_case, as delivered by initialize + apply_settings):
@@ -179,16 +185,16 @@ SETTINGS = {}
 OTLP_ENDPOINT = ""
 
 
-def _record_pending(request_id, session_id):
-    PENDING[request_id] = session_id
+def _record_pending(request_id, session_id, questions=None):
+    PENDING[request_id] = {"session_id": session_id, "questions": questions}
     SESSION_PENDING.setdefault(session_id, set()).add(request_id)
 
 
 def _drop_pending(request_id):
-    session_id = PENDING.pop(request_id, None)
-    if session_id is not None:
-        SESSION_PENDING.get(session_id, set()).discard(request_id)
-    return session_id
+    mapping = PENDING.pop(request_id, None)
+    if mapping is not None:
+        SESSION_PENDING.get(mapping["session_id"], set()).discard(request_id)
+    return mapping
 
 
 def _clear_session_pending(session_id):
@@ -248,6 +254,36 @@ def _build_permission(payload):
     return request
 
 
+def _build_ask_request(questions):
+    """Map an ask-tool `questions` payload onto an AskUserQuestionRequest.
+
+    Option ids are "q<i>-o<j>" so deliver_response can map an answer's
+    selectedOptionIDs back to row indices for keystroke navigation.
+    allowsFreeText is always True — omp's dialog appends an "Other (type your
+    own)" row to every question. `header` is required by the form shape; omp's
+    is optional, so fall back to a numbered chip.
+    """
+    out = []
+    for qi, q in enumerate(questions or []):
+        options = []
+        for oj, opt in enumerate(q.get("options") or []):
+            options.append({
+                "id": "q%d-o%d" % (qi, oj),
+                "label": opt.get("label") or "Option %d" % (oj + 1),
+                "description": opt.get("description") or "",
+                "preview": opt.get("preview"),
+            })
+        out.append({
+            "id": "q%d" % qi,
+            "question": q.get("question") or "",
+            "header": q.get("header") or "Question %d" % (qi + 1),
+            "options": options,
+            "multiSelect": bool(q.get("multi")),
+            "allowsFreeText": True,
+        })
+    return {"questions": out}
+
+
 def handle_translate_event(req_id, params):
     context = params.get("context") or {}
     payload = params.get("payload") or {}
@@ -282,7 +318,35 @@ def handle_translate_event(req_id, params):
     elif etype == "tool_approval_requested":
         request_id = payload.get("toolCallId") or ("%s:approval" % session_id)
         _record_pending(request_id, session_id)
-        state = state_awaiting_permission(_build_permission(payload), request_id)
+        request = _build_permission(payload)
+        state = state_awaiting_permission(request, request_id)
+        notification = {"title": "omp", "body": "Permission required: %s" % request["title"]}
+
+    elif etype == "ask_started":
+        # The ask tool is blocking the turn on its question dialog. Raise an
+        # awaitingReplies form; the original questions ride PENDING so a later
+        # deliver_response can translate option ids into keystroke navigation.
+        questions = payload.get("questions") or []
+        if not questions:
+            respond(req_id, None)
+            return
+        request_id = payload.get("toolCallId") or ("%s:ask" % session_id)
+        _record_pending(request_id, session_id, questions=questions)
+        state = state_awaiting_replies(_build_ask_request(questions), request_id)
+        first = (questions[0].get("question") or "").strip()
+        body = ("Question: %s" % first) if first else "omp has a question"
+        if len(body) > 120:
+            body = body[:119] + "…"
+        notification = {"title": "omp", "body": body}
+
+    elif etype == "ask_ended":
+        # Dialog resolved — locally in the TUI, remotely via keystrokes, or by
+        # omp's ask timeout auto-selecting the recommended option. Either way
+        # the turn continues, so the form clears back to working.
+        request_id = payload.get("toolCallId")
+        if request_id:
+            _drop_pending(request_id)
+        state = state_working()
 
     elif etype == "tool_approval_resolved":
         # Answered (in the TUI or via Gallager) — the turn continues either way
@@ -336,11 +400,12 @@ def handle_deliver_response(req_id, params):
         session_id = (params or {}).get("sessionID")
         request_id = (params or {}).get("requestID")
         response = (params or {}).get("response") or {}
-        if request_id:
-            _drop_pending(request_id)
+        mapping = _drop_pending(request_id) if request_id else None
 
         if "permission" in response:
             _answer_permission(response["permission"], session_id)
+        elif "askUserQuestion" in response:
+            _answer_questions(response["askUserQuestion"], mapping, session_id)
         elif "prompt" in response:
             _send_prompt(session_id, response["prompt"].get("text") or "")
         elif "replyAfterStop" in response:
@@ -369,6 +434,83 @@ def _answer_permission(perm, session_id):
         keys = [{"down": {}}, {"enter": {}}]
     else:
         return
+    _emit_keys(session_id, keys)
+
+
+def _answer_questions(answers_obj, mapping, session_id):
+    """Drive omp's rich ask dialog by keystrokes (verified vs v17.1.8's
+    ask-dialog.ts).
+
+    Dialog model: one tab per question (plus a final Submit tab whenever there
+    is more than one question OR any multi question). Each question tab lists
+    its options followed by an "Other (type your own)" row; the cursor starts
+    on the `recommended` option (else row 0) and Up/Down CLAMP at the edges (no
+    wrap) — so Up × rowCount deterministically normalizes the cursor to row 0
+    before navigating down to a target row. Single-select: Enter picks and
+    auto-advances to the next tab (a lone single question submits outright).
+    Multi-select: Space toggles (Enter would too), and the answer is confirmed
+    from the Submit tab. "Other" opens a prompt-style editor: type + Enter
+    (single-select then auto-advances; multi stays on the tab). Tab/→ switches
+    tabs; Enter on the Submit tab submits.
+    """
+    questions = (mapping or {}).get("questions") or []
+    if not questions:
+        log("warn", "cannot answer ask form: no pending question mapping")
+        return
+    by_qid = {a.get("questionID"): a for a in (answers_obj.get("answers") or [])}
+    has_submit_tab = len(questions) > 1 or any(q.get("multi") for q in questions)
+
+    keys = []
+    for qi, q in enumerate(questions):
+        answer = by_qid.get("q%d" % qi) or {}
+        options = q.get("options") or []
+        rows = len(options) + 1  # + the "Other (type your own)" row
+        other_row = len(options)
+        multi = bool(q.get("multi"))
+        free = answer.get("freeText")
+        chosen = []
+        for oid in (answer.get("selectedOptionIDs") or []):
+            try:  # "q{qi}-o{oj}" → the option's 0-based row index
+                idx = int(oid.rsplit("-o", 1)[1])
+            except (ValueError, IndexError):
+                continue
+            if 0 <= idx < len(options):
+                chosen.append(idx)
+        chosen = sorted(set(chosen))
+
+        def type_free_text(target_row, cursor):
+            # Navigate to "Other", Enter opens the prompt editor; give it time
+            # to take focus, then type + Enter to accept.
+            steps = [{"down": {}}] * (target_row - cursor)
+            steps += [{"enter": {}}, _key_delay(500), _key_text(free), {"enter": {}}]
+            return steps
+
+        # Normalize the cursor to row 0 (initial position is `recommended`,
+        # unknown drift is possible if the user touched the dialog — clamping
+        # makes Up-spam idempotent).
+        keys += [{"up": {}}] * rows
+
+        if multi:
+            cursor = 0
+            for idx in chosen:
+                keys += [{"down": {}}] * (idx - cursor)
+                keys.append({"space": {}})  # toggle (multi never auto-advances)
+                cursor = idx
+            if isinstance(free, str) and free.strip():
+                keys += type_free_text(other_row, cursor)
+            keys.append({"right": {}})  # advance to the next tab / Submit
+        else:
+            if isinstance(free, str) and free.strip():
+                keys += type_free_text(other_row, 0)  # picks + auto-advances
+            elif chosen:
+                keys += [{"down": {}}] * chosen[0]
+                keys.append({"enter": {}})  # picks + auto-advances
+            elif has_submit_tab:
+                keys.append({"right": {}})  # unanswered — just move on
+
+    if has_submit_tab:
+        keys.append({"enter": {}})  # confirm from the Submit tab
+
     _emit_keys(session_id, keys)
 
 
