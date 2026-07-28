@@ -403,7 +403,7 @@ def handle_deliver_response(req_id, params):
         mapping = _drop_pending(request_id) if request_id else None
 
         if "permission" in response:
-            _answer_permission(response["permission"], session_id)
+            _answer_permission(response["permission"], mapping, session_id)
         elif "askUserQuestion" in response:
             _answer_questions(response["askUserQuestion"], mapping, session_id)
         elif "prompt" in response:
@@ -417,7 +417,13 @@ def handle_deliver_response(req_id, params):
         respond(req_id, {})
 
 
-def _answer_permission(perm, session_id):
+def _answer_permission(perm, mapping, session_id):
+    # A gone mapping means the dialog already resolved (answered in the TUI, or
+    # swept by agent_end/session_shutdown) — injecting keystrokes now would land
+    # in whatever has focus instead, e.g. deny feedback typed into the prompt.
+    if mapping is None:
+        log("warn", "cannot answer approval form: no pending approval mapping")
+        return
     decision = perm.get("decision") or {}
     if "allow" in decision:
         keys = [{"enter": {}}]  # Approve is pre-selected

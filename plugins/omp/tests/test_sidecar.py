@@ -295,6 +295,15 @@ class ApprovalFormTests(unittest.TestCase):
             {"text": {"_0": "use tabs instead"}}, {"enter": {}},
         ])
 
+    def test_allow_after_local_resolution_sends_nothing(self):
+        # The TUI answered first (tool_approval_resolved cleared the pending
+        # entry) — a raced Gallager answer must not inject keystrokes into a
+        # pane whose dialog is gone.
+        self.request_approval()
+        self.evt("tool_approval_resolved", {"toolCallId": "call-1", "approved": True})
+        keys = self.deliver({"permission": {"decision": "allow", "appliedSuggestionID": None}})
+        self.assertEqual(keys, [])
+
     def test_prompt_response_types_text(self):
         keys = self.deliver({"prompt": {"text": "keep going"}})
         real = [k for k in keys[0]["keys"] if "delay" not in k]
