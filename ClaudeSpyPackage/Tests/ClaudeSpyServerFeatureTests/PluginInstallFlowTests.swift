@@ -303,6 +303,14 @@
             default:
                 Issue.record("Unexpected install result: \(result)")
             }
+
+            // Teardown: a successful install left the sidecar subprocess running
+            // (a `sleep`-looping shell child). Shut it down so it doesn't outlive
+            // the test — one orphaned process per run otherwise (issue #686). This
+            // runs before the `defer` above removes the temp tree the child's cwd
+            // lives in. `disable` is a safe no-op when enable failed: the core never
+            // entered `active`, and `enable` already shut down any child it spawned.
+            await registry.disable(id)
         }
 
         // MARK: Remove

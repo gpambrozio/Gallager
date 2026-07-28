@@ -192,6 +192,13 @@
                 active[id] = core
                 failedInit[id] = nil
             } catch {
+                // A failed `initialize` may have already spawned the sidecar
+                // subprocess — `SidecarSupervisor.startTransport` runs *before* the
+                // initialize RPC that threw. The core never enters `active`, so
+                // nothing downstream would ever `disable` it, orphaning the child
+                // process. Shut the core down here so a failed enable never leaks a
+                // subprocess. `shutdown()` is nil-safe for cores that never spawned.
+                await core.shutdown()
                 failedInit[id] = String(describing: error)
                 logger.error("Plugin '\(id)' failed to initialize: \(error)")
             }
