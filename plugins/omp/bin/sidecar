@@ -1,0 +1,802 @@
+#!/usr/bin/env python3
+"""
+Gallager sidecar plugin for omp (oh-my-pi, https://omp.sh — can1357's
+coding-first fork of pi, shipped as a native binary).
+
+A sidecar is a long-lived child process Gallager spawns once and talks to over
+stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
+turns omp's extension-bus events (forwarded by the companion `gallager.ts` omp
+extension → Gallager's ingress socket → here as `translate_event` calls) into the
+agent-blind `PluginEvent` shape Gallager understands.
+
+omp inherits pi's complete event bus but diverged in three ways that shape this
+file (all verified against omp v17.1.8):
+  - `session_start` fires only on the initial load; session REPLACEMENT (/new,
+    /resume, /fork, branch/tree jumps) has its own events, which the bridge
+    re-labels as session_start frames — so a session_start here never follows a
+    shutdown, and `session_shutdown` means process exit ONLY (no reason
+    filtering needed; every shutdown ends the Gallager session).
+  - `agent_end` carries `willContinue` for auto-retry continuations; the bridge
+    drops those, so every agent_end that arrives here is a real settle.
+  - omp HAS a tool-approval gate (`tools.approvalMode: always-ask|write`;
+    default yolo). The bridge forwards tool_approval_requested/resolved, mapped
+    here to an awaitingPermission form; answers are delivered by injecting
+    keystrokes into the pane (omp's dialog is an Approve/Deny select: Enter
+    approves, Down+Enter denies, and deny feedback is typed into the editor
+    afterwards as a steer message).
+
+Token telemetry rides the separate OTLP channel straight from the bridge
+(issue #617) and never passes through here.
+
+Casing reminder (the #1 footgun):
+  - plugin.json manifest .......... snake_case
+  - ingress *socket* frame ........ snake_case (plugin_id, context, payload)
+  - stdio *transport* (this file) . camelCase (pluginID, sessionID, tmuxPane, ...)
+
+IMPORTANT: stdout is the RPC channel. Never `print()` to stdout — it corrupts the
+frame stream. Use `log(...)` (Settings → View Logs) or write to stderr.
+
+Run requirements: Python 3.9+. No third-party packages.
+"""
+import json
+import os
+import sys
+
+PLUGIN_VERSION = "0.1.0"
+
+# Marker the bridge file carries; install_status greps for it to tell an
+# installed Gallager bridge from any other extension the user may have.
+BRIDGE_MARKER = "GallagerOmpBridge"
+
+
+# ---------------------------------------------------------------------------
+# Framing — read/write one Content-Length-framed JSON message.
+# ---------------------------------------------------------------------------
+def _read_exactly(n):
+    """Read exactly n bytes from stdin, or return None on EOF."""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sys.stdin.buffer.read(n - len(buf))
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def read_message():
+    """Block until one full message arrives. Returns the decoded dict, or None on EOF."""
+    header = b""
+    while b"\r\n\r\n" not in header:
+        ch = sys.stdin.buffer.read(1)
+        if not ch:
+            return None  # stdin closed → Gallager is gone
+        header += ch
+    length = 0
+    for line in header.split(b"\r\n"):
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1].strip())
+    body = _read_exactly(length) if length else b""
+    if body is None:
+        return None
+    return json.loads(body)
+
+
+def write_message(msg):
+    body = json.dumps(msg).encode("utf-8")
+    sys.stdout.buffer.write(b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+    sys.stdout.buffer.flush()
+
+
+def respond(req_id, result):
+    write_message({"id": req_id, "result": result})
+
+
+def fail(req_id, code, message):
+    write_message({"id": req_id, "error": {"code": code, "message": message}})
+
+
+def notify(method, params):
+    write_message({"method": method, "params": params})
+
+
+def log(level, message):
+    notify("log", {"level": level, "message": message})
+
+
+# ---------------------------------------------------------------------------
+# TmuxKey builders (for send_keys). Same auto-synthesized tagged-enum encoding
+# as AgentState: a single unlabeled associated value becomes "_0", so literal
+# text is {"text": {"_0": s}} — NOT {"text": s}. A malformed element makes the
+# host drop the ENTIRE keys array.
+# ---------------------------------------------------------------------------
+KEYSTROKE_PACE_MS = 300
+
+
+def _key_text(s):
+    return {"text": {"_0": s}}
+
+
+def _key_delay(ms):
+    return {"delay": {"_0": ms}}
+
+
+def _emit_keys(session_id, keys):
+    """Inject `keys` into the session's pane in ONE send_keys call, interleaving
+    `.delay` pacing between real keys so the host spaces them out. A single key
+    needs no pacing."""
+    if not keys:
+        return
+    if len(keys) > 1:
+        paced = []
+        for i, key in enumerate(keys):
+            if i > 0:
+                paced.append(_key_delay(KEYSTROKE_PACE_MS))
+            paced.append(key)
+        keys = paced
+    notify("send_keys", {"sessionID": session_id, "keys": keys})
+
+
+# ---------------------------------------------------------------------------
+# AgentState builders (the `state` field of a PluginEvent).
+# ---------------------------------------------------------------------------
+def state_working():
+    return {"working": {}}
+
+
+def state_done(summary=None):
+    return {"doneWorking": {"summary": summary}}
+
+
+def state_idle():
+    return {"idle": {}}
+
+
+def state_awaiting_permission(request, request_id):
+    return {"awaitingPermission": {"_0": request, "requestID": request_id}}
+
+
+def state_awaiting_replies(request, request_id):
+    return {"awaitingReplies": {"_0": request, "requestID": request_id}}
+
+
+# ---------------------------------------------------------------------------
+# Pending forms (approval prompts AND ask-tool question dialogs). Both block
+# the agent loop; the form's requestID is the toolCallId (unique + stable per
+# prompt, so a re-sent event collapses to one form). PENDING lets a later
+# deliver_response find the session to key its keystrokes by — and, for ask
+# forms, the original questions (option counts, multi flags) needed to build
+# the keystroke navigation. Per-session tracking lets lifecycle events sweep
+# stale entries (a form the TUI already resolved locally is cleared by
+# tool_approval_resolved / ask_ended; a session that ends mid-prompt must not
+# leak its mapping).
+# ---------------------------------------------------------------------------
+PENDING = {}  # request_id → {"session_id": …, "questions": […] | None}
+SESSION_PENDING = {}  # session_id → set(request_id)
+
+# Current plugin settings (snake_case, as delivered by initialize + apply_settings):
+# command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
+SETTINGS = {}
+
+# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
+# into the bridge at install so omp — which does not inherit Gallager's env —
+# can POST telemetry to it (issue #617). Empty when the receiver failed to
+# bind: the install then bakes an empty endpoint and telemetry stays off.
+OTLP_ENDPOINT = ""
+
+
+def _record_pending(request_id, session_id, questions=None):
+    PENDING[request_id] = {"session_id": session_id, "questions": questions}
+    SESSION_PENDING.setdefault(session_id, set()).add(request_id)
+
+
+def _drop_pending(request_id):
+    mapping = PENDING.pop(request_id, None)
+    if mapping is not None:
+        SESSION_PENDING.get(mapping["session_id"], set()).discard(request_id)
+    return mapping
+
+
+def _clear_session_pending(session_id):
+    for rid in list(SESSION_PENDING.get(session_id, set())):
+        PENDING.pop(rid, None)
+    SESSION_PENDING.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# omp bridge frame → PluginEvent mapping.
+# ---------------------------------------------------------------------------
+def _project_name(project_path):
+    if not project_path:
+        return None
+    return os.path.basename(project_path.rstrip("/")) or project_path
+
+
+def _done_state_and_notification(payload, project_path):
+    """agent_end → doneWorking + a notification tailored to how the turn ended."""
+    stop_reason = payload.get("stopReason")
+    summary = payload.get("summary")
+    if stop_reason == "error":
+        summary = payload.get("errorMessage") or summary or "omp hit an error"
+        body = summary
+    elif stop_reason == "aborted":
+        summary = summary or "Interrupted"
+        body = "Interrupted"
+    else:
+        name = _project_name(project_path)
+        body = ("Finished — %s" % name) if name else "Finished working"
+    return state_done(summary), {"title": "omp", "body": body}
+
+
+def _build_permission(payload):
+    """Map a tool_approval_requested frame onto an awaitingPermission state.
+
+    omp's dialog has exactly two options (Approve, pre-selected, and Deny) — no
+    "always allow" row — so no suggestions. Custom instructions ARE allowed:
+    deny feedback is typed into the editor after the Deny lands, arriving at the
+    model as a steer message. isAutoApprovable stays False — omp only prompts
+    when the user explicitly chose a non-yolo approvalMode, so Gallager's yolo
+    auto-approve must not override that choice.
+    """
+    tool_name = payload.get("toolName") or "tool"
+    detail = payload.get("detail")
+    reason = payload.get("reason")
+    description = detail or ""
+    if reason:
+        description = ("%s\n%s" % (description, reason)) if description else reason
+    request = {
+        "title": "Allow %s" % tool_name,
+        "description": description,
+        "isAutoApprovable": False,
+        "suggestions": [],
+        "allowsCustomInstructions": True,
+    }
+    return request
+
+
+def _build_ask_request(questions):
+    """Map an ask-tool `questions` payload onto an AskUserQuestionRequest.
+
+    Option ids are "q<i>-o<j>" so deliver_response can map an answer's
+    selectedOptionIDs back to row indices for keystroke navigation.
+    allowsFreeText is always True — omp's dialog appends an "Other (type your
+    own)" row to every question. `header` is required by the form shape; omp's
+    is optional, so fall back to a numbered chip.
+    """
+    out = []
+    for qi, q in enumerate(questions or []):
+        options = []
+        for oj, opt in enumerate(q.get("options") or []):
+            options.append({
+                "id": "q%d-o%d" % (qi, oj),
+                "label": opt.get("label") or "Option %d" % (oj + 1),
+                "description": opt.get("description") or "",
+                "preview": opt.get("preview"),
+            })
+        out.append({
+            "id": "q%d" % qi,
+            "question": q.get("question") or "",
+            "header": q.get("header") or "Question %d" % (qi + 1),
+            "options": options,
+            "multiSelect": bool(q.get("multi")),
+            "allowsFreeText": True,
+        })
+    return {"questions": out}
+
+
+def handle_translate_event(req_id, params):
+    context = params.get("context") or {}
+    payload = params.get("payload") or {}
+
+    tmux_pane = context.get("TMUX_PANE")
+    project_path = context.get("OMP_PROJECT_DIR")
+    plugin_id = params.get("pluginID")
+
+    etype = payload.get("type")
+    session_id = payload.get("sessionId") or tmux_pane or "unknown"
+
+    state = None
+    notification = None
+    app_actions = []
+
+    if etype == "session_start":
+        # Fires on initial load, and the bridge re-labels session_switch /
+        # session_branch / session_tree to it — always a fresh (or restored)
+        # idle session. Surfacing it stamps the pane↔session mapping and makes
+        # the sidebar row appear before the first turn.
+        _clear_session_pending(session_id)
+        state = state_idle()
+
+    elif etype == "agent_start":
+        state = state_working()
+
+    elif etype == "agent_end":
+        # The bridge drops willContinue continuations, so this is a real settle.
+        _clear_session_pending(session_id)
+        state, notification = _done_state_and_notification(payload, project_path)
+
+    elif etype == "tool_approval_requested":
+        request_id = payload.get("toolCallId") or ("%s:approval" % session_id)
+        _record_pending(request_id, session_id)
+        request = _build_permission(payload)
+        state = state_awaiting_permission(request, request_id)
+        notification = {"title": "omp", "body": "Permission required: %s" % request["title"]}
+
+    elif etype == "ask_started":
+        # The ask tool is blocking the turn on its question dialog. Raise an
+        # awaitingReplies form; the original questions ride PENDING so a later
+        # deliver_response can translate option ids into keystroke navigation.
+        questions = payload.get("questions") or []
+        if not questions:
+            respond(req_id, None)
+            return
+        request_id = payload.get("toolCallId") or ("%s:ask" % session_id)
+        _record_pending(request_id, session_id, questions=questions)
+        state = state_awaiting_replies(_build_ask_request(questions), request_id)
+        first = (questions[0].get("question") or "").strip()
+        body = ("Question: %s" % first) if first else "omp has a question"
+        if len(body) > 120:
+            body = body[:119] + "…"
+        notification = {"title": "omp", "body": body}
+
+    elif etype == "ask_ended":
+        # Dialog resolved — locally in the TUI, remotely via keystrokes, or by
+        # omp's ask timeout auto-selecting the recommended option. Either way
+        # the turn continues, so the form clears back to working.
+        request_id = payload.get("toolCallId")
+        if request_id:
+            _drop_pending(request_id)
+        state = state_working()
+
+    elif etype == "tool_approval_resolved":
+        # Answered (in the TUI or via Gallager) — the turn continues either way
+        # (a deny feeds the model an error and the loop keeps going), so the
+        # form clears back to working; agent_end settles it later.
+        request_id = payload.get("toolCallId")
+        if request_id:
+            _drop_pending(request_id)
+        state = state_working()
+
+    elif etype == "session_shutdown":
+        # omp fires this on process exit only (session replacement has its own
+        # events) — so unlike pi there is no reason filtering: every shutdown
+        # ends the Gallager session, keyed by the PANE id (the host ends
+        # sessions by pane).
+        _clear_session_pending(session_id)
+        if tmux_pane:
+            close_eligible = bool(SETTINGS.get("close_pane_on_session_end", False))
+            app_actions.append({
+                "sessionEnded": {"sessionID": tmux_pane, "closePaneEligible": close_eligible},
+            })
+
+    if state is None and notification is None and not app_actions:
+        respond(req_id, None)
+        return
+
+    # `appActions` is NON-optional in Swift's PluginEvent — its synthesized
+    # Decodable requires the key (the memberwise default is not used at decode).
+    # Omitting it makes the host's `decode(PluginEvent.self)` throw and silently
+    # drop the whole event, so the session state never updates. Always send it.
+    respond(req_id, {
+        "pluginID": plugin_id,
+        "sessionID": session_id,
+        "state": state,
+        "notification": notification,
+        "appActions": app_actions,
+        "tmuxPane": tmux_pane,
+        "projectPath": project_path,
+    })
+
+
+# ---------------------------------------------------------------------------
+# deliver_response — answer an open form by injecting keystrokes into the pane
+# (omp's approval dialog lives in its TUI; there is no reachable API surface).
+# Dialog layout verified against omp v17.1.8: `uiContext.select(prompt,
+# ["Approve", "Deny"])` — Approve pre-selected, Down moves to Deny, Enter
+# confirms, Escape cancels (a cancel counts as a deny).
+# ---------------------------------------------------------------------------
+def handle_deliver_response(req_id, params):
+    try:
+        session_id = (params or {}).get("sessionID")
+        request_id = (params or {}).get("requestID")
+        response = (params or {}).get("response") or {}
+        mapping = _drop_pending(request_id) if request_id else None
+
+        if "permission" in response:
+            _answer_permission(response["permission"], mapping, session_id)
+        elif "askUserQuestion" in response:
+            _answer_questions(response["askUserQuestion"], mapping, session_id)
+        elif "prompt" in response:
+            _send_prompt(session_id, response["prompt"].get("text") or "")
+        elif "replyAfterStop" in response:
+            _send_prompt(session_id, response["replyAfterStop"].get("text") or "")
+        # No question or plan-approval forms are ever emitted → other cases ignored.
+    except Exception as exc:  # never let a response crash the loop
+        sys.stderr.write("deliver_response error: %s\n" % exc)
+    finally:
+        respond(req_id, {})
+
+
+def _answer_permission(perm, mapping, session_id):
+    # A gone mapping means the dialog already resolved (answered in the TUI, or
+    # swept by agent_end/session_shutdown) — injecting keystrokes now would land
+    # in whatever has focus instead, e.g. deny feedback typed into the prompt.
+    if mapping is None:
+        log("warn", "cannot answer approval form: no pending approval mapping")
+        return
+    decision = perm.get("decision") or {}
+    if "allow" in decision:
+        keys = [{"enter": {}}]  # Approve is pre-selected
+    elif "denyWithFeedback" in decision:
+        # Deny, then type the feedback into the editor — omp delivers text typed
+        # mid-turn to the model as a steer message, which is exactly what the
+        # feedback is for. The extra delay lets the dialog close and the editor
+        # take focus before the text lands.
+        feedback = decision.get("denyWithFeedback")
+        keys = [{"down": {}}, {"enter": {}}]
+        if isinstance(feedback, str) and feedback.strip():
+            keys += [_key_delay(500), _key_text(feedback), {"enter": {}}]
+    elif "deny" in decision:
+        keys = [{"down": {}}, {"enter": {}}]
+    else:
+        return
+    _emit_keys(session_id, keys)
+
+
+def _answer_questions(answers_obj, mapping, session_id):
+    """Drive omp's rich ask dialog by keystrokes (verified vs v17.1.8's
+    ask-dialog.ts).
+
+    Dialog model: one tab per question (plus a final Submit tab whenever there
+    is more than one question OR any multi question). Each question tab lists
+    its options followed by an "Other (type your own)" row; the cursor starts
+    on the `recommended` option (else row 0) and Up/Down CLAMP at the edges (no
+    wrap) — so Up × rowCount deterministically normalizes the cursor to row 0
+    before navigating down to a target row. Single-select: Enter picks and
+    auto-advances to the next tab (a lone single question submits outright).
+    Multi-select: Space toggles (Enter would too), and the answer is confirmed
+    from the Submit tab. "Other" opens a prompt-style editor: type + Enter
+    (single-select then auto-advances; multi stays on the tab). Tab/→ switches
+    tabs; Enter on the Submit tab submits.
+    """
+    questions = (mapping or {}).get("questions") or []
+    if not questions:
+        log("warn", "cannot answer ask form: no pending question mapping")
+        return
+    by_qid = {a.get("questionID"): a for a in (answers_obj.get("answers") or [])}
+    has_submit_tab = len(questions) > 1 or any(q.get("multi") for q in questions)
+
+    keys = []
+    for qi, q in enumerate(questions):
+        answer = by_qid.get("q%d" % qi) or {}
+        options = q.get("options") or []
+        rows = len(options) + 1  # + the "Other (type your own)" row
+        other_row = len(options)
+        multi = bool(q.get("multi"))
+        free = answer.get("freeText")
+        chosen = []
+        for oid in (answer.get("selectedOptionIDs") or []):
+            try:  # "q{qi}-o{oj}" → the option's 0-based row index
+                idx = int(oid.rsplit("-o", 1)[1])
+            except (ValueError, IndexError):
+                continue
+            if 0 <= idx < len(options):
+                chosen.append(idx)
+        chosen = sorted(set(chosen))
+
+        def type_free_text(target_row, cursor):
+            # Navigate to "Other", Enter opens the prompt editor; give it time
+            # to take focus, then type + Enter to accept.
+            steps = [{"down": {}}] * (target_row - cursor)
+            steps += [{"enter": {}}, _key_delay(500), _key_text(free), {"enter": {}}]
+            return steps
+
+        # Normalize the cursor to row 0 (initial position is `recommended`,
+        # unknown drift is possible if the user touched the dialog — clamping
+        # makes Up-spam idempotent).
+        keys += [{"up": {}}] * rows
+
+        if multi:
+            cursor = 0
+            for idx in chosen:
+                keys += [{"down": {}}] * (idx - cursor)
+                keys.append({"space": {}})  # toggle (multi never auto-advances)
+                cursor = idx
+            if isinstance(free, str) and free.strip():
+                keys += type_free_text(other_row, cursor)
+            keys.append({"right": {}})  # advance to the next tab / Submit
+        else:
+            if isinstance(free, str) and free.strip():
+                keys += type_free_text(other_row, 0)  # picks + auto-advances
+            elif chosen:
+                keys += [{"down": {}}] * chosen[0]
+                keys.append({"enter": {}})  # picks + auto-advances
+            elif has_submit_tab:
+                keys.append({"right": {}})  # unanswered — just move on
+
+    if has_submit_tab:
+        keys.append({"enter": {}})  # confirm from the Submit tab
+
+    _emit_keys(session_id, keys)
+
+
+def _send_prompt(session_id, text):
+    if not text:
+        return
+    _emit_keys(session_id, [_key_text(text), {"enter": {}}])
+
+
+# ---------------------------------------------------------------------------
+# Install / uninstall the omp bridge extension.
+# ---------------------------------------------------------------------------
+def _omp_agent_dir():
+    return os.path.expanduser("~/.omp/agent")
+
+
+def _bridge_dest(config_root=None):
+    """Resolve where the bridge installs for a given config root.
+
+    The default settings row passes configRoot=None → omp's global extensions
+    dir (~/.omp/agent/extensions/, auto-discovered for every project). An
+    additional-folder row passes a project root → that project's
+    `.omp/extensions/` so omp loads it there only.
+    """
+    if config_root:
+        return os.path.join(os.path.expanduser(config_root), ".omp", "extensions", "gallager.ts")
+    return os.path.join(_omp_agent_dir(), "extensions", "gallager.ts")
+
+
+def handle_install(req_id, params):
+    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "omp")
+    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "omp-bridge", "gallager.ts")
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(template, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Substitute each placeholder as a JSON string literal so a value holding
+        # a quote/backslash/newline (most plausibly a $HOME-derived socket path)
+        # can't break out of the TS string and make omp silently fail to load the
+        # extension. Replace the QUOTED token and let json.dumps re-supply the
+        # quotes: that keeps the repo template itself valid TS (its un-substituted
+        # `"__GALLAGER…"` literal is what the bridge's startsWith() smoke-test
+        # fallback keys on).
+        content = content.replace('"__GALLAGER_INGRESS_SOCK__"', json.dumps(sock))
+        content = content.replace('"__GALLAGER_PLUGIN_ID__"', json.dumps(plugin_id))
+        content = content.replace('"__GALLAGER_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, dest)
+        respond(req_id, {"installed": {"message": "omp bridge installed at %s" % dest}})
+    except Exception as exc:
+        fail(req_id, "install_error", str(exc))
+
+
+def handle_uninstall(req_id, params):
+    try:
+        os.remove(_bridge_dest((params or {}).get("configRoot")))
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        sys.stderr.write("uninstall error: %s\n" % exc)
+    respond(req_id, {})
+
+
+def handle_install_status(req_id, params):
+    dest = _bridge_dest((params or {}).get("configRoot"))
+    try:
+        with open(dest, "r", encoding="utf-8") as f:
+            installed = BRIDGE_MARKER in f.read()
+    except OSError:
+        installed = False
+    if installed:
+        respond(req_id, {"installed": {"version": PLUGIN_VERSION}})
+    else:
+        respond(req_id, {"notInstalled": {}})
+
+
+# ---------------------------------------------------------------------------
+# Project discovery — surface omp's known projects in Gallager's "+" sidebar
+# menu, the same way Claude Code / Codex do. omp keeps per-project session
+# directories under ~/.omp/agent/sessions/; the directory name is a lossy
+# munging of the cwd, but every session file carries a header record
+# (`type == "session"`) with the exact `cwd` — read it from the newest file per
+# directory. Works offline (no running omp needed); best-effort, never raises.
+#
+# On-disk shape confirmed against omp v17.1.8: session files are `*.jsonl`
+# directly in the per-project dir (per-session artifact SUBdirectories sit
+# alongside them and are skipped by the non-recursive listing), and the header
+# record is NOT necessarily the first line — a `type == "title"` record can
+# precede it — so scan the first few lines for it. If a future omp changes
+# either, the "+" menu just shows zero omp projects with no error. The
+# ProjectScanTests fabricate these shapes, so they can't catch such drift;
+# re-verify against a real ~/.omp/agent/sessions/*/ file when bumping the pin.
+# ---------------------------------------------------------------------------
+# Seconds between 1970-01-01 and 2001-01-01 — JSONValue.decode uses a default
+# JSONDecoder (`.deferredToDate`), so AgentProject.lastUsed is seconds since the
+# 2001 reference date.
+_EPOCH_2001 = 978307200.0
+
+# How many leading lines of a session file to scan for the header record.
+_HEADER_SCAN_LINES = 10
+
+
+def _sessions_dir():
+    return os.path.join(_omp_agent_dir(), "sessions")
+
+
+def _newest_session_file(dir_path):
+    """The most recently modified .jsonl in a session dir, with its mtime."""
+    newest, newest_mtime = None, 0.0
+    try:
+        for name in os.listdir(dir_path):
+            if not name.endswith(".jsonl"):  # omp v17.1.8 session-file extension
+                continue
+            full = os.path.join(dir_path, name)
+            if not os.path.isfile(full):
+                continue
+            try:
+                mtime = os.path.getmtime(full)
+            except OSError:
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = full, mtime
+    except OSError:
+        return None, 0.0
+    return newest, newest_mtime
+
+
+def _session_header_cwd(session_file):
+    """The `cwd` from a session file's header record (`type == "session"`).
+
+    omp writes a rewritable `title` record BEFORE the header, so the header is
+    usually line 2 — scan the first few lines rather than assuming a position.
+    """
+    try:
+        with open(session_file, "r", encoding="utf-8") as f:
+            for _ in range(_HEADER_SCAN_LINES):
+                line = f.readline()
+                if not line:
+                    break
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if record.get("type") == "session":
+                    cwd = record.get("cwd")
+                    if isinstance(cwd, str) and cwd:
+                        return cwd
+                    return None
+    except OSError:
+        pass
+    return None
+
+
+def _scan_projects():
+    """Read omp's project list from its session store. Best-effort — any failure
+    yields an empty list (never raises)."""
+    root = _sessions_dir()
+    if not os.path.isdir(root):
+        return []
+    projects = []
+    seen = {}
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return []
+    for entry in entries:
+        dir_path = os.path.join(root, entry)
+        if not os.path.isdir(dir_path):
+            continue
+        session_file, mtime = _newest_session_file(dir_path)
+        if not session_file:
+            continue
+        cwd = _session_header_cwd(session_file)
+        if not cwd or not os.path.isdir(cwd):
+            continue
+        # Two munged dirs can resolve to the same cwd (e.g. after --session-dir
+        # or --profile experiments); keep the most recently used one.
+        if cwd in seen and seen[cwd] >= mtime:
+            continue
+        seen[cwd] = mtime
+        projects = [p for p in projects if p["path"] != cwd]
+        proj = {
+            "name": os.path.basename(cwd.rstrip("/")) or cwd,
+            "path": cwd,
+            "pluginID": "omp",
+            "lastUsed": mtime - _EPOCH_2001,
+        }
+        projects.append(proj)
+    return projects
+
+
+def _emit_projects():
+    notify("set_projects", {"projects": _scan_projects()})
+
+
+def handle_refresh_projects(req_id, params):
+    _emit_projects()
+    respond(req_id, {})
+
+
+# ---------------------------------------------------------------------------
+# Remaining RPC handlers.
+# ---------------------------------------------------------------------------
+def _store_settings(value):
+    global SETTINGS
+    if isinstance(value, dict):
+        SETTINGS = value
+
+
+def handle_initialize(req_id, params):
+    global OTLP_ENDPOINT
+    _store_settings((params or {}).get("settings"))
+    OTLP_ENDPOINT = (params or {}).get("otlpReceiverEndpoint") or ""
+    log("info", "omp sidecar initialized (app %s)" % (params or {}).get("appVersion", "?"))
+    respond(req_id, {})
+    _emit_projects()  # seed the sidebar before the first refresh tick
+
+
+def handle_command_for_launch(req_id, params):
+    # Honor the user's Agents-settings toggles (delivered via apply_settings).
+    if not SETTINGS.get("auto_run", True):
+        respond(req_id, None)  # auto-run off → don't launch
+        return
+    command = (SETTINGS.get("command_path") or "").strip() or "omp"
+    respond(req_id, {"command": command, "args": [], "env": {}})
+
+
+def handle_apply_settings(req_id, params):
+    _store_settings((params or {}).get("settings"))
+    respond(req_id, {"applied": {}})
+
+
+REQUEST_HANDLERS = {
+    "initialize": handle_initialize,
+    "translate_event": handle_translate_event,
+    "deliver_response": handle_deliver_response,
+    "command_for_launch": handle_command_for_launch,
+    "install": handle_install,
+    "uninstall": handle_uninstall,
+    "install_status": handle_install_status,
+    "apply_settings": handle_apply_settings,
+    "refresh_projects": handle_refresh_projects,
+}
+
+
+def main():
+    while True:
+        try:
+            msg = read_message()
+        except Exception as exc:
+            sys.stderr.write("read error: %s\n" % exc)
+            continue
+        if msg is None:
+            break  # EOF
+
+        method = msg.get("method")
+        req_id = msg.get("id")
+        if method is None:
+            continue  # a stray response/notification — ignore
+
+        if method == "shutdown":
+            respond(req_id, {})
+            break
+
+        handler = REQUEST_HANDLERS.get(method)
+        if handler is not None:
+            try:
+                handler(req_id, msg.get("params"))
+            except Exception as exc:
+                sys.stderr.write("handler error in %s: %s\n" % (method, exc))
+                if req_id is not None:
+                    fail(req_id, "internal_error", str(exc))
+        elif req_id is not None:
+            fail(req_id, "method_not_found", "Unknown method: %s" % method)
+
+
+if __name__ == "__main__":
+    main()

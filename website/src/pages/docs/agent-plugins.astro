@@ -4,7 +4,7 @@ import Guide from "../../layouts/Guide.astro";
 
 <Guide
   title="Agent plugins — Gallager"
-  description="How Gallager tracks Claude Code, Codex, opencode and pi sessions — and how to add any other coding agent with a sidecar plugin."
+  description="How Gallager tracks Claude Code, Codex, opencode, pi and omp sessions — and how to add any other coding agent with a sidecar plugin."
   heroTitle="Agent plugins"
   lede="Claude Code and Codex work out of the box. Everything else is a sidecar plugin — a small executable that teaches Gallager an agent's lifecycle."
 >
@@ -25,13 +25,15 @@ import Guide from "../../layouts/Guide.astro";
   <h2>Installing a sidecar plugin</h2>
   <p>
     Other agents are supported through sidecar plugins: standalone executables that
-    Gallager spawns and talks to over JSON-RPC. Two are published today, for
-    <strong>opencode</strong> and <strong>pi</strong>. Install from
+    Gallager spawns and talks to over JSON-RPC. Three are published today, for
+    <strong>opencode</strong>, <strong>pi</strong> and <strong>omp</strong>
+    (<a href="https://omp.sh">oh-my-pi</a>). Install from
     <strong>Settings → Agents → Add Plugin from URL…</strong> by pasting the manifest
     URL, or from the command line:
   </p>
   <pre>gallager plugin install https://updates.gallager.app/plugins/opencode/plugin.json
-gallager plugin install https://updates.gallager.app/plugins/pi/plugin.json</pre>
+gallager plugin install https://updates.gallager.app/plugins/pi/plugin.json
+gallager plugin install https://updates.gallager.app/plugins/omp/plugin.json</pre>
   <p>
     Installs are deliberately paranoid: HTTPS-only manifests, a trust dialog showing
     publisher, version and bundle URL before anything is downloaded, SHA-256
@@ -55,8 +57,9 @@ gallager plugin install https://updates.gallager.app/plugins/pi/plugin.json</pre
   <p>
     A plugin is a directory with a <code>plugin.json</code> manifest and an executable —
     any language works (the published ones are Python). The full authoring contract lives
-    in the repo at <code>docs/plugins/sidecar-authoring.md</code>, alongside two complete,
-    working examples under <code>plugins/opencode/</code> and <code>plugins/pi/</code>.
+    in the repo at <code>docs/plugins/sidecar-authoring.md</code>, alongside three complete,
+    working examples under <code>plugins/opencode/</code>, <code>plugins/pi/</code> and
+    <code>plugins/omp/</code>.
     A packaging script builds and checksums the distributable bundle for you.
   </p>
   <p>
