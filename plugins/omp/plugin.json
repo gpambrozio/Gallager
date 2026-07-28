@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "omp",
+  "display_name": "omp",
+  "short_name": "omp",
+  "version": "0.1.0",
+  "process_names": ["omp"],
+  "runtime": "sidecar",
+  "sidecar": {
+    "executable": "bin/sidecar",
+    "default_config_root": "~/.omp/agent"
+  },
+  "otlp": {
+    "namespace": "omp",
+    "token_event": "api_request"
+  },
+  "ui": {
+    "color": "#F59E0B"
+  },
+  "publisher": "Gustavo Ambrozio"
+}
