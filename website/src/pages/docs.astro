@@ -4,14 +4,14 @@ import Hero from "../components/Hero.astro";
 
 const steps = [
   { n: "01", title: "Install the Mac app", body: "Download the DMG and drag Gallager to Applications. It lives in your menu bar and needs tmux — if tmux is missing, the app walks you through installing it.", code: null },
-  { n: "02", title: "Connect your agents", body: "Open Settings → Agents. Claude Code and Codex CLI work out of the box; add opencode, pi or any other agent by installing its sidecar plugin.", code: null },
+  { n: "02", title: "Connect your agents", body: "Open Settings → Agents. Claude Code and Codex CLI work out of the box; add opencode, pi, omp or any other agent by installing its sidecar plugin.", code: null },
   { n: "03", title: "Pair your iPhone", body: "Install the iOS app, then enter the 6-character code shown on your Mac. Keys are exchanged directly between devices — this is the whole setup.", code: null },
   { n: "04", title: "Optional: self-host the relay", body: "Point both apps at your own domain in Settings → Remote Access. No license needed.", code: "git clone https://github.com/gpambrozio/Gallager\ncd Gallager/ClaudeSpyPackage\ncp .env.example .env && docker compose up -d" },
 ];
 
 const guides = [
   { href: "/docs/self-hosting/", title: "Self-hosting the relay", body: "Docker Compose, TLS via Caddy, and optional APNs push notifications on your own server." },
-  { href: "/docs/agent-plugins/", title: "Agent plugins", body: "How the Claude Code, Codex, opencode and pi integrations hook session events." },
+  { href: "/docs/agent-plugins/", title: "Agent plugins", body: "How the Claude Code, Codex, opencode, pi and omp integrations hook session events." },
   { href: "/security/", title: "Security model", body: "X25519 pairing, HKDF key derivation, and what the relay can and can't see." },
   { href: "/docs/push-notifications/", title: "Push notifications", body: "When they fire, how badges aggregate, and delivering them through a self-hosted relay." },
   { href: "/docs/multi-pane-layouts/", title: "Multi-pane layouts", body: "Splitting and resizing on the Mac, live mirroring on iPhone, and per-project persistence." },
