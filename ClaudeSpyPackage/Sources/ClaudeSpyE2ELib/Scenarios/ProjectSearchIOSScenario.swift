@@ -33,6 +33,14 @@ public enum ProjectSearchIOSScenario {
         // the project name) is the visible signal that the picker distinguishes
         // Codex projects from Claude ones (which now carry a "claude" badge).
         TestStep.iosWaitForElement(.labelContains("codex"), timeout: 5)
+        // Claude rows carry a badge too: match a single element (the row's
+        // combined accessibility label) containing both the Claude project's
+        // name and the "claude" badge, so re-gating the badge to non-Claude
+        // agents fails here.
+        TestStep.iosWaitForElement(
+            .allOf([.labelContains("AlphaProject"), .labelContains("claude")]),
+            timeout: 5
+        )
         TestStep.iosScreenshot(label: "ios-all-projects-visible")
 
         // ── Tap search field and type fuzzy search ────────────────

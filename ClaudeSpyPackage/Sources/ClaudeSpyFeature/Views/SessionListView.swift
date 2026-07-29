@@ -813,6 +813,7 @@
                                             HStack(spacing: 6) {
                                                 Text(project.name)
                                                     .foregroundStyle(.primary)
+                                                    .lineLimit(1)
 
                                                 // Every project row carries an agent badge (issue #691):
                                                 // the presentation short_name, plugin id as fallback. No

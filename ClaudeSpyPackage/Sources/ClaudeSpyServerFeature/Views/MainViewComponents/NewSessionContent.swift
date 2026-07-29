@@ -257,6 +257,7 @@ struct NewSessionRow: View {
                         Text(title)
                             .font(.body.weight(.medium))
                             .foregroundStyle(.primary)
+                            .lineLimit(1)
 
                         if let badge {
                             Text(badge)
