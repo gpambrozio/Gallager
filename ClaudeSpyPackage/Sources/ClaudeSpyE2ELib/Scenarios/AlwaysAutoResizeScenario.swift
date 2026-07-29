@@ -52,7 +52,7 @@ public enum AlwaysAutoResizeScenario {
         // Open Settings, enable the global toggle, then close Settings
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macClickButton(titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes")
+        TestStep.macClickButton(titled: "Automatically resize all terminals to fit the mirror view when the window size changes")
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
         TestStep.wait(seconds: 1)
@@ -176,7 +176,7 @@ public enum AlwaysAutoResizeScenario {
         // Open Settings, disable the global toggle, then close Settings
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macClickButton(titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes")
+        TestStep.macClickButton(titled: "Automatically resize all terminals to fit the mirror view when the window size changes")
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
         TestStep.wait(seconds: 1)

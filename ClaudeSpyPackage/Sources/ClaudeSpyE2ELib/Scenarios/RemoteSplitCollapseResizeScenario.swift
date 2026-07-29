@@ -49,7 +49,7 @@ public enum RemoteSplitCollapseResizeScenario {
         TestStep.macSelectSettingsTab("General", instance: 1)
         TestStep.macWaitForWindow(titled: "General", timeout: 5, instance: 1)
         TestStep.macClickButton(
-            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes",
+            titled: "Automatically resize all terminals to fit the mirror view when the window size changes",
             instance: 1
         )
         TestStep.wait(seconds: 1)
