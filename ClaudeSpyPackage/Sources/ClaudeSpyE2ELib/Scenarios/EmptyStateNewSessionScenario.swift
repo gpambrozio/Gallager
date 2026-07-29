@@ -1,6 +1,6 @@
 import Foundation
 
-/// E2E scenario: Verify the empty state shows "No Panes Available" with inline new session
+/// E2E scenario: Verify the empty state shows "No Sessions" with inline new session
 /// options, and that clicking "New Terminal" creates a session and updates the sidebar.
 public enum EmptyStateNewSessionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
@@ -17,8 +17,8 @@ public enum EmptyStateNewSessionScenario {
         TestStep.macScreenshot(label: "mac-empty-state-start")
 
         // ── Verify empty state with new session options in detail ──
-        TestStep.log("Verifying empty state shows No Panes Available in sidebar")
-        TestStep.macWaitForElement(titled: "No Panes Available", timeout: 5)
+        TestStep.log("Verifying empty state shows No Sessions in sidebar")
+        TestStep.macWaitForElement(titled: "No Sessions", timeout: 5)
 
         TestStep.log("Verifying New Terminal option is shown in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)
@@ -33,7 +33,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.macClickButton(titled: "New Terminal")
 
         TestStep.log("Verifying empty state disappeared")
-        TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 10)
+        TestStep.macWaitForElementToDisappear(titled: "No Sessions", timeout: 10)
 
         TestStep.log("Verifying Local section appeared in sidebar")
         TestStep.macWaitForElement(titled: "Local", timeout: 10)
@@ -46,7 +46,7 @@ public enum EmptyStateNewSessionScenario {
         TestStep.macClickButton(titled: "Close session")
 
         TestStep.log("Verifying empty state returned")
-        TestStep.macWaitForElement(titled: "No Panes Available", timeout: 10)
+        TestStep.macWaitForElement(titled: "No Sessions", timeout: 10)
 
         TestStep.log("Verifying New Session options returned in detail area")
         TestStep.macWaitForElement(titled: "New Terminal", timeout: 5)

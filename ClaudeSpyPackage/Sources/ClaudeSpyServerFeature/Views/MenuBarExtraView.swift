@@ -71,7 +71,7 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            Label("Show Panes Window", symbol: .terminal)
+            Label("Show Sessions", symbol: .terminal)
         }
         .keyboardShortcut("p", modifiers: [.command, .shift])
 

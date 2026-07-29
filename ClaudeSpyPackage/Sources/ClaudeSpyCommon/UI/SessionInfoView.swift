@@ -52,7 +52,7 @@ public struct SessionInfoView: View {
                 }
 
                 Section("Session Info") {
-                    LabeledContent("Pane ID", value: paneId)
+                    LabeledContent("Session ID", value: paneId)
 
                     if let projectPath = session.detectedProjectPath, !projectPath.isEmpty {
                         LabeledContent("Project") {

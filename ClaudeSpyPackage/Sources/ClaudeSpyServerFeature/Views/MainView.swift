@@ -447,7 +447,7 @@ public struct MainView: View {
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Loading panes...")
+            Text("Loading sessions...")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -455,7 +455,7 @@ public struct MainView: View {
 
     private func errorView(_ message: String) -> some View {
         ContentUnavailableView(
-            "Error Loading Panes",
+            "Error Loading Sessions",
             symbol: .exclamationmarkTriangle,
             description: message
         )
@@ -463,7 +463,7 @@ public struct MainView: View {
 
     private var emptyView: some View {
         ContentUnavailableView(
-            "No Panes Available",
+            "No Sessions",
             symbol: .terminal
         )
     }
@@ -1866,8 +1866,8 @@ public struct MainView: View {
             } label: {
                 Symbols.arrowClockwise.image
             }
-            .accessibilityLabel("Refresh pane list")
-            .help("Refresh pane list")
+            .accessibilityLabel("Refresh session list")
+            .help("Refresh session list")
             .keyboardShortcut("r", modifiers: .command)
             .disabled(tmuxService.isRefreshing)
         }
@@ -2039,8 +2039,8 @@ public struct MainView: View {
             // (e.g. arrow.up.left.and.arrow.down.right → "Enter Full Screen")
             // and drops `.help()` from the AX tree, so set the AX label
             // explicitly to keep VoiceOver and e2e queries meaningful.
-            .accessibilityLabel(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
-            .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+            .accessibilityLabel(isSessionAttached ? attachedHelp : "Resize terminal to fit mirror view")
+            .help(isSessionAttached ? attachedHelp : "Resize terminal to fit mirror view")
             .disabled(isSessionAttached)
         }
 
@@ -2068,7 +2068,7 @@ public struct MainView: View {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
         .toggleStyle(.button)
-        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .help(isSessionAttached ? attachedHelp : "Auto-resize terminal when mirror view changes size")
         .disabled(isSessionAttached)
     }
 
@@ -2231,7 +2231,7 @@ public struct MainView: View {
                     lastAutoResizeDimensions[remote.resizeKey(paneId: remotePaneId)] = dimensions
                 }
             case let .failure(error):
-                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
+                attachError = "Failed to resize remote session: \(error.localizedDescription)"
             }
         }
     }

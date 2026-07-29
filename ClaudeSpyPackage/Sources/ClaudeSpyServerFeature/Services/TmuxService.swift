@@ -15,7 +15,7 @@ enum TmuxError: Error, LocalizedError {
         case .tmuxNotFound:
             return "tmux is not installed or not in PATH"
         case let .invalidPane(target):
-            return "Pane '\(target)' not found"
+            return "Session '\(target)' not found"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
         }

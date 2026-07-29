@@ -397,8 +397,8 @@ struct TmuxPaneMirrorApp: App {
     }
 
     var body: some Scene {
-        // Main panes window - can be shown via menu bar "Show Panes Window"
-        Window("Panes", id: "panes") {
+        // Main sessions window - can be shown via menu bar "Show Sessions"
+        Window("Sessions", id: "panes") {
             ContentView()
                 .environment(coordinator.settings)
                 .environment(coordinator.tmuxService)
@@ -530,7 +530,7 @@ struct TmuxPaneMirrorApp: App {
 
                 Divider()
 
-                Button("Refresh Pane List") {
+                Button("Refresh Sessions") {
                     NotificationCenter.default.post(name: .refreshPaneList, object: nil)
                 }
                 .keyboardShortcut("r", modifiers: .command)
