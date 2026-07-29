@@ -86,6 +86,7 @@ public enum AgentsInstallZipAutoSelectScenario {
         //    refreshes live on removal, the "Zip Install Test" segment vanishing
         //    with no app restart (mirroring the in-form button path in
         //    AgentsRemovePluginLiveScenario).
+        TestStep.removeFile(path: "/tmp/e2e-zip-remove.txt")
         Shortcut.tmuxRunCommand(
             target: "zip-install:0",
             command: #"gallager plugin remove ziptest-sidecar --delete-state > /tmp/e2e-zip-remove.txt 2>&1"#
