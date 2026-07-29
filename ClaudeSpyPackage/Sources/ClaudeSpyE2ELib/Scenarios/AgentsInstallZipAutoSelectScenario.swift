@@ -16,6 +16,11 @@ import Foundation
 /// `NSOpenPanel` that e2e can't drive. The zip itself is built from the real
 /// `EchoPluginSidecar` binary so the install actually enables (a successful
 /// install — not enableFailed — is what sets `lastInstalledPluginID`).
+///
+/// Finally the scenario removes the plugin again over the CLI (`gallager plugin
+/// remove`), which both keeps its installed plugin from leaking into later
+/// scenarios' pickers (issue #690) and covers the CLI-remove path + the live
+/// picker refresh on removal.
 public enum AgentsInstallZipAutoSelectScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Agents Install Zip Auto Select",
@@ -72,5 +77,25 @@ public enum AgentsInstallZipAutoSelectScenario {
         TestStep.macWaitForElement(titled: "Zip Install Test", timeout: 15)
         TestStep.macWaitForElement(titled: "Auto-run Zip Install Test", timeout: 10)
         TestStep.macScreenshot(label: "mac-agents-zip-installed-selected")
+
+        // 7. Clean up: remove the just-installed plugin over the CLI. The
+        //    orchestrator now also wipes shared plugin state between scenarios
+        //    (issue #690), so this is belt-and-suspenders for the leak — but it
+        //    also earns its keep as coverage: it gives `gallager plugin remove`
+        //    (CLI → `plugin.remove` RPC) its own e2e exercise and proves the picker
+        //    refreshes live on removal, the "Zip Install Test" segment vanishing
+        //    with no app restart (mirroring the in-form button path in
+        //    AgentsRemovePluginLiveScenario).
+        Shortcut.tmuxRunCommand(
+            target: "zip-install:0",
+            command: #"gallager plugin remove ziptest-sidecar --delete-state > /tmp/e2e-zip-remove.txt 2>&1"#
+        )
+        TestStep.waitForFileContains(
+            path: "/tmp/e2e-zip-remove.txt",
+            substring: "Removed ziptest-sidecar",
+            storeAs: "zipRemoveOut",
+            timeout: 20
+        )
+        TestStep.macWaitForElementToDisappear(titled: "Zip Install Test", timeout: 15)
     }
 }
