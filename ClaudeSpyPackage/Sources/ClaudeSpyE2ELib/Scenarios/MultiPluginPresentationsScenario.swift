@@ -22,12 +22,13 @@ public enum MultiPluginPresentationsScenario {
             command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
         )
 
-        // 2. Open the project picker — both plugins' projects coexist, with the
-        //    Codex project carrying a "Codex" badge and Claude projects none.
+        // 2. Open the project picker — both plugins' projects coexist. Every row
+        //    carries its agent's short_name badge (issue #691): the Codex project
+        //    a "codex" badge, Claude projects a "claude" badge.
         TestStep.iosTap(.label("New Session"))
         TestStep.iosWaitForElement(.labelContains("AaaOpenAIApp"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
-        TestStep.iosWaitForElement(.labelContains("Codex"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("codex"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-both-plugins-projects")
 
         // 3. Disable codex via the CLI. The host pushes fresh session state, so

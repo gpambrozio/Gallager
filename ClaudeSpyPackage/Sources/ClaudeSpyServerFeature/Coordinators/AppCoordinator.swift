@@ -1724,11 +1724,13 @@
             let project = windowManager.projectName(forClaudeSessionID: milestone.sessionID) ?? "your project"
             // Agent-aware copy (issue #602): milestone counters are Claude-only
             // today (`claude_code.commit.count` etc.), but resolve the owning
-            // agent's short name from its manifest so the notification stays
-            // correct if a Codex commit/PR source ever lands. Falls back to
-            // "Claude" when the pane's plugin id can't be resolved.
+            // agent's name from its manifest so the notification stays correct if
+            // a Codex commit/PR source ever lands. Uses `displayName`, not
+            // `shortName`: the bundled short names are lowercase (issue #691) and
+            // would read wrong mid-sentence ("claude committed…"). Falls back to
+            // "Claude Code" when the pane's plugin id can't be resolved.
             let pluginID = windowManager.paneStates[paneId]?.agentSession?.pluginID
-            let agent = pluginID.flatMap { pluginRegistry?.manifest($0)?.shortName } ?? "Claude"
+            let agent = pluginID.flatMap { pluginRegistry?.manifest($0)?.displayName } ?? "Claude Code"
             let spec = Self.milestoneNotification(milestone, agent: agent, project: project)
             await handlePluginNotification(spec, paneId: paneId)
         }

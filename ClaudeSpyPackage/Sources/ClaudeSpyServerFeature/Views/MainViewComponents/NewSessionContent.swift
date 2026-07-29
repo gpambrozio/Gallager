@@ -20,6 +20,12 @@ struct NewSessionContent: View {
     let isLoadingProjects: Bool
     let creatingSelection: NewSessionCreatingState?
     let onCreate: (AgentProject?) -> Void
+    /// Resolves a project's plugin id to its agent badge text — the presentation
+    /// `short_name`, with the plugin id as fallback. Every project row carries a
+    /// badge (issue #691), Claude Code included, so this always yields text.
+    /// Local call sites resolve from the `PluginRegistry`; remote ones from the
+    /// host's pushed presentations in `SessionStore`.
+    let pluginShortName: (String) -> String
     /// When true, constrains size for popover use. When false, expands to fill available space.
     var popover = true
 
@@ -145,7 +151,7 @@ struct NewSessionContent: View {
                                     isCreating: creatingSelection == .project(project.id),
                                     isDisabled: isCreating,
                                     isSelected: selection == .project(project.id),
-                                    badge: project.pluginID == "claude-code" ? nil : project.pluginID
+                                    badge: pluginShortName(project.pluginID)
                                 ) {
                                     dismiss()
                                     onCreate(project)
@@ -220,8 +226,9 @@ struct NewSessionRow: View {
     let isCreating: Bool
     let isDisabled: Bool
     var isSelected = false
-    /// Optional badge text shown next to the title, used to mark non-default
-    /// agents (e.g. "Codex") so users can tell them apart in mixed lists.
+    /// Badge text shown next to the title — the agent's short name (e.g. "codex",
+    /// "claude") so users can tell agents apart in mixed lists. Optional so the row
+    /// type stays reusable; `NewSessionContent` always supplies one (issue #691).
     var badge: String?
     let action: () -> Void
 

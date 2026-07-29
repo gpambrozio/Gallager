@@ -98,7 +98,8 @@ struct RemoteHostSidebarSection: View {
                         projects: sessionStore.projects(for: host.id),
                         isLoadingProjects: !sessionStore.hasReceivedState(for: host.id),
                         creatingSelection: creatingSelection,
-                        onCreate: onCreate
+                        onCreate: onCreate,
+                        pluginShortName: { sessionStore.presentation(forPluginID: $0)?.shortName ?? $0 }
                     )
                 }
             )
