@@ -81,7 +81,7 @@ public enum SplitTabScenario {
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
         TestStep.macClickButton(
-            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes"
+            titled: "Automatically resize all terminals to fit the mirror view when the window size changes"
         )
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
@@ -371,7 +371,7 @@ public enum SplitTabScenario {
         )
         TestStep.wait(seconds: 0.5)
         TestStep.macClickButton(
-            titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes"
+            titled: "Automatically resize all terminals to fit the mirror view when the window size changes"
         )
         TestStep.wait(seconds: 0.5)
         TestStep.macCloseWindow(titled: "General")

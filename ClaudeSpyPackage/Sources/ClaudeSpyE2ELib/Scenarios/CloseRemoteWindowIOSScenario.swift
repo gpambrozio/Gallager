@@ -85,6 +85,11 @@ public enum CloseRemoteWindowIOSScenario {
         // Confirmation alert should appear with process info
         TestStep.iosWaitForElement(.labelContains("Close Session"), timeout: 10)
         TestStep.iosWaitForElement(.labelContains("sleep"), timeout: 10)
+        // iOS restores the title-menu label in two stages after a menu tap —
+        // text first, chevron symbol ~1-2s later — and the presented alert
+        // prunes the background accessibility tree, so there is no element to
+        // poll for. A fixed wait is the only way to capture the restored title.
+        TestStep.wait(seconds: 2)
         TestStep.iosScreenshot(label: "ios-close-session-confirmation")
 
         // 6. Confirm by tapping "Close Anyway"

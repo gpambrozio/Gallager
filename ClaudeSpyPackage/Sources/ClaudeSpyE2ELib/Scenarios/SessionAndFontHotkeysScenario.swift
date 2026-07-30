@@ -120,7 +120,7 @@ public enum SessionAndFontHotkeysScenario {
         // columns/rows) or agents in the pane keep rendering at a stale size.
         // The tmux-side dimensions are asserted below to pin that behavior.
         TestStep.log("Enable auto-resize on hkalpha for the font phase")
-        TestStep.macClickButton(titled: "Auto-resize tmux pane when mirror view changes size")
+        TestStep.macClickButton(titled: "Auto-resize terminal when mirror view changes size")
         // Enabling the toggle performs an immediate resize to fit the mirror
         // view; let it land before recording the 12 pt reference dimensions.
         TestStep.wait(seconds: 1)

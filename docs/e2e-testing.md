@@ -394,7 +394,7 @@ If the scenario fails, fix the issue and re-run until it passes. Never commit a 
 | `launchMacApp` | Launch the macOS app (args built by orchestrator) |
 | `terminateMacApp` | Terminate the macOS app |
 | `macOpenSettings` | Open the Settings window |
-| `macOpenPanesWindow` | Open the Panes window |
+| `macOpenPanesWindow` | Open the Sessions window (via the "Show Sessions" menu bar item) |
 | `macWaitForWindow(titled:timeout:)` | Wait for a window with the given title |
 | `macSelectSettingsTab(_:)` | Click a Settings sidebar tab |
 | `macClickButton(titled:)` | Click a button/element by title, label, or `.help()` attribute |

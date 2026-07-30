@@ -41,7 +41,7 @@ public enum ResizePaneScenario {
         TestStep.wait(seconds: 0.5)
 
         // Click manual resize button
-        TestStep.macClickButton(titled: "Resize tmux pane to fit mirror view")
+        TestStep.macClickButton(titled: "Resize terminal to fit mirror view")
         TestStep.wait(seconds: 1)
 
         // Record dimensions after manual resize
@@ -63,7 +63,7 @@ public enum ResizePaneScenario {
         TestStep.log("Phase 2: Auto-Resize")
 
         // Enable auto-resize toggle
-        TestStep.macClickButton(titled: "Auto-resize tmux pane when mirror view changes size")
+        TestStep.macClickButton(titled: "Auto-resize terminal when mirror view changes size")
         TestStep.wait(seconds: 0.5)
 
         // Resize window smaller

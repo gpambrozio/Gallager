@@ -8,13 +8,13 @@ import Foundation
 public enum AlwaysAutoResizeScenario {
     /// ElementQuery matching the auto-resize toolbar toggle when checked (value "1")
     private static let autoResizeChecked = ElementQuery.allOf([
-        .help("Auto-resize tmux pane when mirror view changes size"),
+        .help("Auto-resize terminal when mirror view changes size"),
         .valueContains("1"),
     ])
 
     /// ElementQuery matching the auto-resize toolbar toggle when unchecked (value "0")
     private static let autoResizeUnchecked = ElementQuery.allOf([
-        .help("Auto-resize tmux pane when mirror view changes size"),
+        .help("Auto-resize terminal when mirror view changes size"),
         .valueContains("0"),
     ])
 
@@ -39,7 +39,7 @@ public enum AlwaysAutoResizeScenario {
 
         // Verify toggle is unchecked and manual resize button is present
         TestStep.macWaitForElementQuery(autoResizeUnchecked, timeout: 5)
-        TestStep.macWaitForElement(titled: "Resize tmux pane to fit mirror view", timeout: 2)
+        TestStep.macWaitForElement(titled: "Resize terminal to fit mirror view", timeout: 2)
 
         // Record initial dimensions
         TestStep.tmuxStorePaneDimensions(
@@ -52,7 +52,7 @@ public enum AlwaysAutoResizeScenario {
         // Open Settings, enable the global toggle, then close Settings
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macClickButton(titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes")
+        TestStep.macClickButton(titled: "Automatically resize all terminals to fit the mirror view when the window size changes")
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
         TestStep.wait(seconds: 1)
@@ -62,7 +62,7 @@ public enum AlwaysAutoResizeScenario {
 
         // Verify toggle is now checked and manual resize button is hidden
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
-        TestStep.macWaitForElementToDisappear(titled: "Resize tmux pane to fit mirror view", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "Resize terminal to fit mirror view", timeout: 5)
 
         // Resize window larger to trigger auto-resize
         TestStep.macResizeWindow(width: 1_200, height: 700)
@@ -91,7 +91,7 @@ public enum AlwaysAutoResizeScenario {
 
         // Verify toggle is checked (inherited from global) and manual resize hidden
         TestStep.macWaitForElementQuery(autoResizeChecked, timeout: 5)
-        TestStep.macWaitForElementToDisappear(titled: "Resize tmux pane to fit mirror view", timeout: 5)
+        TestStep.macWaitForElementToDisappear(titled: "Resize terminal to fit mirror view", timeout: 5)
 
         // Resize window — new pane should auto-resize too
         TestStep.macResizeWindow(width: 1_000, height: 700)
@@ -114,11 +114,11 @@ public enum AlwaysAutoResizeScenario {
         TestStep.log("Phase 3: Per-session opt-out while global is on")
 
         // Disable auto-resize for pane 2 by clicking the toggle
-        TestStep.macClickButton(titled: "Auto-resize tmux pane when mirror view changes size")
+        TestStep.macClickButton(titled: "Auto-resize terminal when mirror view changes size")
 
         // Verify toggle is now unchecked and manual resize reappears
         TestStep.macWaitForElementQuery(autoResizeUnchecked, timeout: 5)
-        TestStep.macWaitForElement(titled: "Resize tmux pane to fit mirror view", timeout: 5)
+        TestStep.macWaitForElement(titled: "Resize terminal to fit mirror view", timeout: 5)
 
         // Record pane 2 dimensions before resize
         TestStep.tmuxStorePaneDimensions(
@@ -176,7 +176,7 @@ public enum AlwaysAutoResizeScenario {
         // Open Settings, disable the global toggle, then close Settings
         TestStep.macOpenSettings()
         TestStep.macWaitForWindow(titled: "General", timeout: 5)
-        TestStep.macClickButton(titled: "Automatically resize all terminal panes to fit the mirror view when the window size changes")
+        TestStep.macClickButton(titled: "Automatically resize all terminals to fit the mirror view when the window size changes")
         TestStep.wait(seconds: 1)
         TestStep.macCloseWindow(titled: "General")
         TestStep.wait(seconds: 1)
@@ -186,7 +186,7 @@ public enum AlwaysAutoResizeScenario {
 
         // Verify toggle is unchecked for pane 1 (global off, opt-outs cleared)
         TestStep.macWaitForElementQuery(autoResizeUnchecked, timeout: 5)
-        TestStep.macWaitForElement(titled: "Resize tmux pane to fit mirror view", timeout: 5)
+        TestStep.macWaitForElement(titled: "Resize terminal to fit mirror view", timeout: 5)
 
         // Record pane 1 dimensions before resize
         TestStep.tmuxStorePaneDimensions(

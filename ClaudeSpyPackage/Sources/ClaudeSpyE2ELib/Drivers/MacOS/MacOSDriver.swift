@@ -471,7 +471,7 @@ public actor MacOSDriver {
             tell (first process whose unix id is \(requirePID()))
                 click menu bar item 1 of menu bar 2
                 delay 0.5
-                click menu item "Show Panes Window" of menu 1 of menu bar item 1 of menu bar 2
+                click menu item "Show Sessions" of menu 1 of menu bar item 1 of menu bar 2
             end tell
         end tell
         delay 1
