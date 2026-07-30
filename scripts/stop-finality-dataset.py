@@ -42,6 +42,9 @@ WAITING_HINTS = re.compile(
 
 CAP = 300
 MIN_LENGTH = 5
+# The hint regex over-triggers on FINAL prose, but unhinted plain-FINAL
+# messages are production's majority class and must stay represented.
+MIN_OTHER_FILL = 100
 
 
 def is_real_user_turn(obj):
@@ -108,7 +111,7 @@ def mine(args):
             (hint_rows if WAITING_HINTS.search(text) else other_rows).append(row)
 
     random.seed(42)
-    fill = max(0, CAP - len(hint_rows))
+    fill = max(MIN_OTHER_FILL, CAP - len(hint_rows))
     sampled = random.sample(other_rows, min(fill, len(other_rows)))
     rows = hint_rows + sampled
 
