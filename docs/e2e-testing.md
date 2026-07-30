@@ -96,6 +96,10 @@ Both apps accept `--e2e-test` as a launch argument. When present, `prepareDepend
 
 The macOS app accepts `--tmux-socket <path>` (alongside `--e2e-test`) to use a dedicated tmux server socket instead of the system default. This prevents E2E tests from polluting the developer's real tmux sessions. The default socket path is `/tmp/claudespy-e2e.sock`. During cleanup, the orchestrator kills the isolated tmux server and removes the socket file.
 
+### Plugin state isolation
+
+Sidecar plugins are staged (`macStageSidecarFixture`) or installed (`gallager plugin install`) into the app's `~/.gallager` tree, which E2E redirects under a shared per-suite base via `--gallager-state-root`. The folder-dropped/installed bundles live in `<base>/plugins/<id>` and the installed-plugin registry in `<base>/registry.json` — both **siblings** of the per-scenario `<base>/<idx>` state root. During cleanup the orchestrator wipes this shared plugin state (`plugins/`, `registry.json`, and the E2E `zip-fixtures/` staging dir) too, so a plugin staged or installed by one scenario cannot leak into a later scenario that opens Settings → Agents. Each scenario re-stages what it needs at launch, keeping plugin state deterministic and independent of scenario order (issue #690).
+
 ### Shell history isolation
 
 Shells spawned in E2E panes never write to the developer's `~/.zsh_history`. The orchestrator maintains a `$ZDOTDIR` shim directory (`<TMPDIR>/gallager-e2e-zdotdir`) whose zsh startup files source the user's real dotfiles — so the shell behaves exactly like a normal one — and then unset `HISTFILE` after the user's rc has run. A plain `HISTFILE=` env var wouldn't work: macOS's `/etc/zshrc` reassigns `HISTFILE` after tmux applies the pane environment.
