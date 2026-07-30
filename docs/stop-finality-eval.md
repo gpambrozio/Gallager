@@ -37,7 +37,7 @@ dataset, one variable per round, per-class gates.
    `swift run StopFinalityEval` (macOS 26 model cross-check) before pushing.
    Cold-start note: the executable rides the production 10 s fail-open deadline, so the first inference after a model load can time out and report `final`; if early rows look wrong, re-run once the model is warm before trusting the tallies.
 5. Ratchet: if the round improved mined recalls, raise the pinned gates in
-   `StopFinalityEvaluationSuite` to the new values.
+   `StopFinalityEvalRunner` to the new values.
 
 ## Recorded baselines (daily-Mac cross-check reference)
 

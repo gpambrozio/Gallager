@@ -115,16 +115,32 @@
         static let instructions = StopFinalityClassifier.productionInstructions
     }
 
-    // MARK: - Suite
+    // MARK: - Runner
 
+    /// Beta-SDK reconciliation (Xcode 27 beta 4): Swift Testing's @Suite/@Test
+    /// macros reject declarations carrying @available, so the suite below
+    /// stays availability-free and each test guards #available at runtime
+    /// before calling into this 27-only runner.
     @available(macOS 27, *)
-    @Suite("Stop-finality hill-climb", .serialized)
-    struct StopFinalityEvaluationSuite {
+    enum StopFinalityEvalRunner {
         /// Mined-set gates, pinned from the FIRST baseline run on the beta
         /// Mac (Task 8 records the numbers here; nil skips the gate so the
         /// suite is runnable before pinning). Seeds always gate at 100%.
         static let minedFinalRecallGate: Double? = nil
         static let minedWaitingRecallGate: Double? = nil
+
+        static func run(name: String, instructions: String, variant: String) async throws {
+            try requireModel()
+            let evaluation = StopFinalityEvaluation(
+                name: name,
+                instructions: instructions,
+                cases: try loadCases()
+            )
+            let result = try await evaluation.run(info: ["variant": variant])
+            print(result.groupedSummary)
+            try saveResult(result, label: variant)
+            assertGates(result)
+        }
 
         static func loadCases() throws -> [StopFinalityCase] {
             let seeds = try StopFinalityDataset.seeds()
@@ -173,30 +189,34 @@
             print("saved \(label) result → \(url.path)")
         }
 
+    }
+
+    // MARK: - Suite
+
+    @Suite("Stop-finality hill-climb", .serialized)
+    struct StopFinalityEvaluationSuite {
         @Test func baseline() async throws {
-            try Self.requireModel()
-            let evaluation = StopFinalityEvaluation(
+            guard #available(macOS 27, *) else {
+                Issue.record("Evaluations requires macOS 27")
+                return
+            }
+            try await StopFinalityEvalRunner.run(
                 name: "StopFinalityBaseline",
                 instructions: StopFinalityClassifier.productionInstructions,
-                cases: try Self.loadCases()
+                variant: "baseline"
             )
-            let result = try await evaluation.run(info: ["variant": "baseline"])
-            print(result.groupedSummary)
-            try Self.saveResult(result, label: "baseline")
-            Self.assertGates(result)
         }
 
         @Test func candidate() async throws {
-            try Self.requireModel()
-            let evaluation = StopFinalityEvaluation(
+            guard #available(macOS 27, *) else {
+                Issue.record("Evaluations requires macOS 27")
+                return
+            }
+            try await StopFinalityEvalRunner.run(
                 name: "StopFinalityCandidate",
                 instructions: CandidatePrompt.instructions,
-                cases: try Self.loadCases()
+                variant: "candidate"
             )
-            let result = try await evaluation.run(info: ["variant": "candidate"])
-            print(result.groupedSummary)
-            try Self.saveResult(result, label: "candidate")
-            Self.assertGates(result)
         }
     }
 #endif
