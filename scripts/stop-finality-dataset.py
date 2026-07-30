@@ -46,6 +46,29 @@ MIN_LENGTH = 5
 # messages are production's majority class and must stay represented.
 MIN_OTHER_FILL = 100
 
+VERDICTS = EVAL_DIR / "stop-finality-verdicts.jsonl"
+CONTESTED = EVAL_DIR / "stop-finality-contested.json"
+MINED = EVAL_DIR / "stop-finality-mined.json"
+BATCH = 20
+CONFIDENCE_FLOOR = 0.8
+
+PRELABEL_PROMPT = """\
+You label coding-agent turn-final messages for a binary classifier eval.
+For each message decide: did the agent FINISH its turn ("final") or is it
+PAUSING while background work it depends on completes ("waiting")?
+
+"waiting" requires the message to state the agent will continue when
+still-running work completes: "I'll report back", "Awaiting its report",
+"Waiting on Task 3", "nothing to do until it reports". Summaries of
+completed work, error reports, and questions to the user are "final" even
+when they mention builds, tests, commands, or background jobs.
+
+Reply with ONLY a JSON array, no prose, no code fences:
+[{"id": "...", "label": "waiting" or "final", "confidence": 0.0-1.0}, ...]
+
+Messages:
+"""
+
 
 def is_real_user_turn(obj):
     content = (obj.get("message") or {}).get("content")
@@ -128,10 +151,108 @@ def mine(args):
     print(f"wrote {len(rows)} candidates → {CANDIDATES}")
 
 
+def load_candidates():
+    return [json.loads(line) for line in open(CANDIDATES, encoding="utf-8")]
+
+
+def save_candidates(rows):
+    with open(CANDIDATES, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def prelabel(args):
+    import subprocess
+    rows = load_candidates()
+    pending = [r for r in rows if "claudeLabel" not in r]
+    print(f"{len(pending)} rows to label ({len(rows) - len(pending)} already done)")
+    for start in range(0, len(pending), BATCH):
+        batch = pending[start:start + BATCH]
+        payload = json.dumps(
+            [{"id": r["id"], "message": r["message"]} for r in batch],
+            ensure_ascii=False,
+        )
+        proc = subprocess.run(
+            ["claude", "-p", PRELABEL_PROMPT + payload],
+            capture_output=True, text=True, timeout=600,
+        )
+        if proc.returncode != 0:
+            sys.exit(f"claude -p failed: {proc.stderr[:500]}")
+        text = proc.stdout.strip()
+        if text.startswith("```"):
+            text = text.strip("`").lstrip("json").strip()
+        labels = {item["id"]: item for item in json.loads(text)}
+        for row in batch:
+            got = labels.get(row["id"])
+            if got is None or got["label"] not in ("waiting", "final"):
+                sys.exit(f"bad label response for {row['id']}: {text[:300]}")
+            row["claudeLabel"] = got["label"]
+            row["claudeConfidence"] = float(got.get("confidence", 0.5))
+        save_candidates(rows)  # checkpoint per batch — rerun-safe
+        print(f"labeled {start + len(batch)}/{len(pending)}")
+
+
+def review(args):
+    rows = load_candidates()
+    unlabeled = [r["id"] for r in rows if "claudeLabel" not in r]
+    if unlabeled:
+        sys.exit(f"run prelabel first — {len(unlabeled)} rows unlabeled")
+    if not VERDICTS.exists():
+        sys.exit(
+            "missing on-device verdicts — run:\n  cd ClaudeSpyPackage && "
+            f"swift run StopFinalityEval --verdicts {CANDIDATES} {VERDICTS}"
+        )
+    verdicts = {json.loads(l)["id"]: json.loads(l)["onDevice"]
+                for l in open(VERDICTS, encoding="utf-8") if l.strip()}
+    contested = []
+    for row in rows:
+        on_device = verdicts.get(row["id"])
+        if (on_device != row["claudeLabel"]
+                or row["claudeConfidence"] < CONFIDENCE_FLOOR):
+            contested.append({
+                "id": row["id"],
+                "message": row["message"],
+                "claudeLabel": row["claudeLabel"],
+                "claudeConfidence": row["claudeConfidence"],
+                "onDevice": on_device,
+                "label": None,  # ← human fills "waiting" or "final"
+            })
+    CONTESTED.write_text(
+        json.dumps(contested, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"{len(contested)} contested rows → {CONTESTED}")
+    print('fill each "label" field with "waiting" or "final", then run finalize')
+
+
+def finalize(args):
+    rows = load_candidates()
+    overrides = {}
+    if CONTESTED.exists():
+        contested = json.loads(CONTESTED.read_text(encoding="utf-8"))
+        missing = [c["id"] for c in contested if c["label"] not in ("waiting", "final")]
+        if missing:
+            sys.exit(f"contested rows still unlabeled: {missing}")
+        overrides = {c["id"]: c["label"] for c in contested}
+    dataset = [{
+        "id": row["id"],
+        "message": row["message"],
+        "expected": overrides.get(row["id"], row["claudeLabel"]),
+        "source": "mined",
+        "notes": f"{row['project']}/{row['session']} {row['timestamp']}",
+    } for row in rows]
+    MINED.write_text(
+        json.dumps(dataset, indent=2, ensure_ascii=False), encoding="utf-8")
+    waiting = sum(1 for d in dataset if d["expected"] == "waiting")
+    print(f"wrote {len(dataset)} cases ({waiting} waiting, "
+          f"{len(dataset) - waiting} final) → {MINED}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("mine", help="harvest turn-final messages").set_defaults(fn=mine)
+    sub.add_parser("prelabel", help="Claude pre-labels candidates").set_defaults(fn=prelabel)
+    sub.add_parser("review", help="emit contested rows").set_defaults(fn=review)
+    sub.add_parser("finalize", help="write the mined dataset").set_defaults(fn=finalize)
     args = parser.parse_args()
     args.fn(args)
 
