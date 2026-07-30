@@ -117,22 +117,26 @@
         /// misses (W13 orchestrator shape, W2 background start) and lifted
         /// waiting-recall 0.804→0.869, but flipped 9 mined FINAL cases to
         /// WAITING — all "awaiting the USER" shapes — breaching the
-        /// mined-final gate (0.9487→0.9277). Round 2 (2026-07-30): one
-        /// change — teach user-wait vs work-wait: a definition clause plus
-        /// contrast examples (the round-1 9 and the baseline's standing 22
-        /// mined-final misses are dominated by "waiting on your
-        /// call/clicks/decisions" turn-enders).
+        /// mined-final gate (0.9487→0.9277). Round 2: user-wait/work-wait
+        /// clause + FINISHED contrast examples — waiting side climbed to
+        /// 0.908/0.907 but W13 relapsed (its FINISHED twin example
+        /// pattern-matched the opening) and mined-final stayed 0.9277.
+        /// Round 3 (2026-07-30): one change — replace the suffix with an
+        /// explicit decision rule and only the 3 WAITING examples (drop the
+        /// W13-twin and the extra FINISHED examples; fewer examples per the
+        /// WWDC overfit warning, discriminator stated as a question).
         static let instructions = StopFinalityClassifier.productionInstructions + """
 
 
-        User-wait vs work-wait: when what the agent awaits is the USER — \
-        answers, decisions, clicks, a reproduction, or any action only the \
-        user can take — the turn is FINISHED, even when phrased "waiting on \
-        your call" or "standing by". WAITING applies only when the awaited \
-        thing is running work (a build, test, deploy, job, task, or subagent) \
-        that will complete on its own and the agent says it will continue \
-        then. Work someone else owns (CI, a scheduled job) that the agent \
-        does not promise to pick up is FINISHED.
+        Decision rule: ask one question — does the message say the agent \
+        itself will automatically continue when still-running WORK (a build, \
+        test, deploy, job, task, or subagent) completes? Only then is it \
+        WAITING. Everything else is FINISHED, including: asking the user to \
+        act or answer ("please do X, then I'll…" — the agent resumes on the \
+        USER, not on work), waiting for the user's decision or input in any \
+        phrasing ("waiting on your call", "standing by"), and mentions of \
+        work someone else owns (CI, cron) that the agent does not promise to \
+        pick up.
 
         Examples:
         - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
@@ -142,14 +146,6 @@
         action)
         - "I've launched the deploy in the background — it takes about ten \
         minutes. I'll pick this up and summarize once it completes." → WAITING
-        - "Just the reviewer agent going idle — no action. Waiting on your call \
-        about the doc updates." → FINISHED (awaiting the user, not running work)
-        - "Please reproduce it once more, then say 'done' — I'll check the \
-        logs." → FINISHED (the next step depends on the user acting)
-        - "Pushed. CI will run the full suite and own the baselines." → \
-        FINISHED (CI's work, not the agent's — no promise to resume)
-        - "The build failed with 3 errors. How would you like to proceed?" → \
-        FINISHED
         """
     }
 
