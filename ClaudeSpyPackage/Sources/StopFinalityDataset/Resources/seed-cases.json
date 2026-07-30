@@ -138,5 +138,12 @@
     "expected": "waiting",
     "source": "seed",
     "notes": "no action, waiting on other task"
+  },
+  {
+    "id": "W13",
+    "message": "That's just Task 1's reviewer going idle after saving its report — already handled. Task 2's implementer is still working; nothing to do until it reports.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-30 field failure: Session Idle fired while orchestrating subagents"
   }
 ]
