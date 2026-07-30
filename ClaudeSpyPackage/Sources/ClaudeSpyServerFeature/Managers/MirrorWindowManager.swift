@@ -454,6 +454,24 @@ final public class MirrorWindowManager {
         return true
     }
 
+    /// Applies a manual state override to every pane in a session, then pushes
+    /// the change to connected viewers. Used by the "Set State" context menu
+    /// (issue #695); `nil` clears the override, reverting to the agent-driven
+    /// state. Unlike color/emoji this is NOT persisted to tmux — it's a transient
+    /// override, and any later plugin state update clears it (see `applyState`),
+    /// so a live agent always wins over the manual choice. Applied to every pane
+    /// so it survives switching windows and matches the session-wide clear in
+    /// `applyState`.
+    /// - Parameters:
+    ///   - state: The override to apply, or `nil` to clear.
+    ///   - sessionName: The tmux session name.
+    public func setCLISessionState(_ state: CLISessionState?, forSession sessionName: String) {
+        for (paneId, paneState) in paneStates where paneState.sessionName == sessionName {
+            paneStates[paneId]?.cliSessionState = state
+        }
+        Task { await onSessionMetadataChanged?() }
+    }
+
     // MARK: - Yolo Mode
 
     /// Sets yolo mode for a pane's agent session.

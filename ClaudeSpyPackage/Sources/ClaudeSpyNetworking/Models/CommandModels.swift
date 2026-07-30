@@ -600,6 +600,30 @@ public struct SetSessionEmoji: CommandSpec, Equatable {
     }
 }
 
+/// Set (or clear) a manual state override for a tmux session. Returns
+/// success/failure. Unlike color/emoji this is a transient runtime override —
+/// NOT persisted to tmux — that wins over the agent-driven sidebar indicator
+/// until a later plugin state update clears it (issue #695). `state == nil`
+/// reverts the session to its automatic, agent-driven state.
+public struct SetSessionState: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// The session name to set the state override for
+    public let sessionName: String
+
+    /// The state override, or nil to clear (revert to automatic)
+    public let state: CLISessionState?
+
+    public init(sessionName: String, state: CLISessionState?) {
+        self.sessionName = sessionName
+        self.state = state
+    }
+
+    public var commandType: CommandType {
+        .setSessionState(self)
+    }
+}
+
 /// Rename a tmux window. Returns success/failure.
 /// Applied on the host via `tmux rename-window`, which also implicitly disables
 /// tmux's automatic-rename so the tab stops tracking the running command.
@@ -925,6 +949,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setSessionColor(SetSessionColor)
     /// Set a custom emoji icon for a tmux session
     case setSessionEmoji(SetSessionEmoji)
+    /// Set (or clear) a manual state override for a tmux session
+    case setSessionState(SetSessionState)
     /// Rename a tmux window (shown in the tab)
     case setWindowName(SetWindowName)
     /// Reorder tmux windows inside a session
@@ -1023,6 +1049,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a setSessionEmoji command
     public static func setSessionEmoji(sessionName: String, emoji: String?) -> CommandType {
         .setSessionEmoji(SetSessionEmoji(sessionName: sessionName, emoji: emoji))
+    }
+
+    /// Create a setSessionState command
+    public static func setSessionState(sessionName: String, state: CLISessionState?) -> CommandType {
+        .setSessionState(SetSessionState(sessionName: sessionName, state: state))
     }
 
     /// Create a setWindowName command

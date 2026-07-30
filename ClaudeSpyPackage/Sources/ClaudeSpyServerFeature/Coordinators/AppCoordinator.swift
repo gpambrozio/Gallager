@@ -3094,6 +3094,14 @@
                     return .success(for: command.id)
                 }
 
+                // Handle manual session-state override (applied to every pane in
+                // the session, cleared by later plugin activity — issue #695).
+                // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
+                if case let .setSessionState(spec) = command.command {
+                    winManager.setCLISessionState(spec.state, forSession: spec.sessionName)
+                    return .success(for: command.id)
+                }
+
                 // Handle window reorder — rewrites tmux indices via the same
                 // two-phase park-then-place path used locally, then pushes
                 // the refreshed session state so every viewer sees the new

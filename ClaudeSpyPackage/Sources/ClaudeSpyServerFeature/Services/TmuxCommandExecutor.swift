@@ -68,6 +68,7 @@ public actor TmuxCommandExecutor {
                  .setSessionDescription,
                  .setSessionColor,
                  .setSessionEmoji,
+                 .setSessionState,
                  .setWindowName,
                  .moveTmuxWindows,
                  .submitEditorContent,

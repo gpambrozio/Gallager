@@ -26,6 +26,25 @@ public struct TmuxSession: Identifiable, Sendable {
         windows.contains(where: \.hasClaude)
     }
 
+    /// The manual state override propagated from the host, if any pane in the
+    /// session has one set (issue #695). See `customDescription` for the same
+    /// any-pane scan rationale.
+    public var cliSessionState: CLISessionState? {
+        windows.lazy.flatMap(\.panes).compactMap(\.cliSessionState).first
+    }
+
+    /// The first agent session across the session's panes, if any.
+    public var agentSession: AgentSession? {
+        windows.lazy.flatMap(\.panes).compactMap(\.agentSession).first
+    }
+
+    /// The state bucket currently shown on the sidebar (manual override, else
+    /// agent-derived), used to check the current item in the "Set State" menu.
+    /// `nil` when the session shows the plain terminal glyph (issue #695).
+    public var displayedState: CLISessionState? {
+        CLISessionState.displayed(override: cliSessionState, agentState: agentSession?.state)
+    }
+
     /// The custom description for this session.
     ///
     /// Persisted at session scope via the `@gallager-description` tmux user

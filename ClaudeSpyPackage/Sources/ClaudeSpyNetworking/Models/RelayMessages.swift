@@ -153,7 +153,8 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - CLI Session State Override
 
-    /// Pane state set via the gallager CLI's `session-state` command.
+    /// Manual session-state override, set via the gallager CLI's `session
+    /// set-state` command or the sidebar's "Set State" context menu (issue #695).
     /// Overrides the indicator shown in the sidebar until cleared, either
     /// explicitly or by a hook event that updates the underlying session.
     public var cliSessionState: CLISessionState?

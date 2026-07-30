@@ -241,6 +241,27 @@ With `--json` the output is a JSON array of `{ "emoji", "name" }` entries. An em
 
 ---
 
+#### `session-state <state>`
+
+Override the state indicator the sidebar shows for a session (working spinner, idle moon, or the orange "needs attention" bell), independent of what the coding agent reports. Unlike `set-color`/`set-emoji` this is a **transient** override — it is *not* persisted to tmux and stays in place only until it's cleared (`clear`) or an agent plugin reports a fresh state for the same pane, at which point the plugin wins. Applied to every pane in the target session.
+
+The sidebar's right-click (macOS) / long-press (iOS) **"Set State"** context menu is the GUI equivalent — it drives the same override (issue #695), with the current state checked and an "Automatic" entry to clear it.
+
+```bash
+gallager session-state working --session work    # explicit session
+gallager session-state waiting                    # current pane's session via $TMUX_PANE
+gallager session-state clear                       # revert to the agent-driven state
+```
+
+Valid states: `working`, `idle`, `waiting`, `clear`. Aliases: `waiting-for-input`/`attention` (→ waiting), `none` (→ clear).
+
+**JSON-RPC**
+- Method: `session.set_state`
+- Params: `{ "state": "working"|"idle"|"waiting"|"clear", "session_id"?: string, "pane_id"?: string }` _(unknown states return an error)_
+- Response: `{ "applied_to": int }`
+
+---
+
 ### Windows
 
 #### `list-windows`

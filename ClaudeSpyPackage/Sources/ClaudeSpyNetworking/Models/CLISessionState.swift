@@ -1,6 +1,7 @@
 import Foundation
 
-/// User-driven session state override set via the gallager CLI.
+/// User-driven session state override, set via the gallager CLI (`session
+/// set-state`) or the sidebar's "Set State" context menu (issue #695).
 ///
 /// When a value is set on a `PaneState`, the sidebar shows the corresponding
 /// indicator regardless of the underlying Claude session state. Receiving a
@@ -17,6 +18,20 @@ public enum CLISessionState: String, Codable, Sendable, CaseIterable {
         case .idle: "Idle"
         case .waiting: "Waiting for input"
         }
+    }
+
+    /// The state bucket currently *shown* on the sidebar for a session, given a
+    /// manual override and the agent's own state. When an override is set it wins
+    /// (matching `SessionStatusBadge`); otherwise the bucket is derived from the
+    /// agent state. Returns `nil` when the session shows the plain terminal glyph
+    /// (no override, no agent session). The "Set State" context menu uses this to
+    /// check the item matching what the sidebar shows (issue #695).
+    public static func displayed(override: CLISessionState?, agentState: AgentState?) -> CLISessionState? {
+        if let override { return override }
+        guard let agentState else { return nil }
+        if agentState.isActiveWorking { return .working }
+        if agentState.needsAttention { return .waiting }
+        return .idle
     }
 
     /// Parses a CLI string into either a concrete state or an explicit clear.
