@@ -35,6 +35,7 @@ dataset, one variable per round, per-class gates.
    `= productionInstructions`, re-run the suite (both tests green, seeds
    100%, mined ≥ gates), then on the daily Mac run
    `swift run StopFinalityEval` (macOS 26 model cross-check) before pushing.
+   Cold-start note: the executable rides the production 10 s fail-open deadline, so the first inference after a model load can time out and report `final`; if early rows look wrong, re-run once the model is warm before trusting the tallies.
 5. Ratchet: if the round improved mined recalls, raise the pinned gates in
    `StopFinalityEvaluationSuite` to the new values.
 
@@ -43,5 +44,4 @@ dataset, one variable per round, per-class gates.
 New field failure → find the message (`mine` + grep the candidates file),
 add it to `seed-cases.json` with the next W/F id + a dated note, bump the
 count in `StopFinalityDatasetTests`. Re-run `mine`/`prelabel`/`review`/
-`finalize` occasionally to refresh the mined set; sync the two
-`~/.gallager/eval` files to the beta Mac (scp) when they change.
+`finalize` occasionally to refresh the mined set; sync ~/.gallager/eval/stop-finality-mined.json to the beta Mac (scp) when they change.

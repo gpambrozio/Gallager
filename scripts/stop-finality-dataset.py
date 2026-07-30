@@ -184,7 +184,7 @@ def prelabel(args):
         labels = {item["id"]: item for item in json.loads(text)}
         for row in batch:
             got = labels.get(row["id"])
-            if got is None or got["label"] not in ("waiting", "final"):
+            if got is None or got.get("label") not in ("waiting", "final"):
                 sys.exit(f"bad label response for {row['id']}: {text[:300]}")
             row["claudeLabel"] = got["label"]
             row["claudeConfidence"] = float(got.get("confidence", 0.5))
