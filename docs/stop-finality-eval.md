@@ -39,6 +39,13 @@ dataset, one variable per round, per-class gates.
 5. Ratchet: if the round improved mined recalls, raise the pinned gates in
    `StopFinalityEvaluationSuite` to the new values.
 
+## Recorded baselines (daily-Mac cross-check reference)
+
+- 2026-07-30, macOS 26.5 model, dataset = 21 seeds + 569 mined (56 contested
+  rows human-labeled): overall 542/590, final-recall 416/437,
+  waiting-recall 126/153, seed 20/21 (sole failure: W13), mined 522/569.
+  Promotions must keep the daily-Mac tallies at or above this line.
+
 ## Growing the dataset
 
 New field failure → find the message (`mine` + grep the candidates file),
