@@ -507,7 +507,7 @@ public enum CodingAgent: String, Codable, Sendable, CaseIterable, Hashable {
 Carries display metadata used to render agent-aware UI:
 
 - `displayName` — `"Claude Code"` / `"Codex"` (full notification titles)
-- `shortName` — `"Claude"` / `"Codex"` (sidebar badges, compact toasts)
+- `shortName` — `"claude"` / `"codex"` (lowercase in the bundled manifests since #691, so project-row agent badges read `claude`/`codex` verbatim with no casing transform in the UI; sidebar badges, compact toasts)
 - `processName` — `"claude"` / `"codex"` (matched against tmux pane process trees in `TmuxService.detectAgentPanes`)
 
 `HookEvent`, `ClaudeSession`, and `ClaudeProjectInfo` all carry an `agent` field that defaults to `.claudeCode` when missing, so older Mac builds and older relay payloads still decode cleanly.

@@ -1182,6 +1182,7 @@ public struct MainView: View {
                 onCreate: { project in
                     createNewSession(project: project)
                 },
+                pluginShortName: { coordinator.pluginRegistry?.manifest($0)?.shortName ?? $0 },
                 popover: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -4093,7 +4094,8 @@ public struct MainView: View {
             creatingSelection: creatingSelection,
             onCreate: { project in
                 createNewSession(project: project)
-            }
+            },
+            pluginShortName: { coordinator.pluginRegistry?.manifest($0)?.shortName ?? $0 }
         )
     }
 

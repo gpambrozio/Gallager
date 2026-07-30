@@ -33,7 +33,7 @@
             #expect(codex != nil)
             #expect(codex?.processNames == ["codex"])
             #expect(codex?.color == "#3B82F6")
-            #expect(codex?.shortName == "Codex")
+            #expect(codex?.shortName == "codex")
         }
 
         @Test("processNamesByPlugin surfaces detection names for both bundled plugins")
@@ -103,7 +103,7 @@
             let claude = presentations.first
             #expect(claude?.id == "claude-code")
             #expect(claude?.displayName == "Claude Code")
-            #expect(claude?.shortName == "Claude")
+            #expect(claude?.shortName == "claude")
             #expect(claude?.color == "#cb6f3a")
             #expect(claude?.version == "1.0.0")
 

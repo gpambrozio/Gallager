@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "claude-code",
   "display_name": "Claude Code",
-  "short_name": "Claude",
+  "short_name": "claude",
   "version": "1.0.0",
   "process_names": ["claude"],
   "ui": { "icon": "assets/icon.png", "color": "#cb6f3a" }

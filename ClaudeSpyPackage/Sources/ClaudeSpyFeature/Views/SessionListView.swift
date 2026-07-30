@@ -813,17 +813,19 @@
                                             HStack(spacing: 6) {
                                                 Text(project.name)
                                                     .foregroundStyle(.primary)
+                                                    .lineLimit(1)
 
-                                                if project.pluginID != "claude-code" {
-                                                    Text(presentationShortName(for: project.pluginID))
-                                                        .font(.caption2.weight(.semibold))
-                                                        .padding(.horizontal, 6)
-                                                        .padding(.vertical, 2)
-                                                        .background(
-                                                            Capsule().fill(Color.accentColor.opacity(0.18))
-                                                        )
-                                                        .foregroundStyle(Color.accentColor)
-                                                }
+                                                // Every project row carries an agent badge (issue #691):
+                                                // the presentation short_name, plugin id as fallback. No
+                                                // per-agent gate — Claude Code projects get a badge too.
+                                                Text(presentationShortName(for: project.pluginID))
+                                                    .font(.caption2.weight(.semibold))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .background(
+                                                        Capsule().fill(Color.accentColor.opacity(0.18))
+                                                    )
+                                                    .foregroundStyle(Color.accentColor)
                                             }
                                             Text(project.path)
                                                 .font(.caption)
