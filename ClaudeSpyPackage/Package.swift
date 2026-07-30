@@ -519,6 +519,18 @@ let targets: [Target] = [
         name: "StopFinalityDatasetTests",
         dependencies: [.stopFinalityDataset]
     ),
+    // Hill-climbing eval for the stop-finality judge on Apple's Evaluations
+    // framework (WWDC26 session 335; spec docs/superpowers/specs/
+    // 2026-07-30-stop-finality-evaluations-design.md). Compiles to an empty
+    // suite on pre-macOS-27 SDKs and CI (#if canImport(Evaluations)); RUNS
+    // only on a macOS 27 beta Mac with Apple Intelligence enabled.
+    .testTarget(
+        name: "StopFinalityEvaluations",
+        dependencies: [
+            .claudeCodePluginCore,
+            .stopFinalityDataset,
+        ]
+    ),
     .testTarget(
         name: "CodexPluginCoreTests",
         dependencies: [
