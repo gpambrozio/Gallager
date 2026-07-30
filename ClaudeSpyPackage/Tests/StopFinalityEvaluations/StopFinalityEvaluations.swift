@@ -112,7 +112,29 @@
         /// aligned baseline; a winning candidate is promoted by copying this
         /// text into `StopFinalityClassifier.productionInstructions` and
         /// resetting this back to `productionInstructions`.
-        static let instructions = StopFinalityClassifier.productionInstructions
+        ///
+        /// Round 1 (2026-07-30): append few-shot examples. The macOS 27
+        /// baseline fails seeds W13 (orchestrator "nothing to do until it
+        /// reports") and W2 (background start + deferred resume); examples
+        /// cover those SHAPES (not the seed text verbatim — overfit warning
+        /// from the WWDC session) plus FINISHED contrasts to protect
+        /// final-recall.
+        static let instructions = StopFinalityClassifier.productionInstructions + """
+
+
+        Examples:
+        - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
+        - "That's just task A's helper finishing — already handled. Task B's \
+        implementer is still working; nothing to do until it reports." → WAITING \
+        (work the agent depends on is still running, even though this event \
+        needed no action)
+        - "I've launched the deploy in the background — it takes about ten \
+        minutes. I'll pick this up and summarize once it completes." → WAITING
+        - "Done — pushed. To try it locally, run the install script and restart \
+        the app." → FINISHED
+        - "The build failed with 3 errors. How would you like to proceed?" → \
+        FINISHED
+        """
     }
 
     // MARK: - Runner
