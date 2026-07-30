@@ -22,17 +22,25 @@ public enum ProjectSearchIOSScenario {
         // (waiting for the project items implies the loading spinner is gone)
         // `AaaOpenAIApp` is seeded by the Codex scanner so the picker always
         // has a Codex-tagged row near the top of the list to assert against.
-        // The name avoids the substring "Codex" so the badge assertion below
+        // The name avoids the substring "codex" so the badge assertion below
         // can't accidentally match this row's project name.
         TestStep.log("Verifying alphabetically-first mock projects are listed")
         TestStep.iosWaitForElement(.labelContains("AaaOpenAIApp"), timeout: 15)
         TestStep.iosWaitForElement(.labelContains("AlphaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("BetaProject"), timeout: 5)
         TestStep.iosWaitForElement(.labelContains("DeltaApp"), timeout: 5)
-        // The Codex tag (rendered as a "Codex" badge next to the project name)
-        // is the visible signal that the picker distinguishes Codex projects
-        // from Claude ones.
-        TestStep.iosWaitForElement(.labelContains("Codex"), timeout: 5)
+        // The codex badge (the agent's lowercase short_name, issue #691, next to
+        // the project name) is the visible signal that the picker distinguishes
+        // Codex projects from Claude ones (which now carry a "claude" badge).
+        TestStep.iosWaitForElement(.labelContains("codex"), timeout: 5)
+        // Claude rows carry a badge too: match a single element (the row's
+        // combined accessibility label) containing both the Claude project's
+        // name and the "claude" badge, so re-gating the badge to non-Claude
+        // agents fails here.
+        TestStep.iosWaitForElement(
+            .allOf([.labelContains("AlphaProject"), .labelContains("claude")]),
+            timeout: 5
+        )
         TestStep.iosScreenshot(label: "ios-all-projects-visible")
 
         // ── Tap search field and type fuzzy search ────────────────
