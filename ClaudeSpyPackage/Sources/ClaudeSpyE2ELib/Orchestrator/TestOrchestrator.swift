@@ -303,14 +303,13 @@ public actor TestOrchestrator {
     /// Run multiple scenarios, cleaning up after each one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
         // Reset the shared gallager state-root base once before the suite runs.
-        // Per-scenario `cleanup()` only removes `<base>/<idx>` — never the sibling
-        // `<base>/plugins/` where sidecar fixtures and zip-installed plugins land.
-        // Because `<base>` defaults to a stable `NSTemporaryDirectory()` path that
-        // is reused across runs, a prior run's `AgentsInstallZipAutoSelectScenario`
-        // would otherwise leave `ziptest-sidecar` behind and leak a phantom
-        // "Zip Install Test" agent into the *next* run's `AgentsSettingsTabScenario`
-        // (which registers before the zip scenario). Wiping here guarantees every
-        // suite run starts with an empty plugins dir → a deterministic agent list.
+        // `<base>` defaults to a stable `NSTemporaryDirectory()` path reused across
+        // runs, so without this a prior run's leftover installed plugin (e.g.
+        // `ziptest-sidecar` from `AgentsInstallZipAutoSelectScenario`) would leak a
+        // phantom agent into the *next* run's first plugin scenario. Per-scenario
+        // `cleanup()` now also wipes this shared plugin state, so leaks can't cross
+        // a scenario boundary *within* a run either (issue #690); this suite-level
+        // reset still guards the very first scenario against a prior run's leftovers.
         try? FileManager.default.removeItem(atPath: gallagerStateRootBase)
         logger.info("Reset gallager state-root base: \(gallagerStateRootBase)")
 
@@ -382,6 +381,25 @@ public actor TestOrchestrator {
             // Remove the instance's `--gallager-state-root` tree (incl. the
             // stale ingress socket) so the next scenario binds a fresh socket.
             try? FileManager.default.removeItem(atPath: gallagerStateRootPath(for: idx))
+        }
+
+        // Wipe the shared plugin state that lives at the gallager-root level — a
+        // SIBLING of the per-instance `<base>/<idx>` state roots removed above, so
+        // the loop never touched it. Sidecar fixtures and zip-installed plugins
+        // land in `<base>/plugins/<id>` (+ a `<base>/registry.json` entry for
+        // installs), and each scenario re-stages what it needs at launch. Without
+        // this, a plugin staged/installed by one scenario lingered for the rest of
+        // the run and leaked into every later scenario that opens Settings →
+        // Agents — so that scenario's picker, and its screenshot baseline, depended
+        // on which scenarios (and in which order) ran before it. Because CI can
+        // capture scenarios in varying orders, whichever leak state it happened to
+        // bake into a baseline then failed comparison on the next run (issue #690).
+        // Clearing it here makes each scenario's plugin state deterministic and
+        // order-independent. (`gallagerStateRootBase` is the app's `gallagerRoot` —
+        // the parent of every `--gallager-state-root` override.)
+        let sharedRoot = URL(fileURLWithPath: gallagerStateRootBase)
+        for component in ["plugins", "registry.json", "zip-fixtures"] {
+            try? FileManager.default.removeItem(at: sharedRoot.appendingPathComponent(component))
         }
 
         logger.info("=== Cleanup complete ===")
