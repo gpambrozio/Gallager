@@ -163,6 +163,10 @@ extension Target.Dependency {
         "ClaudeCodePluginCore"
     }
 
+    static var stopFinalityDataset: Self {
+        "StopFinalityDataset"
+    }
+
     static var codexPluginCore: Self {
         "CodexPluginCore"
     }
@@ -470,6 +474,15 @@ let targets: [Target] = [
         dependencies: [.gallagerPluginProtocol, .claudeSpyNetworking, .logging],
         path: "Sources/EchoPluginSidecar"
     ),
+    // Shared dataset for the stop-finality eval (spec
+    // docs/superpowers/specs/2026-07-30-stop-finality-evaluations-design.md):
+    // committed seed cases (past field failures — the regression suite) ride
+    // as a bundled resource; mined cases load from ~/.gallager/eval and are
+    // never committed (verbatim excerpts from real sessions).
+    .target(
+        name: "StopFinalityDataset",
+        resources: [.copy("Resources/seed-cases.json")]
+    ),
     // Eval harness for the issue-#644 stop-finality judge: drives the REAL
     // `StopFinalityClassifier.liveValue` over a fixed case set so prompt
     // changes are measurable. Run manually on a Mac with Apple Intelligence
@@ -498,6 +511,10 @@ let targets: [Target] = [
             .gallagerPluginProtocol,
             .dependenciesTestSupport,
         ]
+    ),
+    .testTarget(
+        name: "StopFinalityDatasetTests",
+        dependencies: [.stopFinalityDataset]
     ),
     .testTarget(
         name: "CodexPluginCoreTests",
