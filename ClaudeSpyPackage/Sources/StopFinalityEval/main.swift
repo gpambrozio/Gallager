@@ -53,7 +53,11 @@ if let flagIndex = arguments.firstIndex(of: "--verdicts") {
         let verdict = await classifier.classify(message: row.message)
         let label = verdict == .stillWaiting ? "waiting" : "final"
         let data = try encoder.encode(VerdictOutput(id: row.id, onDevice: label))
-        outputLines.append(String(decoding: data, as: UTF8.self))
+        guard let encoded = String(bytes: data, encoding: .utf8) else {
+            print("non-UTF8 JSON for \(row.id) — aborting")
+            exit(70)
+        }
+        outputLines.append(encoded)
         print("[\(index + 1)/\(lines.count)] \(row.id) → \(label)")
     }
     try (outputLines.joined(separator: "\n") + "\n")

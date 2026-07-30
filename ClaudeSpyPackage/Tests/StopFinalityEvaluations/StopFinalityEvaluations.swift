@@ -148,7 +148,7 @@
         static func assertGates(_ result: EvaluationResult) {
             let seed = result.aggregateValue(
                 .mean(of: StopFinalityExactMatchEvaluator.seedCorrect))
-            #expect(seed == 1.0, "seed regression — every committed case must pass")
+            #expect(seed == 1, "seed regression — every committed case must pass")
             if let gate = minedFinalRecallGate {
                 let value = result.aggregateValue(
                     .mean(of: StopFinalityExactMatchEvaluator.minedFinalRecall))
