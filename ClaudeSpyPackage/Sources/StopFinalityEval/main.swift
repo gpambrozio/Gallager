@@ -1,136 +1,19 @@
 import ClaudeCodePluginCore
 import Foundation
+import StopFinalityDataset
 
-// Eval harness for the stop-finality judge (issue #644). Drives the REAL
-// production classifier — `StopFinalityClassifier.liveValue` — over a fixed
-// case set of realistic final and waiting messages, so prompt changes in
-// `StopFinalityClassifier.swift` are measurable instead of vibes-based.
+// macOS-26 cross-check + labeling helper for the stop-finality judge (spec
+// docs/superpowers/specs/2026-07-30-stop-finality-evaluations-design.md).
+// The hill-climbing eval proper lives in the StopFinalityEvaluations test
+// target (macOS 27 beta only); this executable drives the SAME dataset
+// through the production classifier on this machine's model.
 //
-// Run on a Mac with Apple Intelligence enabled (macOS 26+):
-//     swift run StopFinalityEval
-// Exits non-zero when any case misclassifies (or the model is unavailable),
-// and prints a per-case table. CI never runs this — its VMs have no Apple
-// Intelligence — but the target compiles everywhere.
+//     swift run StopFinalityEval                          # score seeds + mined
+//     swift run StopFinalityEval --verdicts in.jsonl out.jsonl
 //
-// Case provenance: F1 is the real merge summary that pinned a session on
-// "Working" (misclassified by the pre-tuning prompt); the other FINAL cases
-// cover the shapes that prompt also failed on (error reports, questions,
-// user-directed next steps). Sampling is greedy, so results are stable for a
-// given model version.
-
-struct EvalCase {
-    let name: String
-    let message: String
-    let expectWaiting: Bool
-}
-
-let cases: [EvalCase] = [
-    // ── FINAL messages (expect .final) ──
-    EvalCase(name: "F1 full merge summary (real-world failure)", message: """
-    Merged and pushed. Summary:
-    - Updated local `main` from the remote, then merged it into the feature branch — \
-    a clean merge with no conflicts, bringing exactly the one checklist commit.
-    - One housekeeping step first: the working tree still carried your uncommitted \
-    edit (identical to what the merge was bringing in), which would have blocked the \
-    merge. I discarded the local copy and let the merge supply the same content.
-    - Build verified clean and the branch is pushed, so the working tree is fully \
-    clean and the checklist note (run the e2e preflight, don't skip on assumptions) \
-    is active on this branch too.
-    """, expectWaiting: false),
-    EvalCase(name: "F2 blunt done", message: """
-    All done. I fixed the bug and all 1189 tests pass.
-    """, expectWaiting: false),
-    EvalCase(name: "F3 error report + question", message: """
-    The build failed with 3 errors in StopFinalityClassifier.swift — the first is a \
-    missing argument for parameter 'availability'. I can add the parameter to the \
-    eight test stubs or introduce a helper. How would you like to proceed?
-    """, expectWaiting: false),
-    EvalCase(name: "F4 completed background work", message: """
-    The e2e run finished: 1/1 passed (21s). Baselines were regenerated and the \
-    screenshots verified visually — the row stays "Working" after the paused stop \
-    and flips to "Done" after the final one. Pushed as a107aff3.
-    """, expectWaiting: false),
-    EvalCase(name: "F5 user-directed imperatives", message: """
-    Done — pushed as 70c05ccf. To try it locally, run ./scripts/dev-install.sh and \
-    restart Gallager; the toggle is under Settings → Agents → Claude Code. Watch the \
-    sidecar log while you test to see the classifier verdicts.
-    """, expectWaiting: false),
-    EvalCase(name: "F6 mentions ongoing external work", message: """
-    Fixed. Note the nightly backup cron stays registered — it fires at 2am and \
-    doesn't affect this feature. Let me know if you want it disabled.
-    """, expectWaiting: false),
-    EvalCase(name: "F7 question ending", message: """
-    I found two approaches: (a) race inference against a deadline, or (b) cancel \
-    and poll the session. Which do you prefer?
-    """, expectWaiting: false),
-    EvalCase(name: "F8 long summary with offer", message: """
-    Done — the settings row now reflects availability. What was added:
-    - A new `availability` endpoint on the existing dependency, probed on form load.
-    - Pre-macOS 26 and Apple-Intelligence-off render the toggle disabled with a \
-    caption; a still-downloading model keeps it editable with a transient note.
-    - Two tests pin the presentation mapping; the e2e run compares clean.
-    - CI machines vary, so under --e2e-test the probe always reports available.
-    Verification: 1189 tests pass, the Agents Settings Tab scenario passed, and the \
-    build is clean. Want me to also surface the caption on iOS?
-    """, expectWaiting: false),
-
-    // ── WAITING messages (expect .stillWaiting) ──
-    EvalCase(name: "W1 explicit report-back", message: """
-    The build is running; I'll report back when it finishes.
-    """, expectWaiting: true),
-    EvalCase(name: "W2 background suite started", message: """
-    I've started the full e2e suite in the background — it takes about 10 minutes. \
-    I'll pick this up and summarize the results once it completes.
-    """, expectWaiting: true),
-    EvalCase(name: "W3 monitoring", message: """
-    Monitoring the deploy; will update you once it's healthy.
-    """, expectWaiting: true),
-    EvalCase(name: "W4 waiting on CI", message: """
-    Waiting on CI to go green before merging — the required checks are still running.
-    """, expectWaiting: true),
-    EvalCase(name: "W5 long status then wait", message: """
-    Progress so far:
-    - The decode hardening is done and unit-tested (4 new tests).
-    - The deadline race is in with both outcomes covered.
-    - The settings toggle is wired and renders correctly.
-    The remaining scenario is still running; I'll verify the screenshots and report \
-    back when it finishes.
-    """, expectWaiting: true),
-    EvalCase(name: "W6 nothing to do until done", message: """
-    Kicked off the release build — it takes about 40 minutes. Nothing more to do \
-    until it completes; I'll resume then.
-    """, expectWaiting: true),
-
-    // ── WAITING: terse orchestration updates (real-world failures, 2026-07-15) ──
-    // An orchestrator session dispatching subagents produced "X dispatched.
-    // Awaiting Y" summaries; all classified FINISHED and fired premature
-    // Session Idle notifications. The elliptical "Awaiting…" (no first-person
-    // "I'll wait") fell outside the narrow WAITING definition.
-    EvalCase(name: "W7 dispatch + awaiting report", message: """
-    Task 3 implementer dispatched (the badge view + popover). Awaiting its \
-    report/build result.
-    """, expectWaiting: true),
-    EvalCase(name: "W8 dispatch + awaiting verdict", message: """
-    Task 2 reviewer dispatched (this time instructed to SendMessage its full \
-    report so it reaches me). Awaiting the verdict.
-    """, expectWaiting: true),
-    EvalCase(name: "W9 dispatch + awaiting re-run", message: """
-    Task 2 warning fix dispatched. Awaiting the pristine re-run, then I'll review \
-    the full Task 2 delta.
-    """, expectWaiting: true),
-    EvalCase(name: "W10 dispatch + awaiting report (parenthetical)", message: """
-    Task 2 implementer dispatched (Mac appearance helper + `hourglass` symbol, \
-    TDD). Awaiting its report.
-    """, expectWaiting: true),
-    EvalCase(name: "W11 fix dispatched + awaiting then re-review", message: """
-    Fix dispatched to the Task 1 implementer (3 doc-comment corrections + build \
-    check). Awaiting the fix report, then I'll re-review that focused delta \
-    before marking Task 1 complete.
-    """, expectWaiting: true),
-    EvalCase(name: "W12 no action, waiting on other task", message: """
-    Just the Task 2 reviewer going idle — no action. Waiting on Task 3.
-    """, expectWaiting: true),
-]
+// --verdicts serves scripts/stop-finality-dataset.py: classifies each
+// {"id","message"} line and writes {"id","onDevice"} lines, so the labeling
+// pipeline can surface Claude-vs-on-device disagreements for human review.
 
 let classifier = StopFinalityClassifier.liveValue
 
@@ -140,14 +23,84 @@ guard classifier.availability() == .available else {
     exit(1)
 }
 
-var failures = 0
-for c in cases {
-    let verdict = await classifier.classify(message: c.message)
-    let waiting = verdict == .stillWaiting
-    let ok = waiting == c.expectWaiting
-    if !ok { failures += 1 }
-    print("\(ok ? "PASS" : "FAIL")  \(c.name) → \(waiting ? "WAITING" : "FINISHED")")
+// MARK: - --verdicts mode
+
+struct VerdictInput: Codable {
+    let id: String
+    let message: String
 }
 
-print("\(cases.count - failures)/\(cases.count) passed")
+struct VerdictOutput: Codable {
+    let id: String
+    let onDevice: String
+}
+
+let arguments = CommandLine.arguments
+if let flagIndex = arguments.firstIndex(of: "--verdicts") {
+    guard arguments.count >= flagIndex + 3 else {
+        print("usage: StopFinalityEval --verdicts <in.jsonl> <out.jsonl>")
+        exit(64)
+    }
+    let inputURL = URL(fileURLWithPath: arguments[flagIndex + 1])
+    let outputURL = URL(fileURLWithPath: arguments[flagIndex + 2])
+    let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
+    var outputLines: [String] = []
+    let lines = try String(contentsOf: inputURL, encoding: .utf8)
+        .split(separator: "\n").filter { !$0.isEmpty }
+    for (index, line) in lines.enumerated() {
+        let row = try decoder.decode(VerdictInput.self, from: Data(line.utf8))
+        let verdict = await classifier.classify(message: row.message)
+        let label = verdict == .stillWaiting ? "waiting" : "final"
+        let data = try encoder.encode(VerdictOutput(id: row.id, onDevice: label))
+        outputLines.append(String(decoding: data, as: UTF8.self))
+        print("[\(index + 1)/\(lines.count)] \(row.id) → \(label)")
+    }
+    try (outputLines.joined(separator: "\n") + "\n")
+        .write(to: outputURL, atomically: true, encoding: .utf8)
+    exit(0)
+}
+
+// MARK: - Scoring mode
+
+let seeds = try StopFinalityDataset.seeds()
+let mined = try StopFinalityDataset.mined()
+if mined == nil {
+    print("NOTE: no mined dataset at \(StopFinalityDataset.minedURL.path) — scoring seeds only.")
+    print("      (override the path via \(StopFinalityDataset.minedPathEnvVar))")
+}
+let cases = seeds + (mined ?? [])
+
+struct Tally {
+    var passed = 0
+    var total = 0
+    var display: String { "\(passed)/\(total)" }
+}
+
+var byClass: [StopFinalityCase.Expected: Tally] = [:]
+var bySource: [StopFinalityCase.Source: Tally] = [:]
+var failures = 0
+
+for c in cases {
+    let verdict = await classifier.classify(message: c.message)
+    let got: StopFinalityCase.Expected = verdict == .stillWaiting ? .waiting : .final
+    let ok = got == c.expected
+    if !ok { failures += 1 }
+    byClass[c.expected, default: Tally()].total += 1
+    bySource[c.source, default: Tally()].total += 1
+    if ok {
+        byClass[c.expected, default: Tally()].passed += 1
+        bySource[c.source, default: Tally()].passed += 1
+    }
+    print("\(ok ? "PASS" : "FAIL")  [\(c.source.rawValue)] \(c.id) expected \(c.expected.rawValue) → got \(got.rawValue)  (\(c.notes ?? ""))")
+}
+
+print("""
+
+overall:        \(cases.count - failures)/\(cases.count)
+final-recall:   \(byClass[.final, default: Tally()].display)
+waiting-recall: \(byClass[.waiting, default: Tally()].display)
+seed:           \(bySource[.seed, default: Tally()].display)
+mined:          \(bySource[.mined, default: Tally()].display)
+""")
 exit(failures == 0 ? 0 : 2)

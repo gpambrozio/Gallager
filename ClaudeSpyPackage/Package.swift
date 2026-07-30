@@ -483,13 +483,16 @@ let targets: [Target] = [
         name: "StopFinalityDataset",
         resources: [.copy("Resources/seed-cases.json")]
     ),
-    // Eval harness for the issue-#644 stop-finality judge: drives the REAL
-    // `StopFinalityClassifier.liveValue` over a fixed case set so prompt
-    // changes are measurable. Run manually on a Mac with Apple Intelligence
-    // (`swift run StopFinalityEval`); CI only compiles it.
+    // macOS-26 cross-check + labeling helper for the stop-finality judge
+    // (spec docs/superpowers/specs/2026-07-30-stop-finality-evaluations-
+    // design.md). Scores the SAME dataset as the StopFinalityEvaluations
+    // suite against THIS machine's model — run on the daily (macOS 26) Mac
+    // before promoting a prompt tuned on the 27-beta model. Run manually on
+    // a Mac with Apple Intelligence (`swift run StopFinalityEval`); CI only
+    // compiles it.
     .executableTarget(
         name: "StopFinalityEval",
-        dependencies: [.claudeCodePluginCore]
+        dependencies: [.claudeCodePluginCore, .stopFinalityDataset]
     ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
