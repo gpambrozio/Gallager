@@ -123,11 +123,13 @@
     /// before calling into this 27-only runner.
     @available(macOS 27, *)
     enum StopFinalityEvalRunner {
-        /// Mined-set gates, pinned from the FIRST baseline run on the beta
-        /// Mac (Task 8 records the numbers here; nil skips the gate so the
-        /// suite is runnable before pinning). Seeds always gate at 100%.
-        static let minedFinalRecallGate: Double? = nil
-        static let minedWaitingRecallGate: Double? = nil
+        /// Mined-set gates, pinned from the first baseline run on the beta
+        /// Mac (2026-07-30, macOS 27.0 26A5388g, greedy — exact values from
+        /// results/baseline.json: mined-final-recall 407/429, mined-waiting-
+        /// recall 112/140). Seeds always gate at 100%; ratchet these up as
+        /// hill-climb rounds improve them.
+        static let minedFinalRecallGate: Double? = 407 / 429
+        static let minedWaitingRecallGate: Double? = 112 / 140
 
         static func run(name: String, instructions: String, variant: String) async throws {
             try requireModel()
