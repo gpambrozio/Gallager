@@ -113,25 +113,41 @@
         /// text into `StopFinalityClassifier.productionInstructions` and
         /// resetting this back to `productionInstructions`.
         ///
-        /// Round 1 (2026-07-30): append few-shot examples. The macOS 27
-        /// baseline fails seeds W13 (orchestrator "nothing to do until it
-        /// reports") and W2 (background start + deferred resume); examples
-        /// cover those SHAPES (not the seed text verbatim — overfit warning
-        /// from the WWDC session) plus FINISHED contrasts to protect
-        /// final-recall.
+        /// Round 1 (2026-07-30): few-shot examples alone. Fixed both seed
+        /// misses (W13 orchestrator shape, W2 background start) and lifted
+        /// waiting-recall 0.804→0.869, but flipped 9 mined FINAL cases to
+        /// WAITING — all "awaiting the USER" shapes — breaching the
+        /// mined-final gate (0.9487→0.9277). Round 2 (2026-07-30): one
+        /// change — teach user-wait vs work-wait: a definition clause plus
+        /// contrast examples (the round-1 9 and the baseline's standing 22
+        /// mined-final misses are dominated by "waiting on your
+        /// call/clicks/decisions" turn-enders).
         static let instructions = StopFinalityClassifier.productionInstructions + """
 
+
+        User-wait vs work-wait: when what the agent awaits is the USER — \
+        answers, decisions, clicks, a reproduction, or any action only the \
+        user can take — the turn is FINISHED, even when phrased "waiting on \
+        your call" or "standing by". WAITING applies only when the awaited \
+        thing is running work (a build, test, deploy, job, task, or subagent) \
+        that will complete on its own and the agent says it will continue \
+        then. Work someone else owns (CI, a scheduled job) that the agent \
+        does not promise to pick up is FINISHED.
 
         Examples:
         - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
         - "That's just task A's helper finishing — already handled. Task B's \
         implementer is still working; nothing to do until it reports." → WAITING \
-        (work the agent depends on is still running, even though this event \
-        needed no action)
+        (the awaited work is still running, even though this event needed no \
+        action)
         - "I've launched the deploy in the background — it takes about ten \
         minutes. I'll pick this up and summarize once it completes." → WAITING
-        - "Done — pushed. To try it locally, run the install script and restart \
-        the app." → FINISHED
+        - "Just the reviewer agent going idle — no action. Waiting on your call \
+        about the doc updates." → FINISHED (awaiting the user, not running work)
+        - "Please reproduce it once more, then say 'done' — I'll check the \
+        logs." → FINISHED (the next step depends on the user acting)
+        - "Pushed. CI will run the full suite and own the baselines." → \
+        FINISHED (CI's work, not the agent's — no promise to resume)
         - "The build failed with 3 errors. How would you like to proceed?" → \
         FINISHED
         """
