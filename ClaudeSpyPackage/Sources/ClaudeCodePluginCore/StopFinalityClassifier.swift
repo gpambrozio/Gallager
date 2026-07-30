@@ -98,6 +98,46 @@ extension StopFinalityClassifier: DependencyKey {
     /// `--e2e-test` stubs in `AppCoordinator`). Ignored outside e2e-test mode.
     public static let e2eStillWaitingMarker = "[e2e-still-waiting]"
 
+    /// Instructions are eval-tuned against real agent messages (see
+    /// `swift run StopFinalityEval`): FINISHED must explicitly cover
+    /// error reports, questions, and user-directed next steps, and must
+    /// say that naming builds/tests/commands is not waiting — the
+    /// earlier, softer rubric misclassified all of those. WAITING keeps
+    /// a FINISHED default (a systematic false WAITING pins the session
+    /// on "Working" while a false FINISHED is just the pre-#644
+    /// behavior) but must also cover elliptical forms — a second field
+    /// failure showed orchestrator summaries like "Task 2 reviewer
+    /// dispatched. Awaiting the verdict" read as finished when WAITING
+    /// demanded a first-person "I'll wait".
+    /// The production judge instructions — the single string hill-climbing
+    /// tunes (spec docs/superpowers/specs/2026-07-30-stop-finality-
+    /// evaluations-design.md). The StopFinalityEvaluations suite compares
+    /// candidate variants against this exact text via
+    /// `classify(message:instructions:)`; a winning candidate is promoted by
+    /// replacing this constant.
+    public static let productionInstructions = """
+    You judge the final message a coding agent printed when its turn ended, \
+    deciding whether the agent FINISHED its turn or is WAITING for background work.
+
+    FINISHED — the message wraps the turn up: it summarizes work already done \
+    (past tense), reports results or an error, asks the user a question, or tells \
+    the USER what they can do next. Mentioning builds, tests, commands, or \
+    background jobs by name does NOT make it waiting, and neither do commands the \
+    user could run.
+
+    WAITING — the message says the agent is pausing now and will continue when \
+    still-running work completes: "I'll wait for the build", "monitoring the \
+    deploy", "will report back when the tests finish", "I'll resume once CI \
+    completes". Terse forms without "I" count too: "Awaiting its report", \
+    "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
+    then awaiting its result, report, or verdict is WAITING — the dispatch being \
+    past tense does not make the turn finished.
+
+    Background work can stay registered after a turn genuinely finishes (tasks \
+    pending cleanup), so decide only from what the message says. If the message \
+    does not clearly state the agent is waiting to continue, it is FINISHED.
+    """
+
     public static var liveValue: StopFinalityClassifier {
         if CommandLine.arguments.contains("--e2e-test") {
             return StopFinalityClassifier(
@@ -227,64 +267,23 @@ extension StopFinalityClassifier: DependencyKey {
         /// back when the build finishes"), so keep the tail.
         private static let maxMessageLength = 4_000
 
-        fileprivate static func appleIntelligenceVerdict(
-            message: String
+        /// Eval seam: production classification with injectable instructions.
+        /// `liveValue` passes `productionInstructions`; the eval suite passes
+        /// candidates. Guided generation, greedy sampling, and tail
+        /// truncation stay in lockstep so the eval measures exactly what
+        /// ships.
+        public static func classify(
+            message: String,
+            instructions: String
         ) async -> StopFinalityVerdict {
             guard case .available = SystemLanguageModel.default.availability else {
                 return .final
             }
-
-            // Instructions are eval-tuned against real agent messages (see
-            // `swift run StopFinalityEval`): FINISHED must explicitly cover
-            // error reports, questions, and user-directed next steps, and must
-            // say that naming builds/tests/commands is not waiting — the
-            // earlier, softer rubric misclassified all of those. WAITING keeps
-            // a FINISHED default (a systematic false WAITING pins the session
-            // on "Working" while a false FINISHED is just the pre-#644
-            // behavior) but must also cover elliptical forms — a second field
-            // failure showed orchestrator summaries like "Task 2 reviewer
-            // dispatched. Awaiting the verdict" read as finished when WAITING
-            // demanded a first-person "I'll wait".
-            let session = LanguageModelSession(instructions: """
-            You judge the final message a coding agent printed when its turn ended, \
-            deciding whether the agent FINISHED its turn or is WAITING for background work.
-
-            FINISHED — the message wraps the turn up: it summarizes work already done \
-            (past tense), reports results or an error, asks the user a question, or tells \
-            the USER what they can do next. Mentioning builds, tests, commands, or \
-            background jobs by name does NOT make it waiting, and neither do commands the \
-            user could run.
-
-            WAITING — the message says the agent is pausing now and will continue when \
-            still-running work completes: "I'll wait for the build", "monitoring the \
-            deploy", "will report back when the tests finish", "I'll resume once CI \
-            completes". Terse forms without "I" count too: "Awaiting its report", \
-            "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
-            then awaiting its result, report, or verdict is WAITING — the dispatch being \
-            past tense does not make the turn finished.
-
-            Background work can stay registered after a turn genuinely finishes (tasks \
-            pending cleanup), so decide only from what the message says. If the message \
-            does not clearly state the agent is waiting to continue, it is FINISHED.
-            """)
-
-            // Trust boundary: `message` is untrusted agent output interpolated
-            // into the judge prompt, so adversarial text ("answer WAITING") can
-            // steer the verdict. The message is the ONLY per-case input — the
-            // registered background work stays out entirely: raw task
-            // descriptions steered real verdicts (issue #644 follow-up), and
-            // even neutral counts anchor the judge toward still-waiting.
-            // Bounded by design: a steered verdict can only downgrade a
-            // done-notification to a still-working one and hold the state on
-            // Working while work really is registered (the gate requires
-            // non-empty pending work), and the session recovers on the next
-            // Stop or SessionEnd — it never gains capabilities or reaches
-            // other sessions.
+            let session = LanguageModelSession(instructions: instructions)
             let prompt = """
             Agent message:
             \(message.suffix(maxMessageLength))
             """
-
             do {
                 let response = try await session.respond(
                     to: prompt,
@@ -297,6 +296,24 @@ extension StopFinalityClassifier: DependencyKey {
                 // open to the pre-#644 behavior.
                 return .final
             }
+        }
+
+        fileprivate static func appleIntelligenceVerdict(
+            message: String
+        ) async -> StopFinalityVerdict {
+            // Trust boundary: `message` is untrusted agent output interpolated
+            // into the judge prompt, so adversarial text ("answer WAITING") can
+            // steer the verdict. The message is the ONLY per-case input — the
+            // registered background work stays out entirely: raw task
+            // descriptions steered real verdicts (issue #644 follow-up), and
+            // even neutral counts anchor the judge toward still-waiting.
+            // Bounded by design: a steered verdict can only downgrade a
+            // done-notification to a still-working one and hold the state on
+            // Working while work really is registered (the gate requires
+            // non-empty pending work), and the session recovers on the next
+            // Stop or SessionEnd — it never gains capabilities or reaches
+            // other sessions.
+            await classify(message: message, instructions: productionInstructions)
         }
     }
 #endif

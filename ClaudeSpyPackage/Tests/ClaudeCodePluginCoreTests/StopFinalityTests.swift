@@ -509,4 +509,15 @@ struct StopFinalityTests {
         }
         #expect(verdict == .stillWaiting)
     }
+
+    // The eval suite (StopFinalityEvaluations) hill-climbs candidate
+    // instructions against this exact constant — pin the rubric anchors so a
+    // refactor can't silently swap in an empty/placeholder string.
+    @Test
+    func productionInstructionsCarryTunedRubric() {
+        let instructions = StopFinalityClassifier.productionInstructions
+        #expect(instructions.contains("FINISHED"))
+        #expect(instructions.contains("WAITING"))
+        #expect(instructions.contains("Awaiting its report"))
+    }
 }
