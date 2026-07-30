@@ -1,5 +1,5 @@
 {
-  "originHash" : "407e27ee1da8e77b3d998ab4456e6fb38d2ab92e64c118c4097fd9ef6a7b542a",
+  "originHash" : "954427af5356b14a0d1eb38ffe7b20bca678ad75f06f107aaf4465afd9a80702",
   "pins" : [
     {
       "identity" : "apns",
@@ -47,30 +47,12 @@
       }
     },
     {
-      "identity" : "gitworkbench",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gpambrozio/GitWorkbench",
-      "state" : {
-        "revision" : "dc58a1f4e661a1444c1696860e844606e9b946d8",
-        "version" : "1.6.0"
-      }
-    },
-    {
       "identity" : "multipart-kit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/multipart-kit.git",
       "state" : {
         "revision" : "3498e60218e6003894ff95192d756e238c01f44e",
         "version" : "4.7.1"
-      }
-    },
-    {
-      "identity" : "projectnavigator",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mchakravarty/ProjectNavigator",
-      "state" : {
-        "revision" : "db61ea6f3e93157eb13356916514d18804c7e554",
-        "version" : "1.10.1"
       }
     },
     {
@@ -83,39 +65,12 @@
       }
     },
     {
-      "identity" : "sfsymbolsmacro",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gpambrozio/SFSymbolsMacro",
-      "state" : {
-        "branch" : "swift-syntax-602",
-        "revision" : "2d2f6d8527502dd18f6f433850291e3d67a413d3"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
-        "version" : "2.9.4"
-      }
-    },
-    {
       "identity" : "swift-algorithms",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-algorithms.git",
       "state" : {
         "revision" : "87e50f483c54e6efd60e885f7f5aa946cee68023",
         "version" : "1.2.1"
-      }
-    },
-    {
-      "identity" : "swift-argument-parser",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
-      "state" : {
-        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
-        "version" : "1.8.2"
       }
     },
     {
@@ -177,8 +132,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
       "state" : {
-        "revision" : "a90e2e40a7a840a853dd29e57cbef5dbb72c9d5b",
-        "version" : "1.4.0"
+        "revision" : "5fa253428866f2360c3754e88537f700ed2656b5",
+        "version" : "1.4.1"
       }
     },
     {
@@ -353,33 +308,6 @@
       }
     },
     {
-      "identity" : "swiftterm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/migueldeicaza/SwiftTerm.git",
-      "state" : {
-        "revision" : "dd2fb8ac5b861e7bf617c872895e338f38165648",
-        "version" : "1.15.0"
-      }
-    },
-    {
-      "identity" : "swiftui-math",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/swiftui-math",
-      "state" : {
-        "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
-        "version" : "0.1.0"
-      }
-    },
-    {
-      "identity" : "textual",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/textual",
-      "state" : {
-        "revision" : "01b51875a5406eefc95f52a058cb059e7bc94dc4",
-        "version" : "0.5.0"
-      }
-    },
-    {
       "identity" : "vapor",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/vapor/vapor",
@@ -404,15 +332,6 @@
       "state" : {
         "revision" : "8f6abcf4c8950e2679d5b2fee4ca284fd7c34886",
         "version" : "1.11.0"
-      }
-    },
-    {
-      "identity" : "yams",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jpsim/Yams",
-      "state" : {
-        "revision" : "3d6871d5b4a5cd519adf233fbb576e0a2af71c17",
-        "version" : "5.4.0"
       }
     }
   ],
