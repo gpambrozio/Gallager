@@ -89,9 +89,12 @@ extension EnvSerializedSuites {
             }
         }
 
-        @Test("Register works normally when the relay is not paused")
-        func registerNormalWhenNotPaused() async throws {
-            try await withPauseApp(env: [:]) { app in
+        @Test(
+            "Register works normally when the relay is not paused",
+            arguments: [[:], ["PAIRING_PAUSED_MESSAGE": "   \n"]]
+        )
+        func registerNormalWhenNotPaused(env: [String: String]) async throws {
+            try await withPauseApp(env: env) { app in
                 try await app.testing().test(.POST, "api/pairing/register", beforeRequest: { req in
                     try req.content.encode(PairingRegistration(
                         deviceId: "host-1", deviceName: "My Mac", pairingCode: "ABC123",
