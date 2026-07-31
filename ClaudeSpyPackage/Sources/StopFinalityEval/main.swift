@@ -153,15 +153,17 @@ if mined == nil {
 }
 
 /// Cheap screens for a hill-climb round: `--seeds-only` answers "does this
-/// candidate fix the field failure and break no committed case?" in ~30 s, and
+/// candidate fix the field failure and break no committed case?" in ~12 s, and
 /// `--sample N` strides the mined set for an early read on whether the majority
 /// FINAL class collapsed. Neither replaces the full run a promotion needs — the
 /// recorded per-generation baseline is over the full seeds+mined set.
 func selectedCases() -> [StopFinalityCase] {
     guard let mined, !arguments.contains("--seeds-only") else { return seeds }
-    guard let requested = value(for: "--sample").flatMap(Int.init), requested < mined.count else {
-        return seeds + mined
+    guard let sampleText = value(for: "--sample") else { return seeds + mined }
+    guard let requested = Int(sampleText), requested > 0 else {
+        fail("--sample needs a positive integer, got \(sampleText)")
     }
+    guard requested < mined.count else { return seeds + mined }
     let stride = max(1, mined.count / requested)
     return seeds + mined.enumerated()
         .filter { $0.offset.isMultiple(of: stride) }
@@ -263,10 +265,8 @@ guard results.count == cases.count else {
 var byClass: [StopFinalityCase.Expected: Tally] = [:]
 var bySource: [StopFinalityCase.Source: Tally] = [:]
 var failures = 0
-var completed: [CaseResult] = []
 
 for (c, result) in zip(cases, results) {
-    completed.append(result)
     if !result.ok { failures += 1 }
     byClass[c.expected, default: Tally()].total += 1
     bySource[c.source, default: Tally()].total += 1
@@ -304,7 +304,7 @@ if let path = value(for: "--out") {
         waitingRecall: byClass[.waiting, default: Tally()].display,
         seed: bySource[.seed, default: Tally()].display,
         mined: bySource[.mined, default: Tally()].display,
-        cases: completed
+        cases: results
     )
     try encoder.encode(report).write(to: URL(fileURLWithPath: path))
     print("\nwrote per-case results → \(path)")

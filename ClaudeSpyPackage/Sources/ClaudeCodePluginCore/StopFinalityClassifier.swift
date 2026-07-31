@@ -477,11 +477,23 @@ extension StopFinalityClassifier: DependencyKey {
             Agent message:
             \(message.suffix(maxMessageLength))
             """
+            // Built OUTSIDE the fail-open do/catch: `guide` is only ever
+            // non-nil in an eval round (liveValue never passes one), and a
+            // broken candidate config must fail loudly there — swallowed, it
+            // would score every case .final and read as a total waiting-class
+            // collapse mid-climb.
+            let candidateSchema = guide.map { guideText in
+                do {
+                    return try candidateJudgmentSchema(guide: guideText)
+                } catch {
+                    fatalError("candidate judgment schema failed to build: \(error)")
+                }
+            }
             do {
-                let isWaiting: Bool = if let guide {
+                let isWaiting: Bool = if let candidateSchema {
                     try await session.respond(
                         to: prompt,
-                        schema: candidateJudgmentSchema(guide: guide),
+                        schema: candidateSchema,
                         options: GenerationOptions(sampling: .greedy)
                     ).content.value(Bool.self, forProperty: judgmentProperty)
                 } else if #available(macOS 27, iOS 27, *) {

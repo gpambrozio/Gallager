@@ -40,9 +40,9 @@ struct StopFinalityDatasetTests {
         #expect(w18.message.contains("fix-wave agent is working"))
     }
 
-    @Test func minedURLHonorsEnvOverride() {
-        // Can't mutate the process env safely in tests (see memory:
-        // setenv breaks posix_spawn) — just pin the default path shape.
+    @Test func minedURLDefaultPathShape() {
+        // The env override itself is untestable here (setenv breaks
+        // posix_spawn — see memory); this only pins the default path.
         #expect(StopFinalityDataset.minedURL.path.hasSuffix(".gallager/eval/stop-finality-mined.json"))
     }
 }
