@@ -115,6 +115,21 @@ extension StopFinalityClassifier: DependencyKey {
     /// waiting class (waiting-recall 126/153 → 27/153 on the same dataset),
     /// so each model generation ships its own rubric — never edit one from
     /// the other generation's eval results.
+    ///
+    /// The "one piece done while ANOTHER is still running" sentence is the
+    /// 26-side climb's round-1 winner (2026-07-30, `swift run
+    /// StopFinalityEval`, 590 cases, greedy): overall 542→549, final-recall
+    /// 416→420, waiting-recall 126→129, seeds 20/21→21/21 — it fixed W13,
+    /// the orchestrator field failure, and the mined set's largest
+    /// missed-waiting cluster ("Task N going idle — already complete. Still
+    /// waiting on Task N+1"), while *raising* final-recall. The two model
+    /// generations respond to opposite levers: on 27 the @Guide text moved
+    /// the needle and the instructions traded classes around a frontier;
+    /// here the guide was inert (the same elliptical clause added to
+    /// `productionGuide26` left W13 missing) and this one instruction
+    /// sentence carried the round. A worked 27-style `Examples:` block was
+    /// tried here and REGRESSED the 26 model (seeds 18/21 — W1 and W5 flip
+    /// to final), which is the same allergy that collapsed the round-6 text.
     public static let productionInstructions26 = """
     You judge the final message a coding agent printed when its turn ended, \
     deciding whether the agent FINISHED its turn or is WAITING for background work.
@@ -131,7 +146,9 @@ extension StopFinalityClassifier: DependencyKey {
     completes". Terse forms without "I" count too: "Awaiting its report", \
     "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
     then awaiting its result, report, or verdict is WAITING — the dispatch being \
-    past tense does not make the turn finished.
+    past tense does not make the turn finished. Reporting that one piece of work \
+    is done while ANOTHER is still running — "nothing to do until it reports" — \
+    is WAITING too: the finished part does not end the turn.
 
     Background work can stay registered after a turn genuinely finishes (tasks \
     pending cleanup), so decide only from what the message says. If the message \
