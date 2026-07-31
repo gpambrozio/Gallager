@@ -138,14 +138,41 @@ extension StopFinalityClassifier: DependencyKey {
     does not clearly state the agent is waiting to continue, it is FINISHED.
     """
 
-    /// The macOS 27-generation rubric: the 26 text plus the round-6
-    /// hill-climb suffix (decision rule + examples), paired with
-    /// `StopFinalityJudgment27`'s rewritten guide. Validated on the 27
-    /// model (2026-07-30, 590 cases, greedy): correct 0.9119→0.9271,
-    /// final-recall 0.9497→0.9611, waiting-recall 0.8039→0.8301, seeds
-    /// 21/21 including W13 — the field failure this round fixed.
-    public static let productionInstructions27 = productionInstructions26 + """
+    /// The macOS 27-generation rubric, validated ONLY on the 27 model
+    /// (2026-07-30, 590 cases, greedy): correct 0.9119→0.9271, final-recall
+    /// 0.9497→0.9611, waiting-recall 0.8039→0.8301, seeds 21/21 including
+    /// W13 — the field failure the round-6 hill-climb fixed. Paired with
+    /// `productionGuide27`.
+    ///
+    /// Historically this was spelled `productionInstructions26 + suffix`,
+    /// which silently rewrote the 27 rubric on every 26 edit and forced a
+    /// beta-Mac re-validation of a generation nobody had touched. The two
+    /// are standalone literals now: they START from a shared ancestor (this
+    /// text is that ancestor plus the round-6 decision rule and examples)
+    /// but they are tuned against different models and are expected to
+    /// drift apart. Editing one NEVER changes the other — and each is
+    /// validated only by its own generation's eval.
+    public static let productionInstructions27 = """
+    You judge the final message a coding agent printed when its turn ended, \
+    deciding whether the agent FINISHED its turn or is WAITING for background work.
 
+    FINISHED — the message wraps the turn up: it summarizes work already done \
+    (past tense), reports results or an error, asks the user a question, or tells \
+    the USER what they can do next. Mentioning builds, tests, commands, or \
+    background jobs by name does NOT make it waiting, and neither do commands the \
+    user could run.
+
+    WAITING — the message says the agent is pausing now and will continue when \
+    still-running work completes: "I'll wait for the build", "monitoring the \
+    deploy", "will report back when the tests finish", "I'll resume once CI \
+    completes". Terse forms without "I" count too: "Awaiting its report", \
+    "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
+    then awaiting its result, report, or verdict is WAITING — the dispatch being \
+    past tense does not make the turn finished.
+
+    Background work can stay registered after a turn genuinely finishes (tasks \
+    pending cleanup), so decide only from what the message says. If the message \
+    does not clearly state the agent is waiting to continue, it is FINISHED.
 
     Decision rule: ask one question — does the message say the agent \
     itself will automatically continue when still-running WORK (a build, \
@@ -179,6 +206,52 @@ extension StopFinalityClassifier: DependencyKey {
             productionInstructions27
         } else {
             productionInstructions26
+        }
+    }
+
+    /// The `@Guide` description on the 26-generation judgment schema — the
+    /// string closest to the model's actual decision, and the highest-leverage
+    /// variable the 2026-07-30 hill-climb found. Named (rather than inlined in
+    /// `@Guide`) so the eval can dump it, A/B a candidate against it
+    /// (`classify(message:instructions:guide:)`), and assert the candidate seam
+    /// builds a schema identical to the shipped one.
+    ///
+    /// Real agent summaries are long and full of action words ("run the
+    /// preflight", "the build is pushed"), which an earlier, softer wording
+    /// misread as waiting — including plain error reports and questions. Keep
+    /// the "default to false" clause; removing it regresses the eval.
+    public static let productionGuide26 = """
+    True ONLY when the message clearly states the agent is pausing and will \
+    continue when background work finishes. False for summaries of completed \
+    work, results, error reports, and questions — even when they mention \
+    builds, tests, commands, or jobs. Default to false when unsure.
+    """
+
+    /// The 27-generation guide: rewritten by the 2026-07-30 hill-climb in
+    /// lockstep with the decision-rule suffix in `productionInstructions27`.
+    /// Validated only on the 27 model — like the rubrics, the two generations'
+    /// guides are independent strings (see the divergence note above).
+    public static let productionGuide27 = """
+    True ONLY when the message states the agent itself will automatically \
+    continue when still-running work (a build, test, deploy, job, task, or \
+    subagent) completes — including elliptical forms like "Awaiting its \
+    report" or "another task is still working; nothing to do until it \
+    reports". False for everything else: summaries of completed work, \
+    results, error reports, questions, requests for the user to act or \
+    answer (resuming after the USER does something is false), waiting on \
+    the user's decision in any phrasing, and mentions of work someone else \
+    owns that the agent does not promise to pick up. Default to false \
+    when unsure.
+    """
+
+    /// The guide for THIS machine's model generation — the twin of
+    /// `productionInstructions`, and what a `nil` `guide:` argument to the
+    /// eval seam resolves to.
+    public static var productionGuide: String {
+        if #available(macOS 27, iOS 27, *) {
+            productionGuide27
+        } else {
+            productionGuide26
         }
     }
 
@@ -286,48 +359,28 @@ extension StopFinalityClassifier: DependencyKey {
 #if canImport(FoundationModels)
     /// Structured verdict for guided generation — the model fills the single
     /// boolean instead of free text, so there is nothing to parse.
-    ///
-    /// The guide text is eval-tuned (`docs/stop-finality-eval.md`): real agent
-    /// summaries are long and full of action words ("run the preflight", "the
-    /// build is pushed"), which the earlier, softer wording misread as waiting
-    /// — including plain error reports and questions. Keep the "default to
-    /// false" clause; removing it regresses the eval. 26-generation schema —
-    /// see `StopFinalityJudgment27` for the 27 twin and the divergence note
-    /// on `productionInstructions26`.
+    /// 26-generation schema; see `StopFinalityJudgment27` for the 27 twin and
+    /// the divergence note on `productionInstructions26`. The guide text lives
+    /// in `StopFinalityClassifier.productionGuide26` (eval-tuned — see there).
     @available(macOS 26, iOS 26, *)
     @Generable
     private struct StopFinalityJudgment {
-        @Guide(description: """
-        True ONLY when the message clearly states the agent is pausing and will \
-        continue when background work finishes. False for summaries of completed \
-        work, results, error reports, and questions — even when they mention \
-        builds, tests, commands, or jobs. Default to false when unsure.
-        """)
+        @Guide(description: StopFinalityClassifier.productionGuide26)
         var isWaitingForBackgroundWork: Bool
     }
 
-    /// 27-generation twin of `StopFinalityJudgment`: the guide was rewritten
-    /// by the 2026-07-30 hill-climb in lockstep with the decision-rule
-    /// suffix — the string closest to the model's decision was the round's
-    /// highest-leverage change (suffix-only edits kept trading one class for
-    /// the other). Validated only on the 27 model.
+    /// 27-generation twin of `StopFinalityJudgment`, carrying
+    /// `productionGuide27`.
     @available(macOS 27, iOS 27, *)
     @Generable
     private struct StopFinalityJudgment27 {
-        @Guide(description: """
-        True ONLY when the message states the agent itself will automatically \
-        continue when still-running work (a build, test, deploy, job, task, or \
-        subagent) completes — including elliptical forms like "Awaiting its \
-        report" or "another task is still working; nothing to do until it \
-        reports". False for everything else: summaries of completed work, \
-        results, error reports, questions, requests for the user to act or \
-        answer (resuming after the USER does something is false), waiting on \
-        the user's decision in any phrasing, and mentions of work someone else \
-        owns that the agent does not promise to pick up. Default to false \
-        when unsure.
-        """)
+        @Guide(description: StopFinalityClassifier.productionGuide27)
         var isWaitingForBackgroundWork: Bool
     }
+
+    /// The one property both judgment schemas expose — shared by the shipped
+    /// `@Generable` structs and the eval's runtime-guide twin.
+    private let judgmentProperty = "isWaitingForBackgroundWork"
 
     @available(macOS 26, iOS 26, *)
     extension StopFinalityClassifier {
@@ -336,14 +389,23 @@ extension StopFinalityClassifier: DependencyKey {
         /// back when the build finishes"), so keep the tail.
         private static let maxMessageLength = 4_000
 
-        /// Eval seam: production classification with injectable instructions.
-        /// `liveValue` passes `productionInstructions`; the eval suite passes
-        /// candidates. Guided generation (per-generation schema), greedy
-        /// sampling, and tail truncation stay in lockstep so the eval
+        /// Eval seam: production classification with injectable instructions
+        /// and, for guide-text rounds, an injectable `@Guide` description.
+        /// `liveValue` passes `productionInstructions` and no guide; the eval
+        /// passes candidates. Guided generation (per-generation schema),
+        /// greedy sampling, and tail truncation stay in lockstep so the eval
         /// measures exactly what ships.
+        ///
+        /// `guide: nil` runs the shipped `@Generable` schema verbatim. A
+        /// non-nil guide swaps ONLY that description, via a dynamic schema
+        /// built to match the shipped one exactly (same type name, same
+        /// property, same bool) — `stopFinalityCandidateSchemaMatchesShipped`
+        /// in StopFinalityTests pins that equivalence, so a guide round
+        /// measures the changed words and nothing else.
         public static func classify(
             message: String,
-            instructions: String
+            instructions: String,
+            guide: String? = nil
         ) async -> StopFinalityVerdict {
             guard case .available = SystemLanguageModel.default.availability else {
                 return .final
@@ -354,7 +416,13 @@ extension StopFinalityClassifier: DependencyKey {
             \(message.suffix(maxMessageLength))
             """
             do {
-                let isWaiting: Bool = if #available(macOS 27, iOS 27, *) {
+                let isWaiting: Bool = if let guide {
+                    try await session.respond(
+                        to: prompt,
+                        schema: candidateJudgmentSchema(guide: guide),
+                        options: GenerationOptions(sampling: .greedy)
+                    ).content.value(Bool.self, forProperty: judgmentProperty)
+                } else if #available(macOS 27, iOS 27, *) {
                     try await session.respond(
                         to: prompt,
                         generating: StopFinalityJudgment27.self,
@@ -372,6 +440,42 @@ extension StopFinalityClassifier: DependencyKey {
                 // Guardrail refusals, context overflow, cancellation — all fail
                 // open to the pre-#644 behavior.
                 return .final
+            }
+        }
+
+        /// The runtime-guide twin of this generation's `@Generable` judgment.
+        /// The schema's type name is part of what the model sees, so it must
+        /// match the generation's shipped struct name — otherwise a guide
+        /// round would be changing two strings at once.
+        static func candidateJudgmentSchema(guide: String) throws -> GenerationSchema {
+            let typeName = if #available(macOS 27, iOS 27, *) {
+                "StopFinalityJudgment27"
+            } else {
+                "StopFinalityJudgment"
+            }
+            return try GenerationSchema(
+                root: DynamicGenerationSchema(
+                    name: typeName,
+                    properties: [
+                        DynamicGenerationSchema.Property(
+                            name: judgmentProperty,
+                            description: guide,
+                            schema: DynamicGenerationSchema(type: Bool.self)
+                        ),
+                    ]
+                ),
+                dependencies: []
+            )
+        }
+
+        /// Debug dumps of the shipped schemas, so the equivalence test can
+        /// compare them against `candidateJudgmentSchema` without making the
+        /// `@Generable` types themselves public.
+        static var shippedJudgmentSchemaDescription: String {
+            if #available(macOS 27, iOS 27, *) {
+                StopFinalityJudgment27.generationSchema.debugDescription
+            } else {
+                StopFinalityJudgment.generationSchema.debugDescription
             }
         }
 

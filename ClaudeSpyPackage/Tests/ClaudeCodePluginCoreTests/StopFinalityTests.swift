@@ -510,9 +510,9 @@ struct StopFinalityTests {
         #expect(verdict == .stillWaiting)
     }
 
-    // The eval suite (StopFinalityEvaluations) hill-climbs candidate
-    // instructions against this exact constant — pin the rubric anchors so a
-    // refactor can't silently swap in an empty/placeholder string.
+    // The evals hill-climb candidate prompts against these exact constants —
+    // pin the rubric anchors so a refactor can't silently swap in an
+    // empty/placeholder string.
     @Test
     func productionInstructionsCarryTunedRubric() {
         for instructions in [
@@ -523,15 +523,51 @@ struct StopFinalityTests {
             #expect(instructions.contains("WAITING"))
             #expect(instructions.contains("Awaiting its report"))
         }
-        // The 27 rubric is the 26 text plus the round-6 hill-climb suffix,
-        // and the runtime pick must resolve to one of the two.
-        #expect(StopFinalityClassifier.productionInstructions27.hasPrefix(
-            StopFinalityClassifier.productionInstructions26
-        ))
+        // The 27 rubric additionally carries the round-6 decision rule. The
+        // two are deliberately INDEPENDENT literals — no prefix/containment
+        // relationship is asserted, because each generation is tuned against
+        // its own model and validated by its own eval (see the constants).
         #expect(StopFinalityClassifier.productionInstructions27.contains("Decision rule:"))
         #expect([
             StopFinalityClassifier.productionInstructions26,
             StopFinalityClassifier.productionInstructions27,
         ].contains(StopFinalityClassifier.productionInstructions))
+        for guide in [
+            StopFinalityClassifier.productionGuide26,
+            StopFinalityClassifier.productionGuide27,
+        ] {
+            // Removing the default-to-false clause regressed the eval; it is
+            // load-bearing, not boilerplate.
+            #expect(guide.contains("Default to false when unsure."))
+        }
+        #expect([
+            StopFinalityClassifier.productionGuide26,
+            StopFinalityClassifier.productionGuide27,
+        ].contains(StopFinalityClassifier.productionGuide))
     }
+
+    #if canImport(FoundationModels)
+        // A guide-text hill-climb round swaps the @Guide description at
+        // runtime (`classify(message:instructions:guide:)`) instead of
+        // recompiling the @Generable struct. That only measures the changed
+        // words if the runtime-built schema is otherwise identical to the
+        // shipped one — same type name, same property, same bool — so pin the
+        // equivalence here rather than discovering it as unexplained tally
+        // drift mid-climb.
+        @Test
+        func candidateSchemaMatchesShippedSchema() throws {
+            guard #available(macOS 26, iOS 26, *) else { return }
+            let shipped = StopFinalityClassifier.shippedJudgmentSchemaDescription
+            let candidate = try StopFinalityClassifier
+                .candidateJudgmentSchema(guide: StopFinalityClassifier.productionGuide)
+                .debugDescription
+            #expect(candidate == shipped)
+            // …and the guide text has to actually reach the schema, or the
+            // check above would pass no matter what a round changed.
+            let altered = try StopFinalityClassifier
+                .candidateJudgmentSchema(guide: "True when the agent is waiting.")
+                .debugDescription
+            #expect(altered != shipped)
+        }
+    #endif
 }
