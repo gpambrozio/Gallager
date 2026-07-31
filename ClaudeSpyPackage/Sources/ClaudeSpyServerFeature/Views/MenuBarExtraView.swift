@@ -134,7 +134,7 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            sessionLabel(for: session)
+            sessionLabel(for: session, displayedState: localDisplayedState(for: session))
         }
     }
 
@@ -149,18 +149,38 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            sessionLabel(for: session)
+            sessionLabel(for: session, displayedState: remoteDisplayedState(for: session, host: host))
         }
     }
 
+    /// Displayed state for a local session, honoring any manual "Set State"
+    /// override on its pane (issue #702) so the menu row matches the sidebar's
+    /// indicator. Falls back to the agent's own state if the pane isn't tracked.
+    private func localDisplayedState(for session: AgentSession) -> CLISessionState? {
+        windowManager.paneStates[session.paneId]?.displayedState
+            ?? CLISessionState.displayed(override: nil, agentState: session.state)
+    }
+
+    /// Displayed state for a remote session, honoring the override the host
+    /// pushed into the pane state (issue #702).
+    private func remoteDisplayedState(for session: AgentSession, host: PairedHost) -> CLISessionState? {
+        coordinator.remoteSessionStore?.paneState(for: session.paneId, hostId: host.id)?.displayedState
+            ?? CLISessionState.displayed(override: nil, agentState: session.state)
+    }
+
     @ViewBuilder
-    private func sessionLabel(for session: AgentSession) -> some View {
+    private func sessionLabel(for session: AgentSession, displayedState: CLISessionState?) -> some View {
         // The plugin model dropped the per-event buffer (spec §16); the menu label
         // is just the session display name now.
         let title = session.displayName
 
-        // Menu items can't render ProgressView, so use SF Symbols for all states
-        if session.needsAttention {
+        // Menu items can't render ProgressView, so use SF Symbols for all states.
+        // The state honors the manual "Set State" override (issue #702), so the row
+        // matches the sidebar's indicator rather than the raw agent state. A listed
+        // session always owns an agent session, so `displayedState` is non-nil;
+        // fall back to idle (moon) defensively.
+        switch displayedState ?? .idle {
+        case .waiting:
             Label {
                 Text(title)
             } icon: {
@@ -173,9 +193,9 @@ public struct MenuBarExtraView: View {
                     Symbols.handsAndSparklesFill.image
                 }
             }
-        } else if session.isWorking {
+        case .working:
             Label(title, symbol: .figureRun)
-        } else {
+        case .idle:
             Label(title, symbol: .moonFill)
         }
     }

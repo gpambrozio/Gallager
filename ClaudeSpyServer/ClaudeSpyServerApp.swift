@@ -597,11 +597,13 @@ struct TmuxPaneMirrorApp: App {
         }
     }
 
-    /// Total number of sessions needing attention across local and remote sources
+    /// Total number of sessions needing attention across local and remote sources.
+    /// Both halves honor the manual "Set State" override via `displayedState`
+    /// (issue #702), matching the sidebar and the menu dropdown's bell.
     private var totalPendingSessionCount: Int {
         let localCount = coordinator.windowManager.pendingSessionCount
         let remoteCount = coordinator.remoteSessionStore?.paneStates.values
-            .filter { $0.agentSession?.needsAttention == true }.count ?? 0
+            .filter { $0.agentSession != nil && $0.displayedState == .waiting }.count ?? 0
         return localCount + remoteCount
     }
 

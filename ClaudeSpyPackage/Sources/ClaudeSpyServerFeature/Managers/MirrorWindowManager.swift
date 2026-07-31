@@ -367,9 +367,15 @@ final public class MirrorWindowManager {
         Set(paneStates.filter { $0.value.agentSession != nil }.keys)
     }
 
-    /// Number of sessions that need user attention
+    /// Number of sessions that need user attention. Honors the manual "Set State"
+    /// override (issue #702): a session forced to "Waiting for input" counts even
+    /// when its agent is idle, and one forced to Working/Idle is suppressed even
+    /// when the agent needs attention — mirroring the sidebar's override-wins
+    /// priority (`displayedState`). Scoped to panes that own an agent session so a
+    /// session-wide override (stamped on every sibling pane by
+    /// `setCLISessionState(_:forSession:)`) still counts the session once.
     public var pendingSessionCount: Int {
-        paneStates.values.filter { $0.agentSession?.needsAttention == true }.count
+        paneStates.values.filter { $0.agentSession != nil && $0.displayedState == .waiting }.count
     }
 
     /// The `pendingSessionCount` high-water mark last observed by

@@ -62,6 +62,43 @@ struct CLISessionStateTests {
     }
 }
 
+@Suite("PaneState.displayedState")
+struct PaneStateDisplayedStateTests {
+    @Test("The manual Set State override wins over the agent session state")
+    func overrideWins() {
+        let pane = PaneState(
+            paneId: "%1",
+            agentSession: AgentSession(paneId: "%1", state: .idle),
+            cliSessionState: .waiting
+        )
+        #expect(pane.displayedState == .waiting)
+    }
+
+    @Test("Without an override the bucket derives from the agent state; .waiting is the pending bell")
+    func derivesFromAgent() {
+        let idle = PaneState(paneId: "%1", agentSession: AgentSession(paneId: "%1", state: .idle))
+        #expect(idle.displayedState == .idle)
+
+        let attention = PaneState(
+            paneId: "%2",
+            agentSession: AgentSession(paneId: "%2", state: .doneWorking(summary: nil))
+        )
+        #expect(attention.displayedState == .waiting)
+    }
+
+    @Test("A plain terminal has no displayed state; an override alone shows but owns no agent session")
+    func plainTerminalAndOverrideOnly() {
+        #expect(PaneState(paneId: "%1").displayedState == nil)
+
+        // A user can pin a plain terminal, so the override still shows — but the
+        // menu bar's pending count is scoped to panes that own an agent session
+        // (issue #702), so an override-only pane never inflates that count.
+        let overriddenTerminal = PaneState(paneId: "%2", cliSessionState: .waiting)
+        #expect(overriddenTerminal.displayedState == .waiting)
+        #expect(overriddenTerminal.agentSession == nil)
+    }
+}
+
 @Suite("SetSessionStateCommand")
 struct SetSessionStateCommandTests {
     @Test("commandType wraps the spec")

@@ -213,6 +213,16 @@ public struct PaneState: Codable, Sendable, Identifiable {
         "\(sessionName):\(windowIndex)"
     }
 
+    /// The state bucket currently shown for this pane: the manual "Set State"
+    /// override wins, else the agent-derived state — matching `SessionStatusBadge`
+    /// and `TmuxSession.displayedState`. `nil` when the pane shows the plain
+    /// terminal glyph (no override, no agent session). The menu bar dropdown and
+    /// its badge count treat `== .waiting` as the needs-attention/pending bucket,
+    /// so a manual override is honored there too (issue #702).
+    public var displayedState: CLISessionState? {
+        CLISessionState.displayed(override: cliSessionState, agentState: agentSession?.state)
+    }
+
     public init(
         paneId: String,
         target: String = "",

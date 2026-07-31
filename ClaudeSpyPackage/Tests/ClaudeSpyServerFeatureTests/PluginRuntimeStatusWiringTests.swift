@@ -354,6 +354,59 @@
             #expect(windowManager.pendingCountDecrease() == 1)
         }
 
+        // MARK: - Set State override drives the pending count (issue #702)
+
+        @Test("pendingSessionCount honors the Set State override in both directions and counts a session once")
+        func pendingSessionCountHonorsOverride() {
+            let windowManager = makeWindowManager()
+
+            // Two panes in one tmux session ("work"); the agent lives on %5.
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%5", target: "work:0.0", sessionName: "work",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%6", target: "work:1.0", sessionName: "work",
+                    windowIndex: 1, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "s1",
+                state: .idle, tmuxPane: "%5", projectPath: nil
+            )
+            // Idle agent, no override → not pending.
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Force "Waiting for input" session-wide (the "Set State" menu path):
+            // the override wins over the idle agent, so the session is pending. It
+            // counts ONCE even though the override is stamped on both panes — the
+            // sibling %6 owns no agent session, so it isn't a menu row (issue #702).
+            windowManager.setCLISessionState(.waiting, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 1)
+
+            // A fresh plugin state (doneWorking → needs attention) clears the
+            // override; the count still reflects the now-authoritative agent state.
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "s1",
+                state: .doneWorking(summary: nil), tmuxPane: "%5", projectPath: nil
+            )
+            #expect(windowManager.paneStates["%5"]?.cliSessionState == nil)
+            #expect(windowManager.pendingSessionCount == 1)
+
+            // Force Idle over an agent that genuinely needs attention: the override
+            // suppresses the bell in the other direction, so the count drops to 0.
+            windowManager.setCLISessionState(.idle, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Clearing the override reverts to the agent's own state (still
+            // doneWorking → needs attention), so the session is pending again.
+            windowManager.setCLISessionState(nil, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 1)
+        }
+
         // MARK: - Open form rides the session state
 
         @Test("an awaiting state exposes the open form on the session; a working state clears it")
