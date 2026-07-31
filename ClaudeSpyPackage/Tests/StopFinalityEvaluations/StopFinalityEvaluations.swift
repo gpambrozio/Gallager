@@ -136,16 +136,85 @@
         /// and W13 never says it. Round 5 (2026-07-30): the rule counted
         /// elliptical forms as yes — waiting best-ever (0.941/0.936) but
         /// mined-final collapsed to 0.911 and W13 STILL missed. Round 6
-        /// (2026-07-30, WINNER — promoted): revert the rule amendment and
-        /// tighten the orchestrator example with W13's lexical texture
-        /// ("going idle", "already handled") instead, paired with the round-4
-        /// guide. Cleared everything: seeds 21/21 incl. W13, mined-final
-        /// 0.9604, mined-waiting 0.8143, correct 0.9271 — beats the
-        /// pre-tuning prompt on every slice. Promoted into
-        /// `productionInstructions` + `StopFinalityJudgment`'s guide; the
-        /// guide-swapping CandidateClassifier scaffold was removed with the
-        /// promotion (recover from git history for future guide rounds).
-        static let instructions = StopFinalityClassifier.productionInstructions
+        /// (2026-07-30, final prompt-side round): revert the rule amendment
+        /// (back to R4's) and tighten the orchestrator example with W13's
+        /// lexical texture ("going idle", "already handled") instead.
+        static let instructions = StopFinalityClassifier.productionInstructions + """
+
+
+        Decision rule: ask one question — does the message say the agent \
+        itself will automatically continue when still-running WORK (a build, \
+        test, deploy, job, task, or subagent) completes? Only then is it \
+        WAITING. Everything else is FINISHED, including: asking the user to \
+        act or answer ("please do X, then I'll…" — the agent resumes on the \
+        USER, not on work), waiting for the user's decision or input in any \
+        phrasing ("waiting on your call", "standing by"), and mentions of \
+        work someone else owns (CI, cron) that the agent does not promise to \
+        pick up.
+
+        Examples:
+        - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
+        - "Just task A's checker going idle after posting its results — \
+        already handled. Task B is still running; nothing to do until it \
+        reports." → WAITING (the awaited work is still running — a subagent \
+        going idle or a report being saved does not end the turn while \
+        another task runs)
+        - "I've launched the deploy in the background — it takes about ten \
+        minutes. I'll pick this up and summarize once it completes." → WAITING
+        """
+    }
+
+    // MARK: - Candidate classifier (round 4+: @Guide as the variable)
+
+    /// Round 4's experimental schema: identical shape to production's
+    /// `StopFinalityJudgment` but with a rewritten @Guide — the text closest
+    /// to the model's decision, which the production seam cannot inject.
+    /// Promotion copies a winning guide into `StopFinalityJudgment` (and the
+    /// candidate leg then reverts to the seam).
+    @available(macOS 27, *)
+    @Generable
+    private struct CandidateJudgment {
+        @Guide(description: """
+        True ONLY when the message states the agent itself will automatically \
+        continue when still-running work (a build, test, deploy, job, task, or \
+        subagent) completes — including elliptical forms like "Awaiting its \
+        report" or "another task is still working; nothing to do until it \
+        reports". False for everything else: summaries of completed work, \
+        results, error reports, questions, requests for the user to act or \
+        answer (resuming after the USER does something is false), waiting on \
+        the user's decision in any phrasing, and mentions of work someone else \
+        owns that the agent does not promise to pick up. Default to false \
+        when unsure.
+        """)
+        var isWaitingForBackgroundWork: Bool
+    }
+
+    @available(macOS 27, *)
+    enum CandidateClassifier {
+        /// Replicates the production seam's fixed configuration (availability
+        /// guard, greedy sampling, 4k tail — keep in lockstep with
+        /// `StopFinalityClassifier.classify(message:instructions:)`) while
+        /// swapping the guided schema for `CandidateJudgment`.
+        static func isWaiting(message: String) async -> Bool {
+            guard case .available = SystemLanguageModel.default.availability else {
+                return false
+            }
+            let session = LanguageModelSession(instructions: CandidatePrompt.instructions)
+            let prompt = """
+            Agent message:
+            \(message.suffix(4_000))
+            """
+            do {
+                let response = try await session.respond(
+                    to: prompt,
+                    generating: CandidateJudgment.self,
+                    options: GenerationOptions(sampling: .greedy)
+                )
+                return response.content.isWaitingForBackgroundWork
+            } catch {
+                return false
+            }
+        }
     }
 
     // MARK: - Runner
@@ -156,13 +225,13 @@
     /// before calling into this 27-only runner.
     @available(macOS 27, *)
     enum StopFinalityEvalRunner {
-        /// Mined-set gates: first pinned from the 2026-07-30 macOS 27
-        /// baseline (407/429, 112/140), then ratcheted to the promoted
-        /// round-6 config's results the same day (final 412/429, waiting
-        /// 114/140 — greedy, macOS 27.0 26A5388g). Seeds always gate at
-        /// 100%; keep ratcheting as future rounds improve.
-        static let minedFinalRecallGate: Double? = 412 / 429
-        static let minedWaitingRecallGate: Double? = 114 / 140
+        /// Mined-set gates, pinned from the first baseline run on the beta
+        /// Mac (2026-07-30, macOS 27.0 26A5388g, greedy — exact values from
+        /// results/baseline.json: mined-final-recall 407/429, mined-waiting-
+        /// recall 112/140). Seeds always gate at 100%; ratchet these up as
+        /// hill-climb rounds improve them.
+        static let minedFinalRecallGate: Double? = 407 / 429
+        static let minedWaitingRecallGate: Double? = 112 / 140
 
         static func run(
             name: String,
@@ -259,10 +328,7 @@
                 name: "StopFinalityCandidate",
                 variant: "candidate"
             ) { message in
-                await StopFinalityClassifier.classify(
-                    message: message,
-                    instructions: CandidatePrompt.instructions
-                ) == .stillWaiting
+                await CandidateClassifier.isWaiting(message: message)
             }
         }
     }

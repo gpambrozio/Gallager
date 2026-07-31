@@ -99,7 +99,7 @@ extension StopFinalityClassifier: DependencyKey {
     public static let e2eStillWaitingMarker = "[e2e-still-waiting]"
 
     /// Instructions are eval-tuned against real agent messages (see
-    /// `docs/stop-finality-eval.md`): FINISHED must explicitly cover
+    /// `swift run StopFinalityEval`): FINISHED must explicitly cover
     /// error reports, questions, and user-directed next steps, and must
     /// say that naming builds/tests/commands is not waiting — the
     /// earlier, softer rubric misclassified all of those. WAITING keeps
@@ -108,14 +108,7 @@ extension StopFinalityClassifier: DependencyKey {
     /// behavior) but must also cover elliptical forms — a second field
     /// failure showed orchestrator summaries like "Task 2 reviewer
     /// dispatched. Awaiting the verdict" read as finished when WAITING
-    /// demanded a first-person "I'll wait". The decision rule + examples
-    /// block and the paired @Guide rewrite come from the 2026-07-30
-    /// hill-climb (6 rounds on the macOS 27 beta eval): they fixed a
-    /// third field failure (seed W13, orchestrator "nothing to do until
-    /// it reports" → false Session Idle) and beat the pre-tuning prompt
-    /// on every dataset slice; the user-wait exclusions ("waiting on
-    /// your call") guard the FINISHED side, which example-only variants
-    /// regressed.
+    /// demanded a first-person "I'll wait".
     /// The production judge instructions — the single string hill-climbing
     /// tunes (spec docs/superpowers/specs/2026-07-30-stop-finality-
     /// evaluations-design.md). The StopFinalityEvaluations suite compares
@@ -143,26 +136,6 @@ extension StopFinalityClassifier: DependencyKey {
     Background work can stay registered after a turn genuinely finishes (tasks \
     pending cleanup), so decide only from what the message says. If the message \
     does not clearly state the agent is waiting to continue, it is FINISHED.
-
-    Decision rule: ask one question — does the message say the agent \
-    itself will automatically continue when still-running WORK (a build, \
-    test, deploy, job, task, or subagent) completes? Only then is it \
-    WAITING. Everything else is FINISHED, including: asking the user to \
-    act or answer ("please do X, then I'll…" — the agent resumes on the \
-    USER, not on work), waiting for the user's decision or input in any \
-    phrasing ("waiting on your call", "standing by"), and mentions of \
-    work someone else owns (CI, cron) that the agent does not promise to \
-    pick up.
-
-    Examples:
-    - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
-    - "Just task A's checker going idle after posting its results — \
-    already handled. Task B is still running; nothing to do until it \
-    reports." → WAITING (the awaited work is still running — a subagent \
-    going idle or a report being saved does not end the turn while \
-    another task runs)
-    - "I've launched the deploy in the background — it takes about ten \
-    minutes. I'll pick this up and summarize once it completes." → WAITING
     """
 
     public static var liveValue: StopFinalityClassifier {
@@ -270,30 +243,19 @@ extension StopFinalityClassifier: DependencyKey {
     /// Structured verdict for guided generation — the model fills the single
     /// boolean instead of free text, so there is nothing to parse.
     ///
-    /// The guide text is eval-tuned (`docs/stop-finality-eval.md`): real agent
+    /// The guide text is eval-tuned (`swift run StopFinalityEval`): real agent
     /// summaries are long and full of action words ("run the preflight", "the
     /// build is pushed"), which the earlier, softer wording misread as waiting
-    /// — including plain error reports and questions. The 2026-07-30
-    /// hill-climb rewrote it in lockstep with the instructions' decision
-    /// rule: naming the elliptical orchestrator forms and the user-wait
-    /// exclusions here (the string closest to the model's decision) was the
-    /// single highest-leverage change of that round — suffix-only edits kept
-    /// trading one class for the other. Keep the "default to false" clause;
-    /// removing it regresses the eval.
+    /// — including plain error reports and questions. Keep the "default to
+    /// false" clause; removing it regresses the eval.
     @available(macOS 26, iOS 26, *)
     @Generable
     private struct StopFinalityJudgment {
         @Guide(description: """
-        True ONLY when the message states the agent itself will automatically \
-        continue when still-running work (a build, test, deploy, job, task, or \
-        subagent) completes — including elliptical forms like "Awaiting its \
-        report" or "another task is still working; nothing to do until it \
-        reports". False for everything else: summaries of completed work, \
-        results, error reports, questions, requests for the user to act or \
-        answer (resuming after the USER does something is false), waiting on \
-        the user's decision in any phrasing, and mentions of work someone else \
-        owns that the agent does not promise to pick up. Default to false \
-        when unsure.
+        True ONLY when the message clearly states the agent is pausing and will \
+        continue when background work finishes. False for summaries of completed \
+        work, results, error reports, and questions — even when they mention \
+        builds, tests, commands, or jobs. Default to false when unsure.
         """)
         var isWaitingForBackgroundWork: Bool
     }
