@@ -129,14 +129,24 @@
         /// (gate still breached), W13 still missed — suffix-only edits trade
         /// the classes around a frontier. Round 4 (2026-07-30): keep these
         /// instructions, change the OTHER string — the guided-generation
-        /// @Guide text (see `CandidateClassifier`).
+        /// @Guide text (see `CandidateClassifier`). Result: first
+        /// gate-clearing round on the mined set (final 0.9557 > gate,
+        /// waiting 0.85 > gate, correct 0.9305 best yet) but W13 STILL
+        /// missed — the rule asks whether the agent "says it will continue"
+        /// and W13 never says it. Round 5 (2026-07-30): one change — the
+        /// rule counts the elliptical forms ("nothing to do until it
+        /// reports", "awaiting its report/verdict") as yes.
         static let instructions = StopFinalityClassifier.productionInstructions + """
 
 
         Decision rule: ask one question — does the message say the agent \
         itself will automatically continue when still-running WORK (a build, \
         test, deploy, job, task, or subagent) completes? Only then is it \
-        WAITING. Everything else is FINISHED, including: asking the user to \
+        WAITING. Saying there is nothing to do until a task or subagent \
+        reports, or that the agent is awaiting its report, result, or \
+        verdict, counts as yes — even when the rest of the message reports \
+        completed or already-handled work. Everything else is FINISHED, \
+        including: asking the user to \
         act or answer ("please do X, then I'll…" — the agent resumes on the \
         USER, not on work), waiting for the user's decision or input in any \
         phrasing ("waiting on your call", "standing by"), and mentions of \
