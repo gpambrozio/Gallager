@@ -243,7 +243,7 @@ With `--json` the output is a JSON array of `{ "emoji", "name" }` entries. An em
 
 #### `session-state <state>`
 
-Override the state indicator the sidebar shows for a session (working spinner, idle moon, or the orange "needs attention" bell), independent of what the coding agent reports. Unlike `set-color`/`set-emoji` this is a **transient** override — it is *not* persisted to tmux and stays in place only until it's cleared (`clear`) or an agent plugin reports a fresh state for the same pane, at which point the plugin wins. Applied to every pane in the target session.
+Override the state indicator the sidebar shows for a session (working spinner, idle moon, or the orange "needs attention" bell), independent of what the coding agent reports. Unlike `set-color`/`set-emoji` this is a **transient** override — it is *not* persisted to tmux and stays in place only until it's cleared (`clear`) or an agent plugin reports a fresh state for the same pane, at which point the plugin wins. Target with `--session` to apply it to every pane in that session, or `--pane` for a single pane; with neither flag it marks just the calling pane (via `$TMUX_PANE`). The sidebar aggregates the override across a session's panes either way, so a single-pane mark still flips the session's row.
 
 The sidebar's right-click (macOS) / long-press (iOS) **"Set State"** context menu is the GUI equivalent — it drives the same override (issue #695), with the current state checked and an "Automatic" entry to clear it.
 

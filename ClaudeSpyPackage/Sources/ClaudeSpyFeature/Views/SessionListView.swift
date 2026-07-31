@@ -320,7 +320,7 @@
             // Find the first pane with a Claude session (may differ from the active pane)
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
-            let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
+            let cliSessionState = session.cliSessionState
             // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
             let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 

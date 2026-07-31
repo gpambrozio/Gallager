@@ -188,6 +188,11 @@ final public class MirrorWindowManager {
         paneStates[paneId]?.claudeSessionID = nil
         // The end-of-turn recap (issue #598) belongs to the session just ended.
         paneStates[paneId]?.recap = nil
+        // So does any manual "Set State" override (issue #695): without this
+        // the sidebar would keep showing the stale override on what is now a
+        // plain terminal pane. Session-wide, matching how the override is
+        // applied and cleared elsewhere.
+        clearCLISessionState(forSessionOfPane: paneId)
         return true
     }
 
@@ -331,16 +336,8 @@ final public class MirrorWindowManager {
         lastActivityByPane[paneId] = Date()
 
         // A definitive state wins over any CLI-driven override so subsequent
-        // plugin activity is reflected. The sidebar aggregates state across every
-        // pane in the session, so clear the override on every sibling pane.
-        let sessionName = paneStates[paneId]?.sessionName
-        if let sessionName, !sessionName.isEmpty {
-            for (otherId, paneState) in paneStates where paneState.sessionName == sessionName {
-                paneStates[otherId]?.cliSessionState = nil
-            }
-        } else {
-            paneStates[paneId]?.cliSessionState = nil
-        }
+        // plugin activity is reflected.
+        clearCLISessionState(forSessionOfPane: paneId)
     }
 
     /// Updates the terminal title for a pane.
@@ -458,10 +455,10 @@ final public class MirrorWindowManager {
     /// the change to connected viewers. Used by the "Set State" context menu
     /// (issue #695); `nil` clears the override, reverting to the agent-driven
     /// state. Unlike color/emoji this is NOT persisted to tmux — it's a transient
-    /// override, and any later plugin state update clears it (see `applyState`),
-    /// so a live agent always wins over the manual choice. Applied to every pane
-    /// so it survives switching windows and matches the session-wide clear in
-    /// `applyState`.
+    /// override, and any later plugin state update (`applyState`) or agent
+    /// session end (`endAgentSession`) clears it, so the live agent always wins
+    /// over the manual choice. Applied to every pane so it survives switching
+    /// windows and matches the session-wide clear in `clearCLISessionState`.
     /// - Parameters:
     ///   - state: The override to apply, or `nil` to clear.
     ///   - sessionName: The tmux session name.
@@ -470,6 +467,22 @@ final public class MirrorWindowManager {
             paneStates[paneId]?.cliSessionState = state
         }
         Task { await onSessionMetadataChanged?() }
+    }
+
+    /// Clears the manual state override on `paneId` and every sibling pane in
+    /// its session. The sidebar aggregates the override across every pane in
+    /// the session (and `setCLISessionState(_:forSession:)` stamps them all),
+    /// so a single-pane clear would leave a stale copy visible on a sibling.
+    /// Falls back to just the pane when its session name isn't known yet.
+    private func clearCLISessionState(forSessionOfPane paneId: String) {
+        let sessionName = paneStates[paneId]?.sessionName
+        if let sessionName, !sessionName.isEmpty {
+            for (otherId, paneState) in paneStates where paneState.sessionName == sessionName {
+                paneStates[otherId]?.cliSessionState = nil
+            }
+        } else {
+            paneStates[paneId]?.cliSessionState = nil
+        }
     }
 
     // MARK: - Yolo Mode

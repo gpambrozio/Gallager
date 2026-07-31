@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ClaudeSpyNetworking
 
-@Suite
+@Suite("CLISessionState")
 struct CLISessionStateTests {
     // MARK: - parse
 
@@ -62,7 +62,7 @@ struct CLISessionStateTests {
     }
 }
 
-@Suite
+@Suite("SetSessionStateCommand")
 struct SetSessionStateCommandTests {
     @Test("commandType wraps the spec")
     func commandTypeWrapsSpec() {
