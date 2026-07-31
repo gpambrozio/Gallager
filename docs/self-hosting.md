@@ -85,7 +85,7 @@ MIN_CLIENT_VERSION=            # e.g. 2.1; refuse clients older than this on con
 MIN_CLIENT_VERSION_REJECT_UNKNOWN=false  # also refuse clients that report no version
 
 # Pairing pause (optional — leave unset to accept new pairings)
-PAIRING_PAUSED_MESSAGE=        # when set, refuse NEW pairing registrations and show this message
+PAIRING_PAUSED_MESSAGE=        # when set, refuse NEW pairing registrations and show this message (quote the value)
 
 # Licensing (leave unset for self-hosting — see docs above)
 LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
@@ -144,10 +144,11 @@ The relay can only enforce against clients new enough to *report* a version. Bui
 
 ### Pairing Pause (Optional)
 
-A maintenance switch for server migrations or overload: set `PAIRING_PAUSED_MESSAGE` to any non-empty text and the relay refuses **new** pairing registrations, returning that exact text as the error message — it appears verbatim in the Mac's pairing UI (red error state with a "Try Again" button). Existing pairings are completely unaffected: WebSocket relay traffic, status polling, and unpairing all keep working, and a viewer holding an already-registered code can still complete it.
+A maintenance switch for server migrations or overload: set `PAIRING_PAUSED_MESSAGE` to any non-empty text and the relay refuses **new** pairing registrations, returning that text (whitespace-trimmed) as the error message — it appears verbatim in the Mac's pairing UI (red error state with a "Try Again" button). Existing and completed pairings are completely unaffected — WebSocket relay traffic, status polling, and unpairing all keep working — but un-redeemed pairing codes do not survive the restart that applies the pause: they live only in server memory, so although the gate itself is register-only (a code registered just before the restart could in principle still be completed), in practice the recreate discards pending codes.
 
 - Leave it unset (the default) and pairing works normally — self-hosting needs no configuration here.
 - The value is read at boot, so applying a change requires a container recreate (`docker compose up -d`).
+- Keep the message under ~100 characters so it displays cleanly in the Mac's pairing UI.
 - Refused attempts are counted in the `claudespy_paused_pairing_attempts_total` metric.
 - On the wire this is a normal pairing `error` response with code `PAIRING_PAUSED`; no minimum client version is required.
 

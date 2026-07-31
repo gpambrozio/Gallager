@@ -114,6 +114,7 @@ Grafana Cloud free: 10k active series, 14-day retention, 1 user. Current usage: 
 | `claudespy_ws_connections{device_type="host\|viewer"}` | gauge | Active WebSocket connections per device type |
 | `claudespy_uptime_seconds` | gauge | Process uptime |
 | `claudespy_build_info{version="..."}` | gauge | Always 1; the `version` label carries the build identifier |
+| `claudespy_paused_pairing_attempts_total` | counter | Pairing registrations refused by the pairing-pause switch (`PAIRING_PAUSED_MESSAGE`) |
 
 Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net, including the `vmstat` collector (`node_vmstat_oom_kill`, `node_vmstat_pswpin`, `node_vmstat_pswpout`) used by the host-pressure alerts.
 
