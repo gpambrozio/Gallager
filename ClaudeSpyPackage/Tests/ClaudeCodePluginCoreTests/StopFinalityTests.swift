@@ -515,9 +515,23 @@ struct StopFinalityTests {
     // refactor can't silently swap in an empty/placeholder string.
     @Test
     func productionInstructionsCarryTunedRubric() {
-        let instructions = StopFinalityClassifier.productionInstructions
-        #expect(instructions.contains("FINISHED"))
-        #expect(instructions.contains("WAITING"))
-        #expect(instructions.contains("Awaiting its report"))
+        for instructions in [
+            StopFinalityClassifier.productionInstructions26,
+            StopFinalityClassifier.productionInstructions27,
+        ] {
+            #expect(instructions.contains("FINISHED"))
+            #expect(instructions.contains("WAITING"))
+            #expect(instructions.contains("Awaiting its report"))
+        }
+        // The 27 rubric is the 26 text plus the round-6 hill-climb suffix,
+        // and the runtime pick must resolve to one of the two.
+        #expect(StopFinalityClassifier.productionInstructions27.hasPrefix(
+            StopFinalityClassifier.productionInstructions26
+        ))
+        #expect(StopFinalityClassifier.productionInstructions27.contains("Decision rule:"))
+        #expect([
+            StopFinalityClassifier.productionInstructions26,
+            StopFinalityClassifier.productionInstructions27,
+        ].contains(StopFinalityClassifier.productionInstructions))
     }
 }

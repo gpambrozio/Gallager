@@ -1,9 +1,18 @@
 # Stop-Finality Eval (hill-climbing the false-stop judge)
 
 Spec: `docs/superpowers/specs/2026-07-30-stop-finality-evaluations-design.md`.
-Improves `StopFinalityClassifier.productionInstructions` (issue #644) with the
-methodology from WWDC26 session 335: baseline vs candidate prompt over one
-dataset, one variable per round, per-class gates.
+Improves the stop-finality rubric (issue #644) with the methodology from
+WWDC26 session 335: baseline vs candidate prompt over one dataset, one
+variable per round, per-class gates.
+
+**The rubric is version-branched** (2026-07-30 finding): the 26- and
+27-generation on-device models respond to the same text in opposite
+directions — the round-6 winner is a Pareto improvement on the 27 model and
+collapses the 26 model's waiting class (126/153 → 27/153). Production picks
+`productionInstructions26`/`27` + `StopFinalityJudgment`/`27` (guide) at
+runtime; **each generation's rubric is validated only by its own eval** —
+never promote to one from the other's numbers. The beta-Mac suite gates the
+27 side; the daily-Mac executable gates the 26 side.
 
 ## Pieces
 
@@ -30,21 +39,31 @@ dataset, one variable per round, per-class gates.
 2. `swift test --filter StopFinalityEvaluations` — compare candidate vs
    baseline (`~/.gallager/eval/results/*.json`, or Xcode's comparison view).
 3. Keep or revert; one change per round. Failed rounds are data — note them.
-4. Promotion: copy the winning text into
-   `StopFinalityClassifier.productionInstructions`, reset CandidatePrompt to
+4. Promotion: copy the winning text into the matching per-generation
+   constant (`productionInstructions27` today; guide changes go to the
+   matching `StopFinalityJudgment*`), reset CandidatePrompt to
    `= productionInstructions`, re-run the suite (both tests green, seeds
    100%, mined ≥ gates), then on the daily Mac run
-   `swift run StopFinalityEval` (macOS 26 model cross-check) before pushing.
+   `swift run StopFinalityEval` — the other generation's tallies must stay
+   at or above its recorded line before pushing.
    Cold-start note: the executable rides the production 10 s fail-open deadline, so the first inference after a model load can time out and report `final`; if early rows look wrong, re-run once the model is warm before trusting the tallies.
 5. Ratchet: if the round improved mined recalls, raise the pinned gates in
    `StopFinalityEvalRunner` to the new values.
 
-## Recorded baselines (daily-Mac cross-check reference)
+## Recorded baselines (per-generation cross-check reference)
 
-- 2026-07-30, macOS 26.5 model, dataset = 21 seeds + 569 mined (56 contested
-  rows human-labeled): overall 542/590, final-recall 416/437,
-  waiting-recall 126/153, seed 20/21 (sole failure: W13), mined 522/569.
-  Promotions must keep the daily-Mac tallies at or above this line.
+- **macOS 26.5 model** (2026-07-30, 21 seeds + 569 mined, 56 contested rows
+  human-labeled, rubric = `productionInstructions26`): overall 542/590,
+  final-recall 416/437, waiting-recall 126/153, seed 20/21 (sole failure:
+  W13), mined 522/569. Promotions touching the 26 side must keep these
+  tallies at or above this line. Known open: W13 misses on this generation.
+- **macOS 27.0 model** (2026-07-30, 26A5388g, same dataset, rubric =
+  `productionInstructions27` after the round-6 promotion): correct 0.9271,
+  final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),
+  mined-final 412/429, mined-waiting 114/140 — the suite's pinned gates.
+- History: the pre-tuning 27 baseline was correct 0.9119 / final 0.9497 /
+  waiting 0.8039 / seeds 19/21 (W2+W13). Round-by-round numbers live in the
+  `CandidatePrompt` doc comment.
 
 ## Growing the dataset
 

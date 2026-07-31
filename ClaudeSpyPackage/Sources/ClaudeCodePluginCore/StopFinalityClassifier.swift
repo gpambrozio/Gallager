@@ -99,7 +99,7 @@ extension StopFinalityClassifier: DependencyKey {
     public static let e2eStillWaitingMarker = "[e2e-still-waiting]"
 
     /// Instructions are eval-tuned against real agent messages (see
-    /// `swift run StopFinalityEval`): FINISHED must explicitly cover
+    /// `docs/stop-finality-eval.md`): FINISHED must explicitly cover
     /// error reports, questions, and user-directed next steps, and must
     /// say that naming builds/tests/commands is not waiting — the
     /// earlier, softer rubric misclassified all of those. WAITING keeps
@@ -109,13 +109,13 @@ extension StopFinalityClassifier: DependencyKey {
     /// failure showed orchestrator summaries like "Task 2 reviewer
     /// dispatched. Awaiting the verdict" read as finished when WAITING
     /// demanded a first-person "I'll wait".
-    /// The production judge instructions — the single string hill-climbing
-    /// tunes (spec docs/superpowers/specs/2026-07-30-stop-finality-
-    /// evaluations-design.md). The StopFinalityEvaluations suite compares
-    /// candidate variants against this exact text via
-    /// `classify(message:instructions:)`; a winning candidate is promoted by
-    /// replacing this constant.
-    public static let productionInstructions = """
+    ///
+    /// The macOS 26-GENERATION rubric, validated ONLY on the 26 model: the
+    /// 2026-07-30 hill-climb's winning 27 text collapses this generation's
+    /// waiting class (waiting-recall 126/153 → 27/153 on the same dataset),
+    /// so each model generation ships its own rubric — never edit one from
+    /// the other generation's eval results.
+    public static let productionInstructions26 = """
     You judge the final message a coding agent printed when its turn ended, \
     deciding whether the agent FINISHED its turn or is WAITING for background work.
 
@@ -137,6 +137,50 @@ extension StopFinalityClassifier: DependencyKey {
     pending cleanup), so decide only from what the message says. If the message \
     does not clearly state the agent is waiting to continue, it is FINISHED.
     """
+
+    /// The macOS 27-generation rubric: the 26 text plus the round-6
+    /// hill-climb suffix (decision rule + examples), paired with
+    /// `StopFinalityJudgment27`'s rewritten guide. Validated on the 27
+    /// model (2026-07-30, 590 cases, greedy): correct 0.9119→0.9271,
+    /// final-recall 0.9497→0.9611, waiting-recall 0.8039→0.8301, seeds
+    /// 21/21 including W13 — the field failure this round fixed.
+    public static let productionInstructions27 = productionInstructions26 + """
+
+
+    Decision rule: ask one question — does the message say the agent \
+    itself will automatically continue when still-running WORK (a build, \
+    test, deploy, job, task, or subagent) completes? Only then is it \
+    WAITING. Everything else is FINISHED, including: asking the user to \
+    act or answer ("please do X, then I'll…" — the agent resumes on the \
+    USER, not on work), waiting for the user's decision or input in any \
+    phrasing ("waiting on your call", "standing by"), and mentions of \
+    work someone else owns (CI, cron) that the agent does not promise to \
+    pick up.
+
+    Examples:
+    - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
+    - "Just task A's checker going idle after posting its results — \
+    already handled. Task B is still running; nothing to do until it \
+    reports." → WAITING (the awaited work is still running — a subagent \
+    going idle or a report being saved does not end the turn while \
+    another task runs)
+    - "I've launched the deploy in the background — it takes about ten \
+    minutes. I'll pick this up and summarize once it completes." → WAITING
+    """
+
+    /// The rubric for THIS machine's model generation — what production
+    /// ships and what the eval suite A/Bs candidates against via
+    /// `classify(message:instructions:)` (spec docs/superpowers/specs/
+    /// 2026-07-30-stop-finality-evaluations-design.md). A winning candidate
+    /// is promoted into the matching per-generation constant, after
+    /// cross-checking the OTHER generation (docs/stop-finality-eval.md).
+    public static var productionInstructions: String {
+        if #available(macOS 27, iOS 27, *) {
+            productionInstructions27
+        } else {
+            productionInstructions26
+        }
+    }
 
     public static var liveValue: StopFinalityClassifier {
         if CommandLine.arguments.contains("--e2e-test") {
@@ -243,11 +287,13 @@ extension StopFinalityClassifier: DependencyKey {
     /// Structured verdict for guided generation — the model fills the single
     /// boolean instead of free text, so there is nothing to parse.
     ///
-    /// The guide text is eval-tuned (`swift run StopFinalityEval`): real agent
+    /// The guide text is eval-tuned (`docs/stop-finality-eval.md`): real agent
     /// summaries are long and full of action words ("run the preflight", "the
     /// build is pushed"), which the earlier, softer wording misread as waiting
     /// — including plain error reports and questions. Keep the "default to
-    /// false" clause; removing it regresses the eval.
+    /// false" clause; removing it regresses the eval. 26-generation schema —
+    /// see `StopFinalityJudgment27` for the 27 twin and the divergence note
+    /// on `productionInstructions26`.
     @available(macOS 26, iOS 26, *)
     @Generable
     private struct StopFinalityJudgment {
@@ -256,6 +302,29 @@ extension StopFinalityClassifier: DependencyKey {
         continue when background work finishes. False for summaries of completed \
         work, results, error reports, and questions — even when they mention \
         builds, tests, commands, or jobs. Default to false when unsure.
+        """)
+        var isWaitingForBackgroundWork: Bool
+    }
+
+    /// 27-generation twin of `StopFinalityJudgment`: the guide was rewritten
+    /// by the 2026-07-30 hill-climb in lockstep with the decision-rule
+    /// suffix — the string closest to the model's decision was the round's
+    /// highest-leverage change (suffix-only edits kept trading one class for
+    /// the other). Validated only on the 27 model.
+    @available(macOS 27, iOS 27, *)
+    @Generable
+    private struct StopFinalityJudgment27 {
+        @Guide(description: """
+        True ONLY when the message states the agent itself will automatically \
+        continue when still-running work (a build, test, deploy, job, task, or \
+        subagent) completes — including elliptical forms like "Awaiting its \
+        report" or "another task is still working; nothing to do until it \
+        reports". False for everything else: summaries of completed work, \
+        results, error reports, questions, requests for the user to act or \
+        answer (resuming after the USER does something is false), waiting on \
+        the user's decision in any phrasing, and mentions of work someone else \
+        owns that the agent does not promise to pick up. Default to false \
+        when unsure.
         """)
         var isWaitingForBackgroundWork: Bool
     }
@@ -269,9 +338,9 @@ extension StopFinalityClassifier: DependencyKey {
 
         /// Eval seam: production classification with injectable instructions.
         /// `liveValue` passes `productionInstructions`; the eval suite passes
-        /// candidates. Guided generation, greedy sampling, and tail
-        /// truncation stay in lockstep so the eval measures exactly what
-        /// ships.
+        /// candidates. Guided generation (per-generation schema), greedy
+        /// sampling, and tail truncation stay in lockstep so the eval
+        /// measures exactly what ships.
         public static func classify(
             message: String,
             instructions: String
@@ -285,12 +354,20 @@ extension StopFinalityClassifier: DependencyKey {
             \(message.suffix(maxMessageLength))
             """
             do {
-                let response = try await session.respond(
-                    to: prompt,
-                    generating: StopFinalityJudgment.self,
-                    options: GenerationOptions(sampling: .greedy)
-                )
-                return response.content.isWaitingForBackgroundWork ? .stillWaiting : .final
+                let isWaiting: Bool = if #available(macOS 27, iOS 27, *) {
+                    try await session.respond(
+                        to: prompt,
+                        generating: StopFinalityJudgment27.self,
+                        options: GenerationOptions(sampling: .greedy)
+                    ).content.isWaitingForBackgroundWork
+                } else {
+                    try await session.respond(
+                        to: prompt,
+                        generating: StopFinalityJudgment.self,
+                        options: GenerationOptions(sampling: .greedy)
+                    ).content.isWaitingForBackgroundWork
+                }
+                return isWaiting ? .stillWaiting : .final
             } catch {
                 // Guardrail refusals, context overflow, cancellation — all fail
                 // open to the pre-#644 behavior.
