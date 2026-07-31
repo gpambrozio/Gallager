@@ -145,5 +145,40 @@
     "expected": "waiting",
     "source": "seed",
     "notes": "2026-07-30 field failure: Session Idle fired while orchestrating subagents"
+  },
+  {
+    "id": "W14",
+    "message": "That's just the Task 1 reviewer going idle after delivering its verdict, which I've already processed. Task 2's implementer is still running — nothing to act on until it reports.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-31 field failure: near-paraphrase of W13 (verdict/processed/running/act on) — the model keyed on W13's exact wording, not the shape"
+  },
+  {
+    "id": "W15",
+    "message": "The Task 2 reviewer idling after its already-processed verdict — nothing to act on. Task 3's implementer is running.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-31 field failure: bare trailing 'X is running' with no awaiting-language tail"
+  },
+  {
+    "id": "W16",
+    "message": "Task 3 reviewer idling after its already-processed verdict — nothing to act on. Task 4's implementer is running.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-31 field failure: same shape as W15, next wave of the same session"
+  },
+  {
+    "id": "W17",
+    "message": "Fix-wave agent dispatched for the six documentation findings. After it commits, I'll run the single scoped re-review and then finish the branch.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-31 field failure: dispatch + first-person plan contingent on the work ('After it commits, I'll…') but no 'Awaiting' keyword — splicing 'Awaiting its commit' flipped it to waiting"
+  },
+  {
+    "id": "W18",
+    "message": "Final reviewer idling after its already-processed report — nothing to act on. The fix-wave agent is working.",
+    "expected": "waiting",
+    "source": "seed",
+    "notes": "2026-07-31 field failure: appending '; nothing to do until it reports' flipped it to waiting — cue-phrase anchoring, not concept"
   }
 ]

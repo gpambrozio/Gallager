@@ -24,7 +24,7 @@ struct StopFinalityDatasetTests {
 
     @Test func seedsLoadFromBundle() throws {
         let seeds = try StopFinalityDataset.seeds()
-        #expect(seeds.count == 21)
+        #expect(seeds.count == 26)
         #expect(seeds.allSatisfy { $0.source == .seed })
         #expect(Set(seeds.map(\.id)).count == seeds.count)
         let f1 = try #require(seeds.first { $0.id == "F1" })
@@ -35,6 +35,9 @@ struct StopFinalityDatasetTests {
         let w13 = try #require(seeds.first { $0.id == "W13" })
         #expect(w13.expected == .waiting)
         #expect(w13.message.contains("still working"))
+        let w18 = try #require(seeds.first { $0.id == "W18" })
+        #expect(w18.expected == .waiting)
+        #expect(w18.message.contains("fix-wave agent is working"))
     }
 
     @Test func minedURLHonorsEnvOverride() {
