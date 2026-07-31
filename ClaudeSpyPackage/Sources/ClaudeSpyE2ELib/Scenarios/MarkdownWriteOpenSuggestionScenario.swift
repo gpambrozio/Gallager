@@ -15,6 +15,9 @@ import Foundation
 /// 5. Clicking "No" dismisses the suggestion without opening anything.
 /// 6. A plan-style path (`.../plans/<random>.md`) shows a generic "Want to
 ///    open the plan?" label instead of the random file name.
+/// 7. Accepting the suggestion while the window's Git tab is active records a
+///    Git-tab origin, so closing the opened tab reselects the Git tab (#700 —
+///    the other routing branch of `openSuggestionOrigin`).
 public enum MarkdownWriteOpenSuggestionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Markdown Write Open Suggestion",
@@ -187,6 +190,53 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // No bar should appear for .txt files.
         TestStep.macWaitForElementToDisappear(titled: "Want to open notes.txt?", timeout: 3)
         TestStep.macScreenshot(label: "mac-no-suggestion-for-txt")
+
+        // ── Phase 7: Git-tab origin — closing returns to the Git tab ─
+        // The other routing branch of #700: accepting the suggestion while the
+        // window's Git tab is active records a `.gitTab` origin, so closing the
+        // opened file tab must reselect the Git tab — not the terminal, not the
+        // file browser tree.
+        TestStep.log("Phase 7: Accepting on the Git tab returns there when the tab closes")
+
+        // Activate the Git tab. In e2e mode the workbench is backed by the
+        // deterministic MockGitProvider, so the fixture repo name "aurora-cli"
+        // renders if and only if the Git tab is the active view.
+        TestStep.macClickButton(titled: "Git")
+        TestStep.macWaitForElement(titled: "aurora-cli", timeout: 10)
+
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "PostToolUse",
+                "session_id": "writehook-session",
+                "timestamp": "2026-04-25T10:04:00.000000Z",
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": "/Users/test/MyProject/CHANGELOG.md",
+                    "content": "# Changelog"
+                },
+                "tool_response": {}
+            }
+            """,
+            tmuxPane: "${paneId}",
+            projectPath: "/Users/test/MyProject"
+        )
+
+        TestStep.macWaitForElement(titled: "Want to open CHANGELOG.md?", timeout: 5)
+        TestStep.macClickButton(titled: "Open suggested file: Yes")
+        // Opening the tab leaves git mode; the new file tab is the active view.
+        TestStep.macWaitForElement(titled: "File tab: CHANGELOG.md", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-opened-from-git-tab")
+
+        TestStep.macClickButton(titled: "Close file tab: CHANGELOG.md")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: CHANGELOG.md", timeout: 5)
+        // The mock workbench is visible again, proving the recorded `.gitTab`
+        // origin routed the close back to the Git tab.
+        TestStep.macWaitForElement(titled: "aurora-cli", timeout: 5)
+        // Negative assertion: the file browser tree's search field never
+        // appeared, ruling out the pre-#700 return-to-tree fallback.
+        TestStep.macWaitForElementToDisappear(titled: "Search files", timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-tab-after-suggestion-tab-closed")
 
         // Tear down the tmux session.
         Shortcut.tmuxRunCommand(target: "writehook:0.0", command: "exit")
