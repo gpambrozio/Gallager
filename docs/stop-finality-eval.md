@@ -83,6 +83,24 @@ rounds. A full 590-case run is ~6 min; the seed screen is ~8 s.
 Keep or revert; one change per round. Failed rounds are data — note them
 in the constant's doc comment.
 
+What the 2026-07-30 26-side climb learned about the harness itself:
+
+- **The seed screen is the cheap gate and it is honest.** W13 sits right on
+  this model's decision boundary, so nearly any FINISHED-leaning text flips
+  it — 8 s of screening killed a dozen candidates that would each have cost
+  a 6-minute run.
+- **A frontier-weighted subset CANNOT certify final-recall.** A 171-case
+  screen set (every case any run had missed + 120 strided passes) rated
+  i-K4 at +0 finals; the full run showed −4, because the finals that flip
+  are stable-looking ones outside the subset. Use a subset to rank
+  waiting-side gains or catch a collapse, never to clear a promotion.
+- **Placement is a variable, not prose.** The same sentence scored 21/21 or
+  20/21 depending only on which paragraph it landed in. Sweep positions
+  before concluding an idea does not work.
+- **`--concurrency 4` is bit-identical to serial** (0/192 verdicts differed)
+  but only ~1.25× faster — the model daemon serializes anyway. Not worth
+  the determinism risk as a default; the flag stays opt-in.
+
 Cold-start note: `--verdicts` mode rides the production 10 s fail-open
 deadline, so the first inference after a model load can time out and report
 `final`. Scoring runs use the eval seam directly (no deadline) and are
@@ -92,14 +110,20 @@ immune, but a first-run outlier is still worth a warm re-run.
 
 - **macOS 26.5 model** (2026-07-30, 21 seeds + 569 mined, 56 contested rows
   human-labeled, rubric = `productionInstructions26` after the 26-side
-  round-2 promotion): overall 560/590, final-recall 418/437, waiting-recall
-  142/153, seed 21/21, mined 539/569 — instructions fingerprint `64595b13`,
-  guide `b96be60a`. Promotions touching the 26 side must keep these tallies
+  round-3 promotion): overall 561/590, final-recall 419/437, waiting-recall
+  142/153, seed 21/21, mined 540/569 — instructions fingerprint `64595b13`,
+  guide `1eafda2e`. Promotions touching the 26 side must keep these tallies
   at or above this line.
   Round history: pre-climb 542/590 (final 416, waiting 126, seed 20/21 —
   sole failure W13); round 1 549/590 (420/129, W13 fixed, Pareto); round 2
   560/590 (418/142) — non-Pareto by 2 finals, taken deliberately for +13
-  net waiting recall (see the constant's doc comment).
+  net waiting recall; round 3 561/590 (419/142, Pareto, guide-side).
+  Parked: the "waiting on the USER is FINISHED" carve-out is worth ~5 more
+  waiting cases but only from the INSTRUCTIONS side, where it costs 3-7
+  finals (best full runs 562/415/147 and 562/414/148, both under the 416
+  floor). Above this point the two recalls trade close to 1:1 on this
+  model; a further gain likely needs more labeled data in the disputed
+  shapes, not more rubric text.
 - **macOS 27.0 model** (2026-07-30, 26A5388g, same dataset, rubric =
   `productionInstructions27` after the round-6 promotion): correct 0.9271,
   final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),

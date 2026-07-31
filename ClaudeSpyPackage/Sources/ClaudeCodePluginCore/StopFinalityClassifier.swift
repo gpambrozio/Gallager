@@ -249,11 +249,20 @@ extension StopFinalityClassifier: DependencyKey {
     /// preflight", "the build is pushed"), which an earlier, softer wording
     /// misread as waiting — including plain error reports and questions. Keep
     /// the "default to false" clause; removing it regresses the eval.
+    ///
+    /// The "next move belongs to the user" clause is the 26-side climb's
+    /// round 3 (overall 560→561, final 418→419, waiting held at 142, seeds
+    /// 21/21) — the round's whole point being WHERE it landed. The identical
+    /// carve-out written into `productionInstructions26` cost 3-7 finals
+    /// every way it was phrased and placed (411-415, all under the pre-climb
+    /// floor of 416), because on the instructions side widening FINISHED
+    /// drags waiting-recall with it. In the guide the same idea is free.
     public static let productionGuide26 = """
     True ONLY when the message clearly states the agent is pausing and will \
     continue when background work finishes. False for summaries of completed \
-    work, results, error reports, and questions — even when they mention \
-    builds, tests, commands, or jobs. Default to false when unsure.
+    work, results, error reports, questions, and messages whose next move \
+    belongs to the user — even when they mention builds, tests, commands, or \
+    jobs. Default to false when unsure.
     """
 
     /// The 27-generation guide: rewritten by the 2026-07-30 hill-climb in
