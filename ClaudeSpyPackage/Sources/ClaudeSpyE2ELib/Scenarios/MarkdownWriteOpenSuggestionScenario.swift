@@ -8,11 +8,16 @@ import Foundation
 ///    the suggestion bar with the file name to the right of the last tab.
 /// 2. Clicking "Yes" opens the file as a new tab using the same renderer the
 ///    file explorer uses (file content visible in the tab).
+/// 2.5. Closing that tab returns the user to the originating terminal, not the
+///    file browser tree (#700 — the accept path now records a terminal origin).
 /// 3. After the file is open, the suggestion bar is gone.
 /// 4. A second markdown write replaces the suggestion with the new file name.
 /// 5. Clicking "No" dismisses the suggestion without opening anything.
 /// 6. A plan-style path (`.../plans/<random>.md`) shows a generic "Want to
 ///    open the plan?" label instead of the random file name.
+/// 7. Accepting the suggestion while the window's Git tab is active records a
+///    Git-tab origin, so closing the opened tab reselects the Git tab (#700 —
+///    the other routing branch of `openSuggestionOrigin`).
 public enum MarkdownWriteOpenSuggestionScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Markdown Write Open Suggestion",
@@ -68,6 +73,31 @@ public enum MarkdownWriteOpenSuggestionScenario {
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "Want to open README.md?", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-after-yes")
+
+        // ── Phase 2.5: Closing the opened tab returns to the terminal ─
+        // Regression guard for issue #700: a file tab opened from the markdown
+        // suggestion while viewing the terminal must record that terminal as
+        // its origin, so closing it lands the user back on the originating
+        // terminal — not the file browser tree (the pre-fix fallback, which
+        // happened because the accept path passed no origin).
+        TestStep.log("Phase 2.5: Close the opened file tab and verify the terminal is reselected")
+        TestStep.macClickButton(titled: "Close file tab: README.md")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: README.md", timeout: 5)
+
+        // The terminal must be the active view again. The terminal-<paneId>
+        // element is only mounted when the terminal pane is visible
+        // (FileBrowserView and the pane layout are mutually exclusive in
+        // MainView), so finding the setup marker text under that identifier
+        // proves we landed on the terminal rather than on the file tree.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-${paneId}"), .valueContains("WRITE HOOK TEST")]),
+            timeout: 5
+        )
+        // Negative assertion: the file browser tree's search field is gone.
+        // Only the tree renders this label, so its absence rules out the
+        // pre-#700 fallback that left the tree visible after closing the tab.
+        TestStep.macWaitForElementToDisappear(titled: "Search files", timeout: 5)
+        TestStep.macScreenshot(label: "mac-terminal-after-suggestion-tab-closed")
 
         // ── Phase 3: A second write replaces the suggestion ──────
         TestStep.log("Phase 3: A new Write hook replaces the previous suggestion")
@@ -160,6 +190,53 @@ public enum MarkdownWriteOpenSuggestionScenario {
         // No bar should appear for .txt files.
         TestStep.macWaitForElementToDisappear(titled: "Want to open notes.txt?", timeout: 3)
         TestStep.macScreenshot(label: "mac-no-suggestion-for-txt")
+
+        // ── Phase 7: Git-tab origin — closing returns to the Git tab ─
+        // The other routing branch of #700: accepting the suggestion while the
+        // window's Git tab is active records a `.gitTab` origin, so closing the
+        // opened file tab must reselect the Git tab — not the terminal, not the
+        // file browser tree.
+        TestStep.log("Phase 7: Accepting on the Git tab returns there when the tab closes")
+
+        // Activate the Git tab. In e2e mode the workbench is backed by the
+        // deterministic MockGitProvider, so the fixture repo name "aurora-cli"
+        // renders if and only if the Git tab is the active view.
+        TestStep.macClickButton(titled: "Git")
+        TestStep.macWaitForElement(titled: "aurora-cli", timeout: 10)
+
+        TestStep.macSendHookEvent(
+            json: """
+            {
+                "hook_event_name": "PostToolUse",
+                "session_id": "writehook-session",
+                "timestamp": "2026-04-25T10:04:00.000000Z",
+                "tool_name": "Write",
+                "tool_input": {
+                    "file_path": "/Users/test/MyProject/CHANGELOG.md",
+                    "content": "# Changelog"
+                },
+                "tool_response": {}
+            }
+            """,
+            tmuxPane: "${paneId}",
+            projectPath: "/Users/test/MyProject"
+        )
+
+        TestStep.macWaitForElement(titled: "Want to open CHANGELOG.md?", timeout: 5)
+        TestStep.macClickButton(titled: "Open suggested file: Yes")
+        // Opening the tab leaves git mode; the new file tab is the active view.
+        TestStep.macWaitForElement(titled: "File tab: CHANGELOG.md", timeout: 5)
+        TestStep.macScreenshot(label: "mac-file-tab-opened-from-git-tab")
+
+        TestStep.macClickButton(titled: "Close file tab: CHANGELOG.md")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: CHANGELOG.md", timeout: 5)
+        // The mock workbench is visible again, proving the recorded `.gitTab`
+        // origin routed the close back to the Git tab.
+        TestStep.macWaitForElement(titled: "aurora-cli", timeout: 5)
+        // Negative assertion: the file browser tree's search field never
+        // appeared, ruling out the pre-#700 return-to-tree fallback.
+        TestStep.macWaitForElementToDisappear(titled: "Search files", timeout: 5)
+        TestStep.macScreenshot(label: "mac-git-tab-after-suggestion-tab-closed")
 
         // Tear down the tmux session.
         Shortcut.tmuxRunCommand(target: "writehook:0.0", command: "exit")
