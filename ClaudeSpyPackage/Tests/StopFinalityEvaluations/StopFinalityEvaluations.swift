@@ -77,19 +77,19 @@
         /// "StopFinalityBaseline" or "StopFinalityCandidate" — distinguishes
         /// the two runs in reports and saved result JSON.
         let name: String
-        let instructions: String
         let cases: [StopFinalityCase]
+        /// Returns true for WAITING. Baseline passes the production seam;
+        /// the candidate may pass an eval-local path when the round's
+        /// variable (e.g. the @Guide text, round 4) is one the seam cannot
+        /// inject.
+        let classify: @Sendable (String) async -> Bool
 
         var dataset: ArrayLoader<StopSample> {
             ArrayLoader(samples: cases.map { StopSample(source: $0) })
         }
 
         func subject(from sample: StopSample) async throws -> ModelSubject<Bool> {
-            let verdict = await StopFinalityClassifier.classify(
-                message: sample.source.message,
-                instructions: instructions
-            )
-            return ModelSubject(value: verdict == .stillWaiting, transcript: nil)
+            ModelSubject(value: await classify(sample.source.message), transcript: nil)
         }
 
         var evaluators: Evaluators {
@@ -125,6 +125,11 @@
         /// explicit decision rule and only the 3 WAITING examples (drop the
         /// W13-twin and the extra FINISHED examples; fewer examples per the
         /// WWDC overfit warning, discriminator stated as a question).
+        /// Result: waiting fell back to 0.850/0.843, final only 0.9336/0.9324
+        /// (gate still breached), W13 still missed — suffix-only edits trade
+        /// the classes around a frontier. Round 4 (2026-07-30): keep these
+        /// instructions, change the OTHER string — the guided-generation
+        /// @Guide text (see `CandidateClassifier`).
         static let instructions = StopFinalityClassifier.productionInstructions + """
 
 
@@ -149,6 +154,59 @@
         """
     }
 
+    // MARK: - Candidate classifier (round 4+: @Guide as the variable)
+
+    /// Round 4's experimental schema: identical shape to production's
+    /// `StopFinalityJudgment` but with a rewritten @Guide — the text closest
+    /// to the model's decision, which the production seam cannot inject.
+    /// Promotion copies a winning guide into `StopFinalityJudgment` (and the
+    /// candidate leg then reverts to the seam).
+    @available(macOS 27, *)
+    @Generable
+    private struct CandidateJudgment {
+        @Guide(description: """
+        True ONLY when the message states the agent itself will automatically \
+        continue when still-running work (a build, test, deploy, job, task, or \
+        subagent) completes — including elliptical forms like "Awaiting its \
+        report" or "another task is still working; nothing to do until it \
+        reports". False for everything else: summaries of completed work, \
+        results, error reports, questions, requests for the user to act or \
+        answer (resuming after the USER does something is false), waiting on \
+        the user's decision in any phrasing, and mentions of work someone else \
+        owns that the agent does not promise to pick up. Default to false \
+        when unsure.
+        """)
+        var isWaitingForBackgroundWork: Bool
+    }
+
+    @available(macOS 27, *)
+    enum CandidateClassifier {
+        /// Replicates the production seam's fixed configuration (availability
+        /// guard, greedy sampling, 4k tail — keep in lockstep with
+        /// `StopFinalityClassifier.classify(message:instructions:)`) while
+        /// swapping the guided schema for `CandidateJudgment`.
+        static func isWaiting(message: String) async -> Bool {
+            guard case .available = SystemLanguageModel.default.availability else {
+                return false
+            }
+            let session = LanguageModelSession(instructions: CandidatePrompt.instructions)
+            let prompt = """
+            Agent message:
+            \(message.suffix(4_000))
+            """
+            do {
+                let response = try await session.respond(
+                    to: prompt,
+                    generating: CandidateJudgment.self,
+                    options: GenerationOptions(sampling: .greedy)
+                )
+                return response.content.isWaitingForBackgroundWork
+            } catch {
+                return false
+            }
+        }
+    }
+
     // MARK: - Runner
 
     /// Beta-SDK reconciliation (Xcode 27 beta 4): Swift Testing's @Suite/@Test
@@ -165,12 +223,16 @@
         static let minedFinalRecallGate: Double? = 407 / 429
         static let minedWaitingRecallGate: Double? = 112 / 140
 
-        static func run(name: String, instructions: String, variant: String) async throws {
+        static func run(
+            name: String,
+            variant: String,
+            classify: @escaping @Sendable (String) async -> Bool
+        ) async throws {
             try requireModel()
             let evaluation = StopFinalityEvaluation(
                 name: name,
-                instructions: instructions,
-                cases: try loadCases()
+                cases: try loadCases(),
+                classify: classify
             )
             let result = try await evaluation.run(info: ["variant": variant])
             print(result.groupedSummary)
@@ -238,9 +300,13 @@
             }
             try await StopFinalityEvalRunner.run(
                 name: "StopFinalityBaseline",
-                instructions: StopFinalityClassifier.productionInstructions,
                 variant: "baseline"
-            )
+            ) { message in
+                await StopFinalityClassifier.classify(
+                    message: message,
+                    instructions: StopFinalityClassifier.productionInstructions
+                ) == .stillWaiting
+            }
         }
 
         @Test func candidate() async throws {
@@ -250,9 +316,10 @@
             }
             try await StopFinalityEvalRunner.run(
                 name: "StopFinalityCandidate",
-                instructions: CandidatePrompt.instructions,
                 variant: "candidate"
-            )
+            ) { message in
+                await CandidateClassifier.isWaiting(message: message)
+            }
         }
     }
 #endif
