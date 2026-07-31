@@ -164,7 +164,7 @@
         /// Mined-set gates: first pinned from the 2026-07-30 macOS 27
         /// baseline (407/429, 112/140), then ratcheted to the promoted
         /// round-6 config's results the same day (final 412/429, waiting
-        /// 114/140 — greedy, macOS 27.0 26A5388g). These gate the 27
+        /// 114/140 — greedy, macOS 27 build 26A5388g). These gate the 27
         /// generation only (this suite runs on the beta Mac); the 26
         /// generation's line is the executable's recorded baseline in
         /// docs/stop-finality-eval.md. Seeds always gate at 100%; keep
