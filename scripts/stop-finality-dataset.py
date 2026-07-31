@@ -138,17 +138,28 @@ def mine(args):
     sampled = random.sample(other_rows, min(fill, len(other_rows)))
     rows = hint_rows + sampled
 
-    EVAL_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CANDIDATES, "w", encoding="utf-8") as fh:
+    # Ids are stable content hashes, so labels from a previous mine survive
+    # a re-mine: carry them over by id and prelabel will skip those rows.
+    preserved = 0
+    if CANDIDATES.exists():
+        previous = {r["id"]: r for r in load_candidates()}
         for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            old = previous.get(row["id"])
+            if old and "claudeLabel" in old:
+                row["claudeLabel"] = old["claudeLabel"]
+                row["claudeConfidence"] = old["claudeConfidence"]
+                preserved += 1
+
+    EVAL_DIR.mkdir(parents=True, exist_ok=True)
+    save_candidates(rows)
 
     print(f"scanned {len(files)} transcripts "
           f"({parse_errors} unparseable lines skipped)")
     print(f"turn-final messages: {len(hint_rows) + len(other_rows)} unique "
           f"({len(hint_rows)} waiting-shaped, kept all; "
           f"{len(sampled)}/{len(other_rows)} others sampled)")
-    print(f"wrote {len(rows)} candidates → {CANDIDATES}")
+    print(f"wrote {len(rows)} candidates ({preserved} labels carried over) "
+          f"→ {CANDIDATES}")
 
 
 def load_candidates():
@@ -172,8 +183,11 @@ def prelabel(args):
             [{"id": r["id"], "message": r["message"]} for r in batch],
             ensure_ascii=False,
         )
+        # Prompt rides stdin: a 20-message batch of long transcripts can
+        # push a single argv element toward ARG_MAX (E2BIG).
         proc = subprocess.run(
-            ["claude", "-p", PRELABEL_PROMPT + payload],
+            ["claude", "-p"],
+            input=PRELABEL_PROMPT + payload,
             capture_output=True, text=True, timeout=600,
         )
         if proc.returncode != 0:
@@ -204,6 +218,13 @@ def review(args):
         )
     verdicts = {json.loads(l)["id"]: json.loads(l)["onDevice"]
                 for l in open(VERDICTS, encoding="utf-8") if l.strip()}
+    # A re-run regenerates the contested file but must not clobber labels a
+    # human already filled in — carry those over by id.
+    filled = {}
+    if CONTESTED.exists():
+        filled = {c["id"]: c["label"]
+                  for c in json.loads(CONTESTED.read_text(encoding="utf-8"))
+                  if c.get("label") in ("waiting", "final")}
     contested = []
     for row in rows:
         on_device = verdicts.get(row["id"])
@@ -215,16 +236,22 @@ def review(args):
                 "claudeLabel": row["claudeLabel"],
                 "claudeConfidence": row["claudeConfidence"],
                 "onDevice": on_device,
-                "label": None,  # ← human fills "waiting" or "final"
+                # ← human fills "waiting" or "final"
+                "label": filled.get(row["id"]),
             })
     CONTESTED.write_text(
         json.dumps(contested, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"{len(contested)} contested rows → {CONTESTED}")
+    kept = sum(1 for c in contested if c["label"] is not None)
+    print(f"{len(contested)} contested rows ({kept} labels carried over) "
+          f"→ {CONTESTED}")
     print('fill each "label" field with "waiting" or "final", then run finalize')
 
 
 def finalize(args):
     rows = load_candidates()
+    unlabeled = [r["id"] for r in rows if "claudeLabel" not in r]
+    if unlabeled:
+        sys.exit(f"run prelabel first — {len(unlabeled)} rows unlabeled")
     overrides = {}
     if CONTESTED.exists():
         contested = json.loads(CONTESTED.read_text(encoding="utf-8"))
