@@ -67,6 +67,17 @@ public func configure(_ app: Application, env: [String: String]? = nil) async th
         )
     }
 
+    // Optional pairing-pause maintenance switch: when PAIRING_PAUSED_MESSAGE is
+    // set (non-empty after trimming), new pairing registrations are refused and
+    // the value is shown verbatim in the clients' pairing UI. Existing pairings
+    // and all relay traffic are untouched. Absent/empty → off (the default).
+    let pairingPausedMessage = (env["PAIRING_PAUSED_MESSAGE"] ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    app.storage[PairingPausedMessageKey.self] = pairingPausedMessage.isEmpty ? nil : pairingPausedMessage
+    if !pairingPausedMessage.isEmpty {
+        app.logger.info("Pairing PAUSED — new pairing registrations will be refused")
+    }
+
     // Determine APNs environment from APNS_ENVIRONMENT variable (defaults to development)
     // Use "production" only when iOS app is distributed via App Store/TestFlight
     let apnsEnvString = env["APNS_ENVIRONMENT"] ?? "development"
@@ -201,6 +212,12 @@ struct MinClientVersionGateKey: StorageKey {
     typealias Value = MinClientVersionGate?
 }
 
+struct PairingPausedMessageKey: StorageKey {
+    /// `nil` means pairing registration is not paused (no `PAIRING_PAUSED_MESSAGE`
+    /// in env); otherwise the operator's user-facing message.
+    typealias Value = String?
+}
+
 // MARK: - Application Extensions (Internal)
 
 extension Application {
@@ -252,6 +269,12 @@ extension Application {
     /// `MIN_CLIENT_VERSION` in env); otherwise the configured gate.
     var minClientVersionGate: MinClientVersionGate? {
         storage[MinClientVersionGateKey.self] ?? nil
+    }
+
+    /// Non-nil when the relay is paused for new pairings (`PAIRING_PAUSED_MESSAGE`
+    /// set in env); the value is the user-facing message returned to hosts.
+    var pairingPausedMessage: String? {
+        storage[PairingPausedMessageKey.self] ?? nil
     }
 }
 
