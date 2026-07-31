@@ -113,6 +113,12 @@
                                 let command = SetSessionEmoji(sessionName: sessionName, emoji: emoji)
                                 _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
                             }
+                        },
+                        onSetState: { sessionName, state in
+                            Task {
+                                let command = SetSessionState(sessionName: sessionName, state: state)
+                                _ = await connectionManager.sendCommand(command, paneId: "", hostId: host.id)
+                            }
                         }
                     )
                 }
@@ -239,6 +245,7 @@
         var onSetDescription: (String, String?) -> Void = { _, _ in }
         var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
         var onSetEmoji: (String, String?) -> Void = { _, _ in }
+        var onSetState: (String, CLISessionState?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
 
@@ -313,7 +320,7 @@
             // Find the first pane with a Claude session (may differ from the active pane)
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
-            let cliSessionState = session.windows.flatMap(\.panes).compactMap(\.cliSessionState).first
+            let cliSessionState = session.cliSessionState
             // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
             let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
 
@@ -381,6 +388,14 @@
                         isDisabled: connection?.isHostConnected != true
                     ) { newColor in
                         onSetColor(session.sessionName, newColor)
+                    }
+
+                    StateContextMenuButtons(
+                        currentState: session.displayedState,
+                        hasOverride: session.cliSessionState != nil,
+                        isDisabled: connection?.isHostConnected != true
+                    ) { newState in
+                        onSetState(session.sessionName, newState)
                     }
                 }
             ))

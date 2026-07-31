@@ -447,7 +447,7 @@ public struct MainView: View {
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Loading panes...")
+            Text("Loading sessions...")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -455,7 +455,7 @@ public struct MainView: View {
 
     private func errorView(_ message: String) -> some View {
         ContentUnavailableView(
-            "Error Loading Panes",
+            "Error Loading Sessions",
             symbol: .exclamationmarkTriangle,
             description: message
         )
@@ -463,7 +463,7 @@ public struct MainView: View {
 
     private var emptyView: some View {
         ContentUnavailableView(
-            "No Panes Available",
+            "No Sessions",
             symbol: .terminal
         )
     }
@@ -650,6 +650,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetState: { sessionName, state in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionState(sessionName: sessionName, state: state)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -674,6 +681,16 @@ public struct MainView: View {
         let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let emoji = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customEmoji }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
+        // Current sidebar state for the "Set State" menu: the manual override
+        // (if any pane has one) wins, else the agent's own state. Matches how
+        // `SessionSidebarRow` picks the indicator across the session's panes.
+        let stateOverride = session.windows.lazy.flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.cliSessionState }
+            .first
+        let displayedState = CLISessionState.displayed(
+            override: stateOverride,
+            agentState: claudePane.flatMap { windowManager.paneStates[$0.paneId]?.agentSession?.state }
+        )
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
@@ -719,6 +736,13 @@ public struct MainView: View {
             additionalMenu: {
                 ColorContextMenuButtons(currentColor: color) { newColor in
                     windowManager.setSessionColor(newColor, for: session.sessionName)
+                }
+
+                StateContextMenuButtons(
+                    currentState: displayedState,
+                    hasOverride: stateOverride != nil
+                ) { newState in
+                    windowManager.setCLISessionState(newState, forSession: session.sessionName)
                 }
 
                 Divider()
@@ -1134,7 +1158,11 @@ public struct MainView: View {
                                 path: suggestion.filePath,
                                 directoryPath: suggestion.directoryPath,
                                 sessionName: session.sessionName,
-                                windowId: window.id
+                                windowId: window.id,
+                                origin: openSuggestionOrigin(
+                                    for: window.id,
+                                    sessionName: session.sessionName
+                                )
                             )
                             markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         },
@@ -1867,8 +1895,8 @@ public struct MainView: View {
             } label: {
                 Symbols.arrowClockwise.image
             }
-            .accessibilityLabel("Refresh pane list")
-            .help("Refresh pane list")
+            .accessibilityLabel("Refresh session list")
+            .help("Refresh session list")
             .keyboardShortcut("r", modifiers: .command)
             .disabled(tmuxService.isRefreshing)
         }
@@ -2040,8 +2068,8 @@ public struct MainView: View {
             // (e.g. arrow.up.left.and.arrow.down.right → "Enter Full Screen")
             // and drops `.help()` from the AX tree, so set the AX label
             // explicitly to keep VoiceOver and e2e queries meaningful.
-            .accessibilityLabel(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
-            .help(isSessionAttached ? attachedHelp : "Resize tmux pane to fit mirror view")
+            .accessibilityLabel(isSessionAttached ? attachedHelp : "Resize terminal to fit mirror view")
+            .help(isSessionAttached ? attachedHelp : "Resize terminal to fit mirror view")
             .disabled(isSessionAttached)
         }
 
@@ -2069,7 +2097,7 @@ public struct MainView: View {
             Symbols.arrowDownRightAndArrowUpLeft.image
         }
         .toggleStyle(.button)
-        .help(isSessionAttached ? attachedHelp : "Auto-resize tmux pane when mirror view changes size")
+        .help(isSessionAttached ? attachedHelp : "Auto-resize terminal when mirror view changes size")
         .disabled(isSessionAttached)
     }
 
@@ -2232,7 +2260,7 @@ public struct MainView: View {
                     lastAutoResizeDimensions[remote.resizeKey(paneId: remotePaneId)] = dimensions
                 }
             case let .failure(error):
-                attachError = "Failed to resize remote pane: \(error.localizedDescription)"
+                attachError = "Failed to resize remote session: \(error.localizedDescription)"
             }
         }
     }
@@ -2802,6 +2830,34 @@ public struct MainView: View {
     }
 
     // MARK: - File Browser Tabs
+
+    /// Picks the return target for a file tab opened from the markdown
+    /// "Want to open …?" suggestion, based on what `windowId` is currently
+    /// showing (issue #700). The suggestion's "Yes" button lives in the tab
+    /// strip, so the user could be on the terminal, the Git tab, or the
+    /// file-browser tree when they accept — recording the matching origin makes
+    /// closing the opened tab land them back where they were instead of always
+    /// dropping onto the file tree (the previous behaviour, since the accept
+    /// path passed no origin).
+    ///
+    /// Only three prior views are expressible as a `FileTabOrigin`: the
+    /// terminal, the Git tab, and the tree (`nil`, which keeps the tree
+    /// visible underneath). A currently-selected file or browser tab has no
+    /// origin case, so it falls back to the window's terminal.
+    private func openSuggestionOrigin(for windowId: String, sessionName: String) -> FileTabOrigin? {
+        // Git and file-browser modes are mutually exclusive, and selecting any
+        // file/browser tab clears git mode, so an active Git tab is unambiguous.
+        if gitActiveWindowIds.contains(windowId) {
+            return .gitTab(windowId: windowId)
+        }
+        // The tree is showing only in file-browser mode with nothing selected on
+        // the left; a nil origin preserves the existing "return to tree" flow.
+        let tabs = sessionFileTabsStates[sessionName]
+        let showingTree = fileBrowserActiveWindowIds.contains(windowId)
+            && tabs?.selectedFileTabId == nil
+            && tabs?.selectedBrowserTabId == nil
+        return showingTree ? nil : .terminalWindow(windowId)
+    }
 
     /// Opens a file in a new tab next to the file browser, or selects the existing
     /// tab if the file is already open. Newly opened tabs become the active view.

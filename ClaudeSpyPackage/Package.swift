@@ -286,7 +286,7 @@ let packageDependencies: [Package.Dependency] = [
     .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
     .package(url: "https://github.com/vapor/apns.git", from: "5.0.0"),
     .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
-    .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+    .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.1"),
     .package(url: "https://github.com/apple/swift-log.git", from: "1.14.0"),
     // Only `Clocks` + `Foundation` traits are enabled — the app's built-in
     // dependency values are `\.continuousClock` (Clocks) and `\.date`

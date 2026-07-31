@@ -1,6 +1,6 @@
 import Foundation
 
-/// E2E scenario: "Close pane when Claude exits" preference + SessionEnd gating.
+/// E2E scenario: "Close session when Claude exits" preference + SessionEnd gating.
 ///
 /// Guards the close-pane-on-session-end feature and its eligibility gating:
 /// with the preference ON, a clean prompt-input exit (SessionEnd reason
@@ -19,7 +19,7 @@ public enum ClosePaneOnSessionEndScenario {
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
 
-        // 2. Enable "Close pane when Claude Code exits" in the Agents tab. This
+        // 2. Enable "Close session when Claude Code exits" in the Agents tab. This
         //    is a per-agent setting (persisted to the plugin's settings.json and
         //    applied live); the Claude Code core folds it into close-pane
         //    eligibility. Verify the toggle actually flipped on.

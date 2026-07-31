@@ -300,7 +300,7 @@
                     .onChange(of: logLevel) { _, _ in persist() }
                     .accessibilityIdentifier("agentLogLevel-\(pluginID)")
 
-                    Toggle("Close pane when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
+                    Toggle("Close session when \(agentDisplayName) exits", isOn: $closePaneOnSessionEnd)
                         .onChange(of: closePaneOnSessionEnd) { _, _ in persist() }
                         .accessibilityIdentifier("agentClosePane-\(pluginID)")
 

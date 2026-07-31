@@ -15,7 +15,7 @@
     /// drives the full ingress path (socket → `EchoPluginCore` → dispatcher →
     /// sink) so the exact closure shape the coordinator uses is exercised.
     @MainActor
-    @Suite("PluginRuntimeStatusWiring")
+    @Suite
     struct PluginRuntimeStatusWiringTests {
         // MARK: - Helpers
 
@@ -417,6 +417,51 @@
             // Already cleared, and an unknown pane → no change.
             #expect(windowManager.endAgentSession(forPane: "%5") == false)
             #expect(windowManager.endAgentSession(forPane: "%nope") == false)
+        }
+
+        @Test("endAgentSession clears the manual Set State override session-wide")
+        func endAgentSessionClearsCLIOverride() {
+            let windowManager = makeWindowManager()
+
+            // Two panes in the same tmux session, plus one in another session.
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%5", target: "work:0.0", sessionName: "work",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%6", target: "work:1.0", sessionName: "work",
+                    windowIndex: 1, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%7", target: "other:0.0", sessionName: "other",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+
+            // A live agent on %5, then a manual override stamped session-wide
+            // (the "Set State" menu path) and independently on the other session.
+            windowManager.applyState(
+                pluginID: "echo",
+                sessionID: "s1",
+                state: .working,
+                tmuxPane: "%5",
+                projectPath: nil
+            )
+            windowManager.setCLISessionState(.idle, forSession: "work")
+            windowManager.setCLISessionState(.waiting, for: "%7")
+
+            // The agent session ends → the override must not linger on the
+            // now-plain terminal pane, nor on siblings the sidebar aggregates
+            // across (issue #695 review follow-up).
+            #expect(windowManager.endAgentSession(forPane: "%5") == true)
+            #expect(windowManager.paneStates["%5"]?.cliSessionState == nil)
+            #expect(windowManager.paneStates["%6"]?.cliSessionState == nil)
+            // An unrelated session's override is untouched.
+            #expect(windowManager.paneStates["%7"]?.cliSessionState == .waiting)
         }
 
         @Test("a SessionEnd envelope (working state + .sessionEnded) clears the session → terminal glyph")

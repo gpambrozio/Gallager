@@ -53,7 +53,7 @@ struct EditorOverrideDialog: View {
                 choiceCard(
                     .overrideInGallagerSessions,
                     title: "Let Gallager override in its own sessions",
-                    summary: "Gallager exports VISUAL into its panes — visible in scrollback."
+                    summary: "Gallager exports VISUAL into its sessions — visible in scrollback."
                 )
                 choiceCard(
                     .useMyEditor,
@@ -99,14 +99,14 @@ struct EditorOverrideDialog: View {
                 cardRow(
                     .fixInConfig,
                     title: "Fix it in my shell config",
-                    summary: "Keep my editor everywhere except Gallager's panes.",
+                    summary: "Keep my editor everywhere except Gallager's sessions.",
                     recommended: true
                 )
 
                 if selection == .fixInConfig {
                     Divider()
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("Gallager exports `GALLAGER_SOCKET` before your rc loads. Guard your export so it skips Gallager's panes:")
+                        Text("Gallager exports `GALLAGER_SOCKET` before your rc loads. Guard your export so it skips Gallager's sessions:")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

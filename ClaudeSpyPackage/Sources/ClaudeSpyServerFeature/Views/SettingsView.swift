@@ -134,7 +134,7 @@ struct GeneralSettingsView: View {
                 }
 
                 Toggle("Always auto-resize terminals", isOn: $settings.alwaysAutoResize)
-                    .help("Automatically resize all terminal panes to fit the mirror view when the window size changes")
+                    .help("Automatically resize all terminals to fit the mirror view when the window size changes")
 
                 Picker("Theme", selection: $settings.theme) {
                     ForEach(TerminalTheme.allCases, id: \.self) { theme in
@@ -157,8 +157,8 @@ struct GeneralSettingsView: View {
                         }
                     }
 
-                Toggle("Open panes window on launch", isOn: $settings.openPanesWindowOnLaunch)
-                    .help("Automatically open the panes window when the app starts")
+                Toggle("Open sessions window on launch", isOn: $settings.openPanesWindowOnLaunch)
+                    .help("Automatically open the sessions window when the app starts")
 
                 Toggle("Show status bar", isOn: $settings.showStatusBar)
 

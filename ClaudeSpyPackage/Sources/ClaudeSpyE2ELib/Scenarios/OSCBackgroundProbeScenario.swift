@@ -64,13 +64,13 @@ public enum OSCBackgroundProbeScenario {
 
         // ── Create the session via the UI ─────────────────────────────
 
-        TestStep.macWaitForElement(titled: "No Panes Available", timeout: 10)
+        TestStep.macWaitForElement(titled: "No Sessions", timeout: 10)
         TestStep.log("Clicking New Terminal to create a session through TmuxService")
         TestStep.macClickButton(titled: "New Terminal")
 
         // Wait for the empty state to clear — confirms the session was
         // created and the mirror is attached.
-        TestStep.macWaitForElementToDisappear(titled: "No Panes Available", timeout: 15)
+        TestStep.macWaitForElementToDisappear(titled: "No Sessions", timeout: 15)
         TestStep.macWaitForElement(titled: "terminal", timeout: 10)
 
         // Capture the spawned pane's ID rather than guessing a
