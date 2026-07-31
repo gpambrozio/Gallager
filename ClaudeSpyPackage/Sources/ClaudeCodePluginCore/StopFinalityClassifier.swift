@@ -116,22 +116,32 @@ extension StopFinalityClassifier: DependencyKey {
     /// so each model generation ships its own rubric — never edit one from
     /// the other generation's eval results.
     ///
-    /// The last two WAITING sentences are the 26-side climb (2026-07-30,
-    /// `swift run StopFinalityEval`, 590 cases, greedy). Round 1, the
-    /// "one piece done while ANOTHER is still running" sentence: overall
-    /// 542→549, final 416→420, waiting 126→129, seeds 20/21→21/21 — it
-    /// fixed W13, the orchestrator field failure. Round 2, the bare-dispatch
-    /// sentence: overall 549→560, waiting 129→142, final 420→418, seeds
-    /// still 21/21. Round 2 is the only non-Pareto step here and was taken
-    /// deliberately: it recovers 13 net real false-stops (the whole point of
-    /// #644) for 2 extra false-WAITINGs, both "here is what to inspect" /
-    /// "to resume, run X" hand-backs, and both slices stay above the
-    /// pre-climb line.
+    /// The WAITING sentences past "…does not make the turn finished" are the
+    /// 26-side climb (2026-07-30/31, `swift run StopFinalityEval`, greedy).
+    /// Round 1, the "one piece done while ANOTHER is still running" sentence:
+    /// overall 542→549 (of 590), final 416→420, waiting 126→129, seeds
+    /// 20/21→21/21 — it fixed W13, the orchestrator field failure. Round 2,
+    /// the bare-dispatch sentence: overall 549→560, waiting 129→142, final
+    /// 420→418, seeds still 21/21. Round 4 (2026-07-31, after five fresh
+    /// orchestrator field failures joined the seeds as W14–W18): the
+    /// contingent-plan sentence ("after it commits, I'll re-review") and the
+    /// idle-reviewer tail sentence: overall 561→568 (of 595), waiting
+    /// 142→152, final 419→416, seeds 21/26→26/26, zero waiting-side
+    /// regressions. Rounds 2 and 4 are non-Pareto and were taken
+    /// deliberately: each recovers real field false-stops (the whole point
+    /// of #644) for a small final-recall dip, and round 4's three lost
+    /// finals are two user-handbacks ("Standing by for your direction",
+    /// "waiting on your call") plus one release-notes document — the same
+    /// boundary families round 3 proved cost 3-7 finals to protect from the
+    /// instructions side.
     ///
-    /// Two lessons for the next 26 round, both the OPPOSITE of the 27 climb's:
-    /// - The @Guide text is inert on this generation. The same elliptical
-    ///   clause added to `productionGuide26` left W13 missing (seeds 20/21,
-    ///   unchanged); every gain here came from the instructions.
+    /// Lessons for the next 26 round, all the OPPOSITE of the 27 climb's:
+    /// - The @Guide text is inert on this generation for WIDENING waiting
+    ///   (the elliptical clause left W13 missing), and actively destructive
+    ///   for widening FINISHED: quoting the round-4 handbacks in the guide's
+    ///   user clause collapsed the waiting side (W13/W14/W18 + two bare
+    ///   dispatches flipped in one screen). Every gain here came from the
+    ///   instructions.
     /// - Worked `Examples:` blocks REGRESS this model. The 27 round-6
     ///   examples scored seeds 18/21 (W1 and W5 flip to final) — the same
     ///   allergy that collapsed the round-6 text to waiting-recall 27/153.
@@ -141,6 +151,16 @@ extension StopFinalityClassifier: DependencyKey {
     /// sentence and when appended to the terse-forms list, and 21/21 only as
     /// its own trailing sentence — same claim, three positions, one survivor.
     /// Append; do not splice into a sentence that already earns its keep.
+    /// Round 4 sharpened this: a sentence appended AFTER the bare-dispatch
+    /// sentence silently flipped four mined bare dispatches ("Task 5
+    /// reviewer dispatched.") to final — invisible to the seed screen, which
+    /// has no bare-dispatch case — while the same sentence placed beside its
+    /// thematic neighbor (the dispatch-and-await sentence) cost nothing. And
+    /// a "still running does state waiting" clarifier appended to the
+    /// closing default paragraph looked like the round's winner on seeds
+    /// (26/26) but swallowed user-handback finals on the full run; the
+    /// idle-reviewer sentence at the WAITING paragraph's tail covered the
+    /// same seeds without it.
     public static let productionInstructions26 = """
     You judge the final message a coding agent printed when its turn ended, \
     deciding whether the agent FINISHED its turn or is WAITING for background work.
@@ -157,10 +177,14 @@ extension StopFinalityClassifier: DependencyKey {
     completes". Terse forms without "I" count too: "Awaiting its report", \
     "Waiting on Task 3". Dispatching or starting a task, run, or subagent and \
     then awaiting its result, report, or verdict is WAITING — the dispatch being \
-    past tense does not make the turn finished. Reporting that one piece of work \
-    is done while ANOTHER is still running — "nothing to do until it reports" — \
-    is WAITING too: the finished part does not end the turn. A bare dispatch \
-    announcement — "Task 3 reviewer dispatched." — is WAITING as well.
+    past tense does not make the turn finished. A dispatch followed by a plan \
+    for after the work finishes — "after it commits, I'll re-review" — is \
+    WAITING, not a finished turn. Reporting that one piece of work is done while \
+    ANOTHER is still running — "nothing to do until it reports" — is WAITING \
+    too: the finished part does not end the turn. A bare dispatch announcement — \
+    "Task 3 reviewer dispatched." — is WAITING as well. A reviewer idling after \
+    its already-processed report — "nothing to act on. The next implementer is \
+    running" — is the same WAITING shape.
 
     Background work can stay registered after a turn genuinely finishes (tasks \
     pending cleanup), so decide only from what the message says. If the message \

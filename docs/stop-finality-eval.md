@@ -64,7 +64,7 @@ side and needs no beta-Mac re-run (and vice versa). Prove it when in doubt:
 ### 26 generation (daily Mac)
 
 `StopFinalityEval` is the A/B driver — no editing production between
-rounds. A full 590-case run is ~6 min; the seed screen is ~8 s.
+rounds. A full 595-case run is ~7 min; the seed screen is ~12 s.
 
 1. `swift run StopFinalityEval --dump-prompt --generation 26` → save the
    instructions and guide to files; edit ONE of them.
@@ -108,26 +108,50 @@ immune, but a first-run outlier is still worth a warm re-run.
 
 ## Recorded baselines (per-generation cross-check reference)
 
-- **macOS 26.5 model** (2026-07-30, 21 seeds + 569 mined, 56 contested rows
-  human-labeled, rubric = `productionInstructions26` after the 26-side
-  round-3 promotion): overall 561/590, final-recall 419/437, waiting-recall
-  142/153, seed 21/21, mined 540/569 — instructions fingerprint `64595b13`,
-  guide `1eafda2e`. Promotions touching the 26 side must keep these tallies
-  at or above this line.
+- **macOS 26.5 model** (2026-07-31, 26 seeds + 569 mined, rubric =
+  `productionInstructions26` after the 26-side round-4 promotion): overall
+  568/595, final-recall 416/437, waiting-recall 152/158, seed 26/26, mined
+  542/569 — instructions fingerprint `74dc10fa`, guide `1eafda2e`.
+  Promotions touching the 26 side must keep these tallies at or above this
+  line.
   Round history: pre-climb 542/590 (final 416, waiting 126, seed 20/21 —
   sole failure W13); round 1 549/590 (420/129, W13 fixed, Pareto); round 2
   560/590 (418/142) — non-Pareto by 2 finals, taken deliberately for +13
-  net waiting recall; round 3 561/590 (419/142, Pareto, guide-side).
-  Parked: the "waiting on the USER is FINISHED" carve-out is worth ~5 more
-  waiting cases but only from the INSTRUCTIONS side, where it costs 3-7
-  finals (best full runs 562/415/147 and 562/414/148, both under the 416
-  floor). Above this point the two recalls trade close to 1:1 on this
-  model; a further gain likely needs more labeled data in the disputed
-  shapes, not more rubric text.
-- **macOS 27.0 model** (2026-07-30, 26A5388g, same dataset, rubric =
+  net waiting recall; round 3 561/590 (419/142, Pareto, guide-side);
+  round 4 (2026-07-31, after five fresh orchestrator false-stops from the
+  field became seeds W14–W18, dataset now 595) 568/595 (416/152, seed
+  26/26) — non-Pareto by 3 finals, taken for +10 waiting fixes with ZERO
+  waiting-side regressions. The three lost finals are two user-handbacks
+  ("Standing by for your direction", "waiting on your call about the doc
+  updates") and one release-notes document — the same families the round-3
+  carve-out attempts showed cost 3-7 finals to protect from the
+  instructions side (best full runs 562/415/147 and 562/414/148). Above
+  this point the two recalls trade close to 1:1 on this model; a further
+  gain likely needs more labeled data in the disputed shapes (handbacks
+  phrased with waiting verbs, changelog/document dumps), not more rubric
+  text.
+  Round-4 harness lessons: a sentence appended AFTER the bare-dispatch
+  sentence silently flipped four mined bare dispatches ("Task 5 reviewer
+  dispatched.") to final — invisible to the seed screen, which has no bare
+  form — while the same sentence beside its thematic neighbor (the
+  dispatch-and-await sentence) cost nothing. A "still running does state
+  waiting" clarifier on the closing default paragraph scored 26/26 on
+  seeds but swallowed user-handback finals on the full run. Quoting the
+  handbacks in the guide's user clause collapsed the waiting side
+  (W13/W14/W18 plus two bare dispatches in one screen) — the guide is
+  inert for widening WAITING but destructive for widening FINISHED. A
+  scratchpad `STOP_FINALITY_MINED_DATASET` file holding just the previous
+  candidate's full-run flips makes a cheap second screen (seeds + known
+  frontier) before paying for a full run.
+- **macOS 27.0 model** (2026-07-30, 26A5388g, 21 seeds + 569 mined, rubric =
   `productionInstructions27` after the round-6 promotion): correct 0.9271,
   final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),
   mined-final 412/429, mined-waiting 114/140 — the suite's pinned gates.
+  NEEDS A BETA-MAC RE-RUN: seeds W14–W18 (2026-07-31) postdate this
+  baseline, and the suite gates on seeds == 100%. The 27 round-6 examples
+  cover the idle-reviewer shape, so they plausibly pass, but that is
+  unverified — re-run `swift test --filter StopFinalityEvaluations` on the
+  beta Mac before trusting the 27 gates.
 - History: the pre-tuning 27 baseline was correct 0.9119 / final 0.9497 /
   waiting 0.8039 / seeds 19/21 (W2+W13). Round-by-round numbers live in the
   `CandidatePrompt` doc comment.

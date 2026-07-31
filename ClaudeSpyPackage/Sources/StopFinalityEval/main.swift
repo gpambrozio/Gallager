@@ -15,7 +15,7 @@ import StopFinalityDataset
 //     swift run StopFinalityEval                            # score seeds + mined
 //     swift run StopFinalityEval --instructions cand.txt    # A/B a rubric
 //     swift run StopFinalityEval --guide cand-guide.txt     # A/B the @Guide text
-//     swift run StopFinalityEval --seeds-only               # 21-case screen (~30 s)
+//     swift run StopFinalityEval --seeds-only               # seed screen (~12 s)
 //     swift run StopFinalityEval --sample 120 --out r.json  # mid-cost screen
 //     swift run StopFinalityEval --dump-prompt              # emit today's strings
 //     swift run StopFinalityEval --verdicts in.jsonl out.jsonl
@@ -156,7 +156,7 @@ if mined == nil {
 /// candidate fix the field failure and break no committed case?" in ~30 s, and
 /// `--sample N` strides the mined set for an early read on whether the majority
 /// FINAL class collapsed. Neither replaces the full run a promotion needs — the
-/// recorded per-generation baseline is over all 590 cases.
+/// recorded per-generation baseline is over the full seeds+mined set.
 func selectedCases() -> [StopFinalityCase] {
     guard let mined, !arguments.contains("--seeds-only") else { return seeds }
     guard let requested = value(for: "--sample").flatMap(Int.init), requested < mined.count else {
