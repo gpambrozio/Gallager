@@ -8,6 +8,8 @@ import Foundation
 ///    the suggestion bar with the file name to the right of the last tab.
 /// 2. Clicking "Yes" opens the file as a new tab using the same renderer the
 ///    file explorer uses (file content visible in the tab).
+/// 2.5. Closing that tab returns the user to the originating terminal, not the
+///    file browser tree (#700 — the accept path now records a terminal origin).
 /// 3. After the file is open, the suggestion bar is gone.
 /// 4. A second markdown write replaces the suggestion with the new file name.
 /// 5. Clicking "No" dismisses the suggestion without opening anything.
@@ -68,6 +70,31 @@ public enum MarkdownWriteOpenSuggestionScenario {
         TestStep.macWaitForElement(titled: "File tab: README.md", timeout: 5)
         TestStep.macWaitForElementToDisappear(titled: "Want to open README.md?", timeout: 5)
         TestStep.macScreenshot(label: "mac-file-tab-after-yes")
+
+        // ── Phase 2.5: Closing the opened tab returns to the terminal ─
+        // Regression guard for issue #700: a file tab opened from the markdown
+        // suggestion while viewing the terminal must record that terminal as
+        // its origin, so closing it lands the user back on the originating
+        // terminal — not the file browser tree (the pre-fix fallback, which
+        // happened because the accept path passed no origin).
+        TestStep.log("Phase 2.5: Close the opened file tab and verify the terminal is reselected")
+        TestStep.macClickButton(titled: "Close file tab: README.md")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: README.md", timeout: 5)
+
+        // The terminal must be the active view again. The terminal-<paneId>
+        // element is only mounted when the terminal pane is visible
+        // (FileBrowserView and the pane layout are mutually exclusive in
+        // MainView), so finding the setup marker text under that identifier
+        // proves we landed on the terminal rather than on the file tree.
+        TestStep.macWaitForElementQuery(
+            .allOf([.identifier("terminal-${paneId}"), .valueContains("WRITE HOOK TEST")]),
+            timeout: 5
+        )
+        // Negative assertion: the file browser tree's search field is gone.
+        // Only the tree renders this label, so its absence rules out the
+        // pre-#700 fallback that left the tree visible after closing the tab.
+        TestStep.macWaitForElementToDisappear(titled: "Search files", timeout: 5)
+        TestStep.macScreenshot(label: "mac-terminal-after-suggestion-tab-closed")
 
         // ── Phase 3: A second write replaces the suggestion ──────
         TestStep.log("Phase 3: A new Write hook replaces the previous suggestion")
