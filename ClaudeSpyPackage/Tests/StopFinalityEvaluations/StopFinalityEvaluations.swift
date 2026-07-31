@@ -133,20 +133,19 @@
         /// gate-clearing round on the mined set (final 0.9557 > gate,
         /// waiting 0.85 > gate, correct 0.9305 best yet) but W13 STILL
         /// missed — the rule asks whether the agent "says it will continue"
-        /// and W13 never says it. Round 5 (2026-07-30): one change — the
-        /// rule counts the elliptical forms ("nothing to do until it
-        /// reports", "awaiting its report/verdict") as yes.
+        /// and W13 never says it. Round 5 (2026-07-30): the rule counted
+        /// elliptical forms as yes — waiting best-ever (0.941/0.936) but
+        /// mined-final collapsed to 0.911 and W13 STILL missed. Round 6
+        /// (2026-07-30, final prompt-side round): revert the rule amendment
+        /// (back to R4's) and tighten the orchestrator example with W13's
+        /// lexical texture ("going idle", "already handled") instead.
         static let instructions = StopFinalityClassifier.productionInstructions + """
 
 
         Decision rule: ask one question — does the message say the agent \
         itself will automatically continue when still-running WORK (a build, \
         test, deploy, job, task, or subagent) completes? Only then is it \
-        WAITING. Saying there is nothing to do until a task or subagent \
-        reports, or that the agent is awaiting its report, result, or \
-        verdict, counts as yes — even when the rest of the message reports \
-        completed or already-handled work. Everything else is FINISHED, \
-        including: asking the user to \
+        WAITING. Everything else is FINISHED, including: asking the user to \
         act or answer ("please do X, then I'll…" — the agent resumes on the \
         USER, not on work), waiting for the user's decision or input in any \
         phrasing ("waiting on your call", "standing by"), and mentions of \
@@ -155,10 +154,11 @@
 
         Examples:
         - "Task B reviewer dispatched. Awaiting the verdict." → WAITING
-        - "That's just task A's helper finishing — already handled. Task B's \
-        implementer is still working; nothing to do until it reports." → WAITING \
-        (the awaited work is still running, even though this event needed no \
-        action)
+        - "Just task A's checker going idle after posting its results — \
+        already handled. Task B is still running; nothing to do until it \
+        reports." → WAITING (the awaited work is still running — a subagent \
+        going idle or a report being saved does not end the turn while \
+        another task runs)
         - "I've launched the deploy in the background — it takes about ten \
         minutes. I'll pick this up and summarize once it completes." → WAITING
         """
