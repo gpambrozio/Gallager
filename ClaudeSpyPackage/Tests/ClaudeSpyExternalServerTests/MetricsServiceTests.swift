@@ -54,6 +54,24 @@ struct MetricsServiceTests {
         #expect(body.contains("claudespy_blocked_host_attempts_total 1"))
     }
 
+    @Test("incrementPausedPairingAttempts increments by one and renders")
+    func pausedPairingAttempts() async {
+        let service = MetricsService()
+        await service.incrementPausedPairingAttempts()
+        await service.incrementPausedPairingAttempts()
+        #expect(await service.pausedPairingAttemptsTotal == 2)
+
+        let snapshot = MetricsSnapshot(
+            activePairs: 0,
+            hostsConnected: 0,
+            viewersConnected: 0,
+            uptimeSeconds: 0
+        )
+        let output = await service.render(snapshot: snapshot, buildVersion: "1.0-test")
+        #expect(output.contains("claudespy_paused_pairing_attempts_total 2"))
+        #expect(output.contains("# TYPE claudespy_paused_pairing_attempts_total counter"))
+    }
+
     @Test("render escapes \\, \", and newline in buildVersion label value")
     func renderEscapesBuildVersion() async {
         let service = MetricsService()

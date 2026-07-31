@@ -181,6 +181,12 @@ public struct ErrorMessage: Codable, Sendable {
         )
     }
 
+    /// Error code returned by the relay's pairing-pause maintenance switch
+    /// (operator-set `PAIRING_PAUSED_MESSAGE`) when new pairing registrations
+    /// are refused. The accompanying message is the operator's own text;
+    /// clients show it verbatim.
+    public static let pairingPausedCode = "PAIRING_PAUSED"
+
     public static func notConnected(_ device: String) -> ErrorMessage {
         ErrorMessage(code: "NOT_CONNECTED", message: "\(device) is not connected")
     }

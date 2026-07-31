@@ -27,7 +27,8 @@ public actor ServerDriver {
     public func start(
         port: Int = 8_765,
         licensedTrialDays: Int? = nil,
-        minClientVersion: String? = nil
+        minClientVersion: String? = nil,
+        pairingPausedMessage: String? = nil
     ) async throws {
         self.port = port
         logger.info("Starting test server on port \(port)")
@@ -64,6 +65,17 @@ public actor ServerDriver {
             logger.info("Min-client-version gate applied (MIN_CLIENT_VERSION=\(minClientVersion))")
         } else {
             Self.clearMinClientVersionEnv()
+        }
+
+        // Pairing-pause maintenance switch. Applied before `configure(app)`
+        // runs (that's where the env var is read into app storage) and cleared
+        // on `stop()`, so scenarios using plain `startServer` always boot
+        // unpaused.
+        if let pairingPausedMessage {
+            setenv("PAIRING_PAUSED_MESSAGE", pairingPausedMessage, 1)
+            logger.info("Pairing pause applied (PAIRING_PAUSED_MESSAGE=\(pairingPausedMessage))")
+        } else {
+            Self.clearPairingPauseEnv()
         }
 
         // Wire the relay's APNs push log file. APNsService picks this up via
@@ -124,6 +136,15 @@ public actor ServerDriver {
         Self.removeLicensingStateFile(logger: logger)
         Self.clearLicensingEnv()
         Self.clearMinClientVersionEnv()
+        Self.clearPairingPauseEnv()
+    }
+
+    // MARK: - Pairing-Pause Env
+
+    /// Env var a `start(port:pairingPausedMessage:)` call applies; cleared on
+    /// every `stop()` so the pause never leaks into subsequent scenarios.
+    private static func clearPairingPauseEnv() {
+        unsetenv("PAIRING_PAUSED_MESSAGE")
     }
 
     // MARK: - Min-Client-Version Gate Env
