@@ -14,6 +14,7 @@ struct RemoteHostSidebarSection: View {
     let onSetDescription: (String, String?) -> Void
     let onSetColor: (String, SessionColor?) -> Void
     let onSetEmoji: (String, String?) -> Void
+    let onSetState: (String, CLISessionState?) -> Void
     let onToggleYolo: (String, Bool) -> Void
     let onCloseSession: (String) -> Void
 
@@ -151,6 +152,14 @@ struct RemoteHostSidebarSection: View {
                     isDisabled: connection?.isHostConnected != true
                 ) { newColor in
                     onSetColor(session.sessionName, newColor)
+                }
+
+                StateContextMenuButtons(
+                    currentState: session.displayedState,
+                    hasOverride: session.cliSessionState != nil,
+                    isDisabled: connection?.isHostConnected != true
+                ) { newState in
+                    onSetState(session.sessionName, newState)
                 }
 
                 Divider()

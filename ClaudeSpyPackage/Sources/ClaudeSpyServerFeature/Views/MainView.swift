@@ -650,6 +650,13 @@ public struct MainView: View {
                             _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
                         }
                     },
+                    onSetState: { sessionName, state in
+                        Task {
+                            guard let manager = coordinator.viewerConnectionManager else { return }
+                            let command = SetSessionState(sessionName: sessionName, state: state)
+                            _ = await manager.sendCommand(command, paneId: "", hostId: host.id)
+                        }
+                    },
                     onToggleYolo: { paneId, enabled in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -674,6 +681,16 @@ public struct MainView: View {
         let color = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customColor }
         let emoji = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customEmoji }
         let claudePane = session.windows.flatMap(\.panes).first { windowManager.paneStates[$0.paneId]?.agentSession != nil }
+        // Current sidebar state for the "Set State" menu: the manual override
+        // (if any pane has one) wins, else the agent's own state. Matches how
+        // `SessionSidebarRow` picks the indicator across the session's panes.
+        let stateOverride = session.windows.lazy.flatMap(\.panes)
+            .compactMap { windowManager.paneStates[$0.paneId]?.cliSessionState }
+            .first
+        let displayedState = CLISessionState.displayed(
+            override: stateOverride,
+            agentState: claudePane.flatMap { windowManager.paneStates[$0.paneId]?.agentSession?.state }
+        )
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
@@ -719,6 +736,13 @@ public struct MainView: View {
             additionalMenu: {
                 ColorContextMenuButtons(currentColor: color) { newColor in
                     windowManager.setSessionColor(newColor, for: session.sessionName)
+                }
+
+                StateContextMenuButtons(
+                    currentState: displayedState,
+                    hasOverride: stateOverride != nil
+                ) { newState in
+                    windowManager.setCLISessionState(newState, forSession: session.sessionName)
                 }
 
                 Divider()
