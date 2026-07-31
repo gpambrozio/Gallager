@@ -19,6 +19,7 @@ actor MetricsService {
     private(set) var licenseValidationFailuresTotal = 0
     private(set) var licenseDeactivationsTotal = 0
     private(set) var blockedHostAttemptsTotal = 0
+    private(set) var pausedPairingAttemptsTotal = 0
 
     func incrementMessagesRelayed() {
         messagesRelayedTotal &+= 1
@@ -46,6 +47,10 @@ actor MetricsService {
 
     func incrementBlockedHostAttempts() {
         blockedHostAttemptsTotal &+= 1
+    }
+
+    func incrementPausedPairingAttempts() {
+        pausedPairingAttemptsTotal &+= 1
     }
 
     /// Render the full Prometheus text exposition for a scrape.
@@ -79,6 +84,10 @@ actor MetricsService {
         lines.append("# HELP claudespy_blocked_host_attempts_total Host connections/registrations rejected for lack of entitlement.")
         lines.append("# TYPE claudespy_blocked_host_attempts_total counter")
         lines.append("claudespy_blocked_host_attempts_total \(blockedHostAttemptsTotal)")
+
+        lines.append("# HELP claudespy_paused_pairing_attempts_total Pairing registrations refused by the pairing-pause switch.")
+        lines.append("# TYPE claudespy_paused_pairing_attempts_total counter")
+        lines.append("claudespy_paused_pairing_attempts_total \(pausedPairingAttemptsTotal)")
 
         lines.append("# HELP claudespy_active_pairs Number of currently-paired devices.")
         lines.append("# TYPE claudespy_active_pairs gauge")
