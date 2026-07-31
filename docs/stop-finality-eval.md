@@ -147,11 +147,12 @@ immune, but a first-run outlier is still worth a warm re-run.
   `productionInstructions27` after the round-6 promotion): correct 0.9271,
   final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),
   mined-final 412/429, mined-waiting 114/140 — the suite's pinned gates.
-  NEEDS A BETA-MAC RE-RUN: seeds W14–W18 (2026-07-31) postdate this
-  baseline, and the suite gates on seeds == 100%. The 27 round-6 examples
-  cover the idle-reviewer shape, so they plausibly pass, but that is
-  unverified — re-run `swift test --filter StopFinalityEvaluations` on the
-  beta Mac before trusting the 27 gates.
+  SUITE CURRENTLY RED (2026-07-31 beta-Mac run): seeds 23/26 — W15, W16,
+  and W18 (the bare "nothing to act on. X's implementer is running" tail)
+  fail on the 27 model; W14 and W17 pass via the round-6 examples. Mined
+  recalls matched the pinned gates exactly (412/429, 114/140), so only the
+  new seeds moved. A 27-side hill-climb round is needed to cover the
+  idle-reviewer family before the suite is green again.
 - History: the pre-tuning 27 baseline was correct 0.9119 / final 0.9497 /
   waiting 0.8039 / seeds 19/21 (W2+W13). Round-by-round numbers live in the
   `CandidatePrompt` doc comment.
