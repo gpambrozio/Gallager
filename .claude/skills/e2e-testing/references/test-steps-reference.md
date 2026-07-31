@@ -18,6 +18,9 @@ TestStep.macWaitForElement(titled: "Connected", timeout: 15, instance: 1)
 ### `startServer`
 Start the in-process Vapor relay server on port 8765. Must be called before launching apps.
 
+### `startServerWithPairingPausedMessage(message: String)`
+Start the relay with the pairing-pause maintenance switch enabled: `PAIRING_PAUSED_MESSAGE` is set to `message` before the server boots, so `POST /api/pairing/register` refuses new pairing registrations with that text (code `PAIRING_PAUSED`). Cleared when the server stops, so scenarios using plain `startServer` boot unpaused.
+
 ### `verifyServerHealth`
 Poll the server health endpoint until it responds. Call after `startServer`.
 

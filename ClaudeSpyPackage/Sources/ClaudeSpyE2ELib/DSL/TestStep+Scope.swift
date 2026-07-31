@@ -146,6 +146,7 @@ public extension TestStep {
              .startStubLicenseServer,
              .startServerLicensed,
              .startServerWithMinClientVersion,
+             .startServerWithPairingPausedMessage,
              .verifyServerHealth,
              .verifyServerHasPairings,
              .waitForHostConnected,
