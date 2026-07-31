@@ -116,20 +116,31 @@ extension StopFinalityClassifier: DependencyKey {
     /// so each model generation ships its own rubric — never edit one from
     /// the other generation's eval results.
     ///
-    /// The "one piece done while ANOTHER is still running" sentence is the
-    /// 26-side climb's round-1 winner (2026-07-30, `swift run
-    /// StopFinalityEval`, 590 cases, greedy): overall 542→549, final-recall
-    /// 416→420, waiting-recall 126→129, seeds 20/21→21/21 — it fixed W13,
-    /// the orchestrator field failure, and the mined set's largest
-    /// missed-waiting cluster ("Task N going idle — already complete. Still
-    /// waiting on Task N+1"), while *raising* final-recall. The two model
-    /// generations respond to opposite levers: on 27 the @Guide text moved
-    /// the needle and the instructions traded classes around a frontier;
-    /// here the guide was inert (the same elliptical clause added to
-    /// `productionGuide26` left W13 missing) and this one instruction
-    /// sentence carried the round. A worked 27-style `Examples:` block was
-    /// tried here and REGRESSED the 26 model (seeds 18/21 — W1 and W5 flip
-    /// to final), which is the same allergy that collapsed the round-6 text.
+    /// The last two WAITING sentences are the 26-side climb (2026-07-30,
+    /// `swift run StopFinalityEval`, 590 cases, greedy). Round 1, the
+    /// "one piece done while ANOTHER is still running" sentence: overall
+    /// 542→549, final 416→420, waiting 126→129, seeds 20/21→21/21 — it
+    /// fixed W13, the orchestrator field failure. Round 2, the bare-dispatch
+    /// sentence: overall 549→560, waiting 129→142, final 420→418, seeds
+    /// still 21/21. Round 2 is the only non-Pareto step here and was taken
+    /// deliberately: it recovers 13 net real false-stops (the whole point of
+    /// #644) for 2 extra false-WAITINGs, both "here is what to inspect" /
+    /// "to resume, run X" hand-backs, and both slices stay above the
+    /// pre-climb line.
+    ///
+    /// Two lessons for the next 26 round, both the OPPOSITE of the 27 climb's:
+    /// - The @Guide text is inert on this generation. The same elliptical
+    ///   clause added to `productionGuide26` left W13 missing (seeds 20/21,
+    ///   unchanged); every gain here came from the instructions.
+    /// - Worked `Examples:` blocks REGRESS this model. The 27 round-6
+    ///   examples scored seeds 18/21 (W1 and W5 flip to final) — the same
+    ///   allergy that collapsed the round-6 text to waiting-recall 27/153.
+    ///
+    /// Placement is a real variable, not prose polish: the bare-dispatch idea
+    /// scored seeds 20/21 (W13 relapsed) both when folded into the dispatch
+    /// sentence and when appended to the terse-forms list, and 21/21 only as
+    /// its own trailing sentence — same claim, three positions, one survivor.
+    /// Append; do not splice into a sentence that already earns its keep.
     public static let productionInstructions26 = """
     You judge the final message a coding agent printed when its turn ended, \
     deciding whether the agent FINISHED its turn or is WAITING for background work.
@@ -148,7 +159,8 @@ extension StopFinalityClassifier: DependencyKey {
     then awaiting its result, report, or verdict is WAITING — the dispatch being \
     past tense does not make the turn finished. Reporting that one piece of work \
     is done while ANOTHER is still running — "nothing to do until it reports" — \
-    is WAITING too: the finished part does not end the turn.
+    is WAITING too: the finished part does not end the turn. A bare dispatch \
+    announcement — "Task 3 reviewer dispatched." — is WAITING as well.
 
     Background work can stay registered after a turn genuinely finishes (tasks \
     pending cleanup), so decide only from what the message says. If the message \

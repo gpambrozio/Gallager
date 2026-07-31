@@ -92,12 +92,14 @@ immune, but a first-run outlier is still worth a warm re-run.
 
 - **macOS 26.5 model** (2026-07-30, 21 seeds + 569 mined, 56 contested rows
   human-labeled, rubric = `productionInstructions26` after the 26-side
-  round-1 promotion): overall 549/590, final-recall 420/437, waiting-recall
-  129/153, seed 21/21, mined 528/569 — instructions fingerprint `5179bc1d`,
+  round-2 promotion): overall 560/590, final-recall 418/437, waiting-recall
+  142/153, seed 21/21, mined 539/569 — instructions fingerprint `64595b13`,
   guide `b96be60a`. Promotions touching the 26 side must keep these tallies
   at or above this line.
-  The pre-climb line was overall 542/590, final 416/437, waiting 126/153,
-  seed 20/21 (sole failure: W13, now fixed).
+  Round history: pre-climb 542/590 (final 416, waiting 126, seed 20/21 —
+  sole failure W13); round 1 549/590 (420/129, W13 fixed, Pareto); round 2
+  560/590 (418/142) — non-Pareto by 2 finals, taken deliberately for +13
+  net waiting recall (see the constant's doc comment).
 - **macOS 27.0 model** (2026-07-30, 26A5388g, same dataset, rubric =
   `productionInstructions27` after the round-6 promotion): correct 0.9271,
   final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),
