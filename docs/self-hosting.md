@@ -84,6 +84,9 @@ PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
 MIN_CLIENT_VERSION=            # e.g. 2.1; refuse clients older than this on connect
 MIN_CLIENT_VERSION_REJECT_UNKNOWN=false  # also refuse clients that report no version
 
+# Pairing pause (optional — leave unset to accept new pairings)
+PAIRING_PAUSED_MESSAGE=        # when set, refuse NEW pairing registrations and show this message
+
 # Licensing (leave unset for self-hosting — see docs above)
 LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
 LEMONSQUEEZY_PRODUCT_ID=       # From Lemon Squeezy dashboard
@@ -138,6 +141,15 @@ The relay can only enforce against clients new enough to *report* a version. Bui
 
 - `false` (default) — unknown-version clients are allowed through, so turning the gate on doesn't break the entire pre-reporting fleet at once. Clean enforcement becomes available for the *next* release that breaks the wire, once a version-reporting build is universal.
 - `true` — unknown-version clients are also refused. Only safe once every deployed client reports its version.
+
+### Pairing Pause (Optional)
+
+A maintenance switch for server migrations or overload: set `PAIRING_PAUSED_MESSAGE` to any non-empty text and the relay refuses **new** pairing registrations, returning that exact text as the error message — it appears verbatim in the Mac's pairing UI (red error state with a "Try Again" button). Existing pairings are completely unaffected: WebSocket relay traffic, status polling, and unpairing all keep working, and a viewer holding an already-registered code can still complete it.
+
+- Leave it unset (the default) and pairing works normally — self-hosting needs no configuration here.
+- The value is read at boot, so applying a change requires a container recreate (`docker compose up -d`).
+- Refused attempts are counted in the `claudespy_paused_pairing_attempts_total` metric.
+- On the wire this is a normal pairing `error` response with code `PAIRING_PAUSED`; no minimum client version is required.
 
 ## Reverse Proxy Setup
 
