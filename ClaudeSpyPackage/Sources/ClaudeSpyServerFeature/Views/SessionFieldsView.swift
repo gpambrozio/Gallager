@@ -92,20 +92,31 @@ struct SessionSortData {
     let statusPriorityIdleFirst: Int // 0 = attention, 1 = idle, 2 = working, 3 = no claude
     let latestEventTimestamp: Date?
 
-    /// Status priority: lower = higher priority (attention > working > idle)
-    static func statusPriority(for claudeSession: AgentSession?) -> Int {
-        guard let session = claudeSession else { return 3 }
-        if session.needsAttention { return 0 }
-        if session.isWorking { return 1 }
-        return 2
+    /// Status priority: lower = higher priority (attention > working > idle).
+    /// Derived from the DISPLAYED state bucket — the manual "Set State"
+    /// override wins over the agent's own state — so a session sorts where
+    /// its status icon says it belongs (a pinned-to-Waiting session rises to
+    /// the attention group; pre-#702 the sort read the raw agent state and a
+    /// pinned session's position contradicted its bell). `nil` is the plain
+    /// terminal glyph: no agent, no pin.
+    static func statusPriority(displayed: CLISessionState?) -> Int {
+        switch displayed {
+        case .waiting: 0
+        case .working: 1
+        case .idle: 2
+        case nil: 3
+        }
     }
 
-    /// Status priority with idle before working (attention > idle > working)
-    static func statusPriorityIdleFirst(for claudeSession: AgentSession?) -> Int {
-        guard let session = claudeSession else { return 3 }
-        if session.needsAttention { return 0 }
-        if !session.isWorking { return 1 }
-        return 2
+    /// Status priority with idle before working (attention > idle > working);
+    /// same displayed-state derivation as `statusPriority(displayed:)`.
+    static func statusPriorityIdleFirst(displayed: CLISessionState?) -> Int {
+        switch displayed {
+        case .waiting: 0
+        case .idle: 1
+        case .working: 2
+        case nil: 3
+        }
     }
 
     /// Resolves the primary label from configured fields and session values.
@@ -166,8 +177,8 @@ struct SessionSortData {
             sessionName: session.sessionName,
             primaryLabel: label,
             hasClaude: claudeSession != nil,
-            statusPriority: statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
+            statusPriority: statusPriority(displayed: session.displayedState),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(displayed: session.displayedState),
             // The plugin model dropped the per-event timestamp buffer (spec §16);
             // recency sort by last event is no longer available.
             latestEventTimestamp: nil
@@ -191,6 +202,15 @@ struct SessionSortData {
             .flatMap(\.panes)
             .compactMap { paneStates[$0.paneId]?.agentSession }
             .first
+
+        // The displayed bucket the sidebar's status icon shows: the manual
+        // "Set State" override (any pane, window/pane order) wins over the
+        // agent state — the same scan the sidebar row itself performs.
+        let stateOverride: CLISessionState? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { paneStates[$0.paneId]?.cliSessionState }
+            .first
+        let displayed = CLISessionState.displayed(override: stateOverride, agentState: claudeSession?.state)
 
         let primaryPane = session.activeWindow?.activePane
         let paneState = primaryPane.flatMap { paneStates[$0.paneId] }
@@ -228,8 +248,8 @@ struct SessionSortData {
             sessionName: session.sessionName,
             primaryLabel: label,
             hasClaude: claudeSession != nil,
-            statusPriority: statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
+            statusPriority: statusPriority(displayed: displayed),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(displayed: displayed),
             latestEventTimestamp: latestActivity
         )
     }
