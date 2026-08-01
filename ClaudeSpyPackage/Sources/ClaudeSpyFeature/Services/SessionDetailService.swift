@@ -149,7 +149,7 @@ final public class SessionDetailService {
         let session = sessionStore.session(for: paneId, hostId: hostId)
         if let open = session?.state.openForm {
             applyForm(open.request, requestID: open.requestID, pluginID: session?.pluginID ?? "")
-        } else if let session, let reply = Self.replyForm(for: session.state) {
+        } else if let session, let reply = replyForm(for: session.state) {
             applyForm(.replyAfterStop(reply), requestID: replyAfterStopRequestID, pluginID: session.pluginID)
         } else {
             clearResponseState()
@@ -157,21 +157,32 @@ final public class SessionDetailService {
     }
 
     /// Builds the reply-after-stop box for the states that wait at the prompt.
-    /// `doneWorking` carries the agent's last-message summary; a plain `idle`
-    /// session (fresh, or one that was viewed after stopping) has none. Working
-    /// and blocking-form states get no reply box.
-    private static func replyForm(for state: AgentState) -> ReplyAfterStopRequest? {
+    /// `doneWorking` carries the agent's last-message summary live; once the
+    /// session has been viewed (`doneWorking → idle`) that summary is gone from
+    /// the state, so we fall back to the persisted copy — keeping the agent's last
+    /// message visible after navigating away and back (issue #707). A truly fresh
+    /// `idle` session with no persisted summary has none. Working and
+    /// blocking-form states get no reply box.
+    private func replyForm(for state: AgentState) -> ReplyAfterStopRequest? {
         switch state {
         case let .doneWorking(summary):
-            return ReplyAfterStopRequest(title: "Reply", summary: summary)
+            return ReplyAfterStopRequest(title: "Reply", summary: summary ?? persistedSummary)
         case .idle:
-            return ReplyAfterStopRequest(title: "Reply")
+            return ReplyAfterStopRequest(title: "Reply", summary: persistedSummary)
         case .working,
              .awaitingPlanApproval,
              .awaitingPermission,
              .awaitingReplies:
             return nil
         }
+    }
+
+    /// The agent's last-turn summary that survives the handled-flip and
+    /// navigation (issue #707): the per-pane cache first — freshest and
+    /// independent of telemetry — then the end-of-turn recap, which covers a
+    /// fresh reconnect where the cache hasn't been populated yet.
+    private var persistedSummary: String? {
+        sessionStore.lastTurnSummary(for: paneId, hostId: hostId) ?? recap?.summary
     }
 
     /// Builds `ResponseState` for a form, but only when the request id changes so

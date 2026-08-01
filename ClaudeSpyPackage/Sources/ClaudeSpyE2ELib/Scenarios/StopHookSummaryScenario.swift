@@ -65,6 +65,19 @@ public enum StopHookSummaryScenario {
         // 9. Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
 
+        // 9b. Re-enter the same session (issue #707). Viewing it flipped the
+        //     state doneWorking → idle (markHandled), which drops the summary
+        //     from the live state — but the durable per-pane cache means the
+        //     reply box must STILL show the summary on re-entry rather than
+        //     coming back empty. The summary reopens collapsed (a fresh
+        //     ResponseState resets the expand flag), so "Expand summary" is back.
+        TestStep.iosTap(.labelContains("MyProject"))
+        TestStep.iosWaitForElement(.labelContains("Expand summary"), timeout: 10)
+        TestStep.iosWaitForElement(.identifier("summary-text"), timeout: 5)
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 5)
+        TestStep.iosScreenshot(label: "ios-stop-summary-after-reentry")
+        TestStep.iosTap(.labelContains("Sessions"))
+
         // 10. Verify macOS Panes window shows the session in the sidebar
         //     Note: The sidebar subtitle text (lastAssistantMessage) is not
         //     individually exposed in the macOS accessibility tree (NSOutlineView

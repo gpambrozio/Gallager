@@ -201,6 +201,128 @@ struct SessionDetailServiceTests {
         #expect(service.responseState == nil)
     }
 
+    // MARK: - Summary Persistence Tests (Issue #707)
+
+    @Test("The last-turn summary survives the handled-flip and a re-entry")
+    func summarySurvivesReentryAfterHandled() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        // A turn finishes with a message.
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "All done."))
+
+        // Viewing the session marks it handled: doneWorking → idle, which drops
+        // the summary from the live state.
+        sessionStore.markSessionHandled(paneId: "%1", hostId: "test-pair")
+        #expect(sessionStore.session(for: "%1", hostId: "test-pair")?.state == .idle)
+
+        // Navigating away and back builds a fresh service against the idle state.
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form after re-entry")
+            return
+        }
+        // The summary is restored from the durable cache, not the (idle) state.
+        #expect(reply.summary == "All done.")
+    }
+
+    @Test("A new turn (working) clears the cached summary so no stale text resurfaces")
+    func newTurnClearsCachedSummary() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "Old."))
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == "Old.")
+
+        // The user sends a new prompt → working → the cache is cleared.
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == nil)
+
+        // A subsequent stop with no message must not resurface the old summary.
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form for idle")
+            return
+        }
+        #expect(reply.summary == nil)
+    }
+
+    @Test("A fresh reconnect falls back to the recap summary when the cache is empty")
+    func reconnectFallsBackToRecapSummary() {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        // A reconnect snapshot: the session is already idle (handled before this
+        // viewer connected, so no doneWorking ever populated the cache), but the
+        // host stamped an end-of-turn recap carrying the last message.
+        let pane = PaneState(
+            paneId: "%1",
+            agentSession: AgentSession(paneId: "%1", pluginID: "claude-code", state: .idle),
+            recap: SessionRecap(tokensUsed: 1_000, summary: "Recovered summary.")
+        )
+        sessionStore.handleStateUpdate(
+            SessionStateMessage(pairId: "test-pair", paneStates: ["%1": pane])
+        )
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == nil)
+
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+
+        guard case let .replyAfterStop(reply)? = service.responseState?.request else {
+            Issue.record("expected a replyAfterStop form on reconnect")
+            return
+        }
+        #expect(reply.summary == "Recovered summary.")
+    }
+
+    @Test("A doneWorking snapshot populates the cache so re-entry keeps the summary")
+    func snapshotPopulatesSummaryCache() {
+        let sessionStore = SessionStore()
+
+        sessionStore.handleStateUpdate(snapshot(
+            pairId: "test-pair",
+            panes: ["%1": .doneWorking(summary: "Snapshot summary.")]
+        ))
+
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == "Snapshot summary.")
+
+        // The next snapshot shows the session already handled (idle) — the cache
+        // keeps the summary rather than dropping it on the flip.
+        sessionStore.handleStateUpdate(snapshot(pairId: "test-pair", panes: ["%1": .idle]))
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == "Snapshot summary.")
+    }
+
+    @Test("Ending the session drops the cached summary")
+    func sessionEndClearsCachedSummary() {
+        let sessionStore = SessionStore()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "Done."))
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == "Done.")
+
+        // The session ends: the pane survives but carries no agent session.
+        let endedPane = PaneState(paneId: "%1", agentSession: nil)
+        sessionStore.handleStateUpdate(
+            SessionStateMessage(pairId: "test-pair", paneStates: ["%1": endedPane])
+        )
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == nil)
+    }
+
     // MARK: - Snapshot Catch-Up Tests (offline-then-connect)
 
     @Test("A form that opened while offline renders from the connect snapshot")

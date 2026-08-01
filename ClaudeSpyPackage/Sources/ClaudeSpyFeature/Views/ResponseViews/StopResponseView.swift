@@ -56,6 +56,12 @@ struct StopResponseView: View {
             .accessibilityLabel(placeholder)
     }
 
+    /// Max height for the expanded, scrollable summary. Caps how much of the
+    /// screen a long message can take so the reply field and the terminal below
+    /// stay visible — the message scrolls within this height instead of being
+    /// cropped or pushing everything else off-screen (issue #707).
+    private static let expandedSummaryMaxHeight: CGFloat = 240
+
     private func summarySection(message: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -86,10 +92,30 @@ struct StopResponseView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(state.isSummaryExpanded ? "Collapse summary" : "Expand summary")
 
+            summaryText(message)
+        }
+    }
+
+    /// The summary body. Collapsed, it previews the first two lines; expanded, it
+    /// scrolls within a capped height so a long message stays fully readable
+    /// rather than getting cropped (issue #707). Font is bumped from `.caption`
+    /// to `.subheadline` for legibility in both states.
+    @ViewBuilder
+    private func summaryText(_ message: String) -> some View {
+        if state.isSummaryExpanded {
+            ScrollView {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("summary-text")
+            }
+            .frame(maxHeight: Self.expandedSummaryMaxHeight)
+        } else {
             Text(message)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(state.isSummaryExpanded ? nil : 2)
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("summary-text")
         }
