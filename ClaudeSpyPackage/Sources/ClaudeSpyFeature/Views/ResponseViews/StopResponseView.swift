@@ -174,3 +174,36 @@ struct StopResponseView: View {
         }
     }
 }
+
+// A long summary, pre-expanded, to exercise the capped scrollable region
+// (issue #707) — the text should scroll within the frame rather than run off.
+#Preview("Stop with long summary (expanded)") {
+    let request = ReplyAfterStopRequest(
+        title: "Claude is waiting",
+        summary: String(
+            repeating: "I've completed the refactoring of the authentication module: updated the "
+                + "JWT validation logic, added refresh-token support, and migrated the session "
+                + "store to async/await. All existing tests were updated and pass. ",
+            count: 4
+        )
+    )
+    let state = ResponseState(
+        request: .replyAfterStop(request),
+        pluginID: "claude-code",
+        requestID: "test:stop-long"
+    )
+    state.isSummaryExpanded = true
+
+    return NavigationStack {
+        List {
+            Section("Response") {
+                StopResponseView(
+                    request: request,
+                    isConnected: true,
+                    submit: { _ in },
+                    state: state
+                )
+            }
+        }
+    }
+}
