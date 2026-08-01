@@ -2197,6 +2197,7 @@
                         if applied > 0 {
                             Task {
                                 await self?.connectedViewerManager?.pushSessionStateToAll()
+                                await self?.broadcastBadgeDecreaseIfNeeded()
                             }
                         }
                         return applied
@@ -3099,6 +3100,11 @@
                 // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionState(spec) = command.command {
                     winManager.setCLISessionState(spec.state, forSession: spec.sessionName)
+                    // A pin that lowers the pending count (pin-to-Idle, unpin)
+                    // has no notification — carry the iOS badge down with it.
+                    if let badge = winManager.pendingCountDecrease() {
+                        await connectionManager?.broadcastBadgeUpdate(badge: badge)
+                    }
                     return .success(for: command.id)
                 }
 

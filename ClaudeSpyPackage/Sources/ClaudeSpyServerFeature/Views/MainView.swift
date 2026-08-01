@@ -743,6 +743,11 @@ public struct MainView: View {
                     hasOverride: stateOverride != nil
                 ) { newState in
                     windowManager.setCLISessionState(newState, forSession: session.sessionName)
+                    // A pin that lowers the pending count has no notification;
+                    // push the badge down explicitly (issue #702).
+                    Task {
+                        await coordinator.broadcastBadgeDecreaseIfNeeded()
+                    }
                 }
 
                 Divider()
