@@ -31,8 +31,9 @@ extension Collection where Element == PaneState {
     /// Groups these panes into terminal-only sessions: one entry per session
     /// whose panes ALL lack an agent session, sorted pinned-to-Waiting first,
     /// then by session name. The override is scanned across every pane
-    /// (mirroring `TmuxSession.cliSessionState`) so a partial stamp still
-    /// surfaces. Panes with an empty session name (agent-only upserts that
+    /// in `(windowIndex, paneIndex)` order — a deterministic winner when
+    /// siblings disagree, matching the sidebar's `TmuxSession.cliSessionState`
+    /// scan — and a partial stamp still surfaces. Panes with an empty session name (agent-only upserts that
     /// haven't been reconciled with a tmux scan yet) never form a row.
     public func terminalOnlySessions() -> [TerminalOnlySession] {
         Dictionary(grouping: self, by: \.sessionName)
@@ -48,7 +49,7 @@ extension Collection where Element == PaneState {
                 else { return nil }
                 return TerminalOnlySession(
                     sessionName: sessionName,
-                    displayedState: panes.compactMap(\.cliSessionState).first,
+                    displayedState: ordered.compactMap(\.cliSessionState).first,
                     representativePaneId: representative.paneId
                 )
             }
@@ -56,7 +57,7 @@ extension Collection where Element == PaneState {
                 if ($0.displayedState == .waiting) != ($1.displayedState == .waiting) {
                     return $0.displayedState == .waiting
                 }
-                return $0.sessionName < $1.sessionName
+                return $0.sessionName.localizedCaseInsensitiveCompare($1.sessionName) == .orderedAscending
             }
     }
 

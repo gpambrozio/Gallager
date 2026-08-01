@@ -51,6 +51,18 @@ struct TerminalOnlySessionGroupingTests {
         #expect(rows.map(\.displayedState) == [.waiting, nil, .idle])
     }
 
+    @Test("Conflicting sibling pins resolve by (window, pane) order, matching the sidebar")
+    func conflictingSiblingPinsResolveInPaneOrder() {
+        // Per-pane CLI pins can leave siblings disagreeing; the winner must be
+        // the first pinned pane by (windowIndex, paneIndex) — the same scan
+        // order as TmuxSession.cliSessionState — regardless of input order.
+        let panes = [
+            PaneState(paneId: "%2", sessionName: "s", windowIndex: 1, paneIndex: 0, cliSessionState: .waiting),
+            PaneState(paneId: "%1", sessionName: "s", windowIndex: 0, paneIndex: 0, cliSessionState: .idle),
+        ]
+        #expect(panes.terminalOnlySessions().first?.displayedState == .idle)
+    }
+
     @Test("Panes with an empty session name never form a row")
     func skipsEmptySessionName() {
         let panes = [PaneState(paneId: "%1", cliSessionState: .waiting)]
