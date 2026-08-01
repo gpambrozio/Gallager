@@ -90,6 +90,13 @@ public enum TestStep: Sendable {
     /// error. Cleared when the server stops, so scenarios using plain
     /// `startServer` are unaffected.
     case startServerWithMinClientVersion(minVersion: String)
+    /// Start the in-process Vapor relay server with the pairing-pause
+    /// maintenance switch enabled: `PAIRING_PAUSED_MESSAGE` is set to `message`
+    /// before `configure(app)` runs, so `POST /api/pairing/register` refuses
+    /// new pairing registrations with that text as a `PAIRING_PAUSED` error.
+    /// Cleared when the server stops, so scenarios using plain `startServer`
+    /// are unaffected.
+    case startServerWithPairingPausedMessage(message: String)
     /// Verify the server is healthy
     case verifyServerHealth
     /// Verify the number of active pairings

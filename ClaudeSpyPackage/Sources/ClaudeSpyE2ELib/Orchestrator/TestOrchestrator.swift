@@ -423,6 +423,9 @@ public actor TestOrchestrator {
         case let .startServerWithMinClientVersion(minVersion):
             try await serverDriver.start(port: serverPort, minClientVersion: minVersion)
 
+        case let .startServerWithPairingPausedMessage(message):
+            try await serverDriver.start(port: serverPort, pairingPausedMessage: message)
+
         case .verifyServerHealth:
             try await serverDriver.waitForHealthy()
 

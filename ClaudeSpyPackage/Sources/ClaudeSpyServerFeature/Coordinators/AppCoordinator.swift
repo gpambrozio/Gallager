@@ -3816,6 +3816,14 @@
                     store?.handleAgentStatus(status)
                 }
 
+                // Wire the host's plugin presentation set into the store so
+                // project-row agent badges resolve the plugin's `short_name`
+                // (e.g. "claude") instead of falling back to the plugin id
+                // (e.g. "claude-code"). Same source iOS uses for remote
+                // projects (issue #705); without this the Mac viewer never
+                // stored presentations and every badge showed the raw id.
+                Self.wirePresentationSink(on: manager, into: store)
+
                 // Wire session state updates from remote hosts.
                 // After applying the update, prune any remote-editor edits whose
                 // sessions the host has ended — otherwise those entries leak until quit.
@@ -3876,6 +3884,26 @@
                 logger.info("ViewerConnectionManager set up successfully")
             } catch {
                 logger.error("Failed to set up ViewerConnectionManager: \(error)")
+            }
+        }
+
+        /// Routes a host's pushed plugin presentation set into the viewer's
+        /// `SessionStore`, keeping the (non-persisted) presentation cache the
+        /// remote UI reads from in sync with the host's enabled plugins.
+        ///
+        /// Extracted from `setupViewerConnectionManager` so the sink can be
+        /// unit-tested: issue #705 was a *missing* sink — the Mac viewer never
+        /// stored presentations, so `SessionStore.presentation(forPluginID:)`
+        /// always returned nil and every remote project-row badge fell back to
+        /// the raw plugin id ("claude-code") instead of the plugin's
+        /// `short_name` ("claude"). iOS wires the identical sink in
+        /// `ContentView.setupConnectionManagerHandlers`.
+        static func wirePresentationSink(
+            on manager: ViewerConnectionManager,
+            into store: SessionStore
+        ) {
+            manager.onPluginPresentations = { [weak store] presentations in
+                store?.handlePluginPresentations(presentations)
             }
         }
 

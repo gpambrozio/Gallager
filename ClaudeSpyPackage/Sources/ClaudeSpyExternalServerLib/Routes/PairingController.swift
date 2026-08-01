@@ -16,6 +16,18 @@ struct PairingController: RouteCollection {
     /// POST /api/pairing/register
     @Sendable
     func registerPairingCode(req: Request) async throws -> PairingResponse {
+        // Operator maintenance switch (PAIRING_PAUSED_MESSAGE): refuse new
+        // pairing registrations with the operator's message. Delivered as a
+        // normal `.error` response body — both clients render an unrecognized
+        // code's message verbatim, so this needs no client-side support.
+        if let pausedMessage = req.application.pairingPausedMessage {
+            await req.application.metricsService.incrementPausedPairingAttempts()
+            return .error(ErrorInfo(
+                message: pausedMessage,
+                code: ErrorMessage.pairingPausedCode
+            ))
+        }
+
         let registration = try req.content.decode(PairingRegistration.self)
 
         // Hosted-relay gate: hosts need a trial or active license. A fresh host
