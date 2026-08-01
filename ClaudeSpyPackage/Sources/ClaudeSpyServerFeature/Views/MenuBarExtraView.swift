@@ -16,19 +16,30 @@ public struct MenuBarExtraView: View {
         windowManager.sortedSessions
     }
 
-    private var remoteSessionsByHost: [(host: PairedHost, sessions: [AgentSession])] {
+    /// Terminal-only local tmux sessions (no agent in any pane), one menu row
+    /// each — pinned sessions carry their override icon (issue #702 follow-on).
+    private var localTerminalSessions: [TerminalOnlySession] {
+        windowManager.paneStates.values.terminalOnlySessions()
+    }
+
+    private var remoteSessionsByHost:
+        [(host: PairedHost, sessions: [AgentSession], terminalSessions: [TerminalOnlySession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
             let sessions = sessionStore.agentSessions(for: host.id).map(\.session)
-            guard !sessions.isEmpty else { return nil }
-            return (host: host, sessions: sessions)
+            let terminalSessions = sessionStore.terminalOnlySessions(for: host.id)
+            // A host section appears when the host has ANY panes — a
+            // terminals-only host used to vanish from the menu entirely.
+            guard !sessions.isEmpty || !terminalSessions.isEmpty else { return nil }
+            return (host: host, sessions: sessions, terminalSessions: terminalSessions)
         }
     }
 
     public var body: some View {
         let local = localSessions
+        let localTerminal = localTerminalSessions
         let remote = remoteSessionsByHost
-        let hasAny = !local.isEmpty || !remote.isEmpty
+        let hasAny = !local.isEmpty || !localTerminal.isEmpty || !remote.isEmpty
 
         // Cross-session usage rollup (issue #598): today's total across active
         // sessions, plus the top projects. In the dropdown — the dock badge
@@ -46,10 +57,11 @@ public struct MenuBarExtraView: View {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
             } else {
-                if !local.isEmpty {
-                    ForEach(local, id: \.paneId) { session in
-                        localSessionButton(for: session)
-                    }
+                ForEach(local, id: \.paneId) { session in
+                    localSessionButton(for: session)
+                }
+                ForEach(localTerminal) { session in
+                    localTerminalSessionButton(for: session)
                 }
 
                 ForEach(remote, id: \.host.id) { entry in
@@ -59,6 +71,9 @@ public struct MenuBarExtraView: View {
 
                     ForEach(entry.sessions, id: \.paneId) { session in
                         remoteSessionButton(for: session, host: entry.host)
+                    }
+                    ForEach(entry.terminalSessions) { session in
+                        remoteTerminalSessionButton(for: session, host: entry.host)
                     }
                 }
             }
@@ -134,7 +149,13 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            sessionLabel(for: session, displayedState: localDisplayedState(for: session))
+            // An agent row always owns an agent session, so displayedState is
+            // non-nil; fall back to idle (moon) defensively rather than the
+            // terminal glyph.
+            rowLabel(
+                title: session.displayName,
+                displayedState: localDisplayedState(for: session) ?? .idle
+            )
         }
     }
 
@@ -149,7 +170,36 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            sessionLabel(for: session, displayedState: remoteDisplayedState(for: session, host: host))
+            rowLabel(
+                title: session.displayName,
+                displayedState: remoteDisplayedState(for: session, host: host) ?? .idle
+            )
+        }
+    }
+
+    private func localTerminalSessionButton(for session: TerminalOnlySession) -> some View {
+        Button {
+            coordinator.pendingMenuBarSelection = .local(paneId: session.representativePaneId)
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "panes")
+            Self.bringAppToFront()
+        } label: {
+            rowLabel(title: session.sessionName, displayedState: session.displayedState)
+        }
+    }
+
+    private func remoteTerminalSessionButton(for session: TerminalOnlySession, host: PairedHost) -> some View {
+        Button {
+            coordinator.pendingMenuBarSelection = .remote(
+                hostId: host.id,
+                hostName: host.displayName,
+                paneId: session.representativePaneId
+            )
+            NSApp.setActivationPolicy(.regular)
+            openWindow(id: "panes")
+            Self.bringAppToFront()
+        } label: {
+            rowLabel(title: session.sessionName, displayedState: session.displayedState)
         }
     }
 
@@ -168,18 +218,13 @@ public struct MenuBarExtraView: View {
             ?? CLISessionState.displayed(override: nil, agentState: session.state)
     }
 
+    /// Shared menu-row label. Menu items can't render ProgressView, so every
+    /// state maps to an SF Symbol. The state honors the manual "Set State"
+    /// override (issue #702) so rows match the sidebar's indicator; `nil` is
+    /// the plain terminal glyph for an unpinned terminal-only session.
     @ViewBuilder
-    private func sessionLabel(for session: AgentSession, displayedState: CLISessionState?) -> some View {
-        // The plugin model dropped the per-event buffer (spec §16); the menu label
-        // is just the session display name now.
-        let title = session.displayName
-
-        // Menu items can't render ProgressView, so use SF Symbols for all states.
-        // The state honors the manual "Set State" override (issue #702), so the row
-        // matches the sidebar's indicator rather than the raw agent state. A listed
-        // session always owns an agent session, so `displayedState` is non-nil;
-        // fall back to idle (moon) defensively.
-        switch displayedState ?? .idle {
+    private func rowLabel(title: String, displayedState: CLISessionState?) -> some View {
+        switch displayedState {
         case .waiting:
             Label {
                 Text(title)
@@ -197,6 +242,8 @@ public struct MenuBarExtraView: View {
             Label(title, symbol: .figureRun)
         case .idle:
             Label(title, symbol: .moonFill)
+        case nil:
+            Label(title, symbol: .terminal)
         }
     }
 }
