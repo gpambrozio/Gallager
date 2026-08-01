@@ -107,6 +107,16 @@ final public class SessionStore {
             .map(\.value)
     }
 
+    /// Terminal-only tmux sessions on a host (no agent session in any pane),
+    /// one entry per session — the system menu's terminal rows (issue #702
+    /// follow-on). Sorted pinned-to-Waiting first, then by session name.
+    public func terminalOnlySessions(for hostId: String) -> [TerminalOnlySession] {
+        paneStates
+            .filter { $0.key.pairId == hostId }
+            .map(\.value)
+            .terminalOnlySessions()
+    }
+
     /// Get all pane states for a specific host grouped by tmux window
     public func windows(for hostId: String) -> [TmuxWindow] {
         let hostPanes = paneStates
