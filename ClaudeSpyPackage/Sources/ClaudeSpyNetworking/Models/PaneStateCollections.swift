@@ -5,7 +5,9 @@ import Foundation
 /// represented in the menu by their agent panes instead, so a session appears
 /// exactly once whichever bucket it falls in.
 public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
-    /// The tmux session name; also the menu row label.
+    /// The tmux session name: the stable row identity, and the label fallback
+    /// when no description or working directory is available (see
+    /// `displayTitle(homeDirectory:)` in ClaudeSpyCommon).
     public let sessionName: String
 
     /// The manual "Set State" override, if the session is pinned. With no
@@ -18,12 +20,29 @@ public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
     /// pane, else the first pane by `(windowIndex, paneIndex)`.
     public let representativePaneId: String
 
+    /// The user's session description (session-scoped tmux option, scanned
+    /// across panes in the same deterministic order as the override). When
+    /// set, the menu row shows it verbatim instead of "Terminal: <folder>".
+    public let customDescription: String?
+
+    /// The representative pane's working directory, for the
+    /// "Terminal: <folder>" row label. `nil` when tmux hasn't reported one.
+    public let currentPath: String?
+
     public var id: String { sessionName }
 
-    public init(sessionName: String, displayedState: CLISessionState?, representativePaneId: String) {
+    public init(
+        sessionName: String,
+        displayedState: CLISessionState?,
+        representativePaneId: String,
+        customDescription: String? = nil,
+        currentPath: String? = nil
+    ) {
         self.sessionName = sessionName
         self.displayedState = displayedState
         self.representativePaneId = representativePaneId
+        self.customDescription = customDescription
+        self.currentPath = currentPath
     }
 }
 
@@ -50,7 +69,9 @@ extension Collection where Element == PaneState {
                 return TerminalOnlySession(
                     sessionName: sessionName,
                     displayedState: ordered.compactMap(\.cliSessionState).first,
-                    representativePaneId: representative.paneId
+                    representativePaneId: representative.paneId,
+                    customDescription: ordered.compactMap(\.customDescription).first,
+                    currentPath: representative.currentPath
                 )
             }
             .sorted {

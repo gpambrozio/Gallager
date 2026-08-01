@@ -68,6 +68,25 @@ struct TerminalOnlySessionGroupingTests {
         let panes = [PaneState(paneId: "%1", cliSessionState: .waiting)]
         #expect(panes.terminalOnlySessions().isEmpty)
     }
+
+    @Test("The session description is scanned across panes; the path comes from the representative pane")
+    func capturesDescriptionAndPath() {
+        // The description is a session-scoped tmux option (any pane carries
+        // it); the folder shown is the representative (active) pane's.
+        let panes = [
+            PaneState(
+                paneId: "%1", sessionName: "s", windowIndex: 0, paneIndex: 0,
+                currentPath: "/tmp/other", customDescription: "My scratch"
+            ),
+            PaneState(
+                paneId: "%2", sessionName: "s", windowIndex: 1, paneIndex: 0,
+                currentPath: "/Users/me/Development", isActive: true, isWindowActive: true
+            ),
+        ]
+        let row = panes.terminalOnlySessions().first
+        #expect(row?.customDescription == "My scratch")
+        #expect(row?.currentPath == "/Users/me/Development")
+    }
 }
 
 @Suite("PaneState collection pendingSessionCount")

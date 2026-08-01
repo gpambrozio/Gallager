@@ -184,7 +184,10 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            rowLabel(title: session.sessionName, displayedState: session.displayedState)
+            rowLabel(
+                title: session.displayTitle(homeDirectory: nil),
+                displayedState: session.displayedState
+            )
         }
     }
 
@@ -199,7 +202,14 @@ public struct MenuBarExtraView: View {
             openWindow(id: "panes")
             Self.bringAppToFront()
         } label: {
-            rowLabel(title: session.sessionName, displayedState: session.displayedState)
+            // `~` must mean the HOST's home for remote paths, so abbreviate
+            // against the home directory the host pushed with its snapshot.
+            rowLabel(
+                title: session.displayTitle(
+                    homeDirectory: coordinator.remoteSessionStore?.homeDirectoryByHost[host.id]
+                ),
+                displayedState: session.displayedState
+            )
         }
     }
 
