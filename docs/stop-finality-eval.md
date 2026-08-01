@@ -143,18 +143,31 @@ immune, but a first-run outlier is still worth a warm re-run.
   scratchpad `STOP_FINALITY_MINED_DATASET` file holding just the previous
   candidate's full-run flips makes a cheap second screen (seeds + known
   frontier) before paying for a full run.
-- **macOS 27.0 model** (2026-07-30, 26A5388g, 21 seeds + 569 mined, rubric =
-  `productionInstructions27` after the round-6 promotion): correct 0.9271,
-  final-recall 0.9611, waiting-recall 0.8301, seeds 21/21 (W13 fixed),
-  mined-final 412/429, mined-waiting 114/140 — the suite's pinned gates.
-  SUITE CURRENTLY RED (2026-07-31 beta-Mac run): seeds 23/26 — W15, W16,
-  and W18 (the bare "nothing to act on. X's implementer is running" tail)
-  fail on the 27 model; W14 and W17 pass via the round-6 examples. Mined
-  recalls matched the pinned gates exactly (412/429, 114/140), so only the
-  new seeds moved. A 27-side hill-climb round is needed to cover the
-  idle-reviewer family before the suite is green again.
-- History: the pre-tuning 27 baseline was correct 0.9119 / final 0.9497 /
-  waiting 0.8039 / seeds 19/21 (W2+W13). Round-by-round numbers live in the
+- **macOS 27.0 model** (2026-07-31, 26A5388g, 26 seeds + 569 mined, rubric =
+  `productionInstructions27` + `productionGuide27` after the round-7
+  promotion — instructions fingerprint `c75f40fc`, guide `d2fe2f0d`):
+  overall 552/595, final-recall 421/437, waiting-recall 131/158, seeds
+  25/26, mined-final 413/429, mined-waiting 114/140. The suite's pinned
+  gates are mined-final ≥ 413/429, mined-waiting ≥ 114/140, and seeds
+  100% minus `known27Misses`.
+  **W18 is a documented known miss on this generation** ("Final reviewer
+  idling after its already-processed report — nothing to act on. The
+  fix-wave agent is working."): round 7 mapped the frontier with sixteen
+  candidates — the only texts that flip W18 (False-side "another agent of
+  this session is still at work → answer true" carve-outs) drag 12-13
+  mined user-handback finals with them (mined-final 399/429), and every
+  narrowing (user-exclusion clauses, reading rules, verbatim quotes,
+  noun-list and ownership rule edits) either left W18 red or broke other
+  classes. Probes pin the blocker as lexical: "is STILL working" flips
+  W18 to waiting; bare "is working" reads as "functioning". W18 still
+  gates the 26 side (fixed there by round 4). Round-7 history: examples
+  lever regressed hard (a 4th example relapsed W13+W14 → 21/26); the
+  guide ellipsis quote ("nothing to act on. The next task's implementer
+  is running") was the whole win — +W15, +W16, +1 mined final, −0.
+- History (27 side): pre-tuning correct 0.9119 / final 0.9497 / waiting
+  0.8039 / seeds 19/21 (W2+W13); round-6 promotion (2026-07-30) correct
+  0.9271 / final 0.9611 / waiting 0.8301 / seeds 21/21, mined-final
+  412/429, mined-waiting 114/140. Round-by-round numbers live in the
   `CandidatePrompt` doc comment.
 
 ## Growing the dataset

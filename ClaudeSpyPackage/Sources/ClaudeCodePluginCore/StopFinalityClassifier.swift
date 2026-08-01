@@ -293,12 +293,32 @@ extension StopFinalityClassifier: DependencyKey {
     /// lockstep with the decision-rule suffix in `productionInstructions27`.
     /// Validated only on the 27 model — like the rubrics, the two generations'
     /// guides are independent strings (see the divergence note above).
+    ///
+    /// The third elliptical form is the 27-side round 7 (2026-07-31, after
+    /// seeds W14–W18 joined): full run 549→552 (of 595), seeds 23/26→25/26
+    /// (W15+W16 fixed), mined-final 412→413, mined-waiting held at 114,
+    /// zero mined finals lost. W18 ("Final reviewer idling after its
+    /// already-processed report — nothing to act on. The fix-wave agent is
+    /// working.") is a documented known miss on this generation: sixteen
+    /// candidates across every lever (examples — adding a 4th relapsed
+    /// W13+W14; example rewrites; WAITING sentences; decision-rule edits
+    /// incl. the work-noun list and a subagent-ownership carve-out; guide
+    /// quotes incl. W18's tail VERBATIM; a "bare progressive = still-running"
+    /// reading rule; False-side carve-outs plain and narrowed) mapped one
+    /// frontier — a False-side "answer true when another agent of this
+    /// session is still at work" carve-out was the only W18 flipper and it
+    /// took 13 mined user-handback finals with it (mined-final 399/429,
+    /// −13 under the gate) in every phrasing. Probes show the blocker is
+    /// lexical: "is STILL working" flips W18 to waiting; the bare "is
+    /// working" reads as "functioning". See known27Misses in
+    /// StopFinalityEvaluations.
     public static let productionGuide27 = """
     True ONLY when the message states the agent itself will automatically \
     continue when still-running work (a build, test, deploy, job, task, or \
     subagent) completes — including elliptical forms like "Awaiting its \
     report" or "another task is still working; nothing to do until it \
-    reports". False for everything else: summaries of completed work, \
+    reports", or "nothing to act on. The next task's implementer is \
+    running". False for everything else: summaries of completed work, \
     results, error reports, questions, requests for the user to act or \
     answer (resuming after the USER does something is false), waiting on \
     the user's decision in any phrasing, and mentions of work someone else \
