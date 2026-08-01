@@ -180,6 +180,71 @@ enum MacOSAccessibility {
         press(appPID: appPID, matching: .anyTextMatches(titled))
     }
 
+    /// Perform AXPress on an item inside an OPEN menu (context menu or
+    /// submenu), matching by "titled" text but scoped to elements with an
+    /// `AXMenu`/`AXMenuItem` ancestor. A plain `press(titled:)` searches the
+    /// whole window too, so a menu item like "Idle" or "Waiting for input"
+    /// can be swallowed by a sidebar row that happens to DISPLAY the same
+    /// status text — the press "succeeds" against static text and the menu
+    /// never gets clicked. Returns false when no open menu contains a match.
+    @discardableResult
+    static func pressMenuItem(appPID: pid_t, titled: String) -> Bool {
+        let unscoped = findAllRawElements(appPID: appPID, matching: .anyTextMatches(titled))
+        let matches = unscoped.filter(hasMenuAncestor)
+        guard !matches.isEmpty else {
+            // Log where the unscoped matches live so a scope bug (menu items
+            // exposed under unexpected roles) is visible in the run log.
+            for element in unscoped.prefix(3) {
+                logger.info(
+                    "pressMenuItem: unscoped match for '\(titled)' with ancestry [\(ancestryRoles(element))]"
+                )
+            }
+            logger.info("pressMenuItem: no open-menu element found for '\(titled)'")
+            return false
+        }
+
+        let (buttons, others) = partitionByRole(matches)
+        if (buttons + others).first(where: { pressOrWalkParents($0) }) != nil {
+            logger.info("pressMenuItem succeeded for '\(titled)'")
+            return true
+        }
+
+        logger.info("pressMenuItem: AXPress failed for '\(titled)', falling back to CGEvent click")
+        if let center = matches.lazy.compactMap({ centerOfElement($0) }).first {
+            clickAtPoint(center)
+            return true
+        }
+        return false
+    }
+
+    /// The element's ancestor role chain (self first), for scope diagnostics.
+    private static func ancestryRoles(_ element: AXUIElement) -> String {
+        var roles: [String] = []
+        var current: AXUIElement? = element
+        var hops = 0
+        while let el = current, hops < 25 {
+            roles.append(roleOf(el) ?? "?")
+            current = parent(of: el)
+            hops += 1
+        }
+        return roles.joined(separator: " < ")
+    }
+
+    /// Whether the element sits inside an open menu — i.e. any ancestor
+    /// (including itself) has the `AXMenu` or `AXMenuItem` role.
+    private static func hasMenuAncestor(_ element: AXUIElement) -> Bool {
+        var current: AXUIElement? = element
+        var hops = 0
+        while let el = current, hops < 25 {
+            if let role = roleOf(el), role == "AXMenu" || role == "AXMenuItem" {
+                return true
+            }
+            current = parent(of: el)
+            hops += 1
+        }
+        return false
+    }
+
     /// Focus a text field by setting kAXFocusedAttribute and falling back to CGEvent click.
     /// Unlike `press`, this gives the element keyboard focus for subsequent typing.
     @discardableResult

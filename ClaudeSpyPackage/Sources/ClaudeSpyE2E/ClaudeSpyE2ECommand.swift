@@ -400,6 +400,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         LicensesScenario.scenario,
         AgentsPluginAutoUpdateScenario.scenario,
         PairingPauseScenario.scenario,
+        SessionStateSortingScenario.scenario,
     ]
 
     private func resolveScenarios() -> [TestScenario] {
