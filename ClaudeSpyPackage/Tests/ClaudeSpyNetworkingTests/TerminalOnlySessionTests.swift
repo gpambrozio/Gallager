@@ -39,16 +39,18 @@ struct TerminalOnlySessionGroupingTests {
         #expect(stale.terminalOnlySessions().first?.representativePaneId == "%8")
     }
 
-    @Test("A pinned session carries its override as displayedState; rows sort waiting-first then by name")
+    @Test("A pinned session carries its override as displayedState; output is name-ordered")
     func overrideAndSorting() {
+        // Name order is a deterministic-output guarantee only — display
+        // ordering belongs to the caller (the menu sorts by SidebarSortMode).
         let panes = [
             PaneState(paneId: "%1", sessionName: "alpha", windowIndex: 0, paneIndex: 0),
             PaneState(paneId: "%2", sessionName: "zeta", windowIndex: 0, paneIndex: 0, cliSessionState: .waiting),
             PaneState(paneId: "%3", sessionName: "beta", windowIndex: 0, paneIndex: 0, cliSessionState: .idle),
         ]
         let rows = panes.terminalOnlySessions()
-        #expect(rows.map(\.sessionName) == ["zeta", "alpha", "beta"])
-        #expect(rows.map(\.displayedState) == [.waiting, nil, .idle])
+        #expect(rows.map(\.sessionName) == ["alpha", "beta", "zeta"])
+        #expect(rows.map(\.displayedState) == [nil, .idle, .waiting])
     }
 
     @Test("Conflicting sibling pins resolve by (window, pane) order, matching the sidebar")
@@ -128,6 +130,22 @@ struct PendingSessionCountTests {
 
         let pinnedIdle = [PaneState(paneId: "%1", sessionName: "s", windowIndex: 0, paneIndex: 0, cliSessionState: .idle)]
         #expect(pinnedIdle.pendingSessionCount == 0)
+    }
+
+    @Test("An agent pane unconfirmed by any tmux scan (empty sessionName) still counts — accepted transient")
+    func unconfirmedAgentPaneStillCounts() {
+        // `applyState` can create a minimal PaneState before the first scan
+        // fills in the session name; it isn't a menu/sidebar row yet, but it
+        // MUST count: the iOS badge increase rides this session's alert push
+        // and is never re-pushed, so excluding the pane would freeze the
+        // phone's badge too low instead of briefly high (self-heals ≤5s).
+        let panes = [
+            PaneState(
+                paneId: "%1",
+                agentSession: AgentSession(paneId: "%1", state: .doneWorking(summary: nil))
+            ),
+        ]
+        #expect(panes.pendingSessionCount == 1)
     }
 
     @Test("A mixed session pinned to waiting counts via its agent pane only — never double")

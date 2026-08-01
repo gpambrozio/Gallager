@@ -19,6 +19,12 @@ final public class MirrorWindowManager {
     /// to push updated state to viewers.
     public var onSessionMetadataChanged: (@MainActor @Sendable () async -> Void)?
 
+    /// Called after a tmux refresh prunes stale pane entries. Pruning can
+    /// lower `pendingSessionCount` (a killed pinned-Waiting terminal-only
+    /// session has no SessionEnd hook), so the coordinator broadcasts the
+    /// badge decrease from here (issue #702).
+    public var onPaneStatesPruned: (@MainActor @Sendable () async -> Void)?
+
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
 
@@ -100,6 +106,14 @@ final public class MirrorWindowManager {
         }
         for paneId in stalePaneIds {
             removeStaleState(paneId: paneId)
+        }
+        // Pruning can lower the pending count — e.g. `tmux kill-session` on a
+        // pinned-Waiting terminal-only session, which has no SessionEnd hook of
+        // its own — and the iOS badge is push-driven, so the host must emit the
+        // decrease explicitly (issue #702; agent sessions get the same
+        // treatment via `sessionEnded`).
+        if !stalePaneIds.isEmpty {
+            Task { await onPaneStatesPruned?() }
         }
     }
 

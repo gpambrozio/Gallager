@@ -3319,6 +3319,14 @@
             windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
             }
+
+            // A pruned pane can lower the pending count (killing a pinned
+            // terminal-only session has no SessionEnd hook) — carry the iOS
+            // badge down with it. Decrease-only and deduplicated by the
+            // shared high-water mark, so quiet refreshes are free.
+            windowManager.onPaneStatesPruned = { [weak self] in
+                await self?.broadcastBadgeDecreaseIfNeeded()
+            }
         }
 
         /// Updates sleep prevention based on current session count.

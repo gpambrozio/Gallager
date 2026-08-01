@@ -439,6 +439,33 @@
             #expect(windowManager.pendingCountDecrease() == 0)
         }
 
+        @Test("pruning a pinned terminal session fires onPaneStatesPruned and reports the badge decrease")
+        func pruneFiresBadgeDecrease() async {
+            let windowManager = makeWindowManager()
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%7", target: "scratch:0.0", sessionName: "scratch",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            windowManager.setCLISessionState(.waiting, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 1)
+            // Advance the high-water mark to 1 (an increase reports nothing).
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // `tmux kill-session` has no SessionEnd hook for a terminal-only
+            // session; the next scan pruning its pane is the only end signal,
+            // so it must fire the pruned callback the coordinator wires to
+            // `broadcastBadgeDecreaseIfNeeded` (issue #702).
+            await withCheckedContinuation { continuation in
+                windowManager.onPaneStatesPruned = { continuation.resume() }
+                windowManager.updatePaneStates(from: [])
+            }
+            #expect(windowManager.pendingSessionCount == 0)
+            #expect(windowManager.pendingCountDecrease() == 0)
+        }
+
         // MARK: - Open form rides the session state
 
         @Test("an awaiting state exposes the open form on the session; a working state clears it")

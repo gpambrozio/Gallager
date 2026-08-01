@@ -48,12 +48,14 @@ public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
 
 extension Collection where Element == PaneState {
     /// Groups these panes into terminal-only sessions: one entry per session
-    /// whose panes ALL lack an agent session, sorted pinned-to-Waiting first,
-    /// then by session name. The override is scanned across every pane
-    /// in `(windowIndex, paneIndex)` order — a deterministic winner when
-    /// siblings disagree, matching the sidebar's `TmuxSession.cliSessionState`
-    /// scan — and a partial stamp still surfaces. Panes with an empty session name (agent-only upserts that
-    /// haven't been reconciled with a tmux scan yet) never form a row.
+    /// whose panes ALL lack an agent session, sorted by session name — a
+    /// deterministic output order; callers that need a display order sort the
+    /// result themselves (the menu uses the sidebar's `SidebarSortMode`). The
+    /// override is scanned across every pane in `(windowIndex, paneIndex)`
+    /// order — a deterministic winner when siblings disagree, matching the
+    /// sidebar's `TmuxSession.cliSessionState` scan — and a partial stamp
+    /// still surfaces. Panes with an empty session name (agent-only upserts
+    /// that haven't been reconciled with a tmux scan yet) never form a row.
     public func terminalOnlySessions() -> [TerminalOnlySession] {
         Dictionary(grouping: self, by: \.sessionName)
             .compactMap { sessionName, panes -> TerminalOnlySession? in
@@ -75,10 +77,7 @@ extension Collection where Element == PaneState {
                 )
             }
             .sorted {
-                if ($0.displayedState == .waiting) != ($1.displayedState == .waiting) {
-                    return $0.displayedState == .waiting
-                }
-                return $0.sessionName.localizedCaseInsensitiveCompare($1.sessionName) == .orderedAscending
+                $0.sessionName.localizedCaseInsensitiveCompare($1.sessionName) == .orderedAscending
             }
     }
 
@@ -87,8 +86,14 @@ extension Collection where Element == PaneState {
     /// both directions — issue #702) PLUS terminal-only sessions pinned to
     /// `.waiting`, counted once per session even though the override stamps
     /// every sibling pane. Equals the number of bell rows the menu dropdown
-    /// renders for the same panes. Callers with panes from several hosts must
-    /// apply this per host so same-named sessions don't merge.
+    /// renders for the same panes — with one accepted transient: an agent
+    /// pane whose hook arrived before any tmux scan (empty `sessionName`)
+    /// counts here but isn't a row anywhere until the next scan (≤5s) fills
+    /// its metadata in. Deliberate: the iOS badge INCREASE rides that
+    /// session's alert push and is never re-pushed, so excluding the pane
+    /// would freeze the phone's badge too low rather than briefly high.
+    /// Callers with panes from several hosts must apply this per host so
+    /// same-named sessions don't merge.
     public var pendingSessionCount: Int {
         let agentPending = filter { $0.agentSession != nil && $0.displayedState == .waiting }.count
         let terminalPending = terminalOnlySessions().count { $0.displayedState == .waiting }

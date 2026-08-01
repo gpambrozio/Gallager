@@ -88,8 +88,8 @@ struct SessionSortData {
     let sessionName: String
     let primaryLabel: String
     let hasClaude: Bool
-    let statusPriority: Int // 0 = attention, 1 = working, 2 = idle, 3 = no claude
-    let statusPriorityIdleFirst: Int // 0 = attention, 1 = idle, 2 = working, 3 = no claude
+    let statusPriority: Int // displayed-state bucket: 0 = attention, 1 = working, 2 = idle, 3 = plain terminal (no agent, no pin)
+    let statusPriorityIdleFirst: Int // displayed-state bucket: 0 = attention, 1 = idle, 2 = working, 3 = plain terminal (no agent, no pin)
     let latestEventTimestamp: Date?
 
     /// Status priority: lower = higher priority (attention > working > idle).
@@ -252,6 +252,48 @@ struct SessionSortData {
             statusPriorityIdleFirst: statusPriorityIdleFirst(displayed: displayed),
             latestEventTimestamp: latestActivity
         )
+    }
+
+    /// THE local session ordering: the sidebar and the menu bar dropdown both
+    /// call this, so "same order as the sidebar" is enforced by the shared
+    /// function rather than by convention at each call site.
+    static func sortedLocalSessions(
+        _ sessions: [LocalTmuxSession],
+        mode: SidebarSortMode,
+        paneStates: [String: PaneState],
+        lastActivity: (String) -> Date?,
+        sidebarFields: [SidebarField],
+        sidebarTerminalFields: [SidebarField]
+    ) -> [LocalTmuxSession] {
+        mode.sorted(sessions) { session in
+            forLocalSession(
+                session,
+                paneStates: paneStates,
+                lastActivity: lastActivity,
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: sidebarTerminalFields
+            )
+        }
+    }
+
+    /// THE remote per-host session ordering — shared by
+    /// `RemoteHostSidebarSection` and the menu bar dropdown, like
+    /// `sortedLocalSessions`.
+    static func sortedRemoteSessions(
+        _ sessions: [TmuxSession],
+        mode: SidebarSortMode,
+        sidebarFields: [SidebarField],
+        sidebarTerminalFields: [SidebarField],
+        homeDirectory: String?
+    ) -> [TmuxSession] {
+        mode.sorted(sessions) { session in
+            forRemoteSession(
+                session,
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: sidebarTerminalFields,
+                homeDirectory: homeDirectory
+            )
+        }
     }
 }
 

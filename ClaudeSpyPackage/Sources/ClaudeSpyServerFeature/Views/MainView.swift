@@ -468,10 +468,21 @@ public struct MainView: View {
         )
     }
 
+    /// Sidebar-ordered local sessions, via the shared entry point (also used
+    /// by the menu bar dropdown so both surfaces cannot drift apart).
+    private var sortedLocalSessions: [LocalTmuxSession] {
+        SessionSortData.sortedLocalSessions(
+            tmuxService.sessions,
+            mode: settings.sidebarSortMode,
+            paneStates: windowManager.paneStates,
+            lastActivity: { windowManager.lastActivity(for: $0) },
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields
+        )
+    }
+
     private var windowList: some View {
-        let sortedSessions = settings.sidebarSortMode.sorted(tmuxService.sessions) { session in
-            localSessionSortData(session)
-        }
+        let sortedSessions = sortedLocalSessions
 
         return ScrollViewReader { proxy in
             List {
@@ -2692,7 +2703,7 @@ public struct MainView: View {
     /// and `RemoteHostSidebarSection` so keyboard cycling matches what's on
     /// screen.
     private func orderedSidebarSessions() -> [SidebarSessionEntry] {
-        let localSorted = settings.sidebarSortMode.sorted(tmuxService.sessions) { localSessionSortData($0) }
+        let localSorted = sortedLocalSessions
         var entries: [SidebarSessionEntry] = localSorted.map { SidebarSessionEntry.local($0) }
 
         if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
@@ -2704,14 +2715,13 @@ public struct MainView: View {
                 // isn't actually on screen.
                 let connection = coordinator.viewerConnectionManager?.connection(for: host.id)
                 if connection?.versionMismatch != nil { continue }
-                let sorted = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
-                    SessionSortData.forRemoteSession(
-                        session,
-                        sidebarFields: settings.sidebarFields,
-                        sidebarTerminalFields: settings.sidebarTerminalFields,
-                        homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-                    )
-                }
+                let sorted = SessionSortData.sortedRemoteSessions(
+                    sessionStore.sessions(for: host.id),
+                    mode: settings.sidebarSortMode,
+                    sidebarFields: settings.sidebarFields,
+                    sidebarTerminalFields: settings.sidebarTerminalFields,
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                )
                 entries.append(contentsOf: sorted.map { session in
                     SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
                 })

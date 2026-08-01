@@ -90,43 +90,15 @@ struct PaneStateDisplayedStateTests {
     func plainTerminalAndOverrideOnly() {
         #expect(PaneState(paneId: "%1").displayedState == nil)
 
-        // A user can pin a plain terminal, so the override still shows — but the
-        // menu bar's pending count is scoped to panes that own an agent session
-        // (issue #702), so an override-only pane never inflates that count.
+        // A user can pin a plain terminal, so the override still shows — and a
+        // pinned terminal-only SESSION does count toward the pending badge
+        // (issue #702 follow-on). This pane stays out of the count only
+        // because its empty `sessionName` marks it as unconfirmed by any tmux
+        // scan (`terminalOnlySessions()` / `pendingSessionCount` guard), not
+        // because the count is agent-scoped.
         let overriddenTerminal = PaneState(paneId: "%2", cliSessionState: .waiting)
         #expect(overriddenTerminal.displayedState == .waiting)
         #expect(overriddenTerminal.agentSession == nil)
-    }
-}
-
-@Suite("PaneState.agentRowTitle")
-struct PaneStateAgentRowTitleTests {
-    @Test("A session description replaces the agent's project-derived name")
-    func descriptionWins() {
-        let pane = PaneState(
-            paneId: "%1",
-            customDescription: "My feature work",
-            agentSession: AgentSession(paneId: "%1", detectedProjectPath: "/Users/me/Dev/Gallager")
-        )
-        #expect(pane.agentRowTitle == "My feature work")
-    }
-
-    @Test("Without a description the agent displayName is used; empty counts as unset")
-    func fallsBackToDisplayName() {
-        let project = PaneState(
-            paneId: "%1",
-            customDescription: "",
-            agentSession: AgentSession(paneId: "%1", detectedProjectPath: "/Users/me/Dev/Gallager")
-        )
-        #expect(project.agentRowTitle == "Gallager")
-
-        let bare = PaneState(paneId: "%2", agentSession: AgentSession(paneId: "%2"))
-        #expect(bare.agentRowTitle == "%2")
-    }
-
-    @Test("A pane without an agent session has no agent row title")
-    func nilWithoutAgent() {
-        #expect(PaneState(paneId: "%1", customDescription: "desc").agentRowTitle == nil)
     }
 }
 

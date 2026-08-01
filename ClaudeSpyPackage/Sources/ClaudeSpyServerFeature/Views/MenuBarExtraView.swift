@@ -13,35 +13,38 @@ public struct MenuBarExtraView: View {
     public init() { }
 
     /// Local tmux sessions in the exact order the sidebar shows them: the
-    /// same inputs (`tmuxService.sessions` + tracked pane states), the same
-    /// per-session sort data (`SessionSortData.forLocalSession`), and the same
-    /// user-configured `sidebarSortMode`.
+    /// same inputs (`tmuxService.sessions` + tracked pane states) through the
+    /// shared `SessionSortData.sortedLocalSessions` entry point.
+    ///
+    /// Accepted transient: an agent whose hook beat the first tmux scan of
+    /// its pane (empty `sessionName`) counts toward the badge but has no row
+    /// here until the next scan (≤5s) — see `pendingSessionCount`'s doc for
+    /// why excluding it from the count would be worse.
     private var localTmuxSessions: [LocalTmuxSession] {
-        settings.sidebarSortMode.sorted(coordinator.tmuxService.sessions) { session in
-            SessionSortData.forLocalSession(
-                session,
-                paneStates: windowManager.paneStates,
-                lastActivity: { windowManager.lastActivity(for: $0) },
-                sidebarFields: settings.sidebarFields,
-                sidebarTerminalFields: settings.sidebarTerminalFields
-            )
-        }
+        SessionSortData.sortedLocalSessions(
+            coordinator.tmuxService.sessions,
+            mode: settings.sidebarSortMode,
+            paneStates: windowManager.paneStates,
+            lastActivity: { windowManager.lastActivity(for: $0) },
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields
+        )
     }
 
-    /// Remote sessions per host, in the sidebar's order — mirrors
-    /// `RemoteHostSidebarSection.sortedSessions` exactly. A host section
-    /// appears when the host has ANY sessions, agent-owning or terminal-only.
+    /// Remote sessions per host, through the shared
+    /// `SessionSortData.sortedRemoteSessions` entry point
+    /// (`RemoteHostSidebarSection` uses the same one). A host section appears
+    /// when the host has ANY sessions, agent-owning or terminal-only.
     private var remoteSessionsByHost: [(host: PairedHost, sessions: [TmuxSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
-            let sessions = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
-                SessionSortData.forRemoteSession(
-                    session,
-                    sidebarFields: settings.sidebarFields,
-                    sidebarTerminalFields: settings.sidebarTerminalFields,
-                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-                )
-            }
+            let sessions = SessionSortData.sortedRemoteSessions(
+                sessionStore.sessions(for: host.id),
+                mode: settings.sidebarSortMode,
+                sidebarFields: settings.sidebarFields,
+                sidebarTerminalFields: settings.sidebarTerminalFields,
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+            )
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
         }
