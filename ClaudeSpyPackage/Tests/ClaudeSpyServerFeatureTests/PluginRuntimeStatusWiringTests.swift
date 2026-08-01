@@ -407,6 +407,38 @@
             #expect(windowManager.pendingSessionCount == 1)
         }
 
+        @Test("a pinned terminal-only session counts once; unpinning drops the count and reports the decrease")
+        func pendingCountCountsPinnedTerminalSession() {
+            let windowManager = makeWindowManager()
+
+            // Two windows in one tmux session, no agent anywhere.
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%7", target: "scratch:0.0", sessionName: "scratch",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%8", target: "scratch:1.0", sessionName: "scratch",
+                    windowIndex: 1, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Pin the whole session to Waiting: one bell row, one count —
+            // even though the override lands on both panes.
+            windowManager.setCLISessionState(.waiting, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 1)
+            // Advance the high-water mark (increase -> no decrease reported).
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // Unpin: count drops and the drop is reported for the iOS badge push.
+            windowManager.setCLISessionState(nil, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 0)
+            #expect(windowManager.pendingCountDecrease() == 0)
+        }
+
         // MARK: - Open form rides the session state
 
         @Test("an awaiting state exposes the open form on the session; a working state clears it")
