@@ -73,16 +73,18 @@ operating on a collection of `PaneState`:
 
 ### 3. Badge-decrease push
 
-Neither "Set State" path calls `broadcastBadgeDecreaseIfNeeded()`:
+No "Set State" mutation path calls `broadcastBadgeDecreaseIfNeeded()`:
 
 - local: the sidebar context menu (`MainView`, `StateContextMenuButtons`
   callback);
-- remote: the `setSessionState` command handler in `AppCoordinator`.
+- remote: the `setSessionState` command handler in `AppCoordinator`;
+- CLI: the `gallager session set-state` handler (`onSessionSetState` in
+  `AppCoordinator`).
 
 A pin that lowers the count (e.g. pinning a needs-attention session to Idle)
 therefore never pushes the iOS badge down, violating the "every attention-clear
 path emits a silent decrement push" invariant. Fix: invoke the broadcast after
-both mutation paths.
+all three mutation paths.
 
 ### 4. Testing
 
