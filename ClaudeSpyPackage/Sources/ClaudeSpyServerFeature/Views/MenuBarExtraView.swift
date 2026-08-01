@@ -153,7 +153,7 @@ public struct MenuBarExtraView: View {
             // non-nil; fall back to idle (moon) defensively rather than the
             // terminal glyph.
             rowLabel(
-                title: session.displayName,
+                title: localTitle(for: session),
                 displayedState: localDisplayedState(for: session) ?? .idle
             )
         }
@@ -171,7 +171,7 @@ public struct MenuBarExtraView: View {
             Self.bringAppToFront()
         } label: {
             rowLabel(
-                title: session.displayName,
+                title: remoteTitle(for: session, host: host),
                 displayedState: remoteDisplayedState(for: session, host: host) ?? .idle
             )
         }
@@ -211,6 +211,20 @@ public struct MenuBarExtraView: View {
                 displayedState: session.displayedState
             )
         }
+    }
+
+    /// Row title for a local agent session: the user's session description
+    /// when one is set, else the agent's project-derived name. Falls back to
+    /// the agent's name if the pane isn't tracked.
+    private func localTitle(for session: AgentSession) -> String {
+        windowManager.paneStates[session.paneId]?.agentRowTitle ?? session.displayName
+    }
+
+    /// Row title for a remote agent session, honoring the session description
+    /// the host pushed with its pane state.
+    private func remoteTitle(for session: AgentSession, host: PairedHost) -> String {
+        coordinator.remoteSessionStore?.paneState(for: session.paneId, hostId: host.id)?.agentRowTitle
+            ?? session.displayName
     }
 
     /// Displayed state for a local session, honoring any manual "Set State"
