@@ -562,50 +562,15 @@ public struct MainView: View {
         ).primaryLabel
     }
 
-    /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
+    /// Sort data for a local session, via the shared builder so the sidebar
+    /// and the menu bar dropdown order sessions identically.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
-        let claudeSession: AgentSession? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.agentSession }
-            .first
-
-        let primaryPane = session.activeWindow?.activePane
-        let paneState = primaryPane.flatMap { windowManager.paneStates[$0.paneId] }
-
-        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
-        let terminalTitle: String? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
-            .first { !$0.isEmpty }
-
-        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-        let primaryLabel = SessionSortData.primaryLabel(
-            fields: fields,
-            customDescription: paneState?.customDescription,
-            projectName: claudeSession?.displayName,
-            sessionName: session.sessionName,
-            terminalTitle: terminalTitle,
-            command: primaryPane?.command,
-            currentPath: primaryPane?.currentPath,
-            gitBranch: paneState?.gitBranch
-        )
-
-        // Recency = the latest plugin-status arrival across the session's panes.
-        // The per-event timestamp buffer was dropped (spec §16); status-arrival
-        // order is the agent-blind stand-in and matches event-receipt order.
-        let latestActivity = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.lastActivity(for: $0.paneId) }
-            .max()
-
-        return SessionSortData(
-            sessionName: session.sessionName,
-            primaryLabel: primaryLabel,
-            hasClaude: claudeSession != nil,
-            statusPriority: SessionSortData.statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: latestActivity
+        SessionSortData.forLocalSession(
+            session,
+            paneStates: windowManager.paneStates,
+            lastActivity: { windowManager.lastActivity(for: $0) },
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields
         )
     }
 

@@ -173,6 +173,66 @@ struct SessionSortData {
             latestEventTimestamp: nil
         )
     }
+
+    /// Builds sort data for a local `LocalTmuxSession` from the tracked pane
+    /// states. Shared by the sidebar (`MainView`) and the menu bar dropdown so
+    /// both surfaces order sessions identically — the menu's "same order as
+    /// the sidebar" guarantee is this single builder plus the shared
+    /// `SidebarSortMode.sorted`. Scans the full session (all windows) to match
+    /// the session-level sidebar row, not the selected window.
+    static func forLocalSession(
+        _ session: LocalTmuxSession,
+        paneStates: [String: PaneState],
+        lastActivity: (String) -> Date?,
+        sidebarFields: [SidebarField],
+        sidebarTerminalFields: [SidebarField]
+    ) -> SessionSortData {
+        let claudeSession: AgentSession? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { paneStates[$0.paneId]?.agentSession }
+            .first
+
+        let primaryPane = session.activeWindow?.activePane
+        let paneState = primaryPane.flatMap { paneStates[$0.paneId] }
+
+        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
+        let terminalTitle: String? = session.windows.lazy
+            .flatMap(\.panes)
+            .compactMap { paneStates[$0.paneId]?.terminalTitle }
+            .first { !$0.isEmpty }
+
+        let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
+
+        let label = primaryLabel(
+            fields: fields,
+            customDescription: paneState?.customDescription,
+            projectName: claudeSession?.displayName,
+            sessionName: session.sessionName,
+            terminalTitle: terminalTitle,
+            command: primaryPane?.command,
+            currentPath: primaryPane?.currentPath,
+            gitBranch: paneState?.gitBranch
+        )
+
+        // Recency = the latest plugin-status arrival across the session's panes.
+        // The per-event timestamp buffer was dropped (spec §16); status-arrival
+        // order is the agent-blind stand-in and matches event-receipt order.
+        // Not `.lazy`: max() consumes every element anyway, and a lazy chain
+        // would escape the non-escaping `lastActivity` closure.
+        let latestActivity = session.windows
+            .flatMap(\.panes)
+            .compactMap { lastActivity($0.paneId) }
+            .max()
+
+        return SessionSortData(
+            sessionName: session.sessionName,
+            primaryLabel: label,
+            hasClaude: claudeSession != nil,
+            statusPriority: statusPriority(for: claudeSession),
+            statusPriorityIdleFirst: statusPriorityIdleFirst(for: claudeSession),
+            latestEventTimestamp: latestActivity
+        )
+    }
 }
 
 extension SidebarSortMode {

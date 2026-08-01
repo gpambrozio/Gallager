@@ -12,34 +12,45 @@ public struct MenuBarExtraView: View {
 
     public init() { }
 
-    private var localSessions: [AgentSession] {
-        windowManager.sortedSessions
+    /// Local tmux sessions in the exact order the sidebar shows them: the
+    /// same inputs (`tmuxService.sessions` + tracked pane states), the same
+    /// per-session sort data (`SessionSortData.forLocalSession`), and the same
+    /// user-configured `sidebarSortMode`.
+    private var localTmuxSessions: [LocalTmuxSession] {
+        settings.sidebarSortMode.sorted(coordinator.tmuxService.sessions) { session in
+            SessionSortData.forLocalSession(
+                session,
+                paneStates: windowManager.paneStates,
+                lastActivity: { windowManager.lastActivity(for: $0) },
+                sidebarFields: settings.sidebarFields,
+                sidebarTerminalFields: settings.sidebarTerminalFields
+            )
+        }
     }
 
-    /// Terminal-only local tmux sessions (no agent in any pane), one menu row
-    /// each — pinned sessions carry their override icon (issue #702 follow-on).
-    private var localTerminalSessions: [TerminalOnlySession] {
-        windowManager.paneStates.values.terminalOnlySessions()
-    }
-
-    private var remoteSessionsByHost:
-        [(host: PairedHost, sessions: [AgentSession], terminalSessions: [TerminalOnlySession])] {
+    /// Remote sessions per host, in the sidebar's order — mirrors
+    /// `RemoteHostSidebarSection.sortedSessions` exactly. A host section
+    /// appears when the host has ANY sessions, agent-owning or terminal-only.
+    private var remoteSessionsByHost: [(host: PairedHost, sessions: [TmuxSession])] {
         guard let sessionStore = coordinator.remoteSessionStore else { return [] }
         return settings.pairedHosts.compactMap { host in
-            let sessions = sessionStore.agentSessions(for: host.id).map(\.session)
-            let terminalSessions = sessionStore.terminalOnlySessions(for: host.id)
-            // A host section appears when the host has ANY panes — a
-            // terminals-only host used to vanish from the menu entirely.
-            guard !sessions.isEmpty || !terminalSessions.isEmpty else { return nil }
-            return (host: host, sessions: sessions, terminalSessions: terminalSessions)
+            let sessions = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
+                SessionSortData.forRemoteSession(
+                    session,
+                    sidebarFields: settings.sidebarFields,
+                    sidebarTerminalFields: settings.sidebarTerminalFields,
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                )
+            }
+            guard !sessions.isEmpty else { return nil }
+            return (host: host, sessions: sessions)
         }
     }
 
     public var body: some View {
-        let local = localSessions
-        let localTerminal = localTerminalSessions
+        let local = localTmuxSessions
         let remote = remoteSessionsByHost
-        let hasAny = !local.isEmpty || !localTerminal.isEmpty || !remote.isEmpty
+        let hasAny = !local.isEmpty || !remote.isEmpty
 
         // Cross-session usage rollup (issue #598): today's total across active
         // sessions, plus the top projects. In the dropdown — the dock badge
@@ -57,11 +68,8 @@ public struct MenuBarExtraView: View {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(local, id: \.paneId) { session in
-                    localSessionButton(for: session)
-                }
-                ForEach(localTerminal) { session in
-                    localTerminalSessionButton(for: session)
+                ForEach(local) { session in
+                    localSessionRows(for: session)
                 }
 
                 ForEach(remote, id: \.host.id) { entry in
@@ -69,11 +77,8 @@ public struct MenuBarExtraView: View {
                     Text(entry.host.displayName(showUsername: settings.hasDuplicateHostName(for: entry.host)))
                         .foregroundStyle(.secondary)
 
-                    ForEach(entry.sessions, id: \.paneId) { session in
-                        remoteSessionButton(for: session, host: entry.host)
-                    }
-                    ForEach(entry.terminalSessions) { session in
-                        remoteTerminalSessionButton(for: session, host: entry.host)
+                    ForEach(entry.sessions) { session in
+                        remoteSessionRows(for: session, host: entry.host)
                     }
                 }
             }
@@ -136,6 +141,43 @@ public struct MenuBarExtraView: View {
             NSApp.activate()
             for window in NSApp.windows where window.isVisible && window.level == .normal {
                 window.orderFrontRegardless()
+            }
+        }
+    }
+
+    // MARK: - Session Rows
+
+    /// Rows for one local tmux session, emitted in the session's sidebar
+    /// position: one row per agent pane (window/pane order), or the session's
+    /// single terminal-only row when no pane owns an agent.
+    @ViewBuilder
+    private func localSessionRows(for session: LocalTmuxSession) -> some View {
+        let panes = session.windows.flatMap(\.panes).compactMap { windowManager.paneStates[$0.paneId] }
+        let agents = panes.compactMap(\.agentSession)
+        if agents.isEmpty {
+            if let terminal = panes.terminalOnlySessions().first {
+                localTerminalSessionButton(for: terminal)
+            }
+        } else {
+            ForEach(agents, id: \.paneId) { agent in
+                localSessionButton(for: agent)
+            }
+        }
+    }
+
+    /// Rows for one remote tmux session — same shape as `localSessionRows`,
+    /// built from the pane states the host pushed.
+    @ViewBuilder
+    private func remoteSessionRows(for session: TmuxSession, host: PairedHost) -> some View {
+        let panes = session.windows.flatMap(\.panes)
+        let agents = panes.compactMap(\.agentSession)
+        if agents.isEmpty {
+            if let terminal = panes.terminalOnlySessions().first {
+                remoteTerminalSessionButton(for: terminal, host: host)
+            }
+        } else {
+            ForEach(agents, id: \.paneId) { agent in
+                remoteSessionButton(for: agent, host: host)
             }
         }
     }
