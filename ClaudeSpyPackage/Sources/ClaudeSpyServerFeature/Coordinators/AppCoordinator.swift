@@ -3280,7 +3280,10 @@
                     paneStates: paneStates,
                     agentProjects: agentProjects,
                     homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-                    usageOverview: usageOverview
+                    usageOverview: usageOverview,
+                    // Viewers without their own sort preference (iOS) order
+                    // this host's sessions with the host's mode.
+                    sidebarSortMode: await self?.settings.sidebarSortMode.rawValue
                 )
             }
 
