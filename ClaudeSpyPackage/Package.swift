@@ -163,6 +163,10 @@ extension Target.Dependency {
         "ClaudeCodePluginCore"
     }
 
+    static var stopFinalityDataset: Self {
+        "StopFinalityDataset"
+    }
+
     static var codexPluginCore: Self {
         "CodexPluginCore"
     }
@@ -470,13 +474,25 @@ let targets: [Target] = [
         dependencies: [.gallagerPluginProtocol, .claudeSpyNetworking, .logging],
         path: "Sources/EchoPluginSidecar"
     ),
-    // Eval harness for the issue-#644 stop-finality judge: drives the REAL
-    // `StopFinalityClassifier.liveValue` over a fixed case set so prompt
-    // changes are measurable. Run manually on a Mac with Apple Intelligence
-    // (`swift run StopFinalityEval`); CI only compiles it.
+    // Shared dataset for the stop-finality eval (spec
+    // docs/superpowers/specs/2026-07-30-stop-finality-evaluations-design.md):
+    // committed seed cases (past field failures — the regression suite) ride
+    // as a bundled resource; mined cases load from ~/.gallager/eval and are
+    // never committed (verbatim excerpts from real sessions).
+    .target(
+        name: "StopFinalityDataset",
+        resources: [.copy("Resources/seed-cases.json")]
+    ),
+    // macOS-26 cross-check + labeling helper for the stop-finality judge
+    // (spec docs/superpowers/specs/2026-07-30-stop-finality-evaluations-
+    // design.md). Scores the SAME dataset as the StopFinalityEvaluations
+    // suite against THIS machine's model — run on the daily (macOS 26) Mac
+    // before promoting a prompt tuned on the 27-beta model. Run manually on
+    // a Mac with Apple Intelligence (`swift run StopFinalityEval`); CI only
+    // compiles it.
     .executableTarget(
         name: "StopFinalityEval",
-        dependencies: [.claudeCodePluginCore]
+        dependencies: [.claudeCodePluginCore, .stopFinalityDataset]
     ),
     .testTarget(
         name: "ClaudeSpyNetworkingTests",
@@ -497,6 +513,22 @@ let targets: [Target] = [
             .claudeCodePluginCore,
             .gallagerPluginProtocol,
             .dependenciesTestSupport,
+        ]
+    ),
+    .testTarget(
+        name: "StopFinalityDatasetTests",
+        dependencies: [.stopFinalityDataset]
+    ),
+    // Hill-climbing eval for the stop-finality judge on Apple's Evaluations
+    // framework (WWDC26 session 335; spec docs/superpowers/specs/
+    // 2026-07-30-stop-finality-evaluations-design.md). Compiles to an empty
+    // suite on pre-macOS-27 SDKs and CI (#if canImport(Evaluations)); RUNS
+    // only on a macOS 27 beta Mac with Apple Intelligence enabled.
+    .testTarget(
+        name: "StopFinalityEvaluations",
+        dependencies: [
+            .claudeCodePluginCore,
+            .stopFinalityDataset,
         ]
     ),
     .testTarget(
