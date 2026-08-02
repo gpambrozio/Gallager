@@ -6,6 +6,44 @@
       <description>Most recent changes with links to updates.</description>
       <language>en</language>
       <item>
+         <title>Version 2.7</title>
+         <sparkle:version>40</sparkle:version>
+         <sparkle:shortVersionString>2.7</sparkle:shortVersionString>
+         <pubDate>Sun, 02 Aug 2026 13:59:28 -1000</pubDate>
+         <description><![CDATA[
+# ClaudeSpy 2.7
+
+<h2>Features</h2>
+
+<ul>
+<li><strong>Manual session state override.</strong> A new "Set State" context menu lets you manually override a session's state when automatic detection doesn't match reality. The override is respected everywhere, including the system menu.</li>
+<li><strong>omp (oh-my-pi) agent support.</strong> A new sidecar plugin adds monitoring for omp sessions, including working/idle tracking, tool-approval and question prompts, and per-session token usage.</li>
+<li><strong>Automatic plugin updates.</strong> Sidecar plugins installed from a URL now update automatically — checked daily and after app updates — with a per-plugin toggle and a "Check Now" button in Settings → Agents.</li>
+</ul>
+
+<h2>Improvements</h2>
+
+<ul>
+<li>Sessions are now called "sessions" throughout the interface, replacing the previous "pane" terminology.</li>
+<li>Agent badges on project rows are now consistent across the app, using a unified lowercase style, and Claude Code projects now display a badge as well.</li>
+<li>Third-party license acknowledgements are now viewable in the About window on Mac and in Settings on iOS.</li>
+<li>Closing a markdown-suggestion tab now returns you to the view you came from instead of leaving you elsewhere.</li>
+<li>Subscription purchase links now open the live checkout page.</li>
+</ul>
+
+<h2>Bug Fixes</h2>
+
+<ul>
+<li>Fixed the stop summary on iOS vanishing when re-entering a session. The expanded summary view is also larger and scrollable.</li>
+<li>Fixed remote project badges showing the internal plugin identifier ("claude-code") instead of the short agent name ("claude").</li>
+</ul>
+         ]]></description>
+         <enclosure url="https://updates.gallager.app/Gallager-2.7.dmg"
+                    sparkle:edSignature="4J/pEszEmpRqlSwbCTH03criZ7iy1o9jJ9tfgltmjmDGlIMVtb5wiw85/B0IgEBdKWLyRjwkW0UHwIt0Y7RgCw=="
+                    length="34681558"
+                    type="application/octet-stream"/>
+      </item>
+      <item>
          <title>Version 2.6</title>
          <sparkle:version>39</sparkle:version>
          <sparkle:shortVersionString>2.6</sparkle:shortVersionString>
