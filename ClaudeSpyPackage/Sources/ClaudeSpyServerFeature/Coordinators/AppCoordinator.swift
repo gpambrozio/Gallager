@@ -2197,6 +2197,7 @@
                         if applied > 0 {
                             Task {
                                 await self?.connectedViewerManager?.pushSessionStateToAll()
+                                await self?.broadcastBadgeDecreaseIfNeeded()
                             }
                         }
                         return applied
@@ -3099,6 +3100,11 @@
                 // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionState(spec) = command.command {
                     winManager.setCLISessionState(spec.state, forSession: spec.sessionName)
+                    // A pin that lowers the pending count (pin-to-Idle, unpin)
+                    // has no notification — carry the iOS badge down with it.
+                    if let badge = winManager.pendingCountDecrease() {
+                        await connectionManager?.broadcastBadgeUpdate(badge: badge)
+                    }
                     return .success(for: command.id)
                 }
 
@@ -3274,7 +3280,10 @@
                     paneStates: paneStates,
                     agentProjects: agentProjects,
                     homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
-                    usageOverview: usageOverview
+                    usageOverview: usageOverview,
+                    // Viewers without their own sort preference (iOS) order
+                    // this host's sessions with the host's mode.
+                    sidebarSortMode: await self?.settings.sidebarSortMode.rawValue
                 )
             }
 
@@ -3312,6 +3321,14 @@
             // emoji) changes locally.
             windowManager.onSessionMetadataChanged = { [weak connectionManager] in
                 await connectionManager?.pushSessionStateToAll()
+            }
+
+            // A pruned pane can lower the pending count (killing a pinned
+            // terminal-only session has no SessionEnd hook) — carry the iOS
+            // badge down with it. Decrease-only and deduplicated by the
+            // shared high-water mark, so quiet refreshes are free.
+            windowManager.onPaneStatesPruned = { [weak self] in
+                await self?.broadcastBadgeDecreaseIfNeeded()
             }
         }
 

@@ -468,10 +468,21 @@ public struct MainView: View {
         )
     }
 
+    /// Sidebar-ordered local sessions, via the shared entry point (also used
+    /// by the menu bar dropdown so both surfaces cannot drift apart).
+    private var sortedLocalSessions: [LocalTmuxSession] {
+        SessionSortData.sortedLocalSessions(
+            tmuxService.sessions,
+            mode: settings.sidebarSortMode,
+            paneStates: windowManager.paneStates,
+            lastActivity: { windowManager.lastActivity(for: $0) },
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields
+        )
+    }
+
     private var windowList: some View {
-        let sortedSessions = settings.sidebarSortMode.sorted(tmuxService.sessions) { session in
-            localSessionSortData(session)
-        }
+        let sortedSessions = sortedLocalSessions
 
         return ScrollViewReader { proxy in
             List {
@@ -562,50 +573,15 @@ public struct MainView: View {
         ).primaryLabel
     }
 
-    /// Scans the full session (all windows) to match the session-level sidebar row — not the selected window.
+    /// Sort data for a local session, via the shared builder so the sidebar
+    /// and the menu bar dropdown order sessions identically.
     private func localSessionSortData(_ session: LocalTmuxSession) -> SessionSortData {
-        let claudeSession: AgentSession? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.agentSession }
-            .first
-
-        let primaryPane = session.activeWindow?.activePane
-        let paneState = primaryPane.flatMap { windowManager.paneStates[$0.paneId] }
-
-        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
-        let terminalTitle: String? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.terminalTitle }
-            .first { !$0.isEmpty }
-
-        let fields = claudeSession != nil ? settings.sidebarFields : settings.sidebarTerminalFields
-
-        let primaryLabel = SessionSortData.primaryLabel(
-            fields: fields,
-            customDescription: paneState?.customDescription,
-            projectName: claudeSession?.displayName,
-            sessionName: session.sessionName,
-            terminalTitle: terminalTitle,
-            command: primaryPane?.command,
-            currentPath: primaryPane?.currentPath,
-            gitBranch: paneState?.gitBranch
-        )
-
-        // Recency = the latest plugin-status arrival across the session's panes.
-        // The per-event timestamp buffer was dropped (spec §16); status-arrival
-        // order is the agent-blind stand-in and matches event-receipt order.
-        let latestActivity = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { windowManager.lastActivity(for: $0.paneId) }
-            .max()
-
-        return SessionSortData(
-            sessionName: session.sessionName,
-            primaryLabel: primaryLabel,
-            hasClaude: claudeSession != nil,
-            statusPriority: SessionSortData.statusPriority(for: claudeSession),
-            statusPriorityIdleFirst: SessionSortData.statusPriorityIdleFirst(for: claudeSession),
-            latestEventTimestamp: latestActivity
+        SessionSortData.forLocalSession(
+            session,
+            paneStates: windowManager.paneStates,
+            lastActivity: { windowManager.lastActivity(for: $0) },
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields
         )
     }
 
@@ -743,6 +719,11 @@ public struct MainView: View {
                     hasOverride: stateOverride != nil
                 ) { newState in
                     windowManager.setCLISessionState(newState, forSession: session.sessionName)
+                    // A pin that lowers the pending count has no notification;
+                    // push the badge down explicitly (issue #702).
+                    Task {
+                        await coordinator.broadcastBadgeDecreaseIfNeeded()
+                    }
                 }
 
                 Divider()
@@ -2722,7 +2703,7 @@ public struct MainView: View {
     /// and `RemoteHostSidebarSection` so keyboard cycling matches what's on
     /// screen.
     private func orderedSidebarSessions() -> [SidebarSessionEntry] {
-        let localSorted = settings.sidebarSortMode.sorted(tmuxService.sessions) { localSessionSortData($0) }
+        let localSorted = sortedLocalSessions
         var entries: [SidebarSessionEntry] = localSorted.map { SidebarSessionEntry.local($0) }
 
         if settings.hasRemoteHosts, let sessionStore = coordinator.remoteSessionStore {
@@ -2734,14 +2715,13 @@ public struct MainView: View {
                 // isn't actually on screen.
                 let connection = coordinator.viewerConnectionManager?.connection(for: host.id)
                 if connection?.versionMismatch != nil { continue }
-                let sorted = settings.sidebarSortMode.sorted(sessionStore.sessions(for: host.id)) { session in
-                    SessionSortData.forRemoteSession(
-                        session,
-                        sidebarFields: settings.sidebarFields,
-                        sidebarTerminalFields: settings.sidebarTerminalFields,
-                        homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-                    )
-                }
+                let sorted = SessionSortData.sortedRemoteSessions(
+                    sessionStore.sessions(for: host.id),
+                    mode: settings.sidebarSortMode,
+                    sidebarFields: settings.sidebarFields,
+                    sidebarTerminalFields: settings.sidebarTerminalFields,
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                )
                 entries.append(contentsOf: sorted.map { session in
                     SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
                 })

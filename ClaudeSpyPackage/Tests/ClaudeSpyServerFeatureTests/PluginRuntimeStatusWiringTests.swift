@@ -354,6 +354,118 @@
             #expect(windowManager.pendingCountDecrease() == 1)
         }
 
+        // MARK: - Set State override drives the pending count (issue #702)
+
+        @Test("pendingSessionCount honors the Set State override in both directions and counts a session once")
+        func pendingSessionCountHonorsOverride() {
+            let windowManager = makeWindowManager()
+
+            // Two panes in one tmux session ("work"); the agent lives on %5.
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%5", target: "work:0.0", sessionName: "work",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%6", target: "work:1.0", sessionName: "work",
+                    windowIndex: 1, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "s1",
+                state: .idle, tmuxPane: "%5", projectPath: nil
+            )
+            // Idle agent, no override → not pending.
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Force "Waiting for input" session-wide (the "Set State" menu path):
+            // the override wins over the idle agent, so the session is pending. It
+            // counts ONCE even though the override is stamped on both panes — the
+            // sibling %6 owns no agent session, so it isn't a menu row (issue #702).
+            windowManager.setCLISessionState(.waiting, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 1)
+
+            // A fresh plugin state (doneWorking → needs attention) clears the
+            // override; the count still reflects the now-authoritative agent state.
+            windowManager.applyState(
+                pluginID: "echo", sessionID: "s1",
+                state: .doneWorking(summary: nil), tmuxPane: "%5", projectPath: nil
+            )
+            #expect(windowManager.paneStates["%5"]?.cliSessionState == nil)
+            #expect(windowManager.pendingSessionCount == 1)
+
+            // Force Idle over an agent that genuinely needs attention: the override
+            // suppresses the bell in the other direction, so the count drops to 0.
+            windowManager.setCLISessionState(.idle, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Clearing the override reverts to the agent's own state (still
+            // doneWorking → needs attention), so the session is pending again.
+            windowManager.setCLISessionState(nil, forSession: "work")
+            #expect(windowManager.pendingSessionCount == 1)
+        }
+
+        @Test("a pinned terminal-only session counts once; unpinning drops the count and reports the decrease")
+        func pendingCountCountsPinnedTerminalSession() {
+            let windowManager = makeWindowManager()
+
+            // Two windows in one tmux session, no agent anywhere.
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%7", target: "scratch:0.0", sessionName: "scratch",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+                PaneInfo(
+                    paneId: "%8", target: "scratch:1.0", sessionName: "scratch",
+                    windowIndex: 1, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            #expect(windowManager.pendingSessionCount == 0)
+
+            // Pin the whole session to Waiting: one bell row, one count —
+            // even though the override lands on both panes.
+            windowManager.setCLISessionState(.waiting, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 1)
+            // Advance the high-water mark (increase -> no decrease reported).
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // Unpin: count drops and the drop is reported for the iOS badge push.
+            windowManager.setCLISessionState(nil, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 0)
+            #expect(windowManager.pendingCountDecrease() == 0)
+        }
+
+        @Test("pruning a pinned terminal session fires onPaneStatesPruned and reports the badge decrease")
+        func pruneFiresBadgeDecrease() async {
+            let windowManager = makeWindowManager()
+            windowManager.updatePaneStates(from: [
+                PaneInfo(
+                    paneId: "%7", target: "scratch:0.0", sessionName: "scratch",
+                    windowIndex: 0, paneIndex: 0, command: "zsh", currentPath: "/tmp",
+                    width: 80, height: 24, isActive: true
+                ),
+            ])
+            windowManager.setCLISessionState(.waiting, forSession: "scratch")
+            #expect(windowManager.pendingSessionCount == 1)
+            // Advance the high-water mark to 1 (an increase reports nothing).
+            #expect(windowManager.pendingCountDecrease() == nil)
+
+            // `tmux kill-session` has no SessionEnd hook for a terminal-only
+            // session; the next scan pruning its pane is the only end signal,
+            // so it must fire the pruned callback the coordinator wires to
+            // `broadcastBadgeDecreaseIfNeeded` (issue #702).
+            await withCheckedContinuation { continuation in
+                windowManager.onPaneStatesPruned = { continuation.resume() }
+                windowManager.updatePaneStates(from: [])
+            }
+            #expect(windowManager.pendingSessionCount == 0)
+            #expect(windowManager.pendingCountDecrease() == 0)
+        }
+
         // MARK: - Open form rides the session state
 
         @Test("an awaiting state exposes the open form on the session; a working state clears it")
