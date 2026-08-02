@@ -14,6 +14,13 @@ struct StopResponseView: View {
     @State private var inputText = ""
     @FocusState private var isTextFieldFocused: Bool
 
+    /// Max height for the expanded, scrollable summary. Caps how much of the
+    /// screen a long message can take so the reply field and the terminal below
+    /// stay visible — the message scrolls within this height instead of being
+    /// cropped or pushing everything else off-screen (issue #707). Scales with
+    /// Dynamic Type so larger text sizes still show a few lines before scrolling.
+    @ScaledMetric(relativeTo: .subheadline) private var expandedSummaryMaxHeight: CGFloat = 240
+
     private var placeholder: String {
         request.placeholder ?? "Reply to the agent..."
     }
@@ -55,12 +62,6 @@ struct StopResponseView: View {
             .disabled(state.isSending || !isConnected)
             .accessibilityLabel(placeholder)
     }
-
-    /// Max height for the expanded, scrollable summary. Caps how much of the
-    /// screen a long message can take so the reply field and the terminal below
-    /// stay visible — the message scrolls within this height instead of being
-    /// cropped or pushing everything else off-screen (issue #707).
-    private static let expandedSummaryMaxHeight: CGFloat = 240
 
     private func summarySection(message: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -110,7 +111,7 @@ struct StopResponseView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("summary-text")
             }
-            .frame(maxHeight: Self.expandedSummaryMaxHeight)
+            .frame(maxHeight: expandedSummaryMaxHeight)
         } else {
             Text(message)
                 .font(.subheadline)

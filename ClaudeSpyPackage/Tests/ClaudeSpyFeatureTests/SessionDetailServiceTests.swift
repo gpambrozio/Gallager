@@ -259,6 +259,20 @@ struct SessionDetailServiceTests {
         #expect(reply.summary == nil)
     }
 
+    @Test("A message-less stop clears the cached summary from the prior turn")
+    func messagelessStopClearsCachedSummary() {
+        let sessionStore = SessionStore()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: "Old."))
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == "Old.")
+
+        // A second stop lands with no message and no intervening `.working`
+        // (the translators can emit a nil summary). The prior turn's summary
+        // must not be misattributed to this stop.
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: nil))
+        #expect(sessionStore.lastTurnSummary(for: "%1", hostId: "test-pair") == nil)
+    }
+
     @Test("A fresh reconnect falls back to the recap summary when the cache is empty")
     func reconnectFallsBackToRecapSummary() {
         let sessionStore = SessionStore()

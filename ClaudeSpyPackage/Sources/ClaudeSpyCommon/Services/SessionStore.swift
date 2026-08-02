@@ -289,6 +289,10 @@ final public class SessionStore {
         case let .doneWorking(summary):
             if let summary, !summary.isEmpty {
                 lastTurnSummaryByPane[key] = summary
+            } else {
+                // A message-less stop is still a new turn boundary: drop any
+                // prior turn's summary so it isn't misattributed to this stop.
+                lastTurnSummaryByPane.removeValue(forKey: key)
             }
         case .working:
             lastTurnSummaryByPane.removeValue(forKey: key)
