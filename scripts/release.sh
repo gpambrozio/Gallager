@@ -896,8 +896,8 @@ main() {
 
     # Publish a GitHub release on the freshly-pushed tag. Non-fatal: the
     # release itself already shipped (DMG + appcast uploaded), so a GitHub
-    # hiccup only costs the public release notes. The DMG is attached because
-    # the appcast keeps only the last 2 versions — GitHub is the archive.
+    # hiccup only costs the public release notes. The DMG is attached so it's
+    # archived even if the appcast is ever pruned in the future.
     log_info "Creating GitHub release v$version..."
     if gh release create "v$version" "$dmg_path" \
         --title "v$version" \
