@@ -14,6 +14,13 @@ struct StopResponseView: View {
     @State private var inputText = ""
     @FocusState private var isTextFieldFocused: Bool
 
+    /// Max height for the expanded, scrollable summary. Caps how much of the
+    /// screen a long message can take so the reply field and the terminal below
+    /// stay visible — the message scrolls within this height instead of being
+    /// cropped or pushing everything else off-screen (issue #707). Scales with
+    /// Dynamic Type so larger text sizes still show a few lines before scrolling.
+    @ScaledMetric(relativeTo: .subheadline) private var expandedSummaryMaxHeight: CGFloat = 240
+
     private var placeholder: String {
         request.placeholder ?? "Reply to the agent..."
     }
@@ -86,10 +93,30 @@ struct StopResponseView: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(state.isSummaryExpanded ? "Collapse summary" : "Expand summary")
 
+            summaryText(message)
+        }
+    }
+
+    /// The summary body. Collapsed, it previews the first two lines; expanded, it
+    /// scrolls within a capped height so a long message stays fully readable
+    /// rather than getting cropped (issue #707). Font is bumped from `.caption`
+    /// to `.subheadline` for legibility in both states.
+    @ViewBuilder
+    private func summaryText(_ message: String) -> some View {
+        if state.isSummaryExpanded {
+            ScrollView {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("summary-text")
+            }
+            .frame(maxHeight: expandedSummaryMaxHeight)
+        } else {
             Text(message)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(state.isSummaryExpanded ? nil : 2)
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("summary-text")
         }
@@ -134,6 +161,39 @@ struct StopResponseView: View {
         pluginID: "claude-code",
         requestID: "test:stop"
     )
+
+    return NavigationStack {
+        List {
+            Section("Response") {
+                StopResponseView(
+                    request: request,
+                    isConnected: true,
+                    submit: { _ in },
+                    state: state
+                )
+            }
+        }
+    }
+}
+
+// A long summary, pre-expanded, to exercise the capped scrollable region
+// (issue #707) — the text should scroll within the frame rather than run off.
+#Preview("Stop with long summary (expanded)") {
+    let request = ReplyAfterStopRequest(
+        title: "Claude is waiting",
+        summary: String(
+            repeating: "I've completed the refactoring of the authentication module: updated the "
+                + "JWT validation logic, added refresh-token support, and migrated the session "
+                + "store to async/await. All existing tests were updated and pass. ",
+            count: 4
+        )
+    )
+    let state = ResponseState(
+        request: .replyAfterStop(request),
+        pluginID: "claude-code",
+        requestID: "test:stop-long"
+    )
+    state.isSummaryExpanded = true
 
     return NavigationStack {
         List {

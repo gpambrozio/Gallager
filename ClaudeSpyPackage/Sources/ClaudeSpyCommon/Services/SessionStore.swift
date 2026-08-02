@@ -59,6 +59,16 @@ final public class SessionStore {
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
+    /// The agent's last-turn summary text, cached per pane so it outlives the
+    /// transient `AgentState.doneWorking(summary:)` that carries it. Viewing a
+    /// finished session flips its state to `.idle` (`markHandled`) and navigating
+    /// away tears down the `SessionDetailService` holding the in-flight copy — so
+    /// without this cache the reply-after-stop box comes back empty on re-entry
+    /// (issue #707). Lifecycle mirrors `PaneState.recap`: stamped when a turn
+    /// finishes with a message, cleared when a new turn starts (`working`) or the
+    /// session ends.
+    private var lastTurnSummaryByPane: [PaneKey: String] = [:]
+
     // MARK: - Computed Properties (All Hosts Combined)
 
     /// All panes combined from all hosts
@@ -195,6 +205,10 @@ final public class SessionStore {
         } else {
             paneStates[key] = PaneState(paneId: paneId, agentSession: session)
         }
+
+        // Keep the durable last-turn summary (issue #707) in step with the state:
+        // a finished turn stamps its message; a new turn clears it.
+        updateLastTurnSummary(for: key, from: status.state)
     }
 
     /// Handle a full session state update from a host
@@ -214,6 +228,22 @@ final public class SessionStore {
         }
 
         paneStates = newPaneStates
+
+        // Keep the last-turn summary cache (issue #707) aligned with the snapshot:
+        // refresh it from each pane's state, and drop panes that ended (no agent
+        // session) or vanished so a reused pane never inherits a stale summary.
+        for (paneId, paneState) in state.paneStates {
+            let key = PaneKey(pairId: hostId, paneId: paneId)
+            if let session = paneState.agentSession {
+                updateLastTurnSummary(for: key, from: session.state)
+            } else {
+                lastTurnSummaryByPane.removeValue(forKey: key)
+            }
+        }
+        for key in lastTurnSummaryByPane.keys.filter({ $0.pairId == hostId && paneStates[$0] == nil }) {
+            lastTurnSummaryByPane.removeValue(forKey: key)
+        }
+
         agentProjectsByHost[hostId] = state.agentProjects ?? []
         homeDirectoryByHost[hostId] = state.homeDirectory
         if let usageOverview = state.usageOverview {
@@ -238,6 +268,7 @@ final public class SessionStore {
     /// Clear all sessions and panes for a specific host
     public func clearSessions(for hostId: String) {
         paneStates = paneStates.filter { $0.key.pairId != hostId }
+        lastTurnSummaryByPane = lastTurnSummaryByPane.filter { $0.key.pairId != hostId }
 
         // Clear stored projects
         agentProjectsByHost.removeValue(forKey: hostId)
@@ -257,6 +288,39 @@ final public class SessionStore {
     /// Get the pane state by host and pane ID
     public func paneState(for paneId: String, hostId: String) -> PaneState? {
         paneStates[PaneKey(pairId: hostId, paneId: paneId)]
+    }
+
+    /// The cached last-turn summary for a pane (issue #707), if the agent finished
+    /// a turn with a message and nothing new has started since. Unlike the live
+    /// `AgentState.doneWorking(summary:)`, this survives the `doneWorking → idle`
+    /// flip that viewing triggers, so the reply-after-stop box can still show the
+    /// agent's last message after the user navigates away and back.
+    public func lastTurnSummary(for paneId: String, hostId: String) -> String? {
+        lastTurnSummaryByPane[PaneKey(pairId: hostId, paneId: paneId)]
+    }
+
+    /// Tracks the last-turn summary cache against an incoming agent state: a
+    /// finished turn (`doneWorking`) stamps its message; a new turn (`working`)
+    /// clears it. `idle` and the `awaiting*` states leave it untouched so the
+    /// summary survives the `doneWorking → idle` flip that viewing triggers.
+    private func updateLastTurnSummary(for key: PaneKey, from state: AgentState) {
+        switch state {
+        case let .doneWorking(summary):
+            if let summary, !summary.isEmpty {
+                lastTurnSummaryByPane[key] = summary
+            } else {
+                // A message-less stop is still a new turn boundary: drop any
+                // prior turn's summary so it isn't misattributed to this stop.
+                lastTurnSummaryByPane.removeValue(forKey: key)
+            }
+        case .working:
+            lastTurnSummaryByPane.removeValue(forKey: key)
+        case .idle,
+             .awaitingPlanApproval,
+             .awaitingPermission,
+             .awaitingReplies:
+            break
+        }
     }
 
     /// Check if a pane is currently active (has an agent session)
