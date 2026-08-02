@@ -38,18 +38,28 @@ public struct SessionStateMessage: Codable, Sendable {
     /// snapshot, like `agentProjects`).
     public let usageOverview: UsageOverview?
 
+    /// The host's sidebar sort mode (`SidebarSortMode.rawValue`), so viewers
+    /// without a sort preference of their own (iOS) can order the host's
+    /// sessions exactly like the host does. Optional string rather than the
+    /// enum so an unknown future mode from a newer host decodes fine and the
+    /// viewer just falls back to its default (graceful skew both ways, like
+    /// `usageOverview`).
+    public let sidebarSortMode: String?
+
     public init(
         pairId: String,
         paneStates: [String: PaneState],
         agentProjects: [AgentProject]? = nil,
         homeDirectory: String = "",
-        usageOverview: UsageOverview? = nil
+        usageOverview: UsageOverview? = nil,
+        sidebarSortMode: String? = nil
     ) {
         self.pairId = pairId
         self.paneStates = paneStates
         self.agentProjects = agentProjects
         self.homeDirectory = homeDirectory
         self.usageOverview = usageOverview
+        self.sidebarSortMode = sidebarSortMode
     }
 
     /// Returns a copy with the `pairId` replaced. Centralises the per-connection
@@ -62,7 +72,8 @@ public struct SessionStateMessage: Codable, Sendable {
             paneStates: paneStates,
             agentProjects: agentProjects,
             homeDirectory: homeDirectory,
-            usageOverview: usageOverview
+            usageOverview: usageOverview,
+            sidebarSortMode: sidebarSortMode
         )
     }
 }
@@ -211,6 +222,16 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// Window identifier combining session name and window index (e.g., "mysession:0")
     public var windowId: String {
         "\(sessionName):\(windowIndex)"
+    }
+
+    /// The state bucket currently shown for this pane: the manual "Set State"
+    /// override wins, else the agent-derived state — matching `SessionStatusBadge`
+    /// and `TmuxSession.displayedState`. `nil` when the pane shows the plain
+    /// terminal glyph (no override, no agent session). The menu bar dropdown and
+    /// its badge count treat `== .waiting` as the needs-attention/pending bucket,
+    /// so a manual override is honored there too (issue #702).
+    public var displayedState: CLISessionState? {
+        CLISessionState.displayed(override: cliSessionState, agentState: agentSession?.state)
     }
 
     public init(

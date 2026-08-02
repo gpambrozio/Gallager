@@ -50,6 +50,12 @@ final public class SessionStore {
     /// (older peers), so the overview surface degrades gracefully.
     public private(set) var usageOverviewByHost: [String: UsageOverview] = [:]
 
+    /// Each host's sidebar sort mode, from `SessionStateMessage.sidebarSortMode`.
+    /// The iOS session list orders a host's sessions with this so it matches the
+    /// host's own sidebar. Absent for older hosts (or an unknown future mode) —
+    /// callers fall back to the default mode.
+    public private(set) var sidebarSortModeByHost: [String: SidebarSortMode] = [:]
+
     /// Hosts that have sent at least one full state update
     private var hostsWithReceivedState: Set<String> = []
 
@@ -159,6 +165,11 @@ final public class SessionStore {
         usageOverviewByHost[hostId]
     }
 
+    /// The sidebar sort mode a host pushed with its session state, if any.
+    public func sidebarSortMode(for hostId: String) -> SidebarSortMode? {
+        sidebarSortModeByHost[hostId]
+    }
+
     /// Check if a host has any sessions or panes
     public func hasSessions(for hostId: String) -> Bool {
         paneStates.keys.contains { $0.pairId == hostId }
@@ -240,6 +251,13 @@ final public class SessionStore {
         } else {
             usageOverviewByHost.removeValue(forKey: hostId)
         }
+        // An unrecognized raw value (newer host with a future mode) parses to
+        // nil and clears the entry, so the viewer falls back to its default.
+        if let sortMode = state.sidebarSortMode.flatMap(SidebarSortMode.init(rawValue:)) {
+            sidebarSortModeByHost[hostId] = sortMode
+        } else {
+            sidebarSortModeByHost.removeValue(forKey: hostId)
+        }
         hostsWithReceivedState.insert(hostId)
 
         // Open response forms ride `AgentSession.state` inside `paneStates`, so a
@@ -256,6 +274,7 @@ final public class SessionStore {
         agentProjectsByHost.removeValue(forKey: hostId)
         homeDirectoryByHost.removeValue(forKey: hostId)
         usageOverviewByHost.removeValue(forKey: hostId)
+        sidebarSortModeByHost.removeValue(forKey: hostId)
         hostsWithReceivedState.remove(hostId)
 
         logger.info("Cleared all sessions for host: \(hostId)")

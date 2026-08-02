@@ -432,11 +432,13 @@ public actor MacOSDriver {
 
         // Step 2: Poll for the parent menu item, then press it to expand the
         // submenu. Pressing a SwiftUI `Menu`'s parent label opens the submenu.
+        // Menu-scoped press: window content displaying the same text (e.g. a
+        // sidebar status label matching a state menu item) must not swallow it.
         let parentDeadline = Date().addingTimeInterval(3)
         var parentExpanded = false
         while Date() < parentDeadline {
             try await Task.sleep(for: .milliseconds(300))
-            if MacOSAccessibility.press(appPID: pid, titled: parentMenuItem) {
+            if MacOSAccessibility.pressMenuItem(appPID: pid, titled: parentMenuItem) {
                 parentExpanded = true
                 break
             }
@@ -451,7 +453,7 @@ public actor MacOSDriver {
         let submenuDeadline = Date().addingTimeInterval(3)
         while Date() < submenuDeadline {
             try await Task.sleep(for: .milliseconds(300))
-            if MacOSAccessibility.press(appPID: pid, titled: submenuItem) {
+            if MacOSAccessibility.pressMenuItem(appPID: pid, titled: submenuItem) {
                 return
             }
         }

@@ -5,6 +5,7 @@ import SwiftUI
 /// Preferences tab for customizing which fields appear in sidebar session rows and their order.
 struct SidebarLayoutSettingsView: View {
     @Environment(AppSettings.self) private var settings
+    @Environment(AppCoordinator.self) private var coordinator
 
     @State private var selectedSessionType: SessionType = .claude
 
@@ -78,6 +79,13 @@ struct SidebarLayoutSettingsView: View {
                 }
             }
             .padding()
+        }
+        .onChange(of: settings.sidebarSortMode) {
+            // The sort mode rides SessionStateMessage so iOS viewers order
+            // sessions like the host — push so a change lands immediately.
+            Task {
+                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+            }
         }
     }
 

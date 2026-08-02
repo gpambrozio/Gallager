@@ -30,14 +30,13 @@ struct RemoteHostSidebarSection: View {
     }
 
     private var sortedSessions: [TmuxSession] {
-        settings.sidebarSortMode.sorted(tmuxSessions) { session in
-            SessionSortData.forRemoteSession(
-                session,
-                sidebarFields: settings.sidebarFields,
-                sidebarTerminalFields: settings.sidebarTerminalFields,
-                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
-            )
-        }
+        SessionSortData.sortedRemoteSessions(
+            tmuxSessions,
+            mode: settings.sidebarSortMode,
+            sidebarFields: settings.sidebarFields,
+            sidebarTerminalFields: settings.sidebarTerminalFields,
+            homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+        )
     }
 
     var body: some View {

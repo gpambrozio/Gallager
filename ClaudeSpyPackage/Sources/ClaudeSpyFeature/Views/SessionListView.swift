@@ -253,14 +253,21 @@
             !sessions.isEmpty
         }
 
-        /// Sessions that contain at least one Claude session
-        private var claudeSessions: [TmuxSession] {
-            sessions.filter(\.hasClaude)
-        }
-
-        /// Sessions without any Claude sessions (plain terminals)
-        private var terminalSessions: [TmuxSession] {
-            sessions.filter { !$0.hasClaude }
+        /// Sessions ordered like the HOST's own sidebar: the host pushes its
+        /// `sidebarSortMode` with every session state, and the shared
+        /// `SessionSortData.sortedRemoteSessions` applies it here — so pinning
+        /// a state (agent or terminal session) re-sorts this list exactly like
+        /// the host's. Older hosts that don't push a mode fall back to the
+        /// default status-priority sort; label-driven modes use the default
+        /// sidebar fields (iOS has no field preference).
+        private var sortedSessions: [TmuxSession] {
+            SessionSortData.sortedRemoteSessions(
+                sessions,
+                mode: sessionStore.sidebarSortMode(for: host.id) ?? .statusPriorityIdleFirst,
+                sidebarFields: SidebarField.defaultFields,
+                sidebarTerminalFields: SidebarField.defaultTerminalFields,
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+            )
         }
 
         var body: some View {
@@ -284,13 +291,9 @@
                         UsageOverviewView(overview: overview)
                     }
 
-                    // Claude sessions
-                    ForEach(claudeSessions) { session in
-                        sessionRow(session)
-                    }
-
-                    // Plain terminal sessions
-                    ForEach(terminalSessions) { session in
+                    // All sessions — agent and terminal-only interleaved — in
+                    // the host's own sidebar order.
+                    ForEach(sortedSessions) { session in
                         sessionRow(session)
                     }
                 } else {
