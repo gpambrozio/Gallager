@@ -550,6 +550,90 @@ struct CodexGuardianPostureTests {
         }
     }
 
+    // MARK: - turn_context ground truth (codex ≥ 0.146, issue #717)
+
+    /// Writes a realistic rollout at `path` whose latest `turn_context`
+    /// carries the given reviewer (the codex ≥ 0.146 shape).
+    private func writeRollout(at path: String, reviewer: String) throws {
+        let url = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        let lines = [
+            #"{"timestamp": "2026-07-31T23:09:49.000Z", "type": "session_meta", "payload": {"id": "s-1", "cwd": "/Users/test/MyProject"}}"#,
+            """
+            {"timestamp": "2026-08-03T22:25:06.671Z", "type": "turn_context", "payload": {"turn_id": "t-1", "cwd": "/Users/test/MyProject", "approval_policy": "on-request", "approvals_reviewer": "\(reviewer)", "sandbox_policy": {"type": "workspace-write", "network_access": false}}}
+            """,
+        ]
+        try Data(lines.joined(separator: "\n").utf8).write(to: url)
+    }
+
+    @Test("resumed session (no SessionStart, config newer than rollout) suppresses via turn_context")
+    func resumedSessionSuppressesViaTurnContext() async throws {
+        try await withCore(configTOML: autoReviewTOML) { core, _, codexHome in
+            // The live-repro shape: a resumed multi-day thread fires no
+            // SessionStart hook, and config.toml has been written since the
+            // rollout was born — the timestamp reconstruction is ambiguous.
+            // The rollout's own turn_context says auto_review, which IS the
+            // session's effective posture → suppress.
+            let rollout = transcript(in: codexHome)
+            try writeRollout(at: rollout, reviewer: "auto_review")
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: 600)],
+                ofItemAtPath: codexHome.appendingPathComponent("config.toml").path
+            )
+
+            let event = try #require(
+                await core.handleIngress(frame(permissionJSON(transcriptPath: rollout)))
+            )
+            #expect(event.state == .working)
+            #expect(event.state?.openForm == nil)
+            #expect(event.notification == nil)
+        }
+    }
+
+    @Test("turn_context saying user wins over an agreeing auto_review file+snapshot")
+    func turnContextUserOverridesAgreeingFile() async throws {
+        try await withCore(configTOML: autoReviewTOML) { core, _, codexHome in
+            // File and snapshot agree on auto_review (the old design would
+            // suppress), but the session's own turn_context says its approvals
+            // route to the user — a real TUI prompt exists → must notify.
+            // (Reachable when this session toggled guardian off and another
+            // session later toggled the file back on.)
+            let rollout = transcript(in: codexHome)
+            _ = await core.handleIngress(frame(sessionStartJSON(transcriptPath: rollout)))
+            try writeRollout(at: rollout, reviewer: "user")
+
+            let event = try #require(
+                await core.handleIngress(frame(permissionJSON(transcriptPath: rollout)))
+            )
+            #expect(event.state?.openForm != nil)
+            #expect(event.notification != nil)
+        }
+    }
+
+    @Test("turn_context makes a mid-session guardian toggle attributable")
+    func turnContextMakesMidSessionToggleAttributable() async throws {
+        try await withCore(configTOML: userTOML) { core, _, codexHome in
+            // Session starts under `user`, then toggles "Approve for me": the
+            // file flips to auto_review while the snapshot stays `user` — the
+            // old design could only fail safe to notify-noise. The rollout's
+            // turn_context attributes the toggle to THIS session → suppress.
+            let rollout = transcript(in: codexHome)
+            _ = await core.handleIngress(frame(sessionStartJSON(transcriptPath: rollout)))
+            try Data(autoReviewTOML.utf8).write(
+                to: codexHome.appendingPathComponent("config.toml")
+            )
+            try writeRollout(at: rollout, reviewer: "auto_review")
+
+            let event = try #require(
+                await core.handleIngress(frame(permissionJSON(transcriptPath: rollout)))
+            )
+            #expect(event.state == .working)
+            #expect(event.notification == nil)
+        }
+    }
+
     // MARK: - Snapshot lifecycle
 
     @Test("the pane poll's orphan reconcile must not wipe a live session's snapshot")

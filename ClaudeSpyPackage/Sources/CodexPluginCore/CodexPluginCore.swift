@@ -25,6 +25,7 @@ public actor CodexPluginCore: PluginCore {
     private let scanner = CodexScanner()
     private let correlation: CodexSessionCorrelation
     private let configReader = CodexConfigReader()
+    private let postureReader = CodexRolloutPostureReader()
 
     @Dependency(ProcessRunner.self) private var processRunner
 
@@ -240,34 +241,41 @@ public actor CodexPluginCore: PluginCore {
     /// The effective reviewer posture governing this event's session.
     ///
     /// The hook's `transcript_path` (the rollout file, which lives under
-    /// `<CODEX_HOME>/sessions/`) attributes the session to a known root, and
-    /// that root's `config.toml` is read **fresh on every permission request**
-    /// — permission requests are rare and human-paced, the file is tiny.
+    /// `<CODEX_HOME>/sessions/`) attributes the session to a known root.
+    /// Suppression requires positive attribution: an event with no transcript
+    /// path, or one under a CODEX_HOME we don't track, resolves to `.user`.
+    /// Both sides of the prefix match are symlink-resolved so `/var/…` vs
+    /// `/private/var/…` spellings (or a symlinked CODEX_HOME) still match.
     ///
-    /// The fresh value alone is NOT the session's posture, though. Codex loads
-    /// `config.toml` once at session start; a mid-session TUI "Approve for me"
-    /// toggle overrides only the toggling session's runtime context while
-    /// persisting the new value globally — other live sessions keep their
-    /// start-time posture (verified against codex-rs `event_dispatch.rs`
-    /// `UpdateApprovalsReviewer`; nothing per-session is observable from hooks
-    /// or on disk). So suppression requires the fresh value AND the session's
-    /// start snapshot to agree on `auto_review`. When they disagree, SOME
+    /// **Primary source (codex ≥ 0.146, issue #717):** the rollout's latest
+    /// `turn_context` record, which persists the session's own
+    /// `approvals_reviewer` + `approval_policy` — exact per-session ground
+    /// truth. It survives resumes (which fire NO SessionStart hook, so the
+    /// snapshot path below can only guess from timestamps — and for a
+    /// multi-day thread any config write since the rollout's birth made that
+    /// guess permanently "ambiguous" → notify-noise on every
+    /// guardian-approved request), and it attributes mid-session "Approve
+    /// for me" toggles to the toggling session.
+    ///
+    /// **Fallback (older rollouts, no turn_context signal):** the root's
+    /// `config.toml` read fresh (rare, human-paced, tiny file), gated by the
+    /// session's start snapshot. Codex loads `config.toml` once at session
+    /// start; a mid-session TUI toggle overrides only the toggling session's
+    /// runtime context while persisting globally — other live sessions keep
+    /// their start-time posture. So suppression requires the fresh value AND
+    /// the snapshot to agree on `auto_review`; disagreement means SOME
     /// session toggled and we cannot attribute which → fail safe to `.user`
-    /// (notify): a still-`user` session can never have a real prompt eaten,
-    /// at the cost of notify-noise for still-guardian sessions until the file
-    /// returns to their snapshot value (or they restart).
-    ///
-    /// Suppression also requires positive attribution: an event with no
-    /// transcript path, or one under a CODEX_HOME we don't track, resolves to
-    /// `.user`. Both sides of the prefix match are symlink-resolved so
-    /// `/var/…` vs `/private/var/…` spellings (or a symlinked CODEX_HOME)
-    /// still match.
+    /// (notify): a still-`user` session can never have a real prompt eaten.
     private func approvalsReviewer(for action: HookAction) async -> CodexApprovalsReviewer {
         guard
             case let .permissionRequest(body) = action,
             let transcript = body.transcriptPath,
             let root = codexHomeRoot(forTranscriptPath: transcript)
         else { return .user }
+
+        if let posture = postureReader.posture(transcriptPath: transcript) {
+            return posture
+        }
 
         let fresh = configReader.approvalsReviewer(codexHome: root)
         let snapshot = reviewerSnapshot(sessionID: body.sessionId, root: root, transcriptPath: transcript)
