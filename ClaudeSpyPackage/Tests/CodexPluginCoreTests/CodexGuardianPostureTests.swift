@@ -201,6 +201,43 @@ struct CodexGuardianPostureTests {
         }
     }
 
+    @Test("guardian posture: an MCP approval with codex's real raw-args tool_input is silent")
+    func guardianSuppressesRealShapeMCP() async throws {
+        try await withCore(configTOML: autoReviewTOML) { core, _, codexHome in
+            _ = await core.handleIngress(
+                frame(sessionStartJSON(transcriptPath: transcript(in: codexHome)))
+            )
+            // codex sends the MCP tool's RAW arguments as tool_input (no
+            // {server, tool, input} wrapper). This frame used to fail decode
+            // and drop wholesale (issue #717).
+            let mcp = permissionJSON(
+                transcriptPath: transcript(in: codexHome),
+                toolName: "mcp__linear__create_issue",
+                toolInput: #"{ "title": "Fix the bug", "team": "iOS" }"#
+            )
+            let event = try #require(await core.handleIngress(frame(mcp)))
+            #expect(event.state == .working)
+            #expect(event.notification == nil)
+        }
+    }
+
+    @Test("user posture: an MCP approval with raw-args tool_input notifies and forms")
+    func userPostureRealShapeMCPNotifies() async throws {
+        try await withCore(configTOML: userTOML) { core, _, codexHome in
+            // Under `user` posture a real TUI prompt is waiting — the dropped
+            // frame meant NO notification and NO form (the eaten-prompt
+            // failure the guardian design fails closed to prevent).
+            let mcp = permissionJSON(
+                transcriptPath: transcript(in: codexHome),
+                toolName: "mcp__linear__create_issue",
+                toolInput: #"{ "title": "Fix the bug" }"#
+            )
+            let event = try #require(await core.handleIngress(frame(mcp)))
+            #expect(event.state?.openForm != nil)
+            #expect(event.notification != nil)
+        }
+    }
+
     // MARK: - Fail-closed tool identification
 
     @Test("a tool outside the guardian-reviewable vocabulary still notifies (fail closed)")

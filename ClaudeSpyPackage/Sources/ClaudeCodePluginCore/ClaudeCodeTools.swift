@@ -173,6 +173,24 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return nil
         }
 
+        do {
+            return try typedTool(from: container, toolName: toolName)
+        } catch {
+            // A surprising tool_input shape must degrade, never fail the
+            // whole hook frame: a dropped PermissionRequest is a real TUI
+            // prompt with no notification and no form (issue #717). Only
+            // rethrow when the input isn't even a dictionary.
+            guard let dictionary = try? container.decode([String: AnyCodable].self) else {
+                throw error
+            }
+            return .other(toolName ?? "Unknown", dictionary)
+        }
+    }
+
+    private static func typedTool(
+        from container: SingleValueDecodingContainer,
+        toolName: String?
+    ) throws -> ClaudeCodeTool {
         switch toolName {
         case "Read":
             return try .read(container.decode(ReadParameters.self))
@@ -218,7 +236,27 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .readMcpResource(container.decode(ReadMcpResourceParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
-                return try .mcp(container.decode(MCPToolParameters.self))
+                if let params = try? container.decode(MCPToolParameters.self) {
+                    return .mcp(params)
+                }
+                // Hook payloads (codex, Claude Code) carry the MCP tool's RAW
+                // arguments as tool_input — no {server, tool, input} wrapper.
+                // Server and tool are recoverable from the
+                // mcp__<server>__<tool> name itself.
+                let dictionary = try container.decode([String: AnyCodable].self)
+                let remainder = name.dropFirst("mcp__".count)
+                guard
+                    let separator = remainder.range(of: "__"),
+                    !remainder[..<separator.lowerBound].isEmpty,
+                    !remainder[separator.upperBound...].isEmpty
+                else {
+                    return .other(name, dictionary)
+                }
+                return .mcp(MCPToolParameters(
+                    server: String(remainder[..<separator.lowerBound]),
+                    tool: String(remainder[separator.upperBound...]),
+                    input: dictionary
+                ))
             }
             let dictionary = try container.decode([String: AnyCodable].self)
             return .other(toolName ?? "Unknown", dictionary)
