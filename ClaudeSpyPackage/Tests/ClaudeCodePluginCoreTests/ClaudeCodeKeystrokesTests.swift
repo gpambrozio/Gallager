@@ -300,12 +300,65 @@ struct ClaudeCodeKeystrokesTests {
             answers: [QuestionAnswer(questionID: "q0", selectedOptionIDs: ["q0-o0", "q0-o2"])]
         )
         // index 0: Enter; then down to index 2 (two downs) + Enter; then Right
-        // (no Other); then trailing pause + Enter (multi-select rule).
+        // (no Other); then a settle + trailing Enter (multi-select rule — the
+        // settle gives the Submit-tab transition time on a busy TUI, #710).
         #expect(keys == [
             .enter, .delay(200),
             .down, .delay(200), .down, .delay(200), .enter, .delay(200),
             .right, .delay(200),
-            .delay(200), .enter, .delay(200),
+            .delay(800), .enter, .delay(200),
+        ])
+    }
+
+    @Test("multi-question batch settles between questions and before submit")
+    func multiQuestionSettles() {
+        // The exact shape that lost typed text in issue #710's manual testing:
+        // question 1 answered by option, question 2 by free text. Committing
+        // an answer flips to the next tab, whose re-render can swallow keys
+        // arriving at the standard cadence on a busy TUI — the builder must
+        // give those transitions the longer settle delay.
+        let params = AskUserQuestionParameters(
+            questions: [
+                .init(
+                    question: "Pick a fruit",
+                    header: "Fruit",
+                    options: [
+                        .init(label: "Mango", description: ""),
+                        .init(label: "Apple", description: ""),
+                        .init(label: "Cherry", description: ""),
+                    ],
+                    multiSelect: false
+                ),
+                .init(
+                    question: "Pick a size",
+                    header: "Size",
+                    options: [
+                        .init(label: "Small", description: ""),
+                        .init(label: "Large", description: ""),
+                    ],
+                    multiSelect: false
+                ),
+            ],
+            answers: nil
+        )
+        let keys = ClaudeCodeKeystrokes.askUserQuestionKeys(
+            params: params,
+            answers: [
+                QuestionAnswer(questionID: "q0", selectedOptionIDs: ["q0-o1"]),
+                QuestionAnswer(questionID: "q1", selectedOptionIDs: [], freeText: "extra large"),
+            ]
+        )
+        #expect(keys == [
+            // Q1: down to Apple, Enter (auto-advances to the Size tab).
+            .down, .delay(200), .enter, .delay(200),
+            // Settle through the tab transition before Q2's keys.
+            .delay(800),
+            // Q2: down past the 2 options to "Other", type, Enter.
+            .down, .delay(200), .down, .delay(200),
+            .text("extra large"), .delay(200),
+            .enter, .delay(200),
+            // Settle again, then the trailing Enter submits the batch.
+            .delay(800), .enter, .delay(200),
         ])
     }
 

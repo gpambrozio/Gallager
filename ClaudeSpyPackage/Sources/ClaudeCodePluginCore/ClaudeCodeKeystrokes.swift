@@ -178,6 +178,13 @@ private struct KeystrokeBuilder {
         keys.append(.delay(delayMs))
     }
 
+    /// A longer, explicit delay for moments the TUI needs real time to
+    /// re-render (question-tab transitions), where the standard per-key
+    /// delay is not enough on a busy terminal.
+    mutating func settle(_ milliseconds: Int) {
+        keys.append(.delay(milliseconds))
+    }
+
     mutating func navigate(down count: Int) {
         guard count > 0 else { return }
         for _ in 0..<count {
@@ -197,20 +204,36 @@ enum AskUserQuestionKeystrokes {
     /// Default per-keystroke delay in milliseconds.
     static let defaultDelayMs = 200
 
+    /// Extra settle inserted before a question's keys when an earlier answer
+    /// was just committed, and before the final submit Enter. Committing an
+    /// answer flips the prompt to the next question tab, and that re-render
+    /// can swallow keys on a busy TUI (long transcript): issue #710's manual
+    /// testing showed the standard 200 ms cadence losing the follow-up keys
+    /// non-deterministically on a heavy session while a fresh one accepted
+    /// the exact same sequence — so this errs generous.
+    static let interQuestionSettleMs = 800
+
     static func build(
         for params: AskUserQuestionParameters,
         answers: [Int: AskUserQuestionAnswer],
-        delayMs: Int = defaultDelayMs
+        delayMs: Int = defaultDelayMs,
+        settleMs: Int = interQuestionSettleMs
     ) -> [TmuxKey] {
         var b = KeystrokeBuilder(delayMs: delayMs)
+        var committedEarlierAnswer = false
         for (index, question) in params.questions.enumerated() {
             guard let answer = answers[index], !answer.isEmpty else { continue }
+            if committedEarlierAnswer {
+                b.settle(settleMs)
+            }
             appendAnswer(answer, for: question, into: &b)
+            committedEarlierAnswer = true
         }
         // A single single-select question is self-submitting; a multi-question
-        // batch or any multi-select question needs an explicit trailing Enter.
+        // batch or any multi-select question needs an explicit trailing Enter
+        // (which lands on the Submit tab — give that transition settle time too).
         if params.questions.count > 1 || params.questions.contains(where: \.multiSelect) {
-            b.pause()
+            b.settle(settleMs)
             b.append(.enter)
         }
         return b.keys
