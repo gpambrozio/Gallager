@@ -79,6 +79,9 @@ struct CodexRolloutPostureReader: Sendable {
     /// torn line (which then fails the JSON parse and is skipped), not fail
     /// the whole region.
     private func scan(_ data: Data, isCompleteFromStart: Bool) -> ScanResult {
+        // The lossy decode is the point: the failable initializer the rule
+        // prefers returns nil for the WHOLE region on one torn character.
+        // swiftlint:disable:next optional_data_string_conversion
         let text = String(decoding: data, as: UTF8.self)
         var lines = text.split(separator: "\n", omittingEmptySubsequences: true)[...]
         if !isCompleteFromStart {
