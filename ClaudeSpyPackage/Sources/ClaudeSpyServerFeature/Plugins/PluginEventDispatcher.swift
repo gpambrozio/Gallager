@@ -33,11 +33,15 @@
 
         /// A pre-baked notification to surface Mac-side and push to iOS.
         /// `paneID` is the tmux pane (falling back to the agent session id) so the
-        /// push can be associated with its session.
+        /// push can be associated with its session. `state` is the event's
+        /// (effective) state when it carried one — an `awaiting*` state lets the
+        /// push offer action buttons for the open form (issue #710); `nil` for
+        /// bare notifications.
         public typealias NotificationSink = @Sendable (
             _ pluginID: String,
             _ paneID: String,
-            _ notification: NotificationSpec
+            _ notification: NotificationSpec,
+            _ state: AgentState?
         ) async -> Void
 
         /// Silently approve an auto-approvable permission on a yolo pane: deliver
@@ -69,7 +73,7 @@
 
         public init(
             onState: @escaping StateSink = { _, _, _, _, _, _ in },
-            onNotification: @escaping NotificationSink = { _, _, _ in },
+            onNotification: @escaping NotificationSink = { _, _, _, _ in },
             onAutoApprove: @escaping AutoApproveSink = { _, _, _ in },
             onAppAction: @escaping AppActionSink = { _ in },
             isYoloModeEnabled: @escaping AutoApproveCheck = { _ in false }
@@ -111,11 +115,11 @@
                     event.permissionMode
                 )
                 if let notification = event.notification, !suppressNotification {
-                    await onNotification(event.pluginID, paneID, notification)
+                    await onNotification(event.pluginID, paneID, notification, effectiveState)
                 }
             } else if let notification = event.notification {
                 // No state opinion — a bare notification push (decoupled, spec §5).
-                await onNotification(event.pluginID, paneID, notification)
+                await onNotification(event.pluginID, paneID, notification, nil)
             }
 
             // App actions.

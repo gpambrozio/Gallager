@@ -22,6 +22,7 @@
             let sessionID: String
             let title: String
             let body: String
+            let state: AgentState?
         }
 
         struct AutoApprove: Equatable {
@@ -67,12 +68,13 @@
                     permissionMode: permissionMode
                 ))
             },
-            onNotification: { pluginID, sessionID, notification in
+            onNotification: { pluginID, sessionID, notification, state in
                 await recorder.recordNotification(.init(
                     pluginID: pluginID,
                     sessionID: sessionID,
                     title: notification.title,
-                    body: notification.body
+                    body: notification.body,
+                    state: state
                 ))
             },
             onAutoApprove: { pluginID, sessionID, requestID in
@@ -145,7 +147,7 @@
             let notifications = await recorder.notifications
             #expect(states.isEmpty)
             #expect(notifications == [
-                .init(pluginID: "echo", sessionID: "s1", title: "Done", body: "Build finished"),
+                .init(pluginID: "echo", sessionID: "s1", title: "Done", body: "Build finished", state: nil),
             ])
         }
 
@@ -171,6 +173,9 @@
             #expect(states.first?.state == state)
             #expect(states.first?.state.openForm?.requestID == "r1")
             #expect(notifications.count == 1)
+            // The notification sink receives the awaiting state so the push can
+            // offer action buttons for the open form (issue #710).
+            #expect(notifications.first?.state == state)
         }
 
         @Test("an auto-approvable permission under yolo auto-approves and stays working, suppressing the push")

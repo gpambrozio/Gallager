@@ -15,6 +15,12 @@
         ) -> Bool {
             // Set ourselves as the notification center delegate to handle notification taps
             UNUserNotificationCenter.current().delegate = self
+            // Register the static permission notification categories
+            // (Yes / Always / No, issue #710). Merging keeps dynamic question
+            // categories from still-delivered notifications functional.
+            Task { @MainActor in
+                await NotificationActionService.shared.registerBaseCategories()
+            }
             return true
         }
 
@@ -59,16 +65,24 @@
 
         // MARK: - UNUserNotificationCenterDelegate
 
-        /// Called when user taps on a notification (app was in background or terminated)
+        /// Called when the user taps a notification or one of its action
+        /// buttons (app possibly launched into the background for it). Action
+        /// taps are handled by `NotificationActionService` (answering the form
+        /// over the relay, issue #710) — the completion handler is deferred
+        /// until that round-trip finishes so iOS keeps the process alive.
+        /// Plain taps fall through to the existing deep-link path.
         public func userNotificationCenter(
             _: UNUserNotificationCenter,
             didReceive response: UNNotificationResponse,
             withCompletionHandler completionHandler: @escaping () -> Void
         ) {
             Task { @MainActor in
-                PushNotificationService.shared.handleNotificationResponse(response)
+                let handled = await NotificationActionService.shared.handle(response)
+                if !handled {
+                    PushNotificationService.shared.handleNotificationResponse(response)
+                }
+                completionHandler()
             }
-            completionHandler()
         }
 
         /// Called when notification arrives while app is in foreground

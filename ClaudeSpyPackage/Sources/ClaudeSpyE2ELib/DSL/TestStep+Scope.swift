@@ -37,7 +37,8 @@ public extension TestStep {
              .iosLogUI,
              .iosReadClipboard,
              .iosClearClipboard,
-             .iosSetAppVersion:
+             .iosSetAppVersion,
+             .iosNotificationAction:
             return .ios
         // macOS app (specific instance)
         case let .launchMacApp(instance, _, _, _):

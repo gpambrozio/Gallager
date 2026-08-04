@@ -26,13 +26,22 @@ public struct NotificationContent: Codable, Sendable, Equatable {
     /// When the event occurred
     public let timestamp: Date
 
+    /// Action-button context when the notification accompanies an open
+    /// permission / question form (issue #710). The NSE turns it into a
+    /// notification category and stashes it in `userInfo` so the app can
+    /// submit the answer straight from the action tap. Optional and absent
+    /// for plain notifications — older hosts never send it, older viewers
+    /// ignore it (additive, no version bump).
+    public let action: NotificationActionContext?
+
     public init(
         title: String,
         body: String,
         eventType: String,
         pairId: String,
         paneId: String? = nil,
-        timestamp: Date = Date()
+        timestamp: Date = Date(),
+        action: NotificationActionContext? = nil
     ) {
         self.title = title
         self.body = body
@@ -40,6 +49,27 @@ public struct NotificationContent: Codable, Sendable, Equatable {
         self.pairId = pairId
         self.paneId = paneId
         self.timestamp = timestamp
+        self.action = action
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title, body, eventType, pairId, paneId, timestamp, action
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.body = try container.decode(String.self, forKey: .body)
+        self.eventType = try container.decode(String.self, forKey: .eventType)
+        self.pairId = try container.decode(String.self, forKey: .pairId)
+        self.paneId = try container.decodeIfPresent(String.self, forKey: .paneId)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        // Lenient on purpose (cross-host version skew): a future host may add
+        // a `Form` case this build can't decode. A strict decode here would
+        // fail the WHOLE content — and the NSE's catch would show its scary
+        // "decryption failed / re-pair" notification. Degrade to a plain
+        // notification instead.
+        self.action = (try? container.decodeIfPresent(NotificationActionContext.self, forKey: .action)) ?? nil
     }
 }
 

@@ -621,9 +621,15 @@
                     // (handlePluginState also forwards agent_session_status to iOS;
                     // the open form rides AgentSession.state so it's in the snapshot.)
                 },
-                onNotification: { [weak self] _, paneID, notification in
-                    await self?.handlePluginNotification(notification, paneId: paneID)
-                    // (handlePluginNotification also forwards the push to iOS.)
+                onNotification: { [weak self] pluginID, paneID, notification, state in
+                    await self?.handlePluginNotification(
+                        notification,
+                        paneId: paneID,
+                        pluginID: pluginID,
+                        formState: state
+                    )
+                    // (handlePluginNotification also forwards the push to iOS,
+                    // baking the action-button context when a form is open.)
                 },
                 onAutoApprove: { [weak self] pluginID, sessionID, requestID in
                     // Yolo auto-approve (spec §6): the dispatcher already decided the
@@ -1590,7 +1596,28 @@
         /// NotificationSink → show a Mac desktop notification using the
         /// core-baked title/body, and forward it to paired iOS viewers via the
         /// encrypted-push path (falls back to APNs when a viewer is offline).
-        private func handlePluginNotification(_ notification: NotificationSpec, paneId: String?) async {
+        /// When `formState` carries an open permission/question form, an
+        /// action-button context is baked into the push so iOS can answer
+        /// straight from the notification (issue #710) — but only for
+        /// sessions bound to a tracked pane: the submission guard routes
+        /// answers via `paneStates[sessionId]`, so a pane-less session's
+        /// buttons could never deliver (every answer would drop as stale).
+        private func handlePluginNotification(
+            _ notification: NotificationSpec,
+            paneId: String?,
+            pluginID: String? = nil,
+            formState: AgentState? = nil
+        ) async {
+            var action: NotificationActionContext?
+            if
+                let formState, let pluginID, let paneId,
+                windowManager.paneStates[paneId] != nil {
+                action = NotificationActionContext.make(
+                    state: formState,
+                    sessionId: paneId,
+                    pluginId: pluginID
+                )
+            }
             let macNotification = TerminalStreamMessage.TerminalNotification(
                 title: notification.title,
                 body: notification.body
@@ -1602,7 +1629,8 @@
             await connectedViewerManager?.sendCustomPushNotificationToAll(
                 title: notification.title,
                 body: notification.body,
-                paneId: paneId
+                paneId: paneId,
+                action: action
             )
         }
 
@@ -2877,8 +2905,28 @@
             // Plugin runtime ↔ iOS bridge (additive, in-process plugin path):
             // route an inbound plugin response submission to the owning core's
             // `deliverResponse`, and feed the enabled-plugin presentation set so
-            // each viewer receives it on connect.
+            // each viewer receives it on connect. Blocking answers (permission /
+            // question / plan) are gated on the pane's open form still matching
+            // the submitted request id — an actionable push notification can be
+            // answered long after the form was retracted, and a stale answer
+            // would inject keystrokes into whatever the pane shows now (#710).
             connectionManager.onAgentResponseSubmission = { [weak self] submission in
+                let openFormRequestID = self?.windowManager
+                    .paneStates[submission.sessionId]?.agentSession?.state.openForm?.requestID
+                guard AgentResponseSubmissionGuard.shouldDeliver(
+                    response: submission.response,
+                    openFormRequestID: openFormRequestID,
+                    submittedRequestID: submission.requestId
+                ) else {
+                    self?.logger.info(
+                        "Dropping stale agent response submission",
+                        metadata: [
+                            "requestId": "\(submission.requestId)",
+                            "openForm": "\(openFormRequestID ?? "none")",
+                        ]
+                    )
+                    return
+                }
                 await self?.pluginRegistry?.core(submission.pluginId)?.deliverResponse(
                     sessionID: submission.sessionId,
                     requestID: submission.requestId,

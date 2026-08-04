@@ -34,4 +34,31 @@ enum IOSAppHTTPClient {
         )
         return body == "ok"
     }
+
+    /// Simulate tapping an action button on the last actionable agent
+    /// notification the app received (issue #710). Returns whether the app
+    /// reported the action as handled.
+    @discardableResult
+    static func notificationAction(
+        actionIdentifier: String,
+        userText: String?,
+        reuseLast: Bool,
+        port: UInt16 = defaultPort
+    ) async throws -> Bool {
+        var components = URLComponents(string: "http://127.0.0.1:\(port)/notification-action")!
+        components.queryItems = [
+            URLQueryItem(name: "actionIdentifier", value: actionIdentifier),
+            URLQueryItem(name: "userText", value: userText ?? ""),
+            URLQueryItem(name: "reuseLast", value: reuseLast ? "true" : "false"),
+        ]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        // The app-side handler polls up to ~5s for the notification to arrive;
+        // give the request comfortable headroom over that.
+        request.timeoutInterval = 15
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let body = String(data: data, encoding: .utf8) ?? ""
+        logger.info("HTTP iOS notification-action \(actionIdentifier): \(body)")
+        return body == "ok"
+    }
 }

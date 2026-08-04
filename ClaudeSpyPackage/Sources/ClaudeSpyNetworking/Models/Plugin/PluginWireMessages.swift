@@ -100,18 +100,26 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
     public let body: String
     public let timestamp: Date
 
+    /// Action-button context when the notification accompanies an open
+    /// permission / question form (issue #710), mirroring
+    /// `NotificationContent.action` on the APNs path so the local-notification
+    /// fallback is equally actionable. Optional/additive for version skew.
+    public let action: NotificationActionContext?
+
     public init(
         pairId: String,
         sessionId: String?,
         title: String,
         body: String,
-        timestamp: Date
+        timestamp: Date,
+        action: NotificationActionContext? = nil
     ) {
         self.pairId = pairId
         self.sessionId = sessionId
         self.title = title
         self.body = body
         self.timestamp = timestamp
+        self.action = action
     }
 
     public func withPairId(_ pairId: String) -> AgentNotificationMessage {
@@ -120,7 +128,25 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
             sessionId: sessionId,
             title: title,
             body: body,
-            timestamp: timestamp
+            timestamp: timestamp,
+            action: action
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pairId, sessionId, title, body, timestamp, action
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pairId = try container.decode(String.self, forKey: .pairId)
+        self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.body = try container.decode(String.self, forKey: .body)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        // Lenient like `NotificationContent.action`: an undecodable context
+        // from a newer host degrades to a plain notification rather than
+        // dropping the whole message.
+        self.action = (try? container.decodeIfPresent(NotificationActionContext.self, forKey: .action)) ?? nil
     }
 }

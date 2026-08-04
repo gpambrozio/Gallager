@@ -130,6 +130,15 @@ class NotificationService: UNNotificationServiceExtension {
                 content.userInfo["paneId"] = paneId
             }
 
+            // Actionable notifications (issue #710): when the push carries an
+            // open-form action context, attach the matching category (action
+            // buttons) and stash the context for the app's action handler.
+            // Only the NSE can do this — the category depends on the encrypted
+            // content, which the relay and APNs never see.
+            if let action = notificationContent.action {
+                await applyActionContext(action, to: content)
+            }
+
             contentHandler?(content)
         } catch let error as DecryptionError {
             switch error {
@@ -140,6 +149,40 @@ class NotificationService: UNNotificationServiceExtension {
             }
         } catch {
             deliverWithFailure(reason: .decryptionFailed, hostName: hostName)
+        }
+    }
+
+    /// Attaches the action-button category for an open-form context and stores
+    /// the context in `userInfo` so a tap on an action can be answered by the
+    /// app without opening it (issue #710).
+    ///
+    /// Permission forms use the static categories the app registers at launch —
+    /// they are merge-registered here too, covering pushes that arrive before
+    /// the app ever launched. Question forms need a per-notification dynamic
+    /// category because the action titles are the option labels.
+    private func applyActionContext(
+        _ action: NotificationActionContext,
+        to content: UNMutableNotificationContent
+    ) async {
+        guard
+            let contextData = try? JSONEncoder().encode(action),
+            let contextJSON = String(data: contextData, encoding: .utf8),
+            // A context that can't offer actions (e.g. a version-skewed host
+            // sent an empty question list) degrades to a plain notification.
+            let (categoryId, dynamicCategory) = NotificationActionCategories.initialCategory(for: action)
+        else { return }
+
+        let toRegister = dynamicCategory.map { [$0] } ?? NotificationActionCategories.permissionCategories
+        await NotificationActionCategories.registerMerging(toRegister)
+
+        content.categoryIdentifier = categoryId
+        content.userInfo[NotificationUserInfoKey.actionContext] = contextJSON
+
+        // Multi-question forms: the Mac-baked body only says "Claude has N
+        // questions", so the expanded notification would show option buttons
+        // with no visible question. Append the first question, numbered.
+        if let questionLine = action.numberedQuestionBody(at: 0) {
+            content.body += "\n\(questionLine)"
         }
     }
 
