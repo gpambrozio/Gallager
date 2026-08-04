@@ -106,6 +106,11 @@
         private func setupConnectionManagerHandlers() {
             guard let connectionManager else { return }
 
+            // Let notification action taps (permission Yes/Always/No, question
+            // answers — issue #710) reuse the app's live sockets instead of
+            // spinning up their own connection.
+            NotificationActionService.shared.connectionManager = connectionManager
+
             // High-frequency per-session state updates drive the sidebar badges.
             // The `AgentState` carries the open response form (no separate channel).
             connectionManager.onAgentSessionStatus = { [sessionStore] status in
@@ -125,15 +130,27 @@
             // WS-connected, so a host's live-socket notification is the only
             // alert during the backgrounded-but-connected window. When active,
             // the in-app UI already reflects the event, so we suppress it.
+            // Notifications carrying an open-form action context become
+            // actionable local notifications, mirroring the NSE's push path.
             connectionManager.onAgentNotification = { [pushService] notification in
                 Task { @MainActor in
                     guard !pushService.isAppActive else { return }
-                    pushService.scheduleLocalNotification(
-                        title: notification.title,
-                        body: notification.body,
-                        paneId: notification.sessionId,
-                        hostId: notification.pairId
-                    )
+                    if let action = notification.action {
+                        await NotificationActionService.shared.scheduleActionableLocalNotification(
+                            title: notification.title,
+                            body: notification.body,
+                            paneId: notification.sessionId,
+                            hostId: notification.pairId,
+                            action: action
+                        )
+                    } else {
+                        pushService.scheduleLocalNotification(
+                            title: notification.title,
+                            body: notification.body,
+                            paneId: notification.sessionId,
+                            hostId: notification.pairId
+                        )
+                    }
                 }
             }
 

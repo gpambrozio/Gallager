@@ -622,6 +622,52 @@ Events that should **NOT** trigger push notifications:
 - `userPromptSubmit` - User initiated, no need to notify
 - `subagentStop`, `preCompact` - Internal events
 
+### 6.1 Actionable Notifications (issue #710)
+
+Permission requests and agent questions can be answered straight from the
+notification, without opening the app:
+
+- **Permission requests** show **Yes / Always / No** action buttons ("Always"
+  applies the request's first permission suggestion — the same one the
+  in-terminal menu binds to option 2 — and is omitted when the request carried
+  no suggestions).
+- **AskUserQuestion forms** show one action button per option, one question at
+  a time, plus a free-text "Other…" input when the question allows it. After
+  each answer the app posts a *local* follow-up notification for the next
+  question, carrying the accumulated answers in its `userInfo`
+  (`NotificationActionProgress`) so the flow survives app relaunches with no
+  local storage; the final answer submits the whole set. Questions with any
+  multi-select stay plain tap-to-open (buttons can't express multi-select).
+
+**How it flows** (all types in `ClaudeSpyNetworking/Models/NotificationActionModels.swift`):
+
+1. The Mac's `PluginEventDispatcher` passes the event's `AgentState` to the
+   notification sink; for `awaitingPermission` / `awaitingReplies` the
+   coordinator builds a `NotificationActionContext` (sessionId/pluginId/
+   requestId + trimmed form) via `NotificationActionContext.make`. Oversized
+   contexts (> ~2 KB encoded) degrade to plain notifications to respect the
+   APNs 4 KB budget.
+2. The context rides the **encrypted** `NotificationContent` (APNs path) and
+   `AgentNotificationMessage` (live-socket fallback path) — both additive
+   optional fields, no relay/server changes, invisible to the relay.
+3. The **Notification Service Extension** decrypts, attaches the matching
+   `UNNotificationCategory` (static permission categories; per-notification
+   dynamic categories for questions since the action titles are the option
+   labels — `NotificationActionCategories`), and stashes the context JSON in
+   `userInfo`.
+4. On an action tap, `NotificationActionService` (iOS) plans the reaction with
+   the pure `NotificationActionPlanner`, then submits the standard
+   `AgentResponseSubmissionMessage` — reusing the app's live sockets, or a
+   short-lived `ViewerConnectionManager` when the app was cold-launched into
+   the handler (it polls `isHostConnected` up to 12 s). Failures post a
+   tap-to-open "Answer not delivered" notification.
+5. The host gates **blocking** submissions (permission/question/plan) on the
+   pane's open form still matching the submitted `requestId`
+   (`AgentResponseSubmissionGuard`) — answering a stale lock-screen
+   notification can no longer inject keystrokes into a pane that moved on.
+
+All action buttons require device authentication (`.authenticationRequired`).
+
 ### 7. Implementation Order
 
 #### Phase 1: Foundation (Server-Side)

@@ -621,8 +621,18 @@
                     // (handlePluginState also forwards agent_session_status to iOS;
                     // the open form rides AgentSession.state so it's in the snapshot.)
                 },
-                onNotification: { [weak self] _, paneID, notification in
-                    await self?.handlePluginNotification(notification, paneId: paneID)
+                onNotification: { [weak self] pluginID, paneID, notification, state in
+                    // When the event's state carries an open permission/question
+                    // form, bake the action-button context into the push so iOS
+                    // can answer straight from the notification (issue #710).
+                    let action = state.flatMap {
+                        NotificationActionContext.make(
+                            state: $0,
+                            sessionId: paneID,
+                            pluginId: pluginID
+                        )
+                    }
+                    await self?.handlePluginNotification(notification, paneId: paneID, action: action)
                     // (handlePluginNotification also forwards the push to iOS.)
                 },
                 onAutoApprove: { [weak self] pluginID, sessionID, requestID in
@@ -1590,7 +1600,13 @@
         /// NotificationSink → show a Mac desktop notification using the
         /// core-baked title/body, and forward it to paired iOS viewers via the
         /// encrypted-push path (falls back to APNs when a viewer is offline).
-        private func handlePluginNotification(_ notification: NotificationSpec, paneId: String?) async {
+        /// `action`, when present, makes the iOS notification actionable
+        /// (permission Yes/Always/No, question option buttons — issue #710).
+        private func handlePluginNotification(
+            _ notification: NotificationSpec,
+            paneId: String?,
+            action: NotificationActionContext? = nil
+        ) async {
             let macNotification = TerminalStreamMessage.TerminalNotification(
                 title: notification.title,
                 body: notification.body
@@ -1602,7 +1618,8 @@
             await connectedViewerManager?.sendCustomPushNotificationToAll(
                 title: notification.title,
                 body: notification.body,
-                paneId: paneId
+                paneId: paneId,
+                action: action
             )
         }
 
@@ -2877,8 +2894,28 @@
             // Plugin runtime ↔ iOS bridge (additive, in-process plugin path):
             // route an inbound plugin response submission to the owning core's
             // `deliverResponse`, and feed the enabled-plugin presentation set so
-            // each viewer receives it on connect.
+            // each viewer receives it on connect. Blocking answers (permission /
+            // question / plan) are gated on the pane's open form still matching
+            // the submitted request id — an actionable push notification can be
+            // answered long after the form was retracted, and a stale answer
+            // would inject keystrokes into whatever the pane shows now (#710).
             connectionManager.onAgentResponseSubmission = { [weak self] submission in
+                let openFormRequestID = self?.windowManager
+                    .paneStates[submission.sessionId]?.agentSession?.state.openForm?.requestID
+                guard AgentResponseSubmissionGuard.shouldDeliver(
+                    response: submission.response,
+                    openFormRequestID: openFormRequestID,
+                    submittedRequestID: submission.requestId
+                ) else {
+                    self?.logger.info(
+                        "Dropping stale agent response submission",
+                        metadata: [
+                            "requestId": "\(submission.requestId)",
+                            "openForm": "\(openFormRequestID ?? "none")",
+                        ]
+                    )
+                    return
+                }
                 await self?.pluginRegistry?.core(submission.pluginId)?.deliverResponse(
                     sessionID: submission.sessionId,
                     requestID: submission.requestId,

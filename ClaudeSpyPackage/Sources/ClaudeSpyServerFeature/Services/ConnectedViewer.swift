@@ -325,11 +325,13 @@ final public class ConnectedViewer: Identifiable {
 
     /// Send an encrypted push notification with arbitrary title/body to this
     /// viewer. Used by `notification.create --push` so CLI-triggered alerts
-    /// follow the same APNs path as Claude hook events.
+    /// follow the same APNs path as Claude hook events. `action` carries the
+    /// open-form context that makes the iOS notification actionable (#710).
     public func sendCustomPushNotification(
         title: String,
         body: String,
-        paneId: String?
+        paneId: String?,
+        action: NotificationActionContext? = nil
     ) async {
         guard state.isConnected else {
             logger.debug("Not connected to \(viewerName), cannot send custom push")
@@ -347,7 +349,8 @@ final public class ConnectedViewer: Identifiable {
             eventType: "cli.notify",
             pairId: id,
             paneId: paneId,
-            timestamp: Date()
+            timestamp: Date(),
+            action: action
         )
 
         do {
@@ -367,7 +370,7 @@ final public class ConnectedViewer: Identifiable {
             // Also deliver over the live WebSocket so a backgrounded-but-connected
             // viewer — whose APNs push the relay just dropped — can still show a
             // local notification. iOS gates on app state to avoid double-alerting.
-            await sendAgentNotification(title: title, body: body, paneId: paneId)
+            await sendAgentNotification(title: title, body: body, paneId: paneId, action: action)
         } catch {
             logger.error("Failed to encrypt custom push notification: \(error)")
         }
@@ -378,7 +381,12 @@ final public class ConnectedViewer: Identifiable {
     /// APNs push. The relay drops the APNs push while the viewer is connected,
     /// so this is the only alert path during the backgrounded-but-connected
     /// window; iOS materializes a local notification only when not active.
-    private func sendAgentNotification(title: String, body: String, paneId: String?) async {
+    private func sendAgentNotification(
+        title: String,
+        body: String,
+        paneId: String?,
+        action: NotificationActionContext?
+    ) async {
         guard state.isConnected else { return }
         let message = WebSocketMessage.agentNotification(
             AgentNotificationMessage(
@@ -386,7 +394,8 @@ final public class ConnectedViewer: Identifiable {
                 sessionId: paneId,
                 title: title,
                 body: body,
-                timestamp: Date()
+                timestamp: Date(),
+                action: action
             )
         )
         await sendEncrypted(message)

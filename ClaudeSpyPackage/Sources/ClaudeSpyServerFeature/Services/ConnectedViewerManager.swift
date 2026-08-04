@@ -269,11 +269,13 @@ final public class ConnectedViewerManager {
 
     /// Send an encrypted push notification with arbitrary title/body to every
     /// connected viewer. Used by `notification.create --push` so a single CLI
-    /// call reaches all paired iOS devices.
+    /// call reaches all paired iOS devices. `action` makes the notification
+    /// actionable on iOS (open-form context, issue #710).
     public func sendCustomPushNotificationToAll(
         title: String,
         body: String,
-        paneId: String?
+        paneId: String?,
+        action: NotificationActionContext? = nil
     ) async {
         await withTaskGroup(of: Void.self) { group in
             for connection in connections.values where connection.state.isConnected {
@@ -281,7 +283,8 @@ final public class ConnectedViewerManager {
                     await connection.sendCustomPushNotification(
                         title: title,
                         body: body,
-                        paneId: paneId
+                        paneId: paneId,
+                        action: action
                     )
                 }
             }
