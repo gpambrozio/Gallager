@@ -48,6 +48,11 @@ differences:
 - `tmuxPane` is resolved via the frame, falling back to the correlation file by `session_id`.
 - `contextProjectDir` comes from `CODEX_PROJECT_DIR` when present, else the payload `cwd`.
 - Guardian (auto-review) posture suppresses permission notifications AND forms — see below.
+- `tool_input` decoding is tolerant (#717): MCP payloads carry the tool's RAW arguments
+  (no `{server, tool, input}` wrapper), so `ClaudeCodeTool.decode` recovers server/tool
+  from the `mcp__<server>__<tool>` name, and ANY surprising `tool_input` shape degrades
+  to `.other` instead of failing the frame — a dropped `PermissionRequest` would be a
+  real TUI prompt with no notification and no form.
 
 ## Guardian (auto-review) posture (#585)
 
@@ -75,14 +80,29 @@ translating the event to plain `working`, when ALL of:
   `isYoloAutoApprovable`: an unknown or missing tool name notifies, so a future
   prompt-style tool can never be silently suppressed while a real TUI prompt waits.
 
-**Per-session posture, fresh-read file:** `approvals_reviewer` is a GLOBAL file but a
-PER-SESSION runtime value. Codex loads `config.toml` once at session start; a TUI
-"Approve for me" toggle sends `override_turn_context` to the toggling session only while
-persisting the new value globally (codex-rs `event_dispatch.rs`,
-`UpdateApprovalsReviewer`) — other live sessions keep their start-time posture, and
-nothing per-session is observable from hooks or disk (the hook payload carries no
-reviewer; rollouts don't persist `SessionConfigured`/`ThreadSettingsApplied`; the
-guardian sub-session fires no hooks). So the core keeps a per-session **snapshot**,
+**Primary source — the rollout's `turn_context` (codex ≥ 0.146, #717):**
+`CodexRolloutPostureReader` reads the LATEST `turn_context` record from the hook's
+`transcript_path` on every permission request. codex ≥ 0.146 persists
+`approvals_reviewer` + `approval_policy` into every `turn_context` record — written
+when a turn spawns, from the same context that routes that turn's approvals — so this
+is exact per-session ground truth. It resolves `.autoReview` only for
+`auto_review`/`guardian_subagent` under the guardian-routing `on-request` policy
+(`untrusted`/`on-failure` route approvals to the user even with `auto_review` set);
+any other present value fails safe to `.user`. Crucially it survives **resumes**:
+codex fires NO `SessionStart` hook for a resumed thread, and before #717 the snapshot
+fallback below reconstructed from timestamps — permanently "ambiguous" for any thread
+older than the last `config.toml` write — so every guardian-approved request of a
+resumed session notified. It also attributes mid-session "Approve for me" toggles to
+the toggling session (the fallback can only fail safe to notify-noise), lagging at
+most one turn (a mid-TURN toggle shows up in the next turn's record).
+
+**Fallback — fresh-read file gated by the session's start snapshot** (rollouts with
+no `turn_context` reviewer signal, i.e. pre-0.146 codex or a missing/torn rollout):
+`approvals_reviewer` is a GLOBAL file but a PER-SESSION runtime value. Codex loads
+`config.toml` once at session start; a TUI "Approve for me" toggle sends
+`override_turn_context` to the toggling session only while persisting the new value
+globally (codex-rs `event_dispatch.rs`, `UpdateApprovalsReviewer`) — other live
+sessions keep their start-time posture. So the core keeps a per-session **snapshot**,
 captured from `config.toml` when the session's `SessionStart` hook arrives (the same
 moment Codex loads it), and `CodexConfigReader` re-reads the file **on every permission
 request** (rare, human-paced, tiny file — no watcher, no cache). Suppression requires
@@ -94,9 +114,7 @@ the fresh value AND the snapshot to agree on `auto_review`:
 - disagree → SOME session toggled and the toggler cannot be attributed → fail safe to
   notify. A still-`user` session can never have a real prompt eaten; the cost is
   notify-noise for still-guardian sessions until the file returns to their snapshot
-  value (suppression self-heals) or they restart. Exact per-request routing needs a
-  reviewer/guardian field in the hook payload (upstream codex change; the orchestrator
-  already computes `use_guardian` before running hooks).
+  value (suppression self-heals) or they restart.
 
 If the app launches mid-session (no `SessionStart` seen), the snapshot is
 reconstructed from timestamps: `config.toml` unmodified since the session's rollout
@@ -121,16 +139,20 @@ symlink-resolved (`/var/…` vs `/private/var/…`).
 **Unchanged:** ClaudeSpy's per-pane yolo toggle, the dispatcher auto-approve path, and
 Claude Code's `PermissionRequest` handling.
 
-**Known blind spots (v1):** per-invocation `-c approvals_reviewer=...` overrides and v2
-`<name>.config.toml` profile overlay files aren't visible in `config.toml` (degrades to
-notify-anyway when they enable guardian); MDM `allowed_approvals_reviewers` constraints
-that force the effective reviewer away from the file value; hand-written
-`approval_policy = "untrusted"`/`"on-failure"` combined with `auto_review` routes
-approvals to the user but reads `permission_mode == "default"`, so ClaudeSpy would
-wrongly suppress — no TUI preset can produce that combination (a future fix can read the
-rollout's `turn_context.approval_policy` via the hook's `transcript_path`); a toggle
-within the sub-second window between Codex loading `config.toml` and the `SessionStart`
-hook arriving snapshots the post-toggle value.
+**Known blind spots:** on codex ≥ 0.146 the turn_context read closes the former `-c
+approvals_reviewer=...` override, profile-overlay, MDM-constraint, and hand-written
+`untrusted`/`on-failure` + `auto_review` blind spots (they all materialize in the
+turn's persisted context); what remains is the ≤ one-turn lag of a mid-TURN toggle
+(the next request in the SAME turn still follows the previous record — for a toggle
+ON that's transient notify-noise; codex applies overrides at next turn spawn, so the
+record matches actual routing) and a future `granular` approval policy reading as
+`.user` (notify-anyway) until its serialization is known. On pre-0.146 codex the v1
+fallback blind spots still apply: `-c` overrides and v2 `<name>.config.toml` profile
+overlays aren't visible in `config.toml` (degrades to notify-anyway when they enable
+guardian); MDM `allowed_approvals_reviewers` constraints; `untrusted`/`on-failure` +
+`auto_review` would wrongly suppress (no TUI preset produces that combination); a
+toggle within the sub-second window between Codex loading `config.toml` and the
+`SessionStart` hook arriving snapshots the post-toggle value.
 
 ## Session end (no `SessionEnd` hook)
 Codex CLI exposes no `SessionEnd` hook event (verified absent from the 0.136 binary;

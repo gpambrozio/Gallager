@@ -24,6 +24,15 @@ import Foundation
 ///    session whose start snapshot disagrees with the file keeps notifying
 ///    while one whose snapshot agrees stays suppressed — same file, same
 ///    instant, opposite outcomes (issue #585 follow-up).
+/// 6. The rollout's `turn_context` record is per-session ground truth
+///    (codex ≥ 0.146, issue #717): a RESUMED session — no SessionStart hook
+///    ever fires for it — whose rollout says `auto_review` stays suppressed
+///    even while the global file reads `user`. Phases 3–8 deliberately use
+///    transcript paths with no rollout on disk, so they keep exercising the
+///    fresh-file + snapshot fallback.
+/// 7. MCP permission payloads carry codex's REAL raw-arguments `tool_input`
+///    shape (no `{server, tool, input}` wrapper — issue #717), so
+///    suppression of the namespaced arm proves the name-derived decode.
 ///
 /// The scratch CODEX_HOME lives inside the per-scenario
 /// `--gallager-state-root`; the pre-seeded codex `settings.json` lists it in
@@ -293,9 +302,7 @@ public enum CodexGuardianSuppressionScenario {
                 "timestamp": "2026-06-10T10:05:00.000000Z",
                 "tool_name": "mcp__memory__create_entities",
                 "tool_input": {
-                    "server": "memory",
-                    "tool": "create_entities",
-                    "input": {}
+                    "entities": [{"name": "Guardian", "entityType": "test"}]
                 }
             }
             """,
@@ -385,11 +392,7 @@ public enum CodexGuardianSuppressionScenario {
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:07:00.000000Z",
                 "tool_name": "mcp__memory__read_graph",
-                "tool_input": {
-                    "server": "memory",
-                    "tool": "read_graph",
-                    "input": {}
-                }
+                "tool_input": {}
             }
             """,
             tmuxPane: "${codexGuardianPane}"
@@ -435,5 +438,90 @@ public enum CodexGuardianSuppressionScenario {
         TestStep.macResizeWindow(width: 1_200, height: 700)
         TestStep.wait(seconds: 1)
         TestStep.macScreenshot(label: "mac-divergence-original-suppressed-b-prompts")
+
+        // ══════════════════════════════════════════════════════════════
+        // Phase 9: turn_context ground truth (#717). Session C is a RESUME
+        //          of an old thread: no SessionStart hook ever fires, and
+        //          its rollout — unlike phases 3–8's — EXISTS on disk with
+        //          a turn_context saying auto_review/on-request. The global
+        //          file still reads `user` (B's phase-8 world), so both
+        //          legacy paths (fresh file, snapshot reconstruction) would
+        //          notify: only the turn_context read explains silence.
+        // ══════════════════════════════════════════════════════════════
+        TestStep.writeFile(
+            path: "${gallagerStateRoot}/codex-home/config.toml",
+            content: "approvals_reviewer = \"user\"\n"
+        )
+        TestStep.writeFile(
+            path: "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+            content: """
+            {"timestamp": "2026-06-10T09:00:00.000Z", "type": "session_meta", "payload": {"id": "e2e-codex-guardian-c", "cwd": "/Users/test/GuardianResumed"}}
+            {"timestamp": "2026-06-10T10:08:00.000Z", "type": "turn_context", "payload": {"turn_id": "t-1", "cwd": "/Users/test/GuardianResumed", "approval_policy": "on-request", "approvals_reviewer": "auto_review", "sandbox_policy": {"type": "workspace-write", "network_access": false}}}
+
+            """
+        )
+        TestStep.tmuxCreateSession(name: "codex-guardian-c", width: 80, height: 24)
+        TestStep.tmuxStorePaneId(target: "codex-guardian-c:0.0", storeAs: "codexGuardianPaneC")
+        TestStep.macWaitForElement(titled: "codex-guardian-c", timeout: 15)
+
+        // The guardian-reviewed MCP approval (raw-args shape) stays silent.
+        TestStep.macSendHookEvent(
+            pluginID: "codex",
+            json: """
+            {
+                "hook_event_name": "PermissionRequest",
+                "session_id": "e2e-codex-guardian-c",
+                "cwd": "/Users/test/GuardianResumed",
+                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+                "permission_mode": "default",
+                "timestamp": "2026-06-10T10:09:00.000000Z",
+                "tool_name": "mcp__memory__add_observations",
+                "tool_input": {
+                    "observations": [{"entityName": "Guardian", "contents": ["resumed"]}]
+                }
+            }
+            """,
+            tmuxPane: "${codexGuardianPaneC}"
+        )
+        // FIFO barrier: AskUserQuestion is never guardian-reviewed, so its
+        // push — unique to pane C — proves the silent MCP frame above was
+        // fully dispatched before the absence assertions below run.
+        TestStep.macSendHookEvent(
+            pluginID: "codex",
+            json: """
+            {
+                "hook_event_name": "PermissionRequest",
+                "session_id": "e2e-codex-guardian-c",
+                "cwd": "/Users/test/GuardianResumed",
+                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+                "permission_mode": "default",
+                "timestamp": "2026-06-10T10:09:30.000000Z",
+                "tool_name": "AskUserQuestion",
+                "tool_input": {
+                    "questions": [
+                        {
+                            "question": "Resumed-session question?",
+                            "header": "Resumed",
+                            "options": [
+                                {"label": "Yes", "description": ""}
+                            ],
+                            "multiSelect": false
+                        }
+                    ]
+                }
+            }
+            """,
+            tmuxPane: "${codexGuardianPaneC}"
+        )
+        TestStep.waitForFileContains(
+            path: "${pushLogPath}",
+            substring: "Codex wants answers|${codexGuardianPaneC}",
+            storeAs: "pushLogResumedQuestion"
+        )
+        TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterResumedMCP")
+        TestStep.assertStoredNotContains(
+            key: "pushLogAfterResumedMCP",
+            substring: "Permission: mcp__memory__add_observations|${codexGuardianPaneC}"
+        )
     }
 }
