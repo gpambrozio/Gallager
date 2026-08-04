@@ -134,6 +134,17 @@
             // actionable local notifications, mirroring the NSE's push path.
             connectionManager.onAgentNotification = { [pushService] notification in
                 Task { @MainActor in
+                    // Record actionable notifications even while active — the
+                    // E2E harness simulates action-button taps off this record
+                    // (the notification UI itself lives in SpringBoard).
+                    if let action = notification.action {
+                        NotificationActionService.shared.noteIncomingAgentNotification(
+                            title: notification.title,
+                            pairId: notification.pairId,
+                            paneId: notification.sessionId,
+                            action: action
+                        )
+                    }
                     guard !pushService.isAppActive else { return }
                     if let action = notification.action {
                         await NotificationActionService.shared.scheduleActionableLocalNotification(

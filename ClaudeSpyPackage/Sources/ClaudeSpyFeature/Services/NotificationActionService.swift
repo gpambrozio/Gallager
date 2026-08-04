@@ -61,17 +61,36 @@
                 NotificationActionProgress.self,
                 from: userInfo[NotificationUserInfoKey.actionProgress]
             )
-            let userText = (response as? UNTextInputNotificationResponse)?.userText
-
-            guard let plan = NotificationActionPlanner.plan(
+            return await performAction(
                 context: context,
                 progress: progress,
                 actionIdentifier: response.actionIdentifier,
+                userText: (response as? UNTextInputNotificationResponse)?.userText,
+                pairId: userInfo["pairId"] as? String,
+                paneId: userInfo["paneId"] as? String,
+                originalTitle: response.notification.request.content.title
+            )
+        }
+
+        /// The `UNNotificationResponse`-free core of `handle`, so the E2E
+        /// harness (which cannot construct a `UNNotificationResponse`) can
+        /// drive the exact same path. Returns `false` when the identifier is
+        /// not one of ours.
+        func performAction(
+            context: NotificationActionContext,
+            progress: NotificationActionProgress?,
+            actionIdentifier: String,
+            userText: String?,
+            pairId: String?,
+            paneId: String?,
+            originalTitle: String
+        ) async -> Bool {
+            guard let plan = NotificationActionPlanner.plan(
+                context: context,
+                progress: progress,
+                actionIdentifier: actionIdentifier,
                 userText: userText
             ) else { return false }
-
-            let pairId = userInfo["pairId"] as? String
-            let paneId = userInfo["paneId"] as? String
 
             // Action taps run without UI — ask for background time so iOS
             // doesn't suspend the process mid-submission.
@@ -102,13 +121,96 @@
                     context: context,
                     index: index,
                     progress: progress,
-                    originalContent: response.notification.request.content,
+                    originalTitle: originalTitle,
                     pairId: pairId,
                     paneId: paneId
                 )
             }
             return true
         }
+
+        // MARK: - Incoming actionable notifications
+
+        /// The last actionable agent notification received over the live
+        /// socket, kept so the E2E harness can simulate an action-button tap
+        /// through the real submission path (notification UI itself lives in
+        /// SpringBoard, out of the harness's reach).
+        public struct IncomingActionNotification {
+            public let title: String
+            public let pairId: String
+            public let paneId: String?
+            public let context: NotificationActionContext
+        }
+
+        public private(set) var lastIncomingAction: IncomingActionNotification?
+
+        /// Records an actionable agent notification as it arrives over the
+        /// live socket — including while the app is active, when no local
+        /// notification is materialized.
+        public func noteIncomingAgentNotification(
+            title: String,
+            pairId: String,
+            paneId: String?,
+            action: NotificationActionContext
+        ) {
+            lastIncomingAction = IncomingActionNotification(
+                title: title,
+                pairId: pairId,
+                paneId: paneId,
+                context: action
+            )
+        }
+
+        #if DEBUG
+            /// The notification the last simulated tap acted on, kept so a
+            /// stale-tap simulation (`reuseLast`) can act on it again.
+            private var lastSimulatedAction: IncomingActionNotification?
+
+            /// E2E-only: simulate tapping `actionIdentifier` on the most
+            /// recently received actionable notification, waiting briefly for
+            /// one to arrive (the harness races the live-socket delivery).
+            ///
+            /// Each simulated tap CONSUMES the notification — the next call
+            /// waits for a fresh one, so back-to-back forms can't accidentally
+            /// answer with a stale context. `reuseLast` instead re-taps the
+            /// previously consumed notification without waiting, modeling a
+            /// stale lock-screen tap on a form the agent already moved past.
+            public func simulateActionOnLastIncoming(
+                actionIdentifier: String,
+                userText: String?,
+                reuseLast: Bool = false
+            ) async -> Bool {
+                let incoming: IncomingActionNotification
+                if reuseLast {
+                    guard let last = lastSimulatedAction ?? lastIncomingAction else {
+                        logger.error("No previously tapped notification to reuse")
+                        return false
+                    }
+                    incoming = last
+                } else {
+                    let deadline = Date().addingTimeInterval(5)
+                    while lastIncomingAction == nil, Date() < deadline {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    guard let fresh = lastIncomingAction else {
+                        logger.error("No actionable notification received to simulate a tap on")
+                        return false
+                    }
+                    incoming = fresh
+                    lastIncomingAction = nil
+                    lastSimulatedAction = fresh
+                }
+                return await performAction(
+                    context: incoming.context,
+                    progress: nil,
+                    actionIdentifier: actionIdentifier,
+                    userText: userText,
+                    pairId: incoming.pairId,
+                    paneId: incoming.paneId,
+                    originalTitle: incoming.title
+                )
+            }
+        #endif
 
         // MARK: - Live-socket fallback notifications
 
@@ -259,7 +361,7 @@
             context: NotificationActionContext,
             index: Int,
             progress: NotificationActionProgress,
-            originalContent: UNNotificationContent,
+            originalTitle: String,
             pairId: String?,
             paneId: String?
         ) async {
@@ -281,7 +383,7 @@
             let content = UNMutableNotificationContent()
             // Keep the original title so the flow reads as one conversation;
             // the body advances to the next question.
-            content.title = originalContent.title
+            content.title = originalTitle
             content.body = question.question
             content.sound = .default
             content.categoryIdentifier = category.identifier

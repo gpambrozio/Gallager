@@ -638,6 +638,13 @@ public actor TestOrchestrator {
                 minRequiredPartnerVersion: minRequiredPartnerVersion
             )
 
+        case let .iosNotificationAction(actionIdentifier, userText, reuseLast):
+            try await simulatorDriver.notificationAction(
+                actionIdentifier: actionIdentifier,
+                userText: userText,
+                reuseLast: reuseLast
+            )
+
         case .iosLogUI:
             let elements = await simulatorDriver.describeUI()
             func logTree(_ elements: [UIElement], indent: String = "") {

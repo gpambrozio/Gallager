@@ -207,6 +207,16 @@ public enum TestStep: Sendable {
     /// a reconnect. `nil` clears the override; a non-nil value replaces it. Used
     /// by version-mismatch scenarios to simulate an in-place "app update".
     case iosSetAppVersion(appVersion: String?, minRequiredPartnerVersion: String?)
+    /// Simulate tapping an action button on the last actionable agent
+    /// notification the iOS app received (issue #710) — e.g.
+    /// `"gallager.permission.allow"` — driving the real
+    /// `NotificationActionService` submission path. The notification banner UI
+    /// itself lives in SpringBoard, which the harness can't reach; the app
+    /// waits up to ~5s for the actionable notification to arrive first. Each
+    /// tap consumes the notification so a later tap waits for a FRESH one;
+    /// pass `reuseLast: true` to re-tap the previously consumed notification
+    /// instead (modeling a stale lock-screen tap on a retracted form).
+    case iosNotificationAction(actionIdentifier: String, userText: String? = nil, reuseLast: Bool = false)
 
     // MARK: - macOS App
     //

@@ -610,6 +610,29 @@ public actor SimulatorDriver {
         }
     }
 
+    // MARK: - Notification Actions
+
+    /// Simulate tapping an action button on the last actionable agent
+    /// notification the iOS app received (issue #710). The app waits briefly
+    /// for one to arrive, then drives the real
+    /// `NotificationActionService.performAction` path. Each tap consumes the
+    /// notification; `reuseLast` re-taps the previously consumed one instead
+    /// (modeling a stale lock-screen tap).
+    public func notificationAction(actionIdentifier: String, userText: String?, reuseLast: Bool) async throws {
+        logger.info("Simulating notification action tap: \(actionIdentifier) reuseLast=\(reuseLast)")
+        let success = try await IOSAppHTTPClient.notificationAction(
+            actionIdentifier: actionIdentifier,
+            userText: userText,
+            reuseLast: reuseLast,
+            port: Self.defaultTestAccessibilityPort
+        )
+        if !success {
+            throw SimulatorDriverError.configurationError(
+                "iOS notification-action endpoint reported the action was not handled"
+            )
+        }
+    }
+
     // MARK: - Private
 
     /// Set a fixed status bar time and force light mode so screenshots are deterministic.

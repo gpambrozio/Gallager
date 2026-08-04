@@ -99,6 +99,9 @@ Clear the iOS simulator's general pasteboard (pipes `/dev/null` into `simctl pbc
 ### `iosSetAppVersion(appVersion: String?, minRequiredPartnerVersion: String?)`
 Update the iOS app's `VersionCompatibility` overrides at runtime and kick a reconnect. `nil` clears the override; a non-nil value replaces it. Used by version-mismatch scenarios to simulate an in-place "app update" without relaunching.
 
+### `iosNotificationAction(actionIdentifier: String, userText: String? = nil, reuseLast: Bool = false)`
+Simulate tapping an action button on the last actionable agent notification the iOS app received (issue #710) — e.g. `"gallager.permission.allow"` / `"gallager.permission.always"` / `"gallager.permission.deny"`, question options via `"gallager.question.option.<optionId>"`, free text via `"gallager.question.other"` + `userText`. Drives the real `NotificationActionService.performAction` submission path; the notification banner itself lives in SpringBoard, out of the harness's reach. The app waits up to ~5s for an actionable notification to arrive, so no fixed sleep is needed between the triggering `macSendHookEvent` and this step. Each tap CONSUMES the notification (a later tap waits for a fresh one); `reuseLast: true` re-taps the previously consumed notification without waiting — modeling a stale lock-screen tap on a form the agent already moved past. Fails when the app reports the action unhandled (no notification arrived, or the identifier doesn't apply to the form).
+
 ## macOS App Steps
 
 All macOS steps below accept a trailing `instance: Int = 0` parameter (see "Instance parameter" section above). It is omitted from the descriptions for readability.

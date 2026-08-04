@@ -12,6 +12,11 @@
         ///   next peerHello handshake reports different versions. The actual
         ///   reconnect is driven by the user (or E2E) tapping the Retry button on
         ///   the version-mismatch row; no NotificationCenter fan-out happens here.
+        /// - `/notification-action` — Simulates tapping an action button on the
+        ///   last actionable agent notification received (issue #710). The real
+        ///   notification UI lives in SpringBoard, out of the harness's reach,
+        ///   so this drives `NotificationActionService.performAction` — the same
+        ///   code path a real `UNNotificationResponse` takes.
         ///
         /// Only active when the app is launched with `--e2e-test`.
         @MainActor
@@ -97,6 +102,27 @@
                             }
                             let response = Data(
                                 "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                                    .utf8)
+                            connection.send(content: response, completion: .contentProcessed { _ in
+                                connection.cancel()
+                            })
+                        }
+                    } else if request.hasPrefix("POST /notification-action") {
+                        let actionIdentifier = Self.extractQueryParam(from: request, key: "actionIdentifier")
+                        let userText = Self.extractQueryParam(from: request, key: "userText")
+                        let reuseLast = Self.extractQueryParam(from: request, key: "reuseLast") == "true"
+                        Task { @MainActor in
+                            var handled = false
+                            if let actionIdentifier {
+                                handled = await NotificationActionService.shared.simulateActionOnLastIncoming(
+                                    actionIdentifier: actionIdentifier,
+                                    userText: userText?.isEmpty == true ? nil : userText,
+                                    reuseLast: reuseLast
+                                )
+                            }
+                            let body = handled ? "ok" : "unhandled"
+                            let response = Data(
+                                "HTTP/1.1 200 OK\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
                                     .utf8)
                             connection.send(content: response, completion: .contentProcessed { _ in
                                 connection.cancel()
