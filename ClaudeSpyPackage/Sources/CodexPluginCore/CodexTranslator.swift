@@ -65,10 +65,12 @@ enum CodexTranslator {
     /// frame (no state change — the dispatcher no-ops).
     ///
     /// `approvalsReviewer` is the EFFECTIVE posture of this event's session,
-    /// resolved by the actor: the live `config.toml` value gated by the
-    /// session's start snapshot (the file is global, the runtime value is
-    /// per-session). It only matters for `PermissionRequest` — see
-    /// `isGuardianHandled`.
+    /// resolved by the actor (rollout `turn_context` first, then the live
+    /// `config.toml` gated by the session's start snapshot — the file is
+    /// global, the runtime value is per-session). It decides permission
+    /// suppression (`isGuardianHandled`) and folds into the reported
+    /// permission mode (`effectivePermissionMode`) so the UI chip reads
+    /// "Auto" while the guardian decides approvals.
     static func translate(
         action: HookAction,
         pluginID: String,
@@ -145,8 +147,12 @@ enum CodexTranslator {
             // tool/prompt/stop events (the guardian path already keys on
             // `== "default"`); `nil` on other events leaves the existing value
             // unchanged. OTEL carries no mid-session mode-change signal for Codex,
-            // so the hook channel is the sole source.
-            permissionMode: body.permissionMode
+            // so the hook channel is the sole source. The guardian posture folds
+            // in so the chip reads "Auto" while approvals are auto-decided.
+            permissionMode: Self.effectivePermissionMode(
+                body.permissionMode,
+                approvalsReviewer: approvalsReviewer
+            )
         )
         return Output(event: event, pending: pending, guardianHandled: guardianHandled)
     }
@@ -332,6 +338,22 @@ enum CodexTranslator {
             isGuardianReviewable(body)
         else { return false }
         return true
+    }
+
+    /// The permission mode surfaced to the UI chip. Codex's reported
+    /// `permission_mode` encodes only the approval-POLICY axis (`on-request`
+    /// → `"default"`), so under the guardian the chip read "Default" while
+    /// every approval was being auto-decided (PR #718). When the session's
+    /// effective reviewer is the guardian and codex reports `default`,
+    /// surface Claude's `"auto"` mode — the chip already renders it as
+    /// "Auto". Every other value passes through: under `bypassPermissions`
+    /// guardian routing is off, and a missing mode must not be invented.
+    static func effectivePermissionMode(
+        _ reported: String?,
+        approvalsReviewer: CodexApprovalsReviewer
+    ) -> String? {
+        guard reported == "default", approvalsReviewer == .autoReview else { return reported }
+        return "auto"
     }
 
     /// Positive identification of the approval shapes Codex's guardian
