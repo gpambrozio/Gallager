@@ -236,13 +236,6 @@ public enum ClaudeCodeTool: Sendable, Equatable {
             return try .readMcpResource(container.decode(ReadMcpResourceParameters.self))
         default:
             if let name = toolName, name.hasPrefix("mcp__") {
-                if let params = try? container.decode(MCPToolParameters.self) {
-                    return .mcp(params)
-                }
-                // Hook payloads (codex, Claude Code) carry the MCP tool's RAW
-                // arguments as tool_input — no {server, tool, input} wrapper.
-                // Server and tool are recoverable from the
-                // mcp__<server>__<tool> name itself.
                 let dictionary = try container.decode([String: AnyCodable].self)
                 let remainder = name.dropFirst("mcp__".count)
                 guard
@@ -252,11 +245,24 @@ public enum ClaudeCodeTool: Sendable, Equatable {
                 else {
                     return .other(name, dictionary)
                 }
-                return .mcp(MCPToolParameters(
-                    server: String(remainder[..<separator.lowerBound]),
-                    tool: String(remainder[separator.upperBound...]),
-                    input: dictionary
-                ))
+                let server = String(remainder[..<separator.lowerBound])
+                let tool = String(remainder[separator.upperBound...])
+                // The wrapped {server, tool, input} shape is accepted only when
+                // it mirrors the tool name: raw arguments can coincidentally
+                // carry `server`/`tool` string keys (ssh/db/infra tools), and
+                // MCPToolParameters ignores unknown keys — decoding those as
+                // the wrapper would take the wrong identity and silently drop
+                // the rest of the payload from the permission form. The legit
+                // wrapped shape always matches its own tool name.
+                if let params = try? container.decode(MCPToolParameters.self),
+                   params.server == server, params.tool == tool {
+                    return .mcp(params)
+                }
+                // Hook payloads (codex, Claude Code) carry the MCP tool's RAW
+                // arguments as tool_input — no {server, tool, input} wrapper.
+                // Server and tool are recoverable from the
+                // mcp__<server>__<tool> name itself.
+                return .mcp(MCPToolParameters(server: server, tool: tool, input: dictionary))
             }
             let dictionary = try container.decode([String: AnyCodable].self)
             return .other(toolName ?? "Unknown", dictionary)

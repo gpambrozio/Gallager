@@ -197,4 +197,71 @@ struct CodexRolloutPostureReaderTests {
             #expect(reader.posture(transcriptPath: path) == .autoReview)
         }
     }
+
+    /// A record whose serialized JSON contains the raw quoted marker
+    /// `"turn_context"` as a VALUE — it passes the substring pre-filter but is
+    /// not a turn_context record.
+    private let prefilterLookalike = """
+    {"timestamp": "2026-08-03T22:25:09.000Z", "type": "event_msg", "payload": {"type": "item_removed", "item_type": "turn_context"}}
+    """
+
+    @Test("any number of pre-filter lookalikes after the real record are scanned past")
+    func manyPrefilterLookalikesScannedPast() throws {
+        // Candidates must be walked backward until one PARSES as a real
+        // turn_context — a fixed window of trailing candidates would exhaust
+        // here and wrongly fall back to the snapshot heuristic.
+        try withRollout(lines: [
+            turnContext(reviewer: "user"),
+            prefilterLookalike,
+            prefilterLookalike,
+            prefilterLookalike,
+        ]) { reader, path in
+            #expect(reader.posture(transcriptPath: path) == .user)
+        }
+    }
+
+    @Test("a torn multi-byte character at EOF doesn't defeat the previous-record fallback")
+    func tornMultiByteUTF8FallsBack() throws {
+        // A concurrent append cut mid-multi-byte UTF-8 character: the decode
+        // must be lossy (torn line → U+FFFD → JSON parse fails → previous
+        // record wins), not fail the whole file.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gallager-cx-rollout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let rollout = dir.appendingPathComponent("rollout-torn.jsonl")
+
+        var data = Data((turnContext(reviewer: "auto_review") + "\n").utf8)
+        data.append(Data(turnContext(reviewer: "user", turnID: "t-torn").prefix(80).utf8))
+        // First two bytes of a three-byte UTF-8 character ("…").
+        data.append(Data([0xE2, 0x80]))
+        try data.write(to: rollout)
+
+        #expect(CodexRolloutPostureReader().posture(transcriptPath: rollout.path) == .autoReview)
+    }
+
+    // MARK: - Large rollouts (bounded tail read + full-scan fallback)
+
+    /// ~150 bytes per filler line; 3000 lines ≈ 450KB, comfortably past the
+    /// reader's tail chunk.
+    private var filler: [String] {
+        Array(repeating: responseItem, count: 3_000)
+    }
+
+    @Test("a large rollout's latest turn_context is found in the tail")
+    func largeRolloutTailRead() throws {
+        try withRollout(lines: filler + [turnContext(reviewer: "auto_review")]) { reader, path in
+            #expect(reader.posture(transcriptPath: path) == .autoReview)
+        }
+    }
+
+    @Test("a turn_context buried past the tail chunk is still found")
+    func largeRolloutTurnContextBeyondTail() throws {
+        // A single turn that appended more than the tail chunk after its
+        // turn_context (large tool results): the reader must fall back to
+        // scanning the rest of the file, not lose ground truth.
+        try withRollout(lines: [turnContext(reviewer: "auto_review")] + filler) { reader, path in
+            #expect(reader.posture(transcriptPath: path) == .autoReview)
+        }
+    }
 }

@@ -82,6 +82,43 @@ struct ClaudeCodeToolDecodeTests {
         #expect(params.input?["a"] == AnyCodable(1))
     }
 
+    @Test("raw arguments that coincidentally carry server/tool keys keep the full payload")
+    func mcpRawArgumentsWithCoincidentalWrapperKeys() throws {
+        // A tool whose REAL arguments include `server` and `tool` strings
+        // (plausible for ssh/db/infra MCP tools) must not decode as the
+        // wrapped shape — that would take the wrong identity and silently
+        // drop every other argument from the permission form. The wrapped
+        // shape is only accepted when it mirrors the tool name.
+        let input = try toolInput(
+            toolName: "mcp__infra__run_command",
+            toolInputJSON: #"{ "server": "prod-1", "tool": "rsync", "command": "rsync -a /src /dst" }"#
+        )
+        guard case let .mcp(params) = input else {
+            Issue.record("expected .mcp, got \(String(describing: input))")
+            return
+        }
+        #expect(params.server == "infra")
+        #expect(params.tool == "run_command")
+        #expect(params.input?["command"] == AnyCodable("rsync -a /src /dst"))
+        #expect(params.input?["server"] == AnyCodable("prod-1"))
+    }
+
+    @Test("a non-dictionary tool_input still fails the frame (the tolerant-decode boundary)")
+    func nonDictionaryToolInputStillFailsTheFrame() {
+        // The deliberate rethrow edge of the tolerant-decode contract: a
+        // scalar or array tool_input isn't a tool payload at all, so the
+        // frame drops rather than inventing an empty .other.
+        #expect(throws: (any Error).self) {
+            try toolInput(
+                toolName: "mcp__memory__create_entities",
+                toolInputJSON: #""echo hi""#
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try toolInput(toolName: "Bash", toolInputJSON: "[1, 2, 3]")
+        }
+    }
+
     @Test("an mcp__ name without a tool segment degrades to .other")
     func mcpNameWithoutToolSegment() throws {
         let input = try toolInput(
