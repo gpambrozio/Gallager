@@ -666,6 +666,14 @@ notification, without opening the app:
    (`AgentResponseSubmissionGuard`) — answering a stale lock-screen
    notification can no longer inject keystrokes into a pane that moved on.
 
+   **Known limitation:** the guard closes the *long*-stale window, not the
+   immediate one. After an answer is delivered, the pane's open form keeps the
+   same `requestId` until the agent's next hook event arrives (typically well
+   under a second), so a second submission landing inside that window still
+   double-injects. Narrow in practice — iOS dismisses a tapped notification,
+   so double-answering requires racing the in-app form against a notification
+   tap.
+
 All action buttons require device authentication (`.authenticationRequired`).
 
 ### 7. Implementation Order

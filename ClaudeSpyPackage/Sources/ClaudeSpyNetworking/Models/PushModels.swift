@@ -51,6 +51,26 @@ public struct NotificationContent: Codable, Sendable, Equatable {
         self.timestamp = timestamp
         self.action = action
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case title, body, eventType, pairId, paneId, timestamp, action
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.body = try container.decode(String.self, forKey: .body)
+        self.eventType = try container.decode(String.self, forKey: .eventType)
+        self.pairId = try container.decode(String.self, forKey: .pairId)
+        self.paneId = try container.decodeIfPresent(String.self, forKey: .paneId)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        // Lenient on purpose (cross-host version skew): a future host may add
+        // a `Form` case this build can't decode. A strict decode here would
+        // fail the WHOLE content — and the NSE's catch would show its scary
+        // "decryption failed / re-pair" notification. Degrade to a plain
+        // notification instead.
+        self.action = (try? container.decodeIfPresent(NotificationActionContext.self, forKey: .action)) ?? nil
+    }
 }
 
 // MARK: - Encrypted Push Payload

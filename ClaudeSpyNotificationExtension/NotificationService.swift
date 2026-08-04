@@ -166,10 +166,12 @@ class NotificationService: UNNotificationServiceExtension {
     ) async {
         guard
             let contextData = try? JSONEncoder().encode(action),
-            let contextJSON = String(data: contextData, encoding: .utf8)
+            let contextJSON = String(data: contextData, encoding: .utf8),
+            // A context that can't offer actions (e.g. a version-skewed host
+            // sent an empty question list) degrades to a plain notification.
+            let (categoryId, dynamicCategory) = NotificationActionCategories.initialCategory(for: action)
         else { return }
 
-        let (categoryId, dynamicCategory) = NotificationActionCategories.initialCategory(for: action)
         let toRegister = dynamicCategory.map { [$0] } ?? NotificationActionCategories.permissionCategories
         await NotificationActionCategories.registerMerging(toRegister)
 

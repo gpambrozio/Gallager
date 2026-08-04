@@ -622,18 +622,14 @@
                     // the open form rides AgentSession.state so it's in the snapshot.)
                 },
                 onNotification: { [weak self] pluginID, paneID, notification, state in
-                    // When the event's state carries an open permission/question
-                    // form, bake the action-button context into the push so iOS
-                    // can answer straight from the notification (issue #710).
-                    let action = state.flatMap {
-                        NotificationActionContext.make(
-                            state: $0,
-                            sessionId: paneID,
-                            pluginId: pluginID
-                        )
-                    }
-                    await self?.handlePluginNotification(notification, paneId: paneID, action: action)
-                    // (handlePluginNotification also forwards the push to iOS.)
+                    await self?.handlePluginNotification(
+                        notification,
+                        paneId: paneID,
+                        pluginID: pluginID,
+                        formState: state
+                    )
+                    // (handlePluginNotification also forwards the push to iOS,
+                    // baking the action-button context when a form is open.)
                 },
                 onAutoApprove: { [weak self] pluginID, sessionID, requestID in
                     // Yolo auto-approve (spec §6): the dispatcher already decided the
@@ -1600,13 +1596,28 @@
         /// NotificationSink → show a Mac desktop notification using the
         /// core-baked title/body, and forward it to paired iOS viewers via the
         /// encrypted-push path (falls back to APNs when a viewer is offline).
-        /// `action`, when present, makes the iOS notification actionable
-        /// (permission Yes/Always/No, question option buttons — issue #710).
+        /// When `formState` carries an open permission/question form, an
+        /// action-button context is baked into the push so iOS can answer
+        /// straight from the notification (issue #710) — but only for
+        /// sessions bound to a tracked pane: the submission guard routes
+        /// answers via `paneStates[sessionId]`, so a pane-less session's
+        /// buttons could never deliver (every answer would drop as stale).
         private func handlePluginNotification(
             _ notification: NotificationSpec,
             paneId: String?,
-            action: NotificationActionContext? = nil
+            pluginID: String? = nil,
+            formState: AgentState? = nil
         ) async {
+            var action: NotificationActionContext?
+            if
+                let formState, let pluginID, let paneId,
+                windowManager.paneStates[paneId] != nil {
+                action = NotificationActionContext.make(
+                    state: formState,
+                    sessionId: paneId,
+                    pluginId: pluginID
+                )
+            }
             let macNotification = TerminalStreamMessage.TerminalNotification(
                 title: notification.title,
                 body: notification.body

@@ -63,11 +63,17 @@ public enum NotificationActionScenario {
         TestStep.assertStoredContains(key: "allowSeq", substring: "SEQUENCE: T<1>")
 
         // ── Phase 2: permission WITH a suggestion → "Always" → accept-with-rule (2)
+        // `clear` + a phase-unique marker: waiting for the marker first proves
+        // the screen was wiped (phase 1's leftover LOGGER_READY is gone), so
+        // the LOGGER_READY wait can only match THIS phase's logger — a fixed
+        // sleep would drop the keystroke on a loaded runner with slow python
+        // startup.
         Shortcut.tmuxRunCommand(
             target: "session-1:0",
-            command: "python3 $TMPDIR/keystroke_logger.py"
+            command: "clear && echo PHASE2START && python3 $TMPDIR/keystroke_logger.py"
         )
-        TestStep.wait(seconds: 1)
+        TestStep.tmuxWaitForPaneContent(target: "session-1:0", contains: "PHASE2START")
+        TestStep.tmuxWaitForPaneContent(target: "session-1:0", contains: "LOGGER_READY")
         TestStep.macSendHookEvent(
             json: """
             {
@@ -111,12 +117,14 @@ public enum NotificationActionScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        // Fresh screen + fresh logger so the assertion sees only this phase.
+        // Fresh screen + fresh logger so the assertion sees only this phase
+        // (same marker-then-ready wait pattern as phase 2).
         Shortcut.tmuxRunCommand(
             target: "session-1:0",
-            command: "clear && python3 $TMPDIR/keystroke_logger.py"
+            command: "clear && echo PHASE3START && python3 $TMPDIR/keystroke_logger.py"
         )
-        TestStep.wait(seconds: 1)
+        TestStep.tmuxWaitForPaneContent(target: "session-1:0", contains: "PHASE3START")
+        TestStep.tmuxWaitForPaneContent(target: "session-1:0", contains: "LOGGER_READY")
         // Re-tap the already-consumed phase-2 notification: iOS submits (the
         // tap "succeeds" client-side); the HOST drops it because the pane's
         // open form no longer matches the request id.

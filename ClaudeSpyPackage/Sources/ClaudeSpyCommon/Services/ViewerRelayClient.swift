@@ -502,15 +502,19 @@ final public class ViewerRelayClient {
 
     /// Submit a structured response for a previously-emitted response request.
     /// The host matches `requestId` and calls `core.deliverResponse(...)`.
+    /// Returns whether the submission was handed to the transport — a `false`
+    /// means the answer did NOT leave the device (not connected, encryption
+    /// refused, or the socket send failed) and the caller should surface that.
+    @discardableResult
     public func submitAgentResponse(
         sessionId: String,
         pluginId: String,
         requestId: String,
         response: AgentResponse
-    ) async {
+    ) async -> Bool {
         guard state.isConnected else {
             logger.debug("Not connected, cannot submit agent response")
-            return
+            return false
         }
         let message = AgentResponseSubmissionMessage(
             pairId: pairId ?? "",
@@ -519,7 +523,7 @@ final public class ViewerRelayClient {
             requestId: requestId,
             response: response
         )
-        await sendEncrypted(.agentResponseSubmission(message))
+        return await sendEncrypted(.agentResponseSubmission(message))
     }
 
     // MARK: - Private Methods
@@ -875,10 +879,14 @@ final public class ViewerRelayClient {
         }
     }
 
-    private func send(_ message: WebSocketMessage) async {
+    /// Returns whether the frame was handed to the transport — callers that
+    /// promise delivery feedback (e.g. notification action submissions) branch
+    /// on it; fire-and-forget callers discard it.
+    @discardableResult
+    private func send(_ message: WebSocketMessage) async -> Bool {
         guard let task = webSocketTask else {
             logger.debug("No WebSocket task, cannot send message")
-            return
+            return false
         }
 
         do {
@@ -886,8 +894,10 @@ final public class ViewerRelayClient {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
             try await task.send(.data(data))
+            return true
         } catch {
             logger.error("Failed to send WebSocket message: \(error)")
+            return false
         }
     }
 
@@ -916,17 +926,20 @@ final public class ViewerRelayClient {
 
     /// Encrypts and sends a message that should be encrypted.
     /// Fails closed if E2EE session is not established - will not send unencrypted.
-    private func sendEncrypted(_ message: WebSocketMessage) async {
+    /// Returns whether the encrypted frame was handed to the transport.
+    @discardableResult
+    private func sendEncrypted(_ message: WebSocketMessage) async -> Bool {
         guard let e2eeService, await e2eeService.isSessionEstablished else {
             logger.error("E2EE session not established, refusing to send sensitive message")
-            return
+            return false
         }
 
         do {
             let encryptedMessage = try await message.encrypt(using: e2eeService)
-            await send(encryptedMessage)
+            return await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
+            return false
         }
     }
 

@@ -84,10 +84,14 @@
         /// The category identifier (and any category needing dynamic
         /// registration) for the FIRST notification of an action context.
         /// Permission forms use the static set; question forms return their
-        /// question-0 dynamic category.
+        /// question-0 dynamic category. Returns `nil` for a context that can't
+        /// offer actions — locally-built contexts always can (`make` refuses
+        /// question forms with no questions), but both callers feed contexts
+        /// decoded off the wire, so a buggy or version-skewed host must
+        /// degrade to a plain notification, not crash.
         public static func initialCategory(
             for context: NotificationActionContext
-        ) -> (identifier: String, dynamicCategory: UNNotificationCategory?) {
+        ) -> (identifier: String, dynamicCategory: UNNotificationCategory?)? {
             switch context.form {
             case let .permission(actions):
                 let identifier = actions.alwaysSuggestionID != nil
@@ -96,9 +100,9 @@
                 return (identifier, nil)
 
             case let .askUserQuestion(actions):
-                // `make` guarantees at least one question.
+                guard let firstQuestion = actions.questions.first else { return nil }
                 let category = questionCategory(
-                    for: actions.questions[0],
+                    for: firstQuestion,
                     requestId: context.requestId,
                     questionIndex: 0
                 )
@@ -112,13 +116,28 @@
         /// (`setNotificationCategories` REPLACES, so a naive set would strip
         /// actions from every pending notification using another category).
         /// Same-identifier categories are replaced by the new ones.
+        ///
+        /// Dynamic per-question categories are also PRUNED here: each request ×
+        /// question mints a unique id, so without pruning the registered set
+        /// grows for the life of the install. A question category is kept only
+        /// while a delivered notification still references it (an unanswered
+        /// question on the lock screen) or it's part of this registration.
         public static func registerMerging(
             _ categories: [UNNotificationCategory],
             center: UNUserNotificationCenter = .current()
         ) async {
             let existing = await center.notificationCategories()
             let newIdentifiers = Set(categories.map(\.identifier))
-            let kept = existing.filter { !newIdentifiers.contains($0.identifier) }
+            let deliveredCategoryIds = Set(
+                await center.deliveredNotifications().map(\.request.content.categoryIdentifier)
+            )
+            let kept = existing.filter { category in
+                guard !newIdentifiers.contains(category.identifier) else { return false }
+                guard category.identifier.hasPrefix(NotificationCategoryID.questionPrefix) else {
+                    return true
+                }
+                return deliveredCategoryIds.contains(category.identifier)
+            }
             center.setNotificationCategories(kept.union(categories))
             // Registration is asynchronous fire-and-forget; give the system a
             // moment to absorb the new set before the caller delivers a

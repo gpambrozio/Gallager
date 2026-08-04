@@ -94,12 +94,8 @@
 
             // Action taps run without UI — ask for background time so iOS
             // doesn't suspend the process mid-submission.
-            let bgTask = UIApplication.shared.beginBackgroundTask(withName: "NotificationAction")
-            defer {
-                if bgTask != .invalid {
-                    UIApplication.shared.endBackgroundTask(bgTask)
-                }
-            }
+            beginBackgroundTask()
+            defer { endBackgroundTask() }
 
             switch plan {
             case let .submit(agentResponse):
@@ -127,6 +123,31 @@
                 )
             }
             return true
+        }
+
+        // MARK: - Background task
+
+        /// The background task protecting an in-flight action submission, or
+        /// `.invalid` when none is active.
+        private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+        /// Requests background time for an action submission. The expiration
+        /// handler gives the allowance back cleanly — without it, a submission
+        /// overrunning the allowance (connect poll + retries) would be a
+        /// watchdog kill instead of a stopped task.
+        private func beginBackgroundTask() {
+            guard backgroundTaskID == .invalid else { return }
+            backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "NotificationAction") { [weak self] in
+                Task { @MainActor in
+                    self?.endBackgroundTask()
+                }
+            }
+        }
+
+        private func endBackgroundTask() {
+            guard backgroundTaskID != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
         }
 
         // MARK: - Incoming actionable notifications
@@ -226,9 +247,21 @@
             action: NotificationActionContext
         ) async {
             guard PushNotificationService.shared.permissionStatus == .authorized else { return }
-            guard let contextJSON = encodeJSONString(action) else { return }
+            guard
+                let contextJSON = encodeJSONString(action),
+                // A context with no offerable actions (wire skew) falls back to
+                // the caller's plain-notification path.
+                let (categoryId, dynamicCategory) = NotificationActionCategories.initialCategory(for: action)
+            else {
+                PushNotificationService.shared.scheduleLocalNotification(
+                    title: title,
+                    body: body,
+                    paneId: paneId,
+                    hostId: hostId
+                )
+                return
+            }
 
-            let (categoryId, dynamicCategory) = NotificationActionCategories.initialCategory(for: action)
             if let dynamicCategory {
                 await NotificationActionCategories.registerMerging([dynamicCategory])
             }
@@ -344,13 +377,15 @@
                 return false
             }
 
-            await connection.submitAgentResponse(
+            // `submitAgentResponse` reports whether the frame reached the
+            // transport — a socket that died between the poll above and the
+            // send must surface as "not delivered", not silently succeed.
+            return await connection.submitAgentResponse(
                 sessionId: context.sessionId,
                 pluginId: context.pluginId,
                 requestId: context.requestId,
                 response: response
             )
-            return true
         }
 
         // MARK: - Follow-up notifications

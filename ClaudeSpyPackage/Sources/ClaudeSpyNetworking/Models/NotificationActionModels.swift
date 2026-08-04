@@ -111,7 +111,18 @@ extension NotificationActionContext {
         public static let maxOptionsPerQuestion = 6
         /// The whole encoded context must fit this many bytes or the
         /// notification falls back to plain tap-to-open.
-        public static let maxEncodedBytes = 2000
+        ///
+        /// Sized for the APNs envelope's DOUBLE base64: the context rides in
+        /// the `NotificationContent` JSON (plaintext P ≈ context + title/body/
+        /// ids, worst-case ~950 bytes without the context), which is sealed
+        /// (+28 bytes) and base64'd into `EncryptedPayload.ciphertext`, whose
+        /// JSON is base64'd AGAIN into the push's `encrypted` field — ~1.78×P
+        /// total, plus ~300 bytes of `aps`/`pairId` envelope. At 1200 the
+        /// worst-case push stays ≈ 3.6 KB < 4096; an oversized push is
+        /// rejected wholesale by APNs (the user would get NO notification),
+        /// so this errs low. Verified end-to-end by
+        /// `NotificationActionWireTests.worstCaseAPNsEnvelopeFitsBudget`.
+        public static let maxEncodedBytes = 1200
     }
 
     /// Builds the action context for a notification that accompanies `state`,

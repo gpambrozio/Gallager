@@ -144,12 +144,14 @@ final public class ViewerConnection: Identifiable {
     }
 
     /// Submit a structured response for a previously-emitted response request.
+    /// Returns whether the submission was handed to the transport.
+    @discardableResult
     public func submitAgentResponse(
         sessionId: String,
         pluginId: String,
         requestId: String,
         response: AgentResponse
-    ) async {
+    ) async -> Bool {
         await relayClient.submitAgentResponse(
             sessionId: sessionId,
             pluginId: pluginId,

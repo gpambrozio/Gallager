@@ -445,6 +445,103 @@ struct NotificationActionWireTests {
         #expect(roundTripped.withPairId("pair2").action == context)
     }
 
+    @Test("a present-but-undecodable action degrades to nil, not a decode failure")
+    func lenientActionDecoding() throws {
+        // A future host may send a `Form` case this build doesn't know. The
+        // whole content must still decode (the NSE would otherwise show its
+        // "decryption failed / re-pair" failure notification).
+        let futureContent = """
+        {"title":"T","body":"B","eventType":"PermissionRequest","pairId":"pair1",
+         "paneId":"%1","timestamp":740000000,
+         "action":{"sessionId":"%1","pluginId":"p","requestId":"r1",
+                   "form":{"someFutureForm":{"_0":{"x":1}}}}}
+        """
+        let content = try JSONDecoder().decode(
+            NotificationContent.self,
+            from: Data(futureContent.utf8)
+        )
+        #expect(content.action == nil)
+        #expect(content.title == "T")
+
+        let futureMessage = """
+        {"pairId":"pair1","sessionId":"%1","title":"T","body":"B","timestamp":740000000,
+         "action":{"sessionId":"%1","pluginId":"p","requestId":"r1",
+                   "form":{"someFutureForm":{"_0":{"x":1}}}}}
+        """
+        let message = try JSONDecoder().decode(
+            AgentNotificationMessage.self,
+            from: Data(futureMessage.utf8)
+        )
+        #expect(message.action == nil)
+        #expect(message.title == "T")
+    }
+
+    @Test("a cap-sized context still fits the APNs 4 KB envelope after double base64")
+    func worstCaseAPNsEnvelopeFitsBudget() throws {
+        // The `Limits.maxEncodedBytes` cap is measured on the RAW context, but
+        // the wire applies double base64: NotificationContent JSON → ChaChaPoly
+        // seal → base64 ciphertext inside EncryptedPayload JSON → that whole
+        // JSON base64'd again into the push's `encrypted` field. This test
+        // walks a cap-sized context through that exact envelope arithmetic —
+        // an oversized push is rejected wholesale by APNs, which would mean NO
+        // notification at all.
+        func context(padding: Int) -> NotificationActionContext {
+            NotificationActionContext(
+                sessionId: "%42",
+                pluginId: "claude-code",
+                requestId: "session-uuid-0000:PermissionRequest:occurrence-uuid-0000",
+                form: .askUserQuestion(QuestionActions(questions: [
+                    QuestionActions.Question(
+                        id: "q0",
+                        question: String(repeating: "q", count: 150),
+                        options: [QuestionActions.Option(
+                            id: "q0-o0",
+                            // Direct init bypasses `make`'s truncation on
+                            // purpose: pad to land exactly at the cap.
+                            label: String(repeating: "x", count: padding)
+                        )],
+                        allowsFreeText: true
+                    ),
+                ]))
+            )
+        }
+        let base = try JSONEncoder().encode(context(padding: 0)).count
+        let capped = context(padding: NotificationActionContext.Limits.maxEncodedBytes - base)
+        let cappedBytes = try JSONEncoder().encode(capped).count
+        #expect(cappedBytes == NotificationActionContext.Limits.maxEncodedBytes)
+
+        // Worst-case surrounding content: long title/body (Stop summaries are
+        // truncated at 256; question bodies carry the question text).
+        let content = NotificationContent(
+            title: String(repeating: "t", count: 300),
+            body: String(repeating: "b", count: 300),
+            eventType: "PermissionRequest",
+            pairId: UUID().uuidString,
+            paneId: "%42",
+            timestamp: Date(timeIntervalSince1970: 1_750_000_000),
+            action: capped
+        )
+        let plaintext = try JSONEncoder().encode(content)
+
+        // ChaChaPoly's sealed box is size-deterministic: 12-byte nonce +
+        // plaintext + 16-byte tag. EncryptedPayload's JSON shape is emulated
+        // exactly (base64 ciphertext + senderKeyId + version).
+        let ciphertext = Data(count: plaintext.count + 28)
+        let payloadJSON = """
+        {"ciphertext":"\(ciphertext.base64EncodedString())",\
+        "senderKeyId":"\(UUID().uuidString)","version":1}
+        """
+        let encryptedField = Data(payloadJSON.utf8).base64EncodedString()
+
+        // The APNs envelope APNsService emits: placeholder alert + badge +
+        // mutable-content, plus the encrypted field and pairId at the root.
+        let envelope = """
+        {"aps":{"alert":{"title":"Gallager","body":"New activity"},"badge":42,\
+        "mutable-content":1},"encrypted":"\(encryptedField)","pairId":"\(UUID().uuidString)"}
+        """
+        #expect(envelope.utf8.count <= 4096)
+    }
+
     @Test("NotificationContent round-trips the action context")
     func notificationContentRoundTrip() throws {
         let context = NotificationActionContext(

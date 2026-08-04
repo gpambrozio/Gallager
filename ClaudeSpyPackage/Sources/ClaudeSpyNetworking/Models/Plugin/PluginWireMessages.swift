@@ -132,4 +132,21 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
             action: action
         )
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case pairId, sessionId, title, body, timestamp, action
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.pairId = try container.decode(String.self, forKey: .pairId)
+        self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.body = try container.decode(String.self, forKey: .body)
+        self.timestamp = try container.decode(Date.self, forKey: .timestamp)
+        // Lenient like `NotificationContent.action`: an undecodable context
+        // from a newer host degrades to a plain notification rather than
+        // dropping the whole message.
+        self.action = (try? container.decodeIfPresent(NotificationActionContext.self, forKey: .action)) ?? nil
+    }
 }
