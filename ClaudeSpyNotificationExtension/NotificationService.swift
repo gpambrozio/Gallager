@@ -177,6 +177,13 @@ class NotificationService: UNNotificationServiceExtension {
 
         content.categoryIdentifier = categoryId
         content.userInfo[NotificationUserInfoKey.actionContext] = contextJSON
+
+        // Multi-question forms: the Mac-baked body only says "Claude has N
+        // questions", so the expanded notification would show option buttons
+        // with no visible question. Append the first question, numbered.
+        if let questionLine = action.numberedQuestionBody(at: 0) {
+            content.body += "\n\(questionLine)"
+        }
     }
 
     private func decryptPayload(_ payload: EncryptedPayload, using symmetricKey: SymmetricKey) throws -> Data {

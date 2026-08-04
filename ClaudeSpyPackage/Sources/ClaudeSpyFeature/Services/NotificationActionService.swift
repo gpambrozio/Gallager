@@ -268,7 +268,14 @@
 
             let content = UNMutableNotificationContent()
             content.title = title
-            content.body = body
+            // Multi-question forms: the baked body only says "Claude has N
+            // questions" — append the first question so the expanded
+            // notification's buttons have a visible question (mirrors the NSE).
+            if let questionLine = action.numberedQuestionBody(at: 0) {
+                content.body = "\(body)\n\(questionLine)"
+            } else {
+                content.body = body
+            }
             content.sound = .default
             content.badge = 1
             content.categoryIdentifier = categoryId
@@ -320,7 +327,7 @@
                 manager = created
             }
 
-            let delivered = await submitThroughManager(
+            var delivered = await submitThroughManager(
                 response,
                 context: context,
                 hostId: hostId,
@@ -329,6 +336,27 @@
                 settings: settings,
                 manager: manager
             )
+
+            if !delivered {
+                // A background suspension (e.g. between two questions of a
+                // multi-question flow) kills the socket but leaves the
+                // client's state flags frozen at "connected" — and both
+                // `connect()` and `reconnectImmediately()` no-op while the
+                // client thinks it's connected, so the stale socket would
+                // never heal. Force a real teardown and retry once on a
+                // fresh connection.
+                logger.info("Submission failed; forcing a fresh connection and retrying")
+                await manager.connection(for: hostId)?.disconnect()
+                delivered = await submitThroughManager(
+                    response,
+                    context: context,
+                    hostId: hostId,
+                    host: host,
+                    serverURL: serverURL,
+                    settings: settings,
+                    manager: manager
+                )
+            }
 
             // A temporary manager's sockets aren't managed by anyone else —
             // tear them down (awaited) once the submission is done, after a
@@ -417,9 +445,9 @@
 
             let content = UNMutableNotificationContent()
             // Keep the original title so the flow reads as one conversation;
-            // the body advances to the next question.
+            // the body advances to the next question (numbered, "(2/2) …").
             content.title = originalTitle
-            content.body = question.question
+            content.body = context.numberedQuestionBody(at: index) ?? question.question
             content.sound = .default
             content.categoryIdentifier = category.identifier
             var userInfo: [String: Any] = [

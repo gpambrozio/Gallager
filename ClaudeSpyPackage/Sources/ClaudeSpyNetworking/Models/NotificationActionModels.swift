@@ -205,6 +205,26 @@ private extension String {
     }
 }
 
+extension NotificationActionContext {
+    /// A notification body line presenting the question at `index` of a
+    /// multi-question form, numbered so the user can see where they are:
+    /// `"(2/3) Pick a size"`. Returns `nil` for non-question forms,
+    /// single-question forms (whose Mac-baked body already contains the
+    /// question), and out-of-range indices.
+    ///
+    /// The Mac-baked body for a multi-question form only says "Claude has N
+    /// questions" — without this line the expanded notification shows option
+    /// buttons with no visible question (issue #710 manual testing).
+    public func numberedQuestionBody(at index: Int) -> String? {
+        guard
+            case let .askUserQuestion(actions) = form,
+            actions.questions.count > 1,
+            actions.questions.indices.contains(index)
+        else { return nil }
+        return "(\(index + 1)/\(actions.questions.count)) \(actions.questions[index].question)"
+    }
+}
+
 // MARK: - NotificationActionProgress
 
 /// Where a multi-question notification flow currently stands. Rides in the

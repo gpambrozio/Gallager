@@ -379,6 +379,51 @@ struct NotificationActionPlannerTests {
     }
 }
 
+// MARK: - Question body lines
+
+@Suite("NotificationActionContext.numberedQuestionBody")
+struct NumberedQuestionBodyTests {
+    private func questionContext(_ texts: [String]) -> NotificationActionContext {
+        NotificationActionContext(
+            sessionId: "%1",
+            pluginId: "p",
+            requestId: "r1",
+            form: .askUserQuestion(QuestionActions(questions: texts.enumerated().map { index, text in
+                QuestionActions.Question(
+                    id: "q\(index)",
+                    question: text,
+                    options: [QuestionActions.Option(id: "q\(index)-o0", label: "A")],
+                    allowsFreeText: false
+                )
+            }))
+        )
+    }
+
+    @Test("multi-question forms get numbered question lines")
+    func multiQuestionNumbered() {
+        let context = questionContext(["Pick a fruit", "Pick a size"])
+        #expect(context.numberedQuestionBody(at: 0) == "(1/2) Pick a fruit")
+        #expect(context.numberedQuestionBody(at: 1) == "(2/2) Pick a size")
+        #expect(context.numberedQuestionBody(at: 2) == nil)
+    }
+
+    @Test("single-question forms return nil (the baked body already shows the question)")
+    func singleQuestionNil() {
+        #expect(questionContext(["Pick one"]).numberedQuestionBody(at: 0) == nil)
+    }
+
+    @Test("permission forms return nil")
+    func permissionNil() {
+        let context = NotificationActionContext(
+            sessionId: "%1",
+            pluginId: "p",
+            requestId: "r1",
+            form: .permission(PermissionActions(alwaysSuggestionID: nil))
+        )
+        #expect(context.numberedQuestionBody(at: 0) == nil)
+    }
+}
+
 // MARK: - Identifiers
 
 @Suite("NotificationActionID")
