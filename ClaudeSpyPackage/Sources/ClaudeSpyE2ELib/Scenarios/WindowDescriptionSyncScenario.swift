@@ -67,8 +67,10 @@ public enum WindowDescriptionSyncScenario {
 
         TestStep.macContextMenuClick(elementTitle: "e2e-desc", menuItem: "Add Description")
         TestStep.macWaitForElement(titled: "Session Description", timeout: 5)
-        TestStep.macScreenshot(label: "host-alert-add")
+        // Let the sheet's entrance animation settle before capturing, or the
+        // screenshot lands a few pixels off from the baseline.
         TestStep.wait(seconds: 0.5)
+        TestStep.macScreenshot(label: "host-alert-add")
         TestStep.macType(text: "My Test Description", pressReturn: false)
         TestStep.macScreenshot(label: "host-alert-add-typed")
         TestStep.macClickButton(titled: "Save")
@@ -89,8 +91,10 @@ public enum WindowDescriptionSyncScenario {
 
         TestStep.macContextMenuClick(elementTitle: "My Test Description", menuItem: "Edit Description", instance: 1)
         TestStep.macWaitForElement(titled: "Session Description", timeout: 5, instance: 1)
-        TestStep.macScreenshot(label: "viewer-alert-edit", instance: 1)
+        // Let the sheet's entrance animation settle before capturing, or the
+        // screenshot lands a few pixels off from the baseline.
         TestStep.wait(seconds: 0.5)
+        TestStep.macScreenshot(label: "viewer-alert-edit", instance: 1)
         TestStep.macPressKey(.character("a"), modifiers: .command, instance: 1)
         TestStep.macType(text: "Viewer Updated", pressReturn: false, instance: 1)
         TestStep.macScreenshot(label: "viewer-alert-edit-typed", instance: 1)
