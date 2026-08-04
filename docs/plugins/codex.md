@@ -136,6 +136,19 @@ never writes them).
 misattributed session can never eat a real prompt. Both sides of the prefix match are
 symlink-resolved (`/var/…` vs `/private/var/…`).
 
+**Permission-mode chip (#718):** the mode chip the UI renders is seeded from the hook
+channel's Claude-compatible `permission_mode`, which encodes only the approval-POLICY
+axis (`on-request` → `"default"`) — so under guardian posture it read "Default" while
+every approval was being auto-decided. `CodexTranslator.effectivePermissionMode` folds
+the resolved posture in: `"default"` + `.autoReview` → `"auto"` (the chip already
+rendered as "Auto" for Claude); every other value passes through (`bypassPermissions`
+keeps its loud chip, `nil` stays `nil`). To feed the per-tool events that carry a mode
+without reading the rollout file per tool call, the core caches the last resolved
+posture per session (`reviewerPostures`): `SessionStart` / `UserPromptSubmit` /
+`PermissionRequest` resolve fresh (session birth, turn boundaries — so the chip heals
+from a toggle with ≤ one turn of lag), `PreToolUse` / `PostToolUse` / `Stop` reuse the
+cache.
+
 **Unchanged:** ClaudeSpy's per-pane yolo toggle, the dispatcher auto-approve path, and
 Claude Code's `PermissionRequest` handling.
 

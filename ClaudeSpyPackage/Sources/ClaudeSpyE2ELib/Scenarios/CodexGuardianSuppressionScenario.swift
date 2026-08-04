@@ -33,6 +33,11 @@ import Foundation
 /// 7. MCP permission payloads carry codex's REAL raw-arguments `tool_input`
 ///    shape (no `{server, tool, input}` wrapper — issue #717), so
 ///    suppression of the namespaced arm proves the name-derived decode.
+/// 8. The permission-mode chip folds the guardian posture in (PR #718):
+///    codex reports `permission_mode: "default"` (the approval-POLICY axis)
+///    even while every approval is auto-decided, so under guardian posture
+///    the chip must read "Auto", healing back to "Default" when the
+///    reviewer flips to `user`.
 ///
 /// The scratch CODEX_HOME lives inside the per-scenario
 /// `--gallager-state-root`; the pre-seeded codex `settings.json` lists it in
@@ -122,16 +127,21 @@ public enum CodexGuardianSuppressionScenario {
         // concatenates the row's children as "<status>, <project>, <path>" — e.g.
         // "Permission, CodexGuardian, ~" while awaiting, "Working, CodexGuardian, ~"
         // otherwise. A bare "Permission" any-text match can't be used: the
-        // permission-mode chip seeded by `permission_mode: "default"` is a separate
-        // element (id `permission-mode-chip`) exposing "Permission mode Default" as
-        // both an AXImage label and an AXStaticText value — always present, so a
-        // substring match never lets this disappear-check pass. Matching the
-        // status+project substring "Permission, CodexGuardian" tracks only the row
-        // (the chip never carries the project name) and is role-independent: the
-        // row's AX role flips between AXButton (awaiting, bell icon) and AXGroup
-        // (working, ProgressView), so role-scoping the query would miss one state.
+        // permission-mode chip seeded by the hook's `permission_mode` is a separate
+        // element (id `permission-mode-chip`) exposing "Permission mode Auto" (or
+        // "… Default") as both an AXImage label and an AXStaticText value — always
+        // present, so a substring match never lets this disappear-check pass.
+        // Matching the status+project substring "Permission, CodexGuardian" tracks
+        // only the row (the chip never carries the project name) and is
+        // role-independent: the row's AX role flips between AXButton (awaiting,
+        // bell icon) and AXGroup (working, ProgressView), so role-scoping the
+        // query would miss one state.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Permission, CodexGuardian"), timeout: 5)
+        // The chip folds the guardian posture in (PR #718): codex reported
+        // `permission_mode: "default"` (policy axis), but approvals are being
+        // auto-decided, so the chip reads "Auto" — not "Default".
+        TestStep.macWaitForElementQuery(.labelContains("Permission mode Auto"), timeout: 10)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-working")
 
         // No iOS response UI (neither the Accept button nor the form's
@@ -270,6 +280,10 @@ public enum CodexGuardianSuppressionScenario {
         // that status+project substring so this hits the real awaiting-permission
         // status, not the always-present permission-mode chip — see Phase 3.
         TestStep.macWaitForElementQuery(.labelContains("Permission, CodexGuardian"), timeout: 10)
+        // Approvals route to the user again, so the chip heals back to
+        // "Default" on the same event (permission requests always re-resolve
+        // the posture, PR #718).
+        TestStep.macWaitForElementQuery(.labelContains("Permission mode Default"), timeout: 10)
         TestStep.iosScreenshot(label: "ios-user-posture-form-shows")
         TestStep.readFile(path: "${pushLogPath}", storeAs: "pushLogAfterUserFlip")
         TestStep.assertStoredContains(
@@ -313,6 +327,8 @@ public enum CodexGuardianSuppressionScenario {
         // a real transition proving the suppressed event replaced the state.
         TestStep.macWaitForElement(titled: "Working", timeout: 10)
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Permission, CodexGuardian"), timeout: 5)
+        // …and the chip flips back to "Auto" alongside the suppression (#718).
+        TestStep.macWaitForElementQuery(.labelContains("Permission mode Auto"), timeout: 10)
         TestStep.macScreenshot(label: "mac-guardian-suppressed-again")
 
         // The MCP form never appears on iOS, and no push went out.

@@ -671,6 +671,133 @@ struct CodexGuardianPostureTests {
         }
     }
 
+    // MARK: - Permission-mode chip (guardian posture surfaces as "auto", PR #718)
+
+    /// A working-tier tool event carrying codex's Claude-compatible
+    /// `permission_mode` — the chip-seed channel the pill renders from.
+    private func preToolUseJSON(
+        transcriptPath: String,
+        sessionID: String = "sess-guardian",
+        permissionMode: String = "default"
+    ) -> String {
+        """
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "\(sessionID)",
+            "cwd": "/Users/test/MyProject",
+            "transcript_path": "\(transcriptPath)",
+            "permission_mode": "\(permissionMode)",
+            "tool_name": "Read",
+            "tool_input": { "file_path": "/tmp/x.txt" }
+        }
+        """
+    }
+
+    private func userPromptSubmitJSON(
+        transcriptPath: String,
+        sessionID: String = "sess-guardian"
+    ) -> String {
+        """
+        {
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "\(sessionID)",
+            "cwd": "/Users/test/MyProject",
+            "transcript_path": "\(transcriptPath)",
+            "permission_mode": "default",
+            "prompt": "do the thing"
+        }
+        """
+    }
+
+    @Test("guardian posture: a tool event's chip mode maps default → auto (resumed session)")
+    func chipMapsToAutoViaTurnContext() async throws {
+        try await withCore(configTOML: userTOML) { core, _, codexHome in
+            // The live-repro shape: resumed thread (no SessionStart hook) and
+            // the global file even says `user` — only the rollout's own
+            // turn_context explains an "auto" chip.
+            let rollout = transcript(in: codexHome)
+            try writeRollout(at: rollout, reviewer: "auto_review")
+
+            let event = try #require(
+                await core.handleIngress(frame(preToolUseJSON(transcriptPath: rollout)))
+            )
+            #expect(event.permissionMode == "auto")
+        }
+    }
+
+    @Test("guardian posture: the suppressed permission event itself reports mode auto")
+    func suppressedPermissionReportsAuto() async throws {
+        try await withCore(configTOML: autoReviewTOML) { core, _, codexHome in
+            _ = await core.handleIngress(
+                frame(sessionStartJSON(transcriptPath: transcript(in: codexHome)))
+            )
+            let event = try #require(await core.handleIngress(
+                frame(permissionJSON(transcriptPath: transcript(in: codexHome)))
+            ))
+            #expect(event.state == .working)
+            #expect(event.permissionMode == "auto")
+        }
+    }
+
+    @Test("user posture: the chip mode stays default")
+    func chipStaysDefaultUnderUserPosture() async throws {
+        try await withCore(configTOML: userTOML) { core, _, codexHome in
+            let rollout = transcript(in: codexHome)
+            try writeRollout(at: rollout, reviewer: "user")
+
+            let event = try #require(
+                await core.handleIngress(frame(preToolUseJSON(transcriptPath: rollout)))
+            )
+            #expect(event.permissionMode == "default")
+        }
+    }
+
+    @Test("bypassPermissions passes through the chip mapping untouched")
+    func chipBypassPassesThrough() async throws {
+        try await withCore(configTOML: autoReviewTOML) { core, _, codexHome in
+            let rollout = transcript(in: codexHome)
+            try writeRollout(at: rollout, reviewer: "auto_review")
+
+            let event = try #require(await core.handleIngress(frame(
+                preToolUseJSON(transcriptPath: rollout, permissionMode: "bypassPermissions")
+            )))
+            #expect(event.permissionMode == "bypassPermissions")
+        }
+    }
+
+    @Test("a turn boundary re-resolves the chip posture; tool events reuse the cached value")
+    func chipRefreshesAtTurnBoundary() async throws {
+        try await withCore(configTOML: userTOML) { core, _, codexHome in
+            let rollout = transcript(in: codexHome)
+            try writeRollout(at: rollout, reviewer: "auto_review")
+            let first = try #require(
+                await core.handleIngress(frame(preToolUseJSON(transcriptPath: rollout)))
+            )
+            #expect(first.permissionMode == "auto")
+
+            // Guardian toggled off: the next turn_context says `user`. Tool
+            // events deliberately reuse the session's cached posture (a rollout
+            // read per PreToolUse would be per-tool file I/O)…
+            try writeRollout(at: rollout, reviewer: "user")
+            let cached = try #require(
+                await core.handleIngress(frame(preToolUseJSON(transcriptPath: rollout)))
+            )
+            #expect(cached.permissionMode == "auto")
+
+            // …and the next turn start re-resolves, so the chip heals with at
+            // most one turn of lag.
+            let prompt = try #require(
+                await core.handleIngress(frame(userPromptSubmitJSON(transcriptPath: rollout)))
+            )
+            #expect(prompt.permissionMode == "default")
+
+            let after = try #require(
+                await core.handleIngress(frame(preToolUseJSON(transcriptPath: rollout)))
+            )
+            #expect(after.permissionMode == "default")
+        }
+    }
+
     // MARK: - Snapshot lifecycle
 
     @Test("the pane poll's orphan reconcile must not wipe a live session's snapshot")

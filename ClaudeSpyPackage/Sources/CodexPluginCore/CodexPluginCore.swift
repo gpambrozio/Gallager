@@ -52,6 +52,13 @@ public actor CodexPluginCore: PluginCore {
     /// `approvalsReviewer(for:)` for how the snapshot gates suppression.
     private var reviewerSnapshots: [String: CodexApprovalsReviewer] = [:]
 
+    /// Per-session cache of the last RESOLVED effective posture, so the
+    /// per-tool events that only feed the permission-mode chip (`PreToolUse`
+    /// / `PostToolUse` / `Stop`) don't re-read the rollout file on every tool
+    /// call. Refreshed by every full resolution (session start, turn start,
+    /// permission request) — see `approvalsReviewer(for:)`.
+    private var reviewerPostures: [String: CodexApprovalsReviewer] = [:]
+
     #if os(macOS)
         private var watchers: [CodexSessionsWatcher] = []
 
@@ -143,6 +150,7 @@ public actor CodexPluginCore: PluginCore {
             recordReviewerSnapshot(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
         case let .sessionEnd(body):
             reviewerSnapshots.removeValue(forKey: body.sessionId)
+            reviewerPostures.removeValue(forKey: body.sessionId)
         default:
             break
         }
@@ -238,7 +246,58 @@ public actor CodexPluginCore: PluginCore {
 
     // MARK: - Approvals-reviewer posture (issue #585)
 
-    /// The effective reviewer posture governing this event's session.
+    /// The effective reviewer posture governing this event's session. It
+    /// decides permission suppression AND the chip's mode mapping (`default`
+    /// → `auto` while the guardian decides approvals, PR #718).
+    ///
+    /// Which events resolve the posture fresh vs. reuse the session cache:
+    /// - `PermissionRequest`: fresh — the suppress-or-notify decision must
+    ///   track the ground truth exactly (a stale suppress eats a real prompt).
+    /// - `SessionStart` / `UserPromptSubmit`: fresh — session birth and turn
+    ///   boundaries are when codex (re)binds its runtime posture, so the chip
+    ///   heals with at most one turn of lag after a toggle.
+    /// - `PreToolUse` / `PostToolUse` / `Stop`: cached — they only feed the
+    ///   permission-mode chip, and a fresh resolve per tool event would read
+    ///   the whole rollout file once per tool call.
+    /// - everything else: `.user` — those events carry no `permission_mode`,
+    ///   so the posture is never consulted.
+    private func approvalsReviewer(for action: HookAction) async -> CodexApprovalsReviewer {
+        switch action {
+        case let .permissionRequest(body):
+            await refreshedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .sessionStart(body):
+            await refreshedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .userPromptSubmit(body):
+            await refreshedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .preToolUse(body):
+            await cachedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .postToolUse(body):
+            await cachedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        case let .stop(body):
+            await cachedPosture(sessionID: body.sessionId, transcriptPath: body.transcriptPath)
+        default:
+            .user
+        }
+    }
+
+    private func refreshedPosture(
+        sessionID: String,
+        transcriptPath: String?
+    ) async -> CodexApprovalsReviewer {
+        let resolved = await resolvePosture(sessionID: sessionID, transcriptPath: transcriptPath)
+        reviewerPostures[sessionID] = resolved
+        return resolved
+    }
+
+    private func cachedPosture(
+        sessionID: String,
+        transcriptPath: String?
+    ) async -> CodexApprovalsReviewer {
+        if let cached = reviewerPostures[sessionID] { return cached }
+        return await refreshedPosture(sessionID: sessionID, transcriptPath: transcriptPath)
+    }
+
+    /// One full posture resolution.
     ///
     /// The hook's `transcript_path` (the rollout file, which lives under
     /// `<CODEX_HOME>/sessions/`) attributes the session to a known root.
@@ -266,23 +325,25 @@ public actor CodexPluginCore: PluginCore {
     /// the snapshot to agree on `auto_review`; disagreement means SOME
     /// session toggled and we cannot attribute which → fail safe to `.user`
     /// (notify): a still-`user` session can never have a real prompt eaten.
-    private func approvalsReviewer(for action: HookAction) async -> CodexApprovalsReviewer {
+    private func resolvePosture(
+        sessionID: String,
+        transcriptPath: String?
+    ) async -> CodexApprovalsReviewer {
         guard
-            case let .permissionRequest(body) = action,
-            let transcript = body.transcriptPath,
-            let root = codexHomeRoot(forTranscriptPath: transcript)
+            let transcriptPath,
+            let root = codexHomeRoot(forTranscriptPath: transcriptPath)
         else { return .user }
 
-        if let posture = postureReader.posture(transcriptPath: transcript) {
+        if let posture = postureReader.posture(transcriptPath: transcriptPath) {
             return posture
         }
 
         let fresh = configReader.approvalsReviewer(codexHome: root)
-        let snapshot = reviewerSnapshot(sessionID: body.sessionId, root: root, transcriptPath: transcript)
+        let snapshot = reviewerSnapshot(sessionID: sessionID, root: root, transcriptPath: transcriptPath)
         guard fresh == snapshot else {
             await log(
                 .debug,
-                "approvals_reviewer changed since session \(body.sessionId) started "
+                "approvals_reviewer changed since session \(sessionID) started "
                     + "(config.toml says \(fresh), session started under \(snapshot)) — "
                     + "cannot attribute the toggle, notifying"
             )
