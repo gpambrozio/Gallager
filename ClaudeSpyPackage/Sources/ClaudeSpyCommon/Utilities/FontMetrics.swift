@@ -64,7 +64,7 @@ public enum FontMetrics {
 
         // Snap width to the pixel grid to avoid sub-pixel seams between columns.
         // Must stay in lockstep with SwiftTerm's snap: .rounded(), not ceil,
-        // since SwiftTerm 1.16.0 (a mismatch derives a different column count
+        // since SwiftTerm 1.16 (a mismatch derives a different column count
         // than the mirrored tmux pane).
         let scale = screenScaleFactor
         let snappedWidth = (cellWidth * scale).rounded() / scale
