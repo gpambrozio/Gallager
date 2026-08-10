@@ -19,7 +19,8 @@ import Foundation
 public enum FontMetrics {
     /// Calculates the cell size for a monospace font.
     ///
-    /// This exactly matches SwiftTerm's `computeFontDimensions()` method.
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method,
+    /// including its pixel-grid width snap.
     /// - macOS: `NSFont.glyph(withName:)` + `NSFont.advancement(forGlyph:)`
     /// - iOS: `"W".size(withAttributes:).width`
     ///
@@ -34,8 +35,9 @@ public enum FontMetrics {
 
     /// Calculates the cell size for an existing font.
     ///
-    /// This exactly matches SwiftTerm's `computeFontDimensions()` method, with additional
-    /// width pixel-grid snapping to avoid sub-pixel seams between columns.
+    /// This exactly matches SwiftTerm's `computeFontDimensions()` method, including its
+    /// width pixel-grid snap (`(cellWidth * scale).rounded() / scale`, SwiftTerm 1.16+)
+    /// that avoids sub-pixel seams between columns.
     /// Use this overload when you already have a font reference (e.g., from `TerminalView.font`).
     ///
     /// - Parameter font: The monospace font to measure (NSFont on macOS, UIFont on iOS)
@@ -60,9 +62,12 @@ public enum FontMetrics {
             let cellWidth = "W".size(withAttributes: fontAttributes).width
         #endif
 
-        // Snap width to pixel grid to avoid sub-pixel seams between columns
+        // Snap width to the pixel grid to avoid sub-pixel seams between columns.
+        // Must stay in lockstep with SwiftTerm's snap: .rounded(), not ceil,
+        // since SwiftTerm 1.16.0 (a mismatch derives a different column count
+        // than the mirrored tmux pane).
         let scale = screenScaleFactor
-        let snappedWidth = ceil(cellWidth * scale) / scale
+        let snappedWidth = (cellWidth * scale).rounded() / scale
 
         // Height cap of 8192 matches SwiftTerm's computeFontDimensions() safety limit
         // (see AppleTerminalView.swift in SwiftTerm). cellHeight is already ceil()'d above,

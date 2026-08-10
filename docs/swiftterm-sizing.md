@@ -2,26 +2,34 @@
 
 This document details how SwiftTerm calculates terminal cell dimensions, view sizing, and internal padding. Understanding these calculations is critical for properly sizing mirror windows in ClaudeSpy.
 
-> **SwiftTerm Version**: Commit [`0b8d99b`](https://github.com/migueldeicaza/SwiftTerm/tree/0b8d99bd19b694df44e1ccaa3891309719d34330)
+> **SwiftTerm Version**: v1.18.0, commit [`7691f85`](https://github.com/migueldeicaza/SwiftTerm/tree/7691f85b222a67a66b58499e1b2647443cf0dda7) (the exact pin in `Package.swift`).
+> The Cell Size Calculation section below is verified against this revision. Later sections' code links still point at the older commit `0b8d99b` they were written against; re-verify line numbers there before relying on them.
 
 ## Cell Size Calculation
 
 SwiftTerm calculates character cell dimensions in the `computeFontDimensions()` method.
 
-**File**: [`AppleTerminalView.swift` (lines 142-167)](https://github.com/migueldeicaza/SwiftTerm/blob/0b8d99bd19b694df44e1ccaa3891309719d34330/Sources/SwiftTerm/Apple/AppleTerminalView.swift#L142-L167)
+**File**: [`AppleTerminalView.swift` (lines 377-407)](https://github.com/migueldeicaza/SwiftTerm/blob/7691f85b222a67a66b58499e1b2647443cf0dda7/Sources/SwiftTerm/Apple/AppleTerminalView.swift#L377-L407)
 
 ```swift
-func computeFontDimensions() -> CellDimension {
-    let lineAscent = CTFontGetAscent(fontSet.normal)
-    let lineDescent = CTFontGetDescent(fontSet.normal)
-    let lineLeading = CTFontGetLeading(fontSet.normal)
-    let cellHeight = ceil(lineAscent + lineDescent + lineLeading)
-
-    // macOS approach: use glyph advancement for "W"
+func computeFontDimensions () -> CellDimension
+{
+    let lineAscent = CTFontGetAscent (fontSet.normal)
+    let lineDescent = CTFontGetDescent (fontSet.normal)
+    let lineLeading = CTFontGetLeading (fontSet.normal)
+    let cellHeight = ceil((lineAscent + lineDescent + lineLeading) * _lineSpacing)
+    #if os(macOS)
     let glyph = fontSet.normal.glyph(withName: "W")
     let cellWidth = fontSet.normal.advancement(forGlyph: glyph).width
-
-    return CellDimension(width: max(1, cellWidth), height: max(1, cellHeight))
+    #else
+    let fontAttributes = [NSAttributedString.Key.font: fontSet.normal]
+    let cellWidth = "W".size(withAttributes: fontAttributes).width
+    #endif
+    // Snap to pixel grid to avoid sub-pixel seams between adjacent cells
+    let scale = backingScaleFactor()
+    let snappedWidth = (cellWidth * scale).rounded() / scale
+    let snappedHeight = ceil(cellHeight * scale) / scale
+    return CellDimension(width: max(1, snappedWidth), height: max(min(snappedHeight, 8192), 1))
 }
 ```
 
@@ -29,16 +37,18 @@ func computeFontDimensions() -> CellDimension {
 
 | Dimension | Calculation | Notes |
 |-----------|-------------|-------|
-| **Width** | `font.advancement(forGlyph: "W").width` | Uses "W" glyph specifically |
-| **Height** | `ceil(ascent + descent + leading)` | Includes all font metrics, rounded up |
+| **Width** | macOS: `advancement(forGlyph: "W").width`; iOS: `"W".size(withAttributes:).width` — then `(width * scale).rounded() / scale` | Snapped to the pixel grid with `.rounded()` |
+| **Height** | `ceil((ascent + descent + leading) * lineSpacing)`, then `ceil(height * scale) / scale` | `lineSpacing` defaults to 1.0; capped at 8192 |
 
-Both values are clamped to a minimum of 1 pixel.
+Both values are clamped to a minimum of 1, and the pixel-grid snap uses the view's backing scale factor.
+
+> **Version trap (width snap)**: SwiftTerm 1.15.0 snapped width with `ceil(cellWidth * scale) / scale`; **1.16.0 changed it to `(cellWidth * scale).rounded() / scale`**. `FontMetrics` must use the same formula as the pinned SwiftTerm version — if they disagree for the active font/scale, SwiftTerm derives a different column count than the host tmux pane and mirrored content misaligns. Re-check this snap on every SwiftTerm bump.
 
 ### ClaudeSpy Implementation
 
 Our `FontMetrics.calculateCellSize()` exactly mirrors this calculation:
 
-**File**: [`ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Utilities/FontMetrics.swift`](../ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Utilities/FontMetrics.swift)
+**File**: [`ClaudeSpyPackage/Sources/ClaudeSpyCommon/Utilities/FontMetrics.swift`](../ClaudeSpyPackage/Sources/ClaudeSpyCommon/Utilities/FontMetrics.swift)
 
 ## Terminal View Sizing
 
@@ -294,6 +304,6 @@ The window adds **110px vertical padding** for:
 
 ### ClaudeSpy Source Files
 
-- [FontMetrics.swift](../ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Utilities/FontMetrics.swift) - Cell size calculation
+- [FontMetrics.swift](../ClaudeSpyPackage/Sources/ClaudeSpyCommon/Utilities/FontMetrics.swift) - Cell size calculation
 - [TerminalContainerView.swift](../ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Views/TerminalContainerView.swift) - Terminal view wrapper
 - [MirrorWindowManager.swift](../ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift) - Window sizing logic
