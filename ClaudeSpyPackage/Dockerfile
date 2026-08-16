@@ -27,10 +27,11 @@ COPY Sources ./Sources
 # so `swift package resolve`/`swift build` can load the package graph (the real
 # Tests/ are rsync-excluded from the relay build — their sources aren't needed).
 # Derived from Package.swift rather than hardcoded, so adding a test target can't
-# silently break this build. Every test target name ends in "Tests" by convention
-# (product refs like "VaporTesting"/"DependenciesTestSupport" don't, so they're
-# correctly excluded).
-RUN grep -oE 'name: "[A-Za-z0-9_]+Tests"' Package.swift | grep -oE '[A-Za-z0-9_]+Tests' | sort -u | while read -r t; do \
+# silently break this build. We match the `name:` line following every
+# `.testTarget(` declaration (not a "*Tests" name convention — targets like
+# "StopFinalityEvaluations" don't follow it), so product refs like
+# "VaporTesting"/"DependenciesTestSupport" are correctly excluded.
+RUN grep -A1 -E '\.testTarget\(' Package.swift | grep -oE 'name: "[A-Za-z0-9_]+"' | grep -oE '"[A-Za-z0-9_]+"' | tr -d '"' | sort -u | while read -r t; do \
         mkdir -p "Tests/$t" && touch "Tests/$t/.gitkeep"; \
     done
 
