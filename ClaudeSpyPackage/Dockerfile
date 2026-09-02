@@ -18,6 +18,17 @@ RUN mkdir -p Sources/ClaudeSpyNetworking Sources/ClaudeSpyExternalServer && \
     echo '@main struct Main { static func main() {} }' > Sources/ClaudeSpyExternalServer/main.swift
 
 # Step 3: Resolve and fetch dependencies (CACHED unless Package.swift/resolved changes)
+#
+# Pin git to HTTP/1.1 first. This image (Ubuntu 22.04) ships git 2.34.1, whose
+# protocol-v2 `POST /git-upload-pack` over HTTP/2 is answered by GitHub with a
+# 401; git then falls back to prompting for credentials and every clone dies
+# with "could not read Username for 'https://github.com'". The initial
+# GET /info/refs succeeds, so this looks like a network/auth problem but isn't
+# — HTTP/1.1 (or protocol v0) fetches fine from the same container. GitHub
+# changed this server-side, so builds that worked previously started failing
+# with no change on our side. Drop this once the base image carries git >= 2.43.
+RUN git config --global http.version HTTP/1.1
+
 RUN swift package resolve
 
 # Step 4: Copy the actual source code (changes here only invalidate build, not dependency fetch)
