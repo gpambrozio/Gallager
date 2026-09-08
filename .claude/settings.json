@@ -40,5 +40,6 @@
         "repo": "anthropics/claude-plugins-official"
       }
     }
-  }
+  },
+  "autoMemoryDirectory": "~/agent-memory/Gallager"
 }
