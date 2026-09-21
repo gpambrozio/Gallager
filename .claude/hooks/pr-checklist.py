@@ -5,7 +5,7 @@ Claude Code runs this after every `Bash` tool call (the matcher in
 `.claude/settings.json` scopes it to Bash). When the command that just ran was a
 pull-request-creating command (`gh pr create`), the hook emits a
 `hookSpecificOutput.additionalContext` block so the agent works through the
-documentation / CLAUDE.md / CLI / e2e-scenario checklist before stopping.
+documentation / AGENTS.md / CLI / e2e-scenario checklist before stopping.
 
 The checklist text lives in the sibling `pr-checklist.md` so it can be edited
 without touching this script.

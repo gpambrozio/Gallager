@@ -98,7 +98,7 @@ Use XcodeBuildTools skills. Scheme: `ClaudeSpyServer` (macOS), `ClaudeSpy` (iOS)
 
 **Killing Mac app:** Use `osascript -e 'quit app "Gallager"'` — `pkill`/`killall` don't work reliably.
 
-**Opening a PR:** A `PostToolUse` hook (`.claude/hooks/pr-checklist.py`) fires on `gh pr create` and injects a checklist of post-PR chores (docs, CLAUDE.md, CLI/`gallager`-skill, e2e scenarios). Work through it before stopping. See `docs/repo-hooks.md`.
+**Opening a PR:** A `PostToolUse` hook (`.claude/hooks/pr-checklist.py`) fires on `gh pr create` and injects a checklist of post-PR chores (docs, AGENTS.md, CLI/`gallager`-skill, e2e scenarios). Work through it before stopping. See `docs/repo-hooks.md`.
 
 ## Reference Docs
 

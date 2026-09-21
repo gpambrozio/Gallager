@@ -37,7 +37,7 @@ name, same codebase.
 
 ## Code conventions
 
-The short version (full details in [CLAUDE.md](CLAUDE.md) and
+The short version (full details in [AGENTS.md](AGENTS.md) and
 [docs/swift-patterns.md](docs/swift-patterns.md)):
 
 - SwiftUI with native data flow (`@State`, `@Observable`, `@Environment`) — no

@@ -37,7 +37,7 @@
     /// through the PluginInstaller pipeline, hot-restarts idle sidecars, refreshes
     /// agent-side bridges, and exposes banner/notice state to the settings UI.
     /// Init-injected callbacks (not @DependencyClient): @Observable class with
-    /// many wired callbacks, per CLAUDE.md.
+    /// many wired callbacks, per AGENTS.md.
     @MainActor
     @Observable
     public final class PluginUpdateManager {
